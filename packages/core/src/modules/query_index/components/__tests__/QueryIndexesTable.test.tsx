@@ -65,6 +65,9 @@ const dict = {
   'query_index.table.filters.backendOptions.vector': 'Vector search',
   'query_index.table.filters.backendOptions.fulltext': 'Full-text search',
   'query_index.table.filters.backendOptions.customFields': 'Custom fields',
+  'query_index.table.status.scope.purging': 'Purging',
+  'query_index.table.status.purging': 'PurgingStatus',
+  'ui.dataTable.pagination.results': 'Showing {start} to {end} of {total} results',
 }
 
 const mockItems = [
@@ -347,5 +350,59 @@ describe('QueryIndexesTable', () => {
 
     // Vector coverage belongs in the Vector column only — the status cell used to repeat it.
     expect(container.innerHTML).not.toContain('Vector: ')
+  })
+
+  describe('scope-only jobs (non-partitioned reindex and every purge)', () => {
+    const scopeJob = (status: string, scopeStatus: string) => ({
+      entityId: 'scoped',
+      label: 'scoped',
+      baseCount: 12,
+      indexCount: 4,
+      vectorCount: null,
+      vectorEnabled: false,
+      fulltextCount: null,
+      fulltextEnabled: false,
+      ok: false,
+      queryIndexOk: false,
+      // The server derives top-level status from partition rows only, so a scope-only run
+      // arrives as `idle` with an active scope row.
+      job: { status, processedCount: 4, totalCount: 12, partitions: [], scope: { status: scopeStatus, processedCount: 4, totalCount: 12 } },
+    })
+
+    it('shows a scope-only reindex as in flight rather than idle', async () => {
+      ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [scopeJob('idle', 'reindexing')] })
+      renderWithProviders(<QueryIndexesTable />, { dict })
+      await waitFor(() => expect(screen.getByText('scoped')).toBeInTheDocument())
+
+      expect(screen.getByText(/ReindexingStatus \(4\/12\)/)).toBeInTheDocument()
+      expect(screen.getByText(/Scope: Running \(4\/12\)/)).toBeInTheDocument()
+      expect(screen.queryByText('OutOfSyncStatus')).not.toBeInTheDocument()
+    })
+
+    it('shows a scope-only purge as in flight', async () => {
+      ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [scopeJob('idle', 'purging')] })
+      renderWithProviders(<QueryIndexesTable />, { dict })
+      await waitFor(() => expect(screen.getByText('scoped')).toBeInTheDocument())
+
+      expect(screen.getByText(/PurgingStatus/)).toBeInTheDocument()
+      expect(screen.getByText(/Scope: Purging/)).toBeInTheDocument()
+    })
+
+    it('shows a stalled scope row as stalled', async () => {
+      ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [scopeJob('idle', 'stalled')] })
+      renderWithProviders(<QueryIndexesTable />, { dict })
+      await waitFor(() => expect(screen.getByText('scoped')).toBeInTheDocument())
+
+      expect(screen.getByText(/StalledStatus/)).toBeInTheDocument()
+    })
+
+    it('hides scope detail once the scope row has completed', async () => {
+      ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: [scopeJob('idle', 'completed')] })
+      renderWithProviders(<QueryIndexesTable />, { dict })
+      await waitFor(() => expect(screen.getByText('scoped')).toBeInTheDocument())
+
+      expect(screen.getByText('OutOfSyncStatus')).toBeInTheDocument()
+      expect(screen.queryByText(/Scope:/)).not.toBeInTheDocument()
+    })
   })
 })

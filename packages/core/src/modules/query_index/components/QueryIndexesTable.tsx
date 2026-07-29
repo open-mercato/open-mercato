@@ -53,23 +53,50 @@ type Row = {
   baseCount: number | null
   indexCount: number | null
   vectorCount: number | null
+  /** The entity is configured for vector search (declares `buildSource`). */
   vectorEnabled: boolean
-  vectorConfigured?: boolean
+  /** Vector indexing can actually run — provider reachable and auto-indexing on. */
+  vectorIndexingActive?: boolean
   fulltextCount: number | null
   fulltextEnabled: boolean
   hasCustomFields?: boolean
+  /** Legacy aggregate: query index AND vector coverage. Preserved for API consumers. */
   ok: boolean
+  /** Query index alone is in sync with the base table — the signal this page reports. */
+  queryIndexOk?: boolean
   job?: JobStatus
 }
 
 type Resp = { items: Row[] }
 
 const BACKEND_FILTER_ID = 'backend'
+// Kept at or below the repository-wide 100-row cap; the entity list grows with every
+// installed module, so it cannot be allowed to scale with the row count.
+const PAGE_SIZE = 50
+
+/** Sort key for a column id. Mirrors the column `accessorFn`s so paging and sorting agree. */
+function sortValue(row: Row, columnId: string): string | number {
+  if (columnId === 'entityId') return row.entityId
+  if (columnId === 'baseCount') return row.baseCount ?? 0
+  if (columnId === 'indexCount') return row.indexCount ?? 0
+  if (columnId === 'vectorCount') return isVectorReportable(row) ? row.vectorCount ?? 0 : -1
+  if (columnId === 'fulltextCount') return row.fulltextEnabled ? row.fulltextCount ?? 0 : -1
+  return row.entityId
+}
 
 type BackendFilter = 'vector' | 'fulltext' | 'custom_fields'
 
+/**
+ * Vector coverage is only worth showing when embeddings can actually be written; otherwise
+ * the count is a permanent 0 that reads as a gap. Older payloads without the flag are
+ * treated as active so the column keeps working against an un-upgraded server.
+ */
+function isVectorReportable(row: Row): boolean {
+  return row.vectorEnabled && (row.vectorIndexingActive ?? true)
+}
+
 function matchesBackendFilter(row: Row, backend: BackendFilter): boolean {
-  if (backend === 'vector') return Boolean(row.vectorConfigured ?? row.vectorEnabled)
+  if (backend === 'vector') return row.vectorEnabled
   if (backend === 'fulltext') return row.fulltextEnabled
   return Boolean(row.hasCustomFields)
 }
@@ -156,10 +183,10 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
     {
       id: 'vectorCount',
       header: () => t('query_index.table.columns.vector'),
-      accessorFn: (row) => (row.vectorEnabled ? row.vectorCount ?? 0 : -1),
+      accessorFn: (row) => (isVectorReportable(row) ? row.vectorCount ?? 0 : -1),
       cell: ({ row }) => {
         const record = row.original
-        if (!record.vectorEnabled) return <span>—</span>
+        if (!isVectorReportable(record)) return <span>—</span>
         const ok = record.vectorCount != null && record.baseCount != null && record.vectorCount === record.baseCount
         const display = formatCount(record.vectorCount)
         const className = ok ? 'text-status-success-text' : 'text-status-warning-text'
@@ -189,9 +216,27 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         const job = record.job
         const partitions = job?.partitions ?? []
         const measured = record.baseCount != null || record.indexCount != null
-        const ok = record.ok && (!job || job.status === 'idle')
-        const jobFailed = job?.status === 'failed'
-        const statusText = translateJobStatus(t, job?.status, ok, measured)
+
+        // A non-partitioned reindex — and every purge, which never partitions
+        // (`lib/purge.ts` always passes `partitionIndex: null`) — is tracked as a scope row.
+        // The server derives the top-level status from partition rows only, so it reports
+        // `idle` for those runs; without folding the scope row in, the default reindex and
+        // every purge would render as though nothing were happening.
+        const scopeStatus = job?.scope?.status ?? null
+        const scopeInFlight = scopeStatus != null && scopeStatus !== 'completed'
+        const effectiveStatus: JobStatus['status'] | undefined = job
+          ? (job.status !== 'idle'
+              ? job.status
+              : (scopeInFlight ? (scopeStatus as JobStatus['status']) : 'idle'))
+          : undefined
+
+        const indexOk = record.queryIndexOk ?? record.ok
+        const ok = indexOk && (!job || effectiveStatus === 'idle')
+        const jobFailed = effectiveStatus === 'failed'
+        const statusText = translateJobStatus(t, effectiveStatus, ok, measured)
+
+        const jobInFlight = Boolean(effectiveStatus && effectiveStatus !== 'idle')
+          || partitions.some((part) => part.status !== 'completed')
 
         // Job counters and index coverage are different numbers: the counters describe the
         // last reindex run, the Records/Indexed columns describe the index right now. While
@@ -199,9 +244,6 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         // idle the counters are stale and duplicate the columns — worse, they can contradict
         // them: an entity whose last run processed 14 rows but landed 2 in the index rendered
         // "Out of sync (14/14)" next to Records 14 / Indexed 2.
-        const jobInFlight = Boolean(job && job.status !== 'idle')
-          || partitions.some((part) => part.status !== 'completed')
-
         const jobProgress = jobInFlight && job
           ? formatProgressLabel(job.processedCount ?? null, job.totalCount ?? null, t)
           : null
@@ -210,8 +252,8 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
           : statusText
         let variant: StatusBadgeVariant = 'neutral'
         if (job) {
-          if (job.status === 'stalled' || jobFailed) variant = 'error'
-          else if (job.status === 'reindexing' || job.status === 'purging') variant = 'warning'
+          if (effectiveStatus === 'stalled' || jobFailed) variant = 'error'
+          else if (effectiveStatus === 'reindexing' || effectiveStatus === 'purging') variant = 'warning'
           else variant = ok ? 'success' : 'neutral'
         } else {
           variant = ok ? 'success' : 'neutral'
@@ -224,10 +266,10 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         // partition is finished, each line just restates the badge, on every row.
         if (jobInFlight) {
           if (job?.scope && partitions.length <= 1) {
-            const scopeStatus = translateScopeStatus(t, job.scope.status ?? null)
+            const scopeStatusText = translateScopeStatus(t, scopeStatus)
             const scopeProgress = formatProgressLabel(job.scope.processedCount ?? null, job.scope.totalCount ?? null, t)
             const scopeLabel = t('query_index.table.status.scopeLabel')
-            lines.push(`${scopeLabel}: ${scopeStatus}${scopeProgress ? ` (${scopeProgress})` : ''}`)
+            lines.push(`${scopeLabel}: ${scopeStatusText}${scopeProgress ? ` (${scopeProgress})` : ''}`)
           }
 
           if (partitions.length > 1) {
@@ -268,6 +310,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
 export default function QueryIndexesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
   const [search, setSearch] = React.useState('')
+  const [page, setPage] = React.useState(1)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const qc = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
@@ -312,7 +355,7 @@ export default function QueryIndexesTable() {
   })
 
   const rowsAll = data?.items || []
-  const rows = React.useMemo(() => {
+  const matchedRows = React.useMemo(() => {
     const backend = filterValues[BACKEND_FILTER_ID] as BackendFilter | undefined
     const q = search.trim().toLowerCase()
     if (!q && !backend) return rowsAll
@@ -323,16 +366,38 @@ export default function QueryIndexesTable() {
     })
   }, [rowsAll, search, filterValues])
 
-  // The status payload is not paged and the table sorts client-side, so slicing here would
-  // sort only the visible page. Report the true row count instead of the hard-coded single
-  // page of 50, which under-reported as soon as the entity list stopped being CF-gated.
+  // The endpoint returns every entity in one payload, so paging is ours to do. Sorting has
+  // to happen here rather than in the table: slicing first would let DataTable sort only the
+  // visible page, so page 2 would not hold the rows that sort into it.
+  const sortedRows = React.useMemo(() => {
+    const sort = sorting[0]
+    if (!sort) return matchedRows
+    const direction = sort.desc ? -1 : 1
+    return [...matchedRows].sort((a, b) => {
+      const left = sortValue(a, sort.id)
+      const right = sortValue(b, sort.id)
+      if (typeof left === 'string' || typeof right === 'string') {
+        return String(left).localeCompare(String(right)) * direction
+      }
+      return (Number(left) - Number(right)) * direction
+    })
+  }, [matchedRows, sorting])
+
+  const total = sortedRows.length
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const rows = React.useMemo(
+    () => sortedRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [sortedRows, currentPage],
+  )
+
   const pagination = React.useMemo(() => ({
-    page: 1,
-    pageSize: Math.max(1, rows.length),
-    total: rows.length,
-    totalPages: 1,
-    onPageChange: () => {},
-  }), [rows.length])
+    page: currentPage,
+    pageSize: PAGE_SIZE,
+    total,
+    totalPages,
+    onPageChange: setPage,
+  }), [currentPage, total, totalPages])
 
   const trigger = React.useCallback(
     async (action: 'reindex' | 'purge', entityId: string, opts?: { force?: boolean }) => {
@@ -479,18 +544,25 @@ export default function QueryIndexesTable() {
         searchPlaceholder={t('query_index.table.searchPlaceholder')}
         onSearchChange={(value) => {
           setSearch(value)
+          setPage(1)
         }}
         filters={filters}
         filterValues={filterValues}
         onFiltersApply={(values) => {
           setFilterValues(values)
+          setPage(1)
         }}
         onFiltersClear={() => {
           setFilterValues({})
+          setPage(1)
         }}
         sortable
+        manualSorting
         sorting={sorting}
-        onSortingChange={setSorting}
+        onSortingChange={(next) => {
+          setSorting(next)
+          setPage(1)
+        }}
         perspective={{ tableId: 'query_index.status.list' }}
         rowActions={(row) => {
           const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = [
@@ -509,8 +581,8 @@ export default function QueryIndexesTable() {
           ]
 
           // Manual vector actions stay available whenever the entity declares `buildSource`,
-          // even when auto-indexing is off — `vectorEnabled` only governs coverage reporting.
-          if (row.vectorConfigured ?? row.vectorEnabled) {
+          // even when auto-indexing is off — a manual reindex is still a valid operation.
+          if (row.vectorEnabled) {
             items.push(
               {
                 id: 'vector-reindex',

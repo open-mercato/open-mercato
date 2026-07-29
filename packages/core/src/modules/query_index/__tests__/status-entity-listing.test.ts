@@ -210,7 +210,7 @@ describe('query_index status route — entity listing and coverage semantics', (
     expect(byId.get(SEARCH_ENTITY)?.hasCustomFields).toBe(false)
   })
 
-  it('keeps the sync badge green when the query index matches the base table and vector is empty', async () => {
+  it('reports queryIndexOk when the query index matches the base table and vector is empty', async () => {
     mockCreateRequestContainer.mockResolvedValue(makeContainer({ vectorAvailable: true }))
     const res = await GET(makeRequest())
     const items = await readItems(res)
@@ -218,41 +218,58 @@ describe('query_index status route — entity listing and coverage semantics', (
     expect(row?.baseCount).toBe(44)
     expect(row?.indexCount).toBe(44)
     expect(row?.vectorCount).toBe(0)
-    expect(row?.ok).toBe(true)
+    // The narrow signal the status page renders.
+    expect(row?.queryIndexOk).toBe(true)
   })
 
-  it('does not report vector coverage when no embedding provider is reachable', async () => {
+  it('preserves the published aggregate meaning of `ok` (index AND vector coverage)', async () => {
+    mockCreateRequestContainer.mockResolvedValue(makeContainer({ vectorAvailable: true }))
+    const res = await GET(makeRequest())
+    const items = await readItems(res)
+    const byId = new Map(items.map((item) => [item.entityId, item]))
+    // Vector-configured with 0 of 44 embedded: the legacy aggregate stays false so existing
+    // API consumers keep detecting vector drift.
+    expect(byId.get(SEARCH_ENTITY)?.ok).toBe(false)
+    // Not vector-configured: `ok` still tracks the query index alone.
+    expect(byId.get(CF_ENTITY)?.ok).toBe(true)
+    expect(byId.get(CF_ENTITY)?.queryIndexOk).toBe(true)
+  })
+
+  it('marks vector indexing inactive when no embedding provider is reachable', async () => {
     mockCreateRequestContainer.mockResolvedValue(makeContainer({ vectorAvailable: false }))
     const res = await GET(makeRequest())
     const row = (await readItems(res)).find((item) => item.entityId === SEARCH_ENTITY)
-    expect(row?.vectorConfigured).toBe(true)
-    expect(row?.vectorEnabled).toBe(false)
-    expect(row?.vectorCount).toBeNull()
+    // `vectorEnabled` keeps its published meaning: the entity declares buildSource.
+    expect(row?.vectorEnabled).toBe(true)
+    expect(row?.vectorIndexingActive).toBe(false)
+    // The raw count stays on the wire; the UI decides not to render it.
+    expect(row?.vectorCount).toBe(0)
   })
 
-  it('does not report vector coverage when auto-indexing is disabled instance-wide', async () => {
+  it('marks vector indexing inactive when auto-indexing is disabled instance-wide', async () => {
     process.env.OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING = 'true'
     mockCreateRequestContainer.mockResolvedValue(makeContainer({ vectorAvailable: true }))
     const res = await GET(makeRequest())
     const row = (await readItems(res)).find((item) => item.entityId === SEARCH_ENTITY)
-    expect(row?.vectorConfigured).toBe(true)
-    expect(row?.vectorEnabled).toBe(false)
+    expect(row?.vectorEnabled).toBe(true)
+    expect(row?.vectorIndexingActive).toBe(false)
   })
 
-  it('does not report vector coverage when the tenant switched auto-indexing off', async () => {
+  it('marks vector indexing inactive when the tenant switched auto-indexing off', async () => {
     mockCreateRequestContainer.mockResolvedValue(
       makeContainer({ vectorAvailable: true, tenantAutoIndexEnabled: false }),
     )
     const res = await GET(makeRequest())
     const row = (await readItems(res)).find((item) => item.entityId === SEARCH_ENTITY)
-    expect(row?.vectorEnabled).toBe(false)
+    expect(row?.vectorIndexingActive).toBe(false)
   })
 
-  it('reports vector coverage when the provider is reachable and auto-indexing is on', async () => {
+  it('marks vector indexing active when the provider is reachable and auto-indexing is on', async () => {
     mockCreateRequestContainer.mockResolvedValue(makeContainer({ vectorAvailable: true }))
     const res = await GET(makeRequest())
     const row = (await readItems(res)).find((item) => item.entityId === SEARCH_ENTITY)
     expect(row?.vectorEnabled).toBe(true)
+    expect(row?.vectorIndexingActive).toBe(true)
     expect(row?.vectorCount).toBe(0)
   })
 

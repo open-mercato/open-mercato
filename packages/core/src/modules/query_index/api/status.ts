@@ -146,10 +146,9 @@ export async function GET(req: Request) {
   ) as FullTextSearchStrategy) ?? null
 
   // Vector coverage is only a meaningful signal when embeddings can actually be written:
-  // the entity declares `buildSource`, the instance has not switched auto-indexing off,
-  // an embedding provider is reachable, and the tenant has not opted out. Reporting a
-  // permanent `0 / n` gap on installs with no embedding provider trains operators to
-  // ignore this page, so fold all four signals into `vectorEnabled`.
+  // the instance has not switched auto-indexing off, an embedding provider is reachable,
+  // and the tenant has not opted out. Reporting a permanent `0 / n` gap on installs with
+  // no embedding provider trains operators to ignore this page.
   const vectorRuntimeEnabled = await (async () => {
     if (vectorConfiguredEntities.size === 0) return false
     if (envDisablesAutoIndexing()) return false
@@ -453,27 +452,43 @@ export async function GET(req: Request) {
     const label = (byId.get(eid)?.label) || eid
     const baseCountNumber = normalizeCount(coverage?.baseCount)
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
-    const vectorConfigured = vectorConfiguredEntities.has(eid)
-    const vectorEnabled = vectorConfigured && vectorRuntimeEnabled
-    const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
+    // `vectorEnabled` and `vectorCount` keep their published meaning — "the entity declares
+    // buildSource" and its raw coverage — so existing consumers see no change. Whether vector
+    // indexing can actually run ships additively as `vectorIndexingActive`.
+    const vectorEnabled = vectorConfiguredEntities.has(eid)
+    const vectorCountNumber = vectorEnabled
+      ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count)
+      : null
     const fulltextEnabled = fulltextEnabledEntities.has(eid)
     const fulltextCountNumber = fulltextEnabled ? (fulltextEntityCounts?.[eid] ?? 0) : null
-    // `ok` answers one question: is the query index in sync with the base table? Vector and
-    // fulltext coverage have their own columns and must not turn this badge red — an entity
-    // with base == indexed was being reported "Out of sync" purely because vector was 0.
-    const ok = baseCountNumber != null && indexCountNumber != null && baseCountNumber === indexCountNumber
+
+    // `ok` keeps its published aggregate meaning (query index AND configured vector coverage)
+    // so consumers using it as a health signal are unaffected. The narrower signal this page
+    // needs — is the query index in sync with the base table — ships additively as
+    // `queryIndexOk`. Folding vector into the badge is what made every vector-capable entity
+    // read "Out of sync" while base == indexed.
+    const ok = (() => {
+      if (baseCountNumber == null || indexCountNumber == null) return false
+      if (baseCountNumber !== indexCountNumber) return false
+      if (!vectorEnabled) return true
+      return vectorCountNumber != null && vectorCountNumber === baseCountNumber
+    })()
+    const queryIndexOk = baseCountNumber != null
+      && indexCountNumber != null
+      && baseCountNumber === indexCountNumber
     items.push({
       entityId: eid,
       label,
       baseCount: baseCountNumber,
       indexCount: indexCountNumber,
-      vectorCount: vectorEnabled ? vectorCountNumber : null,
+      vectorCount: vectorCountNumber,
       vectorEnabled,
-      vectorConfigured,
+      vectorIndexingActive: vectorEnabled && vectorRuntimeEnabled,
       fulltextCount: fulltextCountNumber,
       fulltextEnabled,
       hasCustomFields: customFieldEntities.has(eid),
       ok,
+      queryIndexOk,
       job,
       refreshedAt: refreshedAt ?? null,
     })
