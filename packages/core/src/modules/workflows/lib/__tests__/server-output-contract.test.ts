@@ -48,8 +48,11 @@ describe('resolveServerOutputContract', () => {
       })
       expect(contract).toEqual({
         entries: [
-          { path: 'dealId', type: 'text' },
-          { path: 'amount', type: 'number' },
+          { path: 'executed', type: 'boolean' },
+          { path: 'commandId', type: 'text' },
+          { path: 'logEntryId', type: 'text' },
+          { path: 'result.dealId', type: 'text' },
+          { path: 'result.amount', type: 'number' },
         ],
       })
     } finally {
@@ -69,7 +72,7 @@ describe('resolveServerOutputContract', () => {
     expect(serverContractModule.resolveServerOutputContract('NOT_A_TYPE', {})).toBe('unknown')
   })
 
-  test("degrades to 'unknown' when the command outputSchema root is not an object", () => {
+  test('types a scalar command output as the envelope result key', () => {
     const { serverContractModule, commandRegistryModule } = loadIsolated()
     commandRegistryModule.commandRegistry.register({
       id: 'workflows.test.scalar_output',
@@ -82,7 +85,14 @@ describe('resolveServerOutputContract', () => {
           commandId: 'workflows.test.scalar_output',
           input: {},
         }),
-      ).toBe('unknown')
+      ).toEqual({
+        entries: [
+          { path: 'executed', type: 'boolean' },
+          { path: 'commandId', type: 'text' },
+          { path: 'logEntryId', type: 'text' },
+          { path: 'result', type: 'text' },
+        ],
+      })
     } finally {
       commandRegistryModule.commandRegistry.clear()
     }
@@ -123,8 +133,11 @@ describe('resolveServerOutputContract', () => {
       })
       const endEntries = ledger.steps.end.entries
       expect(endEntries).toEqual([
-        expect.objectContaining({ path: 'update_deal_result.amount', type: 'number', presence: 'always' }),
-        expect.objectContaining({ path: 'update_deal_result.dealId', type: 'text', presence: 'always' }),
+        expect.objectContaining({ path: 'update_deal_result.commandId', type: 'text', presence: 'always' }),
+        expect.objectContaining({ path: 'update_deal_result.executed', type: 'boolean', presence: 'always' }),
+        expect.objectContaining({ path: 'update_deal_result.logEntryId', type: 'text', presence: 'always' }),
+        expect.objectContaining({ path: 'update_deal_result.result.amount', type: 'number', presence: 'always' }),
+        expect.objectContaining({ path: 'update_deal_result.result.dealId', type: 'text', presence: 'always' }),
       ])
       expect(ledger.steps.auto.entries).toEqual([])
     } finally {

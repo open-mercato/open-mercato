@@ -210,12 +210,12 @@ describe('GET /api/workflows/definitions/[id]/context-schema', () => {
     expect(leftOnlyAtJoin).toMatchObject({ presence: 'maybe', source: { kind: 'setVariable' } })
 
     const endEntries = payload.steps.end.entries
-    expect(endEntries.find((entry) => entry.path === 'update_deal_result.dealId')).toMatchObject({
+    expect(endEntries.find((entry) => entry.path === 'update_deal_result.result.dealId')).toMatchObject({
       type: 'text',
       presence: 'always',
       source: { kind: 'asyncResult', activityId: 'update_deal' },
     })
-    expect(endEntries.find((entry) => entry.path === 'update_deal_result.amount')).toMatchObject({
+    expect(endEntries.find((entry) => entry.path === 'update_deal_result.result.amount')).toMatchObject({
       type: 'number',
       presence: 'always',
     })

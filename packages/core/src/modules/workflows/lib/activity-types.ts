@@ -78,16 +78,37 @@ const loadExecutor = async (): Promise<ActivityExecutorBinding> => {
 }
 
 /**
+ * UPDATE_ENTITY does NOT put the command's return value into context — it puts
+ * `executeUpdateEntity`'s envelope there (`{ executed, commandId, result,
+ * logEntryId }`, activity-executor.ts), and the command's own output sits under
+ * `result`. Both merge paths carry that envelope verbatim: the sync transition
+ * route namespaces it under `activityName || activityType`, the async route
+ * under `${activityId}_result`. So the contract has to be the envelope, exactly
+ * as INVOKE_AGENT's is — a contract naming the command's bare keys advertises
+ * `<activity>.dealId` for a context that only ever holds
+ * `<activity>.result.dealId`.
+ */
+const updateEntityEnvelopeShape = {
+  executed: z.boolean(),
+  commandId: z.string(),
+  logEntryId: z.string(),
+}
+
+/**
  * Resolves UPDATE_ENTITY's output contract from the command registry (import
  * is UI-safe: `commands/registry` pulls in only the logger, no ORM). The
  * lookup is sync over already-registered handlers; a missing or not-yet-loaded
- * handler — or one without an `outputSchema` — degrades honestly to 'unknown'.
+ * handler — or one without an `outputSchema` — degrades honestly to 'unknown',
+ * which prefix-resolves every ref under the activity key and so stays exactly
+ * as permissive as it was before the envelope was modelled.
  */
 const resolveCommandOutputContract = (config: unknown): ZodTypeAny | 'unknown' => {
   if (typeof config !== 'object' || config === null) return 'unknown'
   const commandId = (config as Record<string, unknown>).commandId
   if (typeof commandId !== 'string' || commandId.length === 0) return 'unknown'
-  return commandRegistry.outputSchemaOf(commandId) ?? 'unknown'
+  const outputSchema = commandRegistry.outputSchemaOf(commandId)
+  if (!outputSchema) return 'unknown'
+  return z.object({ ...updateEntityEnvelopeShape, result: outputSchema })
 }
 
 /**
