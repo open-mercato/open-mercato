@@ -1,0 +1,140 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`renderThemeCss emits a stable theme for the achromaticGray primary 1`] = `
+"/* theme.css — YOUR brand overrides. This file is yours: framework upgrades
+ * never touch it. It MUST stay imported after globals.css (source order is
+ * what makes these overrides win). Regenerate with:
+ *   yarn mercato theme init --primary "<hex>" --force
+ * Safe tokens: --primary, --primary-hover, --primary-foreground,
+ * --brand-lime, --brand-violet(-foreground), --radius, --font-geist-sans/mono.
+ * Never override --status-*, --accent-indigo, --z-index-*, --shadow-focus.
+ * Full contract: https://docs.open-mercato.dev/customization/brand-your-app */
+
+:root {
+  --primary: #555555;
+  --primary-hover: #454545;
+  --primary-foreground: #ffffff;
+}
+
+/* Dark mode — derived defaults (dark primary is a lighter tint of your brand
+ * color, mirroring the framework theme). Tune these by hand if the derived
+ * hue drifts off-brand. */
+.dark {
+  --primary: #8f8f8f;
+  --primary-hover: #7d7d7d;
+  --primary-foreground: #0a0a0a;
+}
+"
+`;
+
+exports[`renderThemeCss emits a stable theme for the darkBrand primary 1`] = `
+"/* theme.css — YOUR brand overrides. This file is yours: framework upgrades
+ * never touch it. It MUST stay imported after globals.css (source order is
+ * what makes these overrides win). Regenerate with:
+ *   yarn mercato theme init --primary "<hex>" --force
+ * Safe tokens: --primary, --primary-hover, --primary-foreground,
+ * --brand-lime, --brand-violet(-foreground), --radius, --font-geist-sans/mono.
+ * Never override --status-*, --accent-indigo, --z-index-*, --shadow-focus.
+ * Full contract: https://docs.open-mercato.dev/customization/brand-your-app */
+
+:root {
+  --primary: #0C71C6;
+  --primary-hover: #005fab;
+  --primary-foreground: #ffffff;
+}
+
+/* Dark mode — derived defaults (dark primary is a lighter tint of your brand
+ * color, mirroring the framework theme). Tune these by hand if the derived
+ * hue drifts off-brand. */
+.dark {
+  --primary: #3a92ea;
+  --primary-hover: #247fd6;
+  --primary-foreground: #0a0a0a;
+}
+"
+`;
+
+exports[`renderThemeCss emits a stable theme for the lightPastel primary 1`] = `
+"/* theme.css — YOUR brand overrides. This file is yours: framework upgrades
+ * never touch it. It MUST stay imported after globals.css (source order is
+ * what makes these overrides win). Regenerate with:
+ *   yarn mercato theme init --primary "<hex>" --force
+ * Safe tokens: --primary, --primary-hover, --primary-foreground,
+ * --brand-lime, --brand-violet(-foreground), --radius, --font-geist-sans/mono.
+ * Never override --status-*, --accent-indigo, --z-index-*, --shadow-focus.
+ * Full contract: https://docs.open-mercato.dev/customization/brand-your-app */
+
+:root {
+  --primary: #8FC1E9;
+  --primary-hover: #7daed5;
+  --primary-foreground: #0a0a0a;
+}
+
+/* Dark mode — derived defaults (dark primary is a lighter tint of your brand
+ * color, mirroring the framework theme). Tune these by hand if the derived
+ * hue drifts off-brand. */
+.dark {
+  --primary: #8fc1e9;
+  --primary-hover: #7daed5;
+  --primary-foreground: #0a0a0a;
+}
+"
+`;
+
+exports[`renderThemeCss emits a stable theme for the midValley primary 1`] = `
+"/* theme.css — YOUR brand overrides. This file is yours: framework upgrades
+ * never touch it. It MUST stay imported after globals.css (source order is
+ * what makes these overrides win). Regenerate with:
+ *   yarn mercato theme init --primary "<hex>" --force
+ * Safe tokens: --primary, --primary-hover, --primary-foreground,
+ * --brand-lime, --brand-violet(-foreground), --radius, --font-geist-sans/mono.
+ * Never override --status-*, --accent-indigo, --z-index-*, --shadow-focus.
+ * Full contract: https://docs.open-mercato.dev/customization/brand-your-app */
+
+:root {
+  --primary: #767676;
+  --primary-hover: #656565;
+  --primary-foreground: #ffffff;
+}
+
+/* Dark mode — derived defaults (dark primary is a lighter tint of your brand
+ * color, mirroring the framework theme). Tune these by hand if the derived
+ * hue drifts off-brand. */
+.dark {
+  --primary: #8f8f8f;
+  --primary-hover: #7d7d7d;
+  --primary-foreground: #0a0a0a;
+}
+"
+`;
+
+exports[`renderThemeCss emits radius and font overrides with the system fallback stack 1`] = `
+"/* theme.css — YOUR brand overrides. This file is yours: framework upgrades
+ * never touch it. It MUST stay imported after globals.css (source order is
+ * what makes these overrides win). Regenerate with:
+ *   yarn mercato theme init --primary "<hex>" --force
+ * Safe tokens: --primary, --primary-hover, --primary-foreground,
+ * --brand-lime, --brand-violet(-foreground), --radius, --font-geist-sans/mono.
+ * Never override --status-*, --accent-indigo, --z-index-*, --shadow-focus.
+ * Full contract: https://docs.open-mercato.dev/customization/brand-your-app */
+
+:root {
+  --primary: #0C71C6;
+  --primary-hover: #005fab;
+  --primary-foreground: #ffffff;
+  --radius: 8px;
+  /* Token override only — remember to actually load the font
+   * (next/font in layout.tsx, or @font-face here). */
+  --font-geist-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Dark mode — derived defaults (dark primary is a lighter tint of your brand
+ * color, mirroring the framework theme). Tune these by hand if the derived
+ * hue drifts off-brand. */
+.dark {
+  --primary: #3a92ea;
+  --primary-hover: #247fd6;
+  --primary-foreground: #0a0a0a;
+}
+"
+`;

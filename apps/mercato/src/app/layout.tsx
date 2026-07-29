@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import './theme.css'
 import '@/lib/i18n/register-dictionary-loader'
 import { AppProviders } from '@/components/AppProviders'
 
