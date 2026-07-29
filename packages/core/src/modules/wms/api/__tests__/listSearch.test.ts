@@ -1,3 +1,4 @@
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { buildInventoryListSearchOrFilters, buildReservationSearchOrFilters } from '../listSearch'
 
 function createCtx(queryImpl: jest.Mock) {
@@ -24,7 +25,7 @@ describe('buildReservationSearchOrFilters', () => {
     const orFilters = await buildReservationSearchOrFilters(
       createCtx(query),
       'Midnight',
-      (value) => value.replace(/%/g, '\\%'),
+      escapeLikePattern,
     )
 
     expect(orFilters).toEqual([
