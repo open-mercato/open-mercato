@@ -78,6 +78,43 @@ jest.mock('@open-mercato/ui/primitives/separator', () => ({
   Separator: () => <hr />,
 }))
 
+/**
+ * The reassign dialog is a real Radix modal; rendering it headlessly here keeps
+ * the assertions about WHAT the page offers and to which endpoint, not about
+ * portal mechanics. Its own keyboard contract (Cmd/Ctrl+Enter submit, Escape
+ * cancel) is asserted separately in `reassignTaskDialog.test.tsx`.
+ */
+jest.mock('@open-mercato/ui/primitives/dialog', () => ({
+  Dialog: ({ open, children }: { open?: boolean; children?: React.ReactNode }) =>
+    open ? <div data-testid="dialog">{children}</div> : null,
+  DialogContent: ({ children, ...rest }: { children?: React.ReactNode }) => (
+    <div {...rest}>{children}</div>
+  ),
+  DialogHeader: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  DialogFooter: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  DialogTitle: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
+  DialogDescription: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
+}))
+
+jest.mock('@open-mercato/ui/primitives/input', () => ({
+  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+}))
+
+jest.mock('@open-mercato/ui/primitives/label', () => ({
+  Label: ({ children, ...rest }: React.LabelHTMLAttributes<HTMLLabelElement>) => (
+    <label {...rest}>{children}</label>
+  ),
+}))
+
+jest.mock('@open-mercato/ui/primitives/textarea', () => ({
+  Textarea: (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...props} />,
+}))
+
+jest.mock('@open-mercato/ui/primitives/kbd', () => ({
+  Kbd: ({ children }: { children?: React.ReactNode }) => <kbd>{children}</kbd>,
+  KbdShortcut: ({ keys }: { keys: string[] }) => <kbd>{keys.join('+')}</kbd>,
+}))
+
 jest.mock('@open-mercato/ui/hooks/useIsMobile', () => ({
   useIsMobile: () => false,
 }))
@@ -104,8 +141,13 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   }),
 }))
 
+const scopedHeadersSpy = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
+  withScopedApiRequestHeaders: async (headers: unknown, run: () => Promise<unknown>) => {
+    scopedHeadersSpy(headers)
+    return run()
+  },
 }))
 
 jest.mock('@tanstack/react-query', () => {
@@ -373,5 +415,267 @@ describe('the record context column', () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByText('workflows.tasks.detail.records.empty')).toBeTruthy())
+  })
+})
+
+/**
+ * Every affordance is gated by what the SERVER said (§6.4).
+ *
+ * The bug these cover: `workflows.tasks.view_all` makes a colleague's task
+ * READABLE and never actable, so the page used to render a Complete button that
+ * answered 409 on every click, with no reassign control to reach the documented
+ * remedy. The payloads below differ from the old client-side derivation on
+ * purpose — a page that still derives from `status` fails every one of them.
+ */
+describe('act surfaces come from the server', () => {
+  test('an open task the caller may not complete offers no complete button', async () => {
+    mockTask(
+      baseTask({
+        status: 'IN_PROGRESS',
+        assignedTo: 'someone-else',
+        claimedBy: 'someone-else',
+        canComplete: false,
+        canClaim: false,
+        canRelease: false,
+        canReassign: true,
+        actBlockedReason: 'owned-by-another',
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.queryByTestId('task-complete')).toBeNull()
+    expect(screen.queryByTestId('task-decisions')).toBeNull()
+  })
+
+  test('states WHY, and names reassignment as the remedy', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        assignedTo: null,
+        claimedBy: null,
+        assignedToRoles: null,
+        canComplete: false,
+        canReassign: true,
+        actBlockedReason: 'unowned',
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.getByText(/workflows\.tasks\.detail\.blocked\.unowned/)).toBeTruthy()
+    expect(screen.getByText(/workflows\.tasks\.detail\.blocked\.reassignRemedy/)).toBeTruthy()
+    expect(screen.getByTestId('task-reassign')).toBeTruthy()
+  })
+
+  test('a caller who cannot reassign is told who can, and gets no dead button', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        assignedTo: 'someone-else',
+        canComplete: false,
+        canReassign: false,
+        actBlockedReason: 'owned-by-another',
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.getByText(/workflows\.tasks\.detail\.blocked\.reassignUnavailable/)).toBeTruthy()
+    expect(screen.queryByTestId('task-reassign')).toBeNull()
+  })
+
+  /**
+   * The entity-gate refusal is answered as a bare 404 by every act route, so the
+   * page must be equally mute: no binding, no entity type, no `denied:` code.
+   */
+  test('the non-diagnostic refusal stays non-diagnostic', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        entityBindings: [{ entityType: 'sales:sales_order', entityId: 'order-1' }],
+        canComplete: false,
+        canReassign: false,
+        actBlockedReason: 'unavailable',
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    const notice = screen.getByTestId('task-act-blocked')
+    expect(notice.textContent).toContain('workflows.tasks.detail.blocked.unavailable')
+    expect(notice.textContent).not.toContain('denied:')
+    expect(notice.textContent).not.toContain('sales:sales_order')
+    expect(screen.queryByTestId('task-reassign')).toBeNull()
+  })
+
+  test('claim is withheld when the server says so, however claimable the row looks', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        assignedTo: null,
+        claimedBy: null,
+        assignedToRoles: ['approver'],
+        canComplete: false,
+        canClaim: false,
+        canReassign: false,
+        actBlockedReason: 'not-in-your-queue',
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.queryByTestId('task-claim')).toBeNull()
+  })
+
+  test('release is offered only when the server says the caller holds the claim', async () => {
+    mockTask(
+      baseTask({ status: 'IN_PROGRESS', claimedBy: 'user-1', canComplete: true, canRelease: true }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-release')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('task-release'))
+
+    await waitFor(() =>
+      expect(
+        apiCallMock.mock.calls.some(
+          ([url, init]) =>
+            String(url) === `/api/workflows/tasks/${TASK_ID}/unclaim` &&
+            (init as { method?: string } | undefined)?.method === 'POST',
+        ),
+      ).toBe(true),
+    )
+    expect(runMutationSpy).toHaveBeenCalled()
+  })
+
+  test('no release button when the claim is somebody else', async () => {
+    mockTask(
+      baseTask({
+        status: 'IN_PROGRESS',
+        claimedBy: 'someone-else',
+        canComplete: false,
+        canRelease: false,
+        canReassign: false,
+        actBlockedReason: 'owned-by-another',
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-act-blocked')).toBeTruthy())
+    expect(screen.queryByTestId('task-release')).toBeNull()
+  })
+
+  /**
+   * Additive-compatibility: a payload written before the fields existed keeps
+   * the pre-change behaviour exactly. (The pre-existing suites above run against
+   * exactly such payloads, which is the rest of this guarantee.)
+   */
+  test('a payload carrying none of the fields behaves as it always did', async () => {
+    mockTask(baseTask({ status: 'IN_PROGRESS' }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
+    expect(screen.queryByTestId('task-act-blocked')).toBeNull()
+    expect(screen.queryByTestId('task-reassign')).toBeNull()
+    expect(screen.queryByTestId('task-release')).toBeNull()
+  })
+})
+
+describe('reassignment', () => {
+  const reassignable = {
+    status: 'PENDING' as const,
+    assignedTo: 'someone-else',
+    canComplete: false,
+    canReassign: true,
+    actBlockedReason: 'owned-by-another' as const,
+  }
+
+  test('opens the dialog and posts the target to the reassign endpoint', async () => {
+    mockTask(baseTask(reassignable))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-reassign')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('task-reassign'))
+
+    await waitFor(() => expect(screen.getByTestId('task-reassign-assignee')).toBeTruthy())
+    fireEvent.change(screen.getByTestId('task-reassign-assignee'), {
+      target: { value: 'user-7' },
+    })
+    fireEvent.change(screen.getByTestId('task-reassign-reason'), {
+      target: { value: 'taking it over' },
+    })
+    fireEvent.click(screen.getByTestId('task-reassign-submit'))
+
+    await waitFor(() => {
+      const call = apiCallMock.mock.calls.find(([url]) =>
+        String(url).endsWith(`/api/workflows/tasks/${TASK_ID}/reassign`),
+      )
+      expect(call).toBeTruthy()
+      expect((call?.[1] as { method?: string })?.method).toBe('POST')
+      const body = JSON.parse(String((call?.[1] as { body?: string })?.body))
+      expect(body).toEqual({
+        assignedTo: 'user-7',
+        assignedToRoles: null,
+        reason: 'taking it over',
+      })
+    })
+    expect(runMutationSpy).toHaveBeenCalled()
+  })
+
+  test('sends the row optimistic-lock version, so two administrators racing get a 409', async () => {
+    mockTask(baseTask(reassignable))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-reassign')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('task-reassign'))
+    await waitFor(() => expect(screen.getByTestId('task-reassign-assignee')).toBeTruthy())
+    fireEvent.change(screen.getByTestId('task-reassign-assignee'), { target: { value: 'user-7' } })
+    fireEvent.click(screen.getByTestId('task-reassign-submit'))
+
+    await waitFor(() =>
+      expect(scopedHeadersSpy).toHaveBeenCalledWith({
+        'x-om-ext-optimistic-lock-expected-updated-at': '2026-07-01T10:00:00.000Z',
+      }),
+    )
+  })
+
+  test('splits a role queue and refuses a body naming no target at all', async () => {
+    mockTask(baseTask(reassignable))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-reassign')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('task-reassign'))
+    await waitFor(() => expect(screen.getByTestId('task-reassign-submit')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('task-reassign-submit'))
+    await waitFor(() => expect(screen.getByTestId('task-reassign-target-required')).toBeTruthy())
+    expect(
+      apiCallMock.mock.calls.some(([url]) => String(url).endsWith('/reassign')),
+    ).toBe(false)
+
+    fireEvent.change(screen.getByTestId('task-reassign-roles'), {
+      target: { value: ' approver , warehouse ' },
+    })
+    fireEvent.click(screen.getByTestId('task-reassign-submit'))
+
+    await waitFor(() => {
+      const call = apiCallMock.mock.calls.find(([url]) => String(url).endsWith('/reassign'))
+      expect(call).toBeTruthy()
+      const body = JSON.parse(String((call?.[1] as { body?: string })?.body))
+      expect(body.assignedToRoles).toEqual(['approver', 'warehouse'])
+      expect(body.assignedTo).toBeNull()
+    })
+  })
+
+  test('is offered on a task the caller CAN complete — the gate is visibility, not ownership', async () => {
+    mockTask(
+      baseTask({ status: 'IN_PROGRESS', canComplete: true, canReassign: true }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
+    expect(screen.getByTestId('task-reassign')).toBeTruthy()
+    expect(screen.queryByTestId('task-act-blocked')).toBeNull()
   })
 })

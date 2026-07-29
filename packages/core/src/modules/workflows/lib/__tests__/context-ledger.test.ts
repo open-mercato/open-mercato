@@ -676,22 +676,53 @@ describe('computeContextLedger', () => {
     })
   })
 
-  describe('SUB_WORKFLOW honesty', () => {
-    const definition: LedgerWorkflowDefinition = {
-      steps: [
-        step('start', 'START'),
-        step('child', 'SUB_WORKFLOW', {
-          config: { subWorkflowId: 'child-flow', outputMapping: { approvalStatus: 'result.status' } },
-        }),
-        step('end', 'END'),
-      ],
+  describe('SUB_WORKFLOW contributions', () => {
+    const subWorkflowDefinition = (config: Record<string, unknown>): LedgerWorkflowDefinition => ({
+      steps: [step('start', 'START'), step('child', 'SUB_WORKFLOW', { config }), step('end', 'END')],
       transitions: [transition('start', 'child'), transition('child', 'end')],
-    }
+    })
 
-    test('advertises no outputMapping keys because the engine never merges them into context', () => {
-      const ledger = computeContextLedger(definition)
-      expect(entryAt(ledger, 'end', 'approvalStatus')).toBeUndefined()
-      expect(pathsAt(ledger, 'end')).toEqual([])
+    test('advertises outputMapping target keys as maybe — the async resume merges them via sendSignal', () => {
+      const ledger = computeContextLedger(
+        subWorkflowDefinition({
+          subWorkflowId: 'child-flow',
+          outputMapping: { approvalStatus: 'result.status', approvedBy: 'reviewer.id' },
+        }),
+      )
+      expect(entryAt(ledger, 'end', 'approvalStatus')).toMatchObject({
+        type: 'unknown',
+        presence: 'maybe',
+        source: { kind: 'subWorkflow', stepId: 'child', label: 'subWorkflow:child' },
+      })
+      expect(entryAt(ledger, 'end', 'approvedBy')).toMatchObject({ presence: 'maybe' })
+    })
+
+    test('keeps a dotted target key as its nested context path (setNestedValue writes it nested)', () => {
+      const ledger = computeContextLedger(
+        subWorkflowDefinition({ subWorkflowId: 'child-flow', outputMapping: { 'review.status': 'result.status' } }),
+      )
+      expect(entryAt(ledger, 'end', 'review.status')).toMatchObject({ presence: 'maybe' })
+    })
+
+    test('the mapped keys are not yet available to the SUB_WORKFLOW step itself', () => {
+      const ledger = computeContextLedger(
+        subWorkflowDefinition({ subWorkflowId: 'child-flow', outputMapping: { approvalStatus: 'result.status' } }),
+      )
+      expect(entryAt(ledger, 'child', 'approvalStatus')).toBeUndefined()
+    })
+
+    test('advertises nothing when no outputMapping is declared', () => {
+      expect(pathsAt(computeContextLedger(subWorkflowDefinition({ subWorkflowId: 'child-flow' })), 'end')).toEqual([])
+      expect(
+        pathsAt(computeContextLedger(subWorkflowDefinition({ subWorkflowId: 'child-flow', outputMapping: {} })), 'end'),
+      ).toEqual([])
+    })
+
+    test('advertises no sendSignal envelope keys — the dotted signal name is unreachable from {{context.*}}', () => {
+      const ledger = computeContextLedger(
+        subWorkflowDefinition({ subWorkflowId: 'child-flow', outputMapping: { approvalStatus: 'result.status' } }),
+      )
+      expect(pathsAt(ledger, 'end')).toEqual(['approvalStatus'])
     })
   })
 

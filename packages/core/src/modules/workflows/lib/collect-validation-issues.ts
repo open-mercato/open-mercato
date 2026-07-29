@@ -70,6 +70,10 @@ export const FLOW_LOGIC_MESSAGE_KEYS: Record<FlowLogicWarningCode, { key: string
     key: 'workflows.visualEditor.problems.taskWithoutOwner',
     fallback: 'Task "{stepId}" names neither an assignee nor a role queue, so nobody can complete it and the workflow will stall there',
   },
+  taskPortalWithoutBinding: {
+    key: 'workflows.visualEditor.problems.taskPortalWithoutBinding',
+    fallback: 'Task "{stepId}" is addressed to a customer but is about no record; a portal task is only visible to the customer whose record it is linked to, so nobody in the portal would see it',
+  },
   taskBindingUnknownEntityType: {
     key: 'workflows.visualEditor.problems.taskBindingUnknownEntityType',
     fallback: 'Task "{stepId}" is about "{entityType}", which is not a known record type; the task would be hidden from its own assignee',

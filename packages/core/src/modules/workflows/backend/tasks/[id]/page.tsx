@@ -22,6 +22,13 @@
  *   bar can re-run the last attempt.
  * - **Status is never colour-only** — every badge pairs its design-system token
  *   with an icon and a translated label (`lib/work-inbox/presentation.ts`).
+ * - **Every affordance is gated by what the SERVER said** (`canComplete` /
+ *   `canClaim` / `canRelease` / `canReassign`, decided by `lib/task-visibility.ts`
+ *   and sent on the detail response). The page never re-derives §6.4: a second
+ *   copy of that rule is how a `workflows.tasks.view_all` administrator came to
+ *   be offered a Complete button that always answered 409. When an action is
+ *   unavailable the page states the server's reason and, where §6.4 names one,
+ *   offers the remedy — reassignment.
  */
 
 import * as React from 'react'
@@ -33,7 +40,8 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -41,6 +49,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
 import { StatusChip } from '../../../components/work-inbox/StatusChip'
+import { TaskActionNotice } from '../../../components/work-inbox/TaskActionNotice'
+import {
+  ReassignTaskDialog,
+  type ReassignTaskTarget,
+} from '../../../components/work-inbox/ReassignTaskDialog'
 import { TaskFormFields } from '../../../components/work-inbox/TaskFormFields'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { UserTaskDecision, UserTaskResponse, UserTaskStatus } from '../../../data/types'
@@ -57,6 +70,7 @@ import {
 } from '../../../components/work-inbox/EntityContextPanel'
 import {
   WORK_INBOX_OVERDUE_TONE,
+  describeTaskActionBlock,
   describeWorkInboxPriority,
   describeWorkInboxStatus,
 } from '../../../lib/work-inbox/presentation'
@@ -89,6 +103,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
   const [formData, setFormData] = React.useState<Record<string, string | number | boolean>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
+  const [reassignOpen, setReassignOpen] = React.useState(false)
   // Tracks the first required field that failed validation so we can mark the
   // field with aria-invalid + a red ring (Radix Select can't carry HTML
   // `required`, so we enforce constraint validation in JS instead).
@@ -250,6 +265,72 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     }
   }, [mutationContext, params.id, refreshTask, runMutation, t])
 
+  const handleRelease = React.useCallback(async () => {
+    setSubmitting(true)
+    try {
+      const result = await runMutation({
+        operation: () => apiCall(`/api/workflows/tasks/${params.id}/unclaim`, { method: 'POST' }),
+        context: mutationContext,
+        mutationPayload: { action: 'unclaim' },
+      })
+      if (result.ok) {
+        flash(t('workflows.workInbox.messages.released'), 'success')
+        refreshTask()
+      } else {
+        flash(t('workflows.workInbox.messages.releaseFailed'), 'error')
+      }
+    } catch (err) {
+      logger.error('Error releasing task', { err })
+      flash(t('workflows.workInbox.messages.releaseFailed'), 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }, [mutationContext, params.id, refreshTask, runMutation, t])
+
+  /**
+   * Reassignment is the remedy §6.4 names for every ownership refusal, and the
+   * only way to rescue a task authored with no assignee, no queue and no claim.
+   *
+   * The endpoint honours the optimistic-lock header explicitly (`UserTask` is
+   * outside the curated CRUD lock list), so the row's `updatedAt` rides along:
+   * two administrators racing to take the same task get a 409 rather than a
+   * silent last-write-wins.
+   */
+  const handleReassign = React.useCallback(
+    async (target: ReassignTaskTarget) => {
+      if (!task) return
+      setSubmitting(true)
+      try {
+        const result = await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(task.updatedAt), () =>
+              apiCall(`/api/workflows/tasks/${params.id}/reassign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(target),
+              }),
+            ),
+          context: mutationContext,
+          mutationPayload: { action: 'reassign', ...target },
+        })
+        if (result.ok) {
+          setReassignOpen(false)
+          flash(t('workflows.tasks.messages.reassigned'), 'success')
+          refreshTask()
+        } else {
+          const failure = result.result as { error?: string } | null
+          flash(failure?.error || t('workflows.tasks.messages.reassignFailed'), 'error')
+        }
+      } catch (err) {
+        logger.error('Error reassigning task', { err })
+        flash(t('workflows.tasks.messages.reassignFailed'), 'error')
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [mutationContext, params.id, refreshTask, runMutation, t, task],
+  )
+
   const handleNextTask = React.useCallback(async () => {
     setSubmitting(true)
     try {
@@ -346,11 +427,30 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     : null
   // A task nobody owns yet, offered to a role queue, is the one this operator
   // can take. An individually assigned task is already theirs to finish.
-  const isClaimable =
+  //
+  // Kept ONLY as the compatibility fallback below — it is the pre-change
+  // behaviour, restored verbatim when the server sends no `canClaim`.
+  const legacyClaimable =
     task.status === 'PENDING' &&
     !task.assignedTo &&
     !task.claimedBy &&
     (task.assignedToRoles?.length ?? 0) > 0
+
+  /*
+   * The server decides; the page renders. `??` is the additive-compatibility
+   * fallback for a payload written before these fields existed
+   * (BACKWARD_COMPATIBILITY.md §7) — it restores exactly the pre-change
+   * behaviour and is never a second copy of the §6.4 rule. Release and reassign
+   * are new affordances with no legacy behaviour to preserve, so an old payload
+   * simply does not offer them.
+   */
+  const canComplete = task.canComplete ?? isCompletable
+  const canClaim = task.canClaim ?? legacyClaimable
+  const canRelease = task.canRelease ?? false
+  const canReassign = task.canReassign ?? false
+  const blockDescriptor = canComplete
+    ? null
+    : describeTaskActionBlock(task.actBlockedReason ?? 'not-workable')
 
   if (isMobile) {
     return (
@@ -362,12 +462,20 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               backHref={WORK_INBOX_HREF}
               backLabel={t('workflows.tasks.backToList', 'Back to tasks')}
             />
+            {blockDescriptor ? (
+              <TaskActionNotice
+                descriptor={blockDescriptor}
+                canReassign={canReassign}
+                disabled={submitting}
+                onReassign={() => setReassignOpen(true)}
+              />
+            ) : null}
             <MobileTaskForm
               task={task}
               formData={formData}
               comments={comments}
               submitting={submitting}
-              isCompletable={isCompletable}
+              isCompletable={canComplete}
               isOverdue={isOverdue}
               onFieldChange={handleFieldChange}
               onCommentsChange={setComments}
@@ -378,6 +486,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               onDecision={(decisionId) => void completeTask(decisionId)}
             />
           </div>
+          <ReassignTaskDialog
+            open={reassignOpen}
+            submitting={submitting}
+            onOpenChange={setReassignOpen}
+            onSubmit={(target) => void handleReassign(target)}
+          />
         </PageBody>
       </Page>
     )
@@ -446,7 +560,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               */}
               <InjectionSpot spotId={TASK_DETAIL_INJECTION_SPOT_ID} context={taskInjectionContext} />
 
-              {isClaimable ? (
+              {canClaim ? (
                 <div className="rounded-lg border border-border bg-muted/50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted-foreground">
                     {t('workflows.tasks.detail.claimPrompt')}
@@ -462,15 +576,52 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 </div>
               ) : null}
 
-              {!isCompletable ? (
-                <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
-                  <p className="text-sm text-status-info-text">
-                    {t('workflows.tasks.detail.cannotComplete')}
+              {canRelease ? (
+                <div className="rounded-lg border border-border bg-muted/50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {t('workflows.tasks.detail.releasePrompt')}
                   </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    data-testid="task-release"
+                    disabled={submitting}
+                    onClick={() => void handleRelease()}
+                  >
+                    {t('workflows.tasks.actions.unclaim')}
+                  </Button>
                 </div>
               ) : null}
 
-              {isCompletable ? (
+              {blockDescriptor ? (
+                <TaskActionNotice
+                  descriptor={blockDescriptor}
+                  canReassign={canReassign}
+                  disabled={submitting}
+                  onReassign={() => setReassignOpen(true)}
+                />
+              ) : null}
+
+              {/*
+                Offered even when the task IS completable: an administrator may
+                legitimately hand a row to somebody else, and the endpoint gates
+                on visibility rather than ownership precisely so it can.
+              */}
+              {canComplete && canReassign ? (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    data-testid="task-reassign"
+                    disabled={submitting}
+                    onClick={() => setReassignOpen(true)}
+                  >
+                    {t('workflows.tasks.actions.reassign')}
+                  </Button>
+                </div>
+              ) : null}
+
+              {canComplete ? (
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <TaskFormFields
                     formSchema={task.formSchema}
@@ -662,6 +813,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             </div>
           </div>
         </div>
+
+        <ReassignTaskDialog
+          open={reassignOpen}
+          submitting={submitting}
+          onOpenChange={setReassignOpen}
+          onSubmit={(target) => void handleReassign(target)}
+        />
       </PageBody>
     </Page>
   )

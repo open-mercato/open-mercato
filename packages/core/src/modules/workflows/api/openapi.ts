@@ -137,13 +137,42 @@ export const userTaskDecisionSchema = z.object({
 })
 
 /**
+ * Why an act surface is closed to a caller who can read the row.
+ *
+ * Each value is derivable from fields the same response already carries, except
+ * `unavailable`, which is deliberately mute: it stands for the entity-gate
+ * refusal the act routes answer as a bare 404, and naming the binding there
+ * would leak it to the very caller the gate refused.
+ */
+export const taskActionBlockReasonSchema = z.enum([
+  'not-workable',
+  'owned-by-another',
+  'not-in-your-queue',
+  'unowned',
+  'unavailable',
+])
+
+/**
  * Detail projection: the same superset the list returns, plus the derived
- * decision buttons and the definition step id they belong to.
+ * decision buttons, the definition step id they belong to, and the §6.4 act
+ * surfaces.
+ *
+ * The `can*` flags are ADDITIVE (BACKWARD_COMPATIBILITY.md §7) and are the
+ * server's own decision, not a hint: `workflows.tasks.view_all` makes a row
+ * readable and leaves `canComplete` false, which is exactly the asymmetry the
+ * page used to render wrong.
  */
 export const userTaskDetailResponseSchema = z.object({
   data: userTaskRowSchema.extend({
     stepId: z.string().nullable().describe('Definition step the task is parked on'),
     decisions: z.array(userTaskDecisionSchema),
+    canComplete: z.boolean().describe('The caller may complete or decide this task'),
+    canClaim: z.boolean().describe('The caller may claim it off its role queue'),
+    canRelease: z.boolean().describe('The caller holds the claim and may release it'),
+    canReassign: z.boolean().describe('The caller may move it to another assignee or queue'),
+    actBlockedReason: taskActionBlockReasonSchema
+      .nullable()
+      .describe('Why completion is unavailable; null when it is available'),
   }),
 })
 

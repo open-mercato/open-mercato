@@ -48,6 +48,9 @@ export const WORKFLOWS_TASKS_VIEW_FEATURE = 'workflows.tasks.view'
 /** Administration: read rows you have no relationship to. Never grants act. */
 export const WORKFLOWS_TASKS_VIEW_ALL_FEATURE = 'workflows.tasks.view_all'
 
+/** Administration: move a row to another assignee or role queue. */
+export const WORKFLOWS_TASKS_REASSIGN_FEATURE = 'workflows.tasks.reassign'
+
 /**
  * The statuses a task can still be worked in.
  *
@@ -416,6 +419,129 @@ export function decideTaskVisibility(
 ): TaskVisibilityDecision {
   if (principal.kind === 'portal') return decidePortal(principal, task)
   return decideBackoffice(principal, task, entityAccess, policy)
+}
+
+/**
+ * The statuses `reassignUserTask` accepts (`lib/task-handler.ts`
+ * `REASSIGNABLE_STATUSES`). Restated here because this module is PURE and the
+ * handler is not; the two must agree or the Reassign button lies.
+ */
+export const TASK_REASSIGNABLE_STATUSES: readonly string[] = ['PENDING', 'IN_PROGRESS']
+
+/**
+ * The status `releaseUserTask` accepts. It looks the row up with
+ * `status: 'IN_PROGRESS'`, so a PENDING row is `TASK_NOT_FOUND` there — which is
+ * narrower than `TASK_ACTIONABLE_STATUSES` and must not be widened to it.
+ */
+export const TASK_RELEASABLE_STATUS = 'IN_PROGRESS'
+
+/**
+ * Why an act surface is closed to a caller who CAN read the row.
+ *
+ * Every value here is derivable from fields the caller already has in the same
+ * response (`status`, `assignedTo`, `claimedBy`, `assignedToRoles`), so naming
+ * the reason discloses nothing the payload does not. The one deliberate
+ * exception is `unavailable`, below.
+ */
+export type TaskActionBlockReason =
+  /** Terminal status — the handler answers `TASK_NOT_FOUND`. */
+  | 'not-workable'
+  /** Somebody else is the assignee or the claimant — a 409 on click. */
+  | 'owned-by-another'
+  /** Open, but queued to a role the caller does not hold. */
+  | 'not-in-your-queue'
+  /** Nobody's work: no assignee, no claim, no queue — `TASK_NOT_ACTIONABLE`. */
+  | 'unowned'
+  /**
+   * Refused without a reason, on purpose.
+   *
+   * Reachable only under the tenant opt-out, which restores the READ and never
+   * the act path: the row comes back with `blockedEntityType` set and the act
+   * routes answer a bare 404 for it, because "the entity gate blocked you" names
+   * a binding the gate has just refused this caller. The UI must be exactly as
+   * uninformative — it says the action is unavailable and stops there.
+   */
+  | 'unavailable'
+
+/**
+ * What the page may OFFER, decided here so no client re-derives §6.4.
+ *
+ * These are booleans, not features: a `workflows.tasks.view_all` administrator
+ * holds `workflows.tasks.complete` and still gets `canComplete: false`, because
+ * administration widens seeing and never acting. Each flag mirrors the gate its
+ * own endpoint applies (`resolveTaskActRefusal` for complete/claim/release,
+ * visibility + the reassign feature for reassign), so an offered action is one
+ * the server will accept.
+ */
+export type TaskAffordances = {
+  canComplete: boolean
+  canClaim: boolean
+  canRelease: boolean
+  canReassign: boolean
+  /** Why `canComplete` is false, for a caller who can read the row. */
+  actBlockedReason: TaskActionBlockReason | null
+}
+
+/**
+ * Resolve the act surfaces for one already-decided row.
+ *
+ * PURE, and deliberately a projection of `decideTaskVisibility`'s own answer
+ * rather than a second evaluation of the rule: `canComplete` IS `actable` and
+ * `canClaim` IS `claimable`. Only `canRelease` and `canReassign` add anything,
+ * and each adds exactly the one condition its endpoint checks beyond visibility.
+ */
+export function resolveTaskAffordances(
+  principal: BackofficeTaskPrincipal,
+  task: TaskFacts,
+  decision: TaskVisibilityDecision,
+): TaskAffordances {
+  // Set on the `legacy-read-filter` ADMIT: the opt-out restored the read and the
+  // entity gate is still shut underneath, so every act route answers 404.
+  const entityGateClosed = decision.blockedEntityType !== undefined
+  const actSurfaceOpen = decision.visible && !entityGateClosed
+
+  const canComplete = decision.visible && decision.actable
+  const canClaim = decision.visible && decision.claimable
+  const canRelease =
+    actSurfaceOpen && task.status === TASK_RELEASABLE_STATUS && task.claimedBy === principal.userId
+  const canReassign =
+    actSurfaceOpen &&
+    TASK_REASSIGNABLE_STATUSES.includes(task.status) &&
+    (principal.isSuperAdmin ||
+      hasFeature(principal.grantedFeatures, WORKFLOWS_TASKS_REASSIGN_FEATURE))
+
+  return {
+    canComplete,
+    canClaim,
+    canRelease,
+    canReassign,
+    actBlockedReason: resolveActBlockReason(principal, task, decision, {
+      canComplete,
+      entityGateClosed,
+    }),
+  }
+}
+
+/**
+ * Mirrors `resolveTaskActRefusal`'s precedence exactly — entity gate, then
+ * status, then ownership — so the stated reason and the refusal a click would
+ * produce can never disagree.
+ */
+function resolveActBlockReason(
+  principal: BackofficeTaskPrincipal,
+  task: TaskFacts,
+  decision: TaskVisibilityDecision,
+  state: { canComplete: boolean; entityGateClosed: boolean },
+): TaskActionBlockReason | null {
+  if (state.canComplete) return null
+  if (!decision.visible) return null
+  if (state.entityGateClosed) return 'unavailable'
+  if (!TASK_ACTIONABLE_STATUSES.includes(task.status)) return 'not-workable'
+
+  const owner = currentTaskOwnerId(task)
+  if (owner !== null) return owner === principal.userId ? 'unavailable' : 'owned-by-another'
+  if (task.assignedToRoles !== null && task.assignedToRoles.length > 0) return 'not-in-your-queue'
+  return 'unowned'
 }
 
 export type TaskVisibilityFilterOptions = {

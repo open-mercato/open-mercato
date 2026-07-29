@@ -24,6 +24,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   collectTaskEntityTypesFromTasks,
   decideTaskAccess,
+  resolveTaskAffordancesForRequest,
   resolveTaskRefusal,
   resolveTaskVisibilityForRequest,
   TASK_NOT_FOUND_BODY,
@@ -102,12 +103,18 @@ export async function GET(
     // empty list and completes through the plain form exactly as before.
     const { decisions, stepId, formKey } = await loadTaskDecisionContext(em, task)
 
+    // The predicate already answered "may this caller act on this row" above.
+    // Sending it is what stops the page offering a Complete button that 409s for
+    // an administrator, and what lets it name the remedy (reassignment) instead.
+    const affordances = resolveTaskAffordancesForRequest(visibility, task, decision)
+
     return NextResponse.json({
       data: {
         ...serializeUserTask(task),
         stepId,
         decisions,
         formKey,
+        ...affordances,
       },
     })
   } catch (error) {

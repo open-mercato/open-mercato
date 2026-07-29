@@ -49,6 +49,11 @@ const USER_TASK_INSPECTOR_KEYS = [
   'onBreach',
   'decisions',
   'editablePrefilled',
+  // The §7.1 portal discriminator. Listing it here is what makes it survive a
+  // Studio save at all: before, a definition carrying `assigneeKind: 'customer'`
+  // (authorable only through the Code view) was rebuilt from the fixed keys
+  // above and the portal addressing was silently downgraded to backoffice.
+  'assigneeKind',
 ] as const
 
 export interface DefinitionToGraphOptions {

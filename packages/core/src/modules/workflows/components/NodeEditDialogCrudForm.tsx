@@ -744,7 +744,13 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       id: 'assignmentMode',
       label: t('workflows.tasks.inspector.who.label'),
       type: 'custom',
-      component: (props) => <TaskAssignmentField {...props} ledgerEntries={ledgerEntries} />,
+      component: (props) => (
+        <TaskAssignmentField
+          {...props}
+          ledgerEntries={ledgerEntries}
+          portalAudience={{ assigneeKind: 'taskAssigneeKind', entityBindings: 'taskEntityBindings' }}
+        />
+      ),
     },
     {
       id: 'taskPriority',

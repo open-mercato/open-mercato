@@ -12,6 +12,7 @@ import { NextRequest } from 'next/server'
 import { GET as getTask } from '../tasks/[id]/route'
 import { UserTask } from '../../data/entities'
 import { makeTaskVisibilityRouteStubs, type TaskVisibilityRouteStubs } from './helpers/taskVisibilityRoute'
+import { userTaskDetailResponseSchema } from '../openapi'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -258,5 +259,194 @@ describe('GET /api/workflows/tasks/[id] — disclosure', () => {
     // The single-task path never enumerates the tenant's types — it asks only
     // about the bindings the row in hand carries.
     expect(stubs.execute).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The act surfaces the response advertises (§6.4, "administration widens seeing,
+ * never acting").
+ *
+ * The server has always computed this answer and used to throw it away, which is
+ * how the backoffice task page came to render a Complete button that answers 409
+ * for a `workflows.tasks.view_all` administrator. The property under test is
+ * that the DECISION travels: a page that has to guess is a second copy of the
+ * rule, and the two drift.
+ */
+describe('GET /api/workflows/tasks/[id] — act surfaces', () => {
+  async function affordances(response: Response) {
+    const body = await response.json()
+    return body.data as Record<string, unknown>
+  }
+
+  test('the owner may complete', async () => {
+    setTask(makeTask())
+
+    expect(await affordances(await runDetail())).toMatchObject({
+      canComplete: true,
+      actBlockedReason: null,
+    })
+  })
+
+  test('a view_all administrator may READ the same row and may not complete it', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] } })
+    setTask(makeTask({ assignedTo: 'somebody-else' }))
+
+    const response = await runDetail()
+    expect(response.status).toBe(200)
+    expect(await affordances(response)).toMatchObject({
+      canComplete: false,
+      canClaim: false,
+      actBlockedReason: 'owned-by-another',
+    })
+  })
+
+  test('names reassignment as reachable when the caller holds the feature, ownership or not', async () => {
+    withVisibility({
+      acl: {
+        features: ['workflows.tasks.view', 'workflows.tasks.view_all', 'workflows.tasks.reassign'],
+      },
+    })
+    setTask(makeTask({ assignedTo: 'somebody-else' }))
+
+    expect(await affordances(await runDetail())).toMatchObject({
+      canComplete: false,
+      canReassign: true,
+    })
+  })
+
+  test('withholds reassignment from an administrator who only holds view_all', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] } })
+    setTask(makeTask({ assignedTo: 'somebody-else' }))
+
+    expect(await affordances(await runDetail())).toMatchObject({ canReassign: false })
+  })
+
+  test('the ownerless task is completable by nobody and rescuable by reassignment', async () => {
+    withVisibility({
+      acl: {
+        features: ['workflows.tasks.view', 'workflows.tasks.view_all', 'workflows.tasks.reassign'],
+      },
+    })
+    setTask(makeTask({ assignedTo: null, claimedBy: null, assignedToRoles: null }))
+
+    expect(await affordances(await runDetail())).toMatchObject({
+      canComplete: false,
+      actBlockedReason: 'unowned',
+      canReassign: true,
+    })
+  })
+
+  test('a queue the caller does not belong to reads as such, not as ownerless', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] } })
+    setTask(makeTask({ assignedTo: null, assignedToRoles: ['finance'] }))
+
+    expect(await affordances(await runDetail())).toMatchObject({
+      canComplete: false,
+      canClaim: false,
+      actBlockedReason: 'not-in-your-queue',
+    })
+  })
+
+  test('a queue member may claim an open row', async () => {
+    setTask(makeTask({ assignedTo: null, assignedToRoles: ['warehouse'] }))
+
+    expect(await affordances(await runDetail())).toMatchObject({
+      canComplete: true,
+      canClaim: true,
+      actBlockedReason: null,
+    })
+  })
+
+  test('only the claimant may release, and only while the row is IN_PROGRESS', async () => {
+    setTask(
+      makeTask({ status: 'IN_PROGRESS', assignedTo: null, assignedToRoles: ['warehouse'], claimedBy: USER_ID }),
+    )
+    expect(await affordances(await runDetail())).toMatchObject({ canRelease: true })
+
+    setTask(makeTask({ status: 'PENDING', assignedTo: null, assignedToRoles: ['warehouse'] }))
+    expect(await affordances(await runDetail())).toMatchObject({ canRelease: false })
+
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] } })
+    setTask(makeTask({ status: 'IN_PROGRESS', assignedTo: null, claimedBy: 'somebody-else' }))
+    expect(await affordances(await runDetail())).toMatchObject({ canRelease: false })
+  })
+
+  test('a terminal task offers nothing and says why', async () => {
+    setTask(makeTask({ status: 'COMPLETED' }))
+
+    expect(await affordances(await runDetail())).toMatchObject({
+      canComplete: false,
+      canClaim: false,
+      canRelease: false,
+      canReassign: false,
+      actBlockedReason: 'not-workable',
+    })
+  })
+
+  /**
+   * The tenant opt-out restores the READ and never the act path, so the row
+   * comes back with its entity gate still shut and every act route answers a
+   * bare 404 for it. The stated reason must be exactly as uninformative — naming
+   * the binding here would hand the caller what that 404 withholds.
+   */
+  test('an entity-gated row under the opt-out refuses without naming the binding', async () => {
+    withVisibility({
+      acl: { features: ['workflows.tasks.view'] },
+      businessContextEnabled: false,
+      scopedEntityTypes: ['sales:sales_order'],
+    })
+    setTask(
+      makeTask({
+        assignedTo: 'somebody-else',
+        entityBindings: [{ entityType: 'sales:sales_order', entityId: 'order-1' }],
+        entityTypes: ['sales:sales_order'],
+      }),
+    )
+
+    const data = await affordances(await runDetail())
+
+    expect(data).toMatchObject({
+      canComplete: false,
+      canClaim: false,
+      canRelease: false,
+      canReassign: false,
+      actBlockedReason: 'unavailable',
+    })
+    expect(data.blockedEntityType).toBeUndefined()
+    expect(JSON.stringify(data)).not.toContain('denied:entity-access')
+  })
+
+  /**
+   * Additive, not a rewrite: the fields join a payload that must still carry
+   * everything it carried before (BACKWARD_COMPATIBILITY.md §7), and an existing
+   * consumer that never reads them is unaffected.
+   */
+  test('is a strict superset of the payload consumers already read', async () => {
+    setTask(makeTask())
+
+    const data = await affordances(await runDetail())
+
+    for (const key of [
+      'id',
+      'workflowInstanceId',
+      'stepInstanceId',
+      'taskName',
+      'status',
+      'assignedTo',
+      'assigneeKind',
+      'assignedToRoles',
+      'claimedBy',
+      'entityBindings',
+      'kind',
+      'priority',
+      'proposalId',
+      'createdAt',
+      'updatedAt',
+      'stepId',
+      'decisions',
+    ]) {
+      expect(data).toHaveProperty(key)
+    }
+    expect(userTaskDetailResponseSchema.safeParse({ data }).success).toBe(true)
   })
 })

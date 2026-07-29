@@ -87,7 +87,7 @@ Until this release, any user holding `workflows.tasks.view` could list and read 
 
 **New portal surface.** Portal principals can now be task assignees and act on their own bound tasks, through the new customer features `portal.tasks.view` / `portal.tasks.complete`. Two caveats:
 
-- **Existing tenants must grant them by hand** from the customer-role editor. `setup.ts` `defaultCustomerRoleFeatures` is merged into seeded customer roles during *tenant setup* only, and there is no `sync-customer-role-acls` counterpart to `sync-role-acls`. Adding one is filed as a follow-up.
+- **Existing tenants need one command.** `setup.ts` `defaultCustomerRoleFeatures` is merged into seeded customer roles during *tenant setup* only, so run `yarn mercato customer_accounts sync-customer-role-acls [--tenant <id>]` — the customer-role counterpart of `auth sync-role-acls`. It is idempotent, additive (never revokes a hand-added feature), wildcard-aware (a role holding `portal.*` gains nothing redundant), and never creates roles.
 - `CustomerRbacService` caches ACLs for **five minutes**, so a fresh grant is not immediately visible to a signed-in portal user.
 
 The backoffice task routes were **not** loosened for portal principals — a portal session still gets 401/403 there — and a portal task with **no** entity binding is visible to nobody by design (on the portal the binding to your own record *is* the authorization; on the backoffice an absent binding passes vacuously, which is what keeps the pre-existing task corpus readable). Authoring a portal task currently means setting `userTaskConfig.assigneeKind: "customer"` in the Studio's **Code view** — there is no inspector picker yet.
