@@ -410,13 +410,17 @@ test('workflow skill binds implementation prompts to the progressive contract re
 })
 
 test('integration routing binds installed-record imports and optional carriers at their direct owners', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
   const integrationSkill = readAgentic('shared/ai/skills/om-integration-builder/SKILL.md')
   const providerFamilies = readAgentic(
     'shared/ai/skills/om-integration-builder/references/provider-families.md',
   )
   assert.match(integrationSkill, /rows write existing installed customer\/catalog\/host records, also select UMES/)
   assert.match(integrationSkill, /`om-system-extension`/)
+  assert.match(providerFamilies, /host domain state provider-neutral \(`provider-neutral-domain`\)/)
+  assert.match(providerFamilies, /carrier module is optional/)
   assert.match(providerFamilies, /safe absent-provider path \(`optional-provider`\)/)
+  assert.match(root, /`testing`.*`\.ai\/guides\/testing-debugging\.md`/)
 })
 
 test('debugging stays additive to cross-module domain and extension work', () => {
