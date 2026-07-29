@@ -18,6 +18,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/channel-discord/package.json ./packages/channel-discord/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
 COPY packages/checkout/package.json ./packages/checkout/
@@ -88,6 +89,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/channel-discord/package.json ./packages/channel-discord/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
 COPY packages/checkout/package.json ./packages/checkout/
@@ -196,6 +198,7 @@ COPY --from=builder /app/.yarn ./.yarn
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 COPY --from=builder /app/packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY --from=builder /app/packages/cache/package.json ./packages/cache/
+COPY --from=builder /app/packages/channel-discord/package.json ./packages/channel-discord/
 COPY --from=builder /app/packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY --from=builder /app/packages/channel-imap/package.json ./packages/channel-imap/
 COPY --from=builder /app/packages/checkout/package.json ./packages/checkout/
