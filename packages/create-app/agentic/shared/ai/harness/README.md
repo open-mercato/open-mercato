@@ -1,6 +1,6 @@
 # Agent harness evaluations
 
-`cases.json` is the 195-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+`cases.json` is the 195-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Besides the schema, reference, and relation checks, that gate measures each case's declared context on disk and fails a case whose required or `allowedExtra` paths cannot fit its own file/byte budgets — so a grown guide or fact-sheet surfaces here, naming the exact numbers, instead of as a live routing failure. Live routing uses a fresh read-only process per case:
 
 ```text
 yarn harness:validate --runner codex --all
