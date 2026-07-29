@@ -50,8 +50,16 @@ export type CodeViewApplyDecision<TDefinition> =
 
 export type CodeViewDraftInput<TDefinition> = {
   draftText: string
-  /** The JSON the canvas currently serializes to. */
-  canvasText: string
+  /**
+   * The JSON the canvas currently serializes to.
+   *
+   * OMIT it when there is no such text to compare against — an AI-generated
+   * draft (spec section 9) is a document the author asked for, so "identical to
+   * the canvas" is not a refusal, it is a coincidence. Every other refusal
+   * still applies, which is the point: a generated definition passes the same
+   * gate a pasted one does.
+   */
+  canvasText?: string
   parseDefinition: (parsed: unknown) => { ok: true; definition: TDefinition } | { ok: false; messages: string[] }
   /**
    * Graph-level validation of the parsed definition. Return only ERRORS —
@@ -91,7 +99,9 @@ export function evaluateCodeViewDraft<TDefinition>(
 ): CodeViewApplyDecision<TDefinition> {
   const { draftText, canvasText, parseDefinition, validateGraph } = input
 
-  if (draftText === canvasText) return { ok: false, reason: 'unchanged' }
+  if (canvasText !== undefined && draftText === canvasText) {
+    return { ok: false, reason: 'unchanged' }
+  }
 
   let parsed: unknown
   try {

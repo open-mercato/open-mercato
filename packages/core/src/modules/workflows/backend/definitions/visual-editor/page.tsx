@@ -52,6 +52,11 @@ import { WorkflowCodeView } from '../../../components/WorkflowCodeView'
 import { DefinitionMetadataDrawer, type DefinitionMetadataSection } from '../../../components/DefinitionMetadataDrawer'
 import { describeCodeViewDraft, evaluateCodeViewDraft } from '../../../lib/code-view-apply'
 import {
+  WorkflowAiDraftDialog,
+  type WorkflowAiDraftApplyRefusal,
+} from '../../../components/WorkflowAiDraftDialog'
+import { buildAiCheckpointLabel } from '../../../lib/ai-authoring'
+import {
   locateDefinitionJsonEntities,
   locateIssues,
   severityByLine,
@@ -132,7 +137,7 @@ import {
   type WorkflowStartFixtures,
 } from '../../../lib/start-fixtures'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, History, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelRightOpen, Play, Save, ShieldMinus, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, History, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelRightOpen, Play, Save, ShieldMinus, Sparkles, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -1776,8 +1781,10 @@ export default function VisualEditorPage() {
     return issues
   }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, triggerPayloadContracts, translateIssue, t])
 
-  // Validate workflow — collect every graph and schema issue into the problems panel
-  const handleValidate = useCallback(() => {
+  // Validate workflow — collect every graph and schema issue into the problems
+  // panel. Shared by the explicit Validate action and by the "Problems pass
+  // already run" an applied AI draft owes the author (spec §9).
+  const runProblemsPass = useCallback(() => {
     const issues = evaluateWorkflowIssues()
     setProblems(issues)
 
@@ -1794,6 +1801,8 @@ export default function VisualEditorPage() {
       )
     }
   }, [evaluateWorkflowIssues, t])
+
+  const handleValidate = runProblemsPass
 
   // Code view, stage 1 (spec §2.2). The JSON is assembled through the same
   // builders Save uses, so what an author reads is exactly what is persisted;
@@ -1834,32 +1843,40 @@ export default function VisualEditorPage() {
   const [codeDraft, setCodeDraft] = useState<string | null>(null)
   const codeDraftText = codeDraft ?? codeViewJson
 
+  // The ONE gate a whole definition passes before it may replace the document.
+  // Extracted so the Code view's Apply and the AI draft's Apply (spec §9) share
+  // it verbatim — an AI-authored graph has earned exactly as much trust as a
+  // pasted one, which is to say none.
+  const definitionApplyGate = useMemo(() => ({
+    parseDefinition: (parsed: unknown) => {
+      const result = workflowDefinitionDataSchema.safeParse(parsed)
+      if (result.success) return { ok: true as const, definition: result.data as WorkflowDefinitionData }
+      return {
+        ok: false as const,
+        messages: result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+      }
+    },
+    // Warnings never block, exactly as they never block a Save; only graph
+    // ERRORS do, because a canvas holding a graph the engine rejects is worse
+    // than no apply — the author has lost the text they typed.
+    // `autoLayout: false` on purpose: whether a definition is VALID cannot
+    // depend on running a layout engine over it, and skipping dagre keeps this
+    // memo cheap enough to run on every keystroke.
+    validateGraph: (definition: WorkflowDefinitionData) => {
+      const graph = definitionToGraph(definition, { autoLayout: false })
+      return validateWorkflowGraph(graph.nodes, graph.edges)
+        .filter((issue) => issue.type === 'error')
+        .map((issue) => issue.message)
+    },
+  }), [])
+
   const codeApplyDecision = useMemo(
     () => evaluateCodeViewDraft<WorkflowDefinitionData>({
       draftText: codeDraftText,
       canvasText: codeViewJson,
-      parseDefinition: (parsed) => {
-        const result = workflowDefinitionDataSchema.safeParse(parsed)
-        if (result.success) return { ok: true, definition: result.data as WorkflowDefinitionData }
-        return {
-          ok: false,
-          messages: result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
-        }
-      },
-      // Warnings never block, exactly as they never block a Save; only graph
-      // ERRORS do, because a canvas holding a graph the engine rejects is worse
-      // than no apply — the author has lost the text they typed.
-      // `autoLayout: false` on purpose: whether a definition is VALID cannot
-      // depend on running a layout engine over it, and skipping dagre keeps this
-      // memo cheap enough to run on every keystroke.
-      validateGraph: (definition) => {
-        const graph = definitionToGraph(definition, { autoLayout: false })
-        return validateWorkflowGraph(graph.nodes, graph.edges)
-          .filter((issue) => issue.type === 'error')
-          .map((issue) => issue.message)
-      },
+      ...definitionApplyGate,
     }),
-    [codeDraftText, codeViewJson],
+    [codeDraftText, codeViewJson, definitionApplyGate],
   )
 
   const codeDraftStatus = useMemo(() => describeCodeViewDraft(codeApplyDecision), [codeApplyDecision])
@@ -1882,12 +1899,13 @@ export default function VisualEditorPage() {
     }
   }, [showCodeView, codeDraftText, codeViewIssues])
 
-  const handleApplyCodeDraft = useCallback(() => {
-    if (!codeApplyDecision.ok) return
-    const definition = codeApplyDecision.definition
+  // Replace the whole editor document from a validated definition, as ONE undo
+  // entry named `label`. Shared by the Code view's Apply and the AI draft's
+  // Apply so a twenty-node generation is exactly as reversible as a paste.
+  const applyDefinitionDocument = useCallback((definition: WorkflowDefinitionData, label: string) => {
     // Committed BEFORE the replacement, so undo restores the graph AND the
-    // panel fields the applied JSON also carried.
-    commitHistory(historyLabels.applyCode)
+    // panel fields the applied definition also carried.
+    commitHistory(label)
     const graph = definitionToGraph(definition, { autoLayout: true })
     setNodes(graph.nodes)
     setEdges(graph.edges)
@@ -1899,10 +1917,84 @@ export default function VisualEditorPage() {
     setDefinitionIo(definition.io as WorkflowIoContract | undefined)
     setInterpolation(definition.interpolation)
     setErrorHandler(definition.errorHandler)
-    setCodeDraft(null)
     scheduleAutosave()
+  }, [commitHistory, scheduleAutosave])
+
+  const handleApplyCodeDraft = useCallback(() => {
+    if (!codeApplyDecision.ok) return
+    applyDefinitionDocument(codeApplyDecision.definition, historyLabels.applyCode)
+    setCodeDraft(null)
     flash(t('workflows.visualEditor.codeView.applied'), 'success')
-  }, [codeApplyDecision, commitHistory, historyLabels.applyCode, scheduleAutosave, t])
+  }, [codeApplyDecision, applyDefinitionDocument, historyLabels.applyCode, t])
+
+  // ---------------------------------------------------------------------
+  // Prompt-to-draft (spec §9)
+  //
+  // The generated definition NEVER reaches the canvas by a path of its own: it
+  // goes through `evaluateCodeViewDraft`, the same gate a pasted definition
+  // passes, and lands through `applyDefinitionDocument`, the same replacement
+  // the Code view's Apply performs. So a refused draft leaves the canvas
+  // byte-identical, and an applied one — however many nodes it minted — is ONE
+  // named entry on the existing undo stack.
+  //
+  // Nothing here writes to the server. The route that generated the draft
+  // persisted nothing either; Save and Enable stay exactly where they were.
+  // ---------------------------------------------------------------------
+  const [showAiDraft, setShowAiDraft] = useState(false)
+  const [problemsPassToken, setProblemsPassToken] = useState(0)
+
+  // The pass has to observe the APPLIED graph, and `evaluateWorkflowIssues`
+  // closes over the node/edge state, so it runs on the commit after the apply
+  // rather than inside it. The ref keeps it the page's ONE evaluator.
+  const runProblemsPassRef = React.useRef(runProblemsPass)
+  runProblemsPassRef.current = runProblemsPass
+  useEffect(() => {
+    if (problemsPassToken === 0) return
+    runProblemsPassRef.current()
+  }, [problemsPassToken])
+
+  const handleApplyAiDraft = useCallback((input: {
+    definition: Record<string, unknown>
+    prompt: string
+  }): WorkflowAiDraftApplyRefusal | null => {
+    const decision = evaluateCodeViewDraft<WorkflowDefinitionData>({
+      // Serialized so the AI path and the Code view path are literally the same
+      // call. It also proves the draft survives the JSON round trip the Code
+      // view and every save will put it through.
+      draftText: JSON.stringify(input.definition, null, 2),
+      ...definitionApplyGate,
+    })
+
+    if (!decision.ok) {
+      switch (decision.reason) {
+        case 'parseError':
+          return { reason: 'parseError', messages: [decision.message] }
+        case 'schemaError':
+        case 'graphError':
+          return { reason: decision.reason, messages: decision.messages }
+        default:
+          // `unchanged` cannot occur — no `canvasText` is supplied — but a
+          // refusal must never fall through into a silent apply.
+          return {
+            reason: 'schemaError',
+            messages: [t('workflows.aiDraft.refusedUnknown', 'The generated definition was refused.')],
+          }
+      }
+    }
+
+    applyDefinitionDocument(
+      decision.definition,
+      buildAiCheckpointLabel(input.prompt, {
+        prefix: t('workflows.visualEditor.history.aiDraft', 'AI draft'),
+      }),
+    )
+    setProblemsPassToken((token) => token + 1)
+    flash(
+      t('workflows.aiDraft.applied', 'AI draft applied. Review the problems, then save when you are happy with it.'),
+      'success',
+    )
+    return null
+  }, [definitionApplyGate, applyDefinitionDocument, t])
 
   const handleRevertCodeDraft = useCallback(() => {
     setCodeDraft(null)
@@ -2208,6 +2300,7 @@ export default function VisualEditorPage() {
       validate: t('workflows.visualEditor.validate'),
       runTest: t('workflows.actions.startInstance'),
       save: t('workflows.common.save'),
+      aiDraft: t('workflows.aiDraft.open', 'Draft this workflow with AI'),
     },
     actions: {
       undo: handleUndo,
@@ -2230,6 +2323,7 @@ export default function VisualEditorPage() {
       validate: handleValidate,
       runTest: () => setStartOpen(true),
       save: () => { void handleSave() },
+      aiDraft: () => setShowAiDraft(true),
     },
   }), [
     isCodeOnly, history, nodes, edges, definitionId, t,
@@ -2266,7 +2360,7 @@ export default function VisualEditorPage() {
       // fire behind it. Cmd+S is the deliberate exception: the drawer has no
       // submit of its own to protect — saving the workflow IS its primary
       // action — so the shortcut keeps working while it is open.
-      const isOverlayOpen = isDialogOpen || metadataOpen
+      const isOverlayOpen = isDialogOpen || metadataOpen || showAiDraft
       const isCommandKey = (event.metaKey || event.ctrlKey) && !event.altKey
 
       if (isCommandKey && (event.key === 'k' || event.key === 'K')) {
@@ -2348,7 +2442,7 @@ export default function VisualEditorPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     isMobile, focusMode, inspectorsDocked, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen,
-    showCodeView, metadataOpen, showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
+    showCodeView, metadataOpen, showAiDraft, showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
     handleDuplicateSelection, openSelectedInspector, handleDeleteSelection, handleNudge,
     handleSave, isCodeOnly,
   ])
@@ -2807,6 +2901,12 @@ export default function VisualEditorPage() {
         severityByLine={codeIssueLocations.severityByLine}
         lineByIssueId={codeIssueLocations.lineByIssueId}
       />
+      <WorkflowAiDraftDialog
+        open={showAiDraft}
+        onOpenChange={setShowAiDraft}
+        onApply={handleApplyAiDraft}
+        canvasHasContent={nodes.length > 0}
+      />
       <AnnotationEditDialog
         node={selectedAnnotation}
         isOpen={showAnnotationDialog}
@@ -3233,6 +3333,21 @@ export default function VisualEditorPage() {
                 <CircleQuestionMark className="mr-1.5 h-4 w-4" />
                 {t('workflows.visualEditor.validate')}
               </Button>
+              {/* Prompt-to-draft (spec §9). Offered for every author who can
+                  create definitions; the route 403s otherwise and the dialog
+                  says so rather than the button quietly doing nothing. */}
+              {!isCodeOnly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAiDraft(true)}
+                  className="h-8 px-2 text-xs"
+                  aria-label={t('workflows.aiDraft.open', 'Draft this workflow with AI')}
+                >
+                  <Sparkles className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  {t('workflows.aiDraft.toggleShort', 'AI draft')}
+                </Button>
+              )}
               {/* Code view (spec §2.2): read-only definition JSON plus the
                   schema-validation display — the retirement precondition for
                   the form editor. */}
