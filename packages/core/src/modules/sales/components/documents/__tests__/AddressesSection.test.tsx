@@ -179,4 +179,58 @@ describe('SalesDocumentAddressesSection', () => {
       shippingAddressSnapshot: resolvedSnapshot,
     }))
   })
+
+  it('keeps a saved address linked after reload and a second save (no silent detach)', async () => {
+    const savedSnapshot = {
+      id: 'customer-address-1',
+      addressLine1: '12 Market Street',
+      city: 'London',
+      postalCode: 'SW1A 1AA',
+      country: 'GB',
+    }
+    mockApiCallOrThrow.mockResolvedValue({
+      ok: true,
+      result: {
+        shippingAddressId: 'customer-address-1',
+        billingAddressId: 'customer-address-1',
+        shippingAddressSnapshot: savedSnapshot,
+        billingAddressSnapshot: savedSnapshot,
+      },
+    })
+    const onUpdated = jest.fn()
+
+    // Reopening the tab passes both the linked address id and the server-denormalized
+    // snapshot — the state after the first correct save. Custom mode must stay off.
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressId="customer-address-1"
+        billingAddressId="customer-address-1"
+        shippingAddressSnapshot={savedSnapshot}
+        billingAddressSnapshot={savedSnapshot}
+        onUpdated={onUpdated}
+      />,
+    )
+
+    const combobox = await screen.findByRole('combobox')
+    await waitFor(() => expect(combobox).toHaveValue('customer-address-1'))
+    expect(screen.getByLabelText('Define new address')).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [, request] = mockApiCallOrThrow.mock.calls[0]
+    const payload = JSON.parse(request.body)
+    expect(payload).toMatchObject({
+      id: 'order-1',
+      shippingAddressId: 'customer-address-1',
+      billingAddressId: 'customer-address-1',
+    })
+    expect(payload.shippingAddressId).not.toBeNull()
+    expect(payload.billingAddressId).not.toBeNull()
+    expect(payload).not.toHaveProperty('shippingAddressSnapshot')
+    expect(payload).not.toHaveProperty('billingAddressSnapshot')
+  })
 })

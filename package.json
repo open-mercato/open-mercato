@@ -33,6 +33,7 @@
     "build:app": "turbo run build --filter=@open-mercato/app",
     "build:packages": "turbo run build --filter='./packages/*'",
     "lint": "turbo run lint",
+    "lint:check-graph": "node scripts/check-turbo-task-graph.mjs lint",
     "lint:ds": "eslint --config eslint.ds.config.mjs packages/core/src/modules packages/enterprise/src/modules packages/ui/src/backend",
     "typecheck": "turbo run typecheck",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=768 turbo run test --concurrency=2",
@@ -106,7 +107,8 @@
     "check:client-boundaries": "node scripts/check-client-boundaries.mjs",
     "check:client-boundaries:fail": "node scripts/check-client-boundaries.mjs --fail",
     "check:time-bombs": "node scripts/time-bomb-scanner.mjs",
-    "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail"
+    "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail",
+    "agents:check-budget": "node scripts/check-agents-md-budget.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.2",
@@ -207,7 +209,7 @@
     "undici@npm:^8.4.1": "8.5.0",
     "websocket-driver": "0.7.5",
     "nodemailer": "9.0.1",
-    "brace-expansion": "5.0.7",
+    "brace-expansion": "5.0.8",
     "handlebars": "4.7.9",
     "path-to-regexp": "0.1.13",
     "protobufjs": "7.6.4",
@@ -226,7 +228,7 @@
     "js-yaml@npm:^4.1.0": "4.3.0",
     "js-yaml@npm:^4.1.1": "4.3.0",
     "mermaid": "11.16.0",
-    "postcss": "8.5.15",
+    "postcss": "8.5.22",
     "uuid@npm:^8.3.2": "11.1.1",
     "uuid@npm:^9.0.1": "11.1.1",
     "uuid@npm:^11.1.0": "11.1.1",

@@ -135,14 +135,25 @@ export async function updateJobProgress(
   ).execute()
 }
 
+export type FinalizeJobOptions = {
+  /**
+   * Marks the finished job as failed. `finished_at` alone cannot express this — readers
+   * derive "completed" from its presence — so a run that lost records would otherwise
+   * still report success in the status API and UI.
+   */
+  status?: 'failed'
+}
+
 export async function finalizeJob(
   db: Kysely<any>,
   scope: JobScope,
+  options: FinalizeJobOptions = {},
 ): Promise<void> {
   await applyScopeWhere(
     db.updateTable('entity_index_jobs' as any).set({
       finished_at: sql`now()`,
       heartbeat_at: sql`now()`,
+      ...(options.status ? { status: options.status } : {}),
     } as any) as any,
     scope,
   ).execute()

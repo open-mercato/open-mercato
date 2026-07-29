@@ -326,6 +326,7 @@
   "checkout.payPage.errors.loadMessage": "Nie udało się załadować tej strony płatności. Spróbuj ponownie.",
   "checkout.payPage.errors.loadTitle": "Nie udało się załadować linku płatności",
   "checkout.payPage.errors.password": "Nie udało się zweryfikować hasła. Spróbuj ponownie.",
+  "checkout.payPage.errors.sessionStart": "Nie udało się uruchomić sesji płatności. Spróbuj ponownie.",
   "checkout.payPage.errors.submit": "Nie udało się rozpocząć płatności. Spróbuj ponownie.",
   "checkout.payPage.fields.booleanFalse": "Nie",
   "checkout.payPage.fields.booleanTrue": "Tak",
