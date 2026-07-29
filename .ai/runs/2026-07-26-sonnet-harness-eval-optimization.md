@@ -353,6 +353,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.37 Bind installed behavior discovery and field-versus-history design to their exact existing owners — `789e010e3`
 - [x] 3.38 Bind installed table actions and mutation-guard consistency to their exact existing owners — `df6fa2938`
 - [x] 3.39 Bind spreadsheet imports, renewal schedules, host-state workflows, and customer-record AI to their exact domain owners — `aedcb6ff1`
+- [x] 3.40 Bind carrier provider-neutrality, absence safety, and requested-test context to their exact owners — `bb75087d8`
 
 ### Phase 4: Compatibility baseline
 
