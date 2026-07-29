@@ -41,6 +41,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AdapterRow, type AdapterHealth, type InstalledAdapter } from './AdapterRow'
+import { WebSearchPreview } from './WebSearchPreview'
 
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
@@ -583,6 +584,10 @@ export default function WebSearchSettingsPage() {
             </FieldGroup>
           </CardContent>
         </Card>
+
+        <div className="mt-4">
+          <WebSearchPreview />
+        </div>
       </PageBody>
     </Page>
   )
