@@ -82,6 +82,7 @@ export type WidgetDataResponse = {
   metadata: {
     fetchedAt: string
     recordCount: number
+    currency?: string | null
   }
 }
 
@@ -102,6 +103,7 @@ export class WidgetDataService {
   private scope: WidgetDataScope
   private registry: AnalyticsRegistry
   private cache?: CacheStrategy
+  private baseCurrencyPromise?: Promise<string | null>
 
   constructor(options: WidgetDataServiceOptions) {
     this.em = options.em
@@ -147,11 +149,12 @@ export class WidgetDataService {
 
     const shouldFetchComparison = Boolean(comparisonRange && request.dateRange)
 
-    const [mainResult, comparisonResult] = await Promise.all([
+    const [mainResult, comparisonResult, currency] = await Promise.all([
       this.executeQuery(request, dateRangeResolved),
       shouldFetchComparison && comparisonRange
         ? this.executeQuery(request, comparisonRange)
         : Promise.resolve<{ value: number | null; data: WidgetDataItem[] } | undefined>(undefined),
+      this.resolveBaseCurrency(),
     ])
 
     const response: WidgetDataResponse = {
@@ -160,6 +163,7 @@ export class WidgetDataService {
       metadata: {
         fetchedAt: now.toISOString(),
         recordCount: mainResult.data.length || (mainResult.value !== null ? 1 : 0),
+        currency,
       },
     }
 
@@ -186,6 +190,38 @@ export class WidgetDataService {
     }
 
     return response
+  }
+
+  /**
+   * Resolves the base currency of the current scope so money widgets can label amounts
+   * with the tenant's own currency instead of a hard-coded default (#4620). The lookup
+   * is soft: a scope spanning organizations with different base currencies, a missing
+   * base currency, or an unavailable currencies module all resolve to `null`, and the
+   * widgets then render unlabelled numbers rather than a wrong currency.
+   */
+  private resolveBaseCurrency(): Promise<string | null> {
+    if (!this.baseCurrencyPromise) {
+      this.baseCurrencyPromise = this.queryBaseCurrency().catch(() => null)
+    }
+    return this.baseCurrencyPromise
+  }
+
+  private async queryBaseCurrency(): Promise<string | null> {
+    const clauses = ['tenant_id = ?', 'is_base = true', 'deleted_at IS NULL']
+    const params: unknown[] = [this.scope.tenantId]
+
+    if (this.scope.organizationIds && this.scope.organizationIds.length > 0) {
+      clauses.push('organization_id = ANY(?::uuid[])')
+      params.push(`{${this.scope.organizationIds.join(',')}}`)
+    }
+
+    const sql = `SELECT DISTINCT code FROM currencies WHERE ${clauses.join(' AND ')} LIMIT 2`
+    const rows = await this.em.getConnection().execute(sql, params)
+    const codes = (Array.isArray(rows) ? rows : [])
+      .map((row: Record<string, unknown>) => (typeof row.code === 'string' ? row.code.trim() : ''))
+      .filter((code: string) => code.length > 0)
+
+    return codes.length === 1 ? codes[0] : null
   }
 
   private validateRequest(request: WidgetDataRequest): void {

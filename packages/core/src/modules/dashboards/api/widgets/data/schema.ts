@@ -86,5 +86,6 @@ export const widgetDataResponseSchema = z.object({
   metadata: z.object({
     fetchedAt: z.string(),
     recordCount: z.number(),
+    currency: z.string().nullable().optional(),
   }),
 })

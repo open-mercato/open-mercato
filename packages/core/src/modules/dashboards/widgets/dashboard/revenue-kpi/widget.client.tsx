@@ -13,7 +13,7 @@ import {
 } from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrency } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'revenue-kpi' })
@@ -46,8 +46,10 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [value, setValue] = React.useState<number | null>(null)
   const [trend, setTrend] = React.useState<KpiTrend | undefined>(undefined)
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency), [currency])
 
   const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
@@ -57,6 +59,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
     try {
       const data = await fetchRevenueData(hydrated, fetchWidgetData)
       setValue(data.value)
+      setCurrency(data.metadata?.currency ?? null)
       if (data.comparison) {
         setTrend({
           value: data.comparison.change,
@@ -114,7 +117,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
       comparisonLabel={comparisonLabel}
       loading={loading}
       error={error}
-      formatValue={formatCurrency}
+      formatValue={money.format}
       headerAction={
         <InlineDateRangeSelect
           value={hydrated.dateRange}

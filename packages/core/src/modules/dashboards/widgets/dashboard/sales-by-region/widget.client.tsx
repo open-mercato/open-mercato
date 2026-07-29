@@ -9,7 +9,7 @@ import { DateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DEFAULT_SETTINGS, hydrateSettings, type SalesByRegionSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'sales-by-region' })
@@ -44,8 +44,10 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<BarChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency), [currency])
 
   const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
@@ -59,6 +61,7 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load sales by region data', { err })
       setError(t('dashboards.analytics.widgets.salesByRegion.error', 'Failed to load data'))
@@ -114,7 +117,7 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
       loading={loading}
       error={error}
       layout="horizontal"
-      valueFormatter={formatCurrencyCompact}
+      valueFormatter={money.formatCompact}
       colors={['cyan']}
       showLegend={false}
       emptyMessage={t('dashboards.analytics.widgets.salesByRegion.empty', 'No regional sales data for this period')}

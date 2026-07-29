@@ -16,7 +16,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { DEFAULT_SETTINGS, hydrateSettings, type TopProductsSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'top-products' })
@@ -70,9 +70,11 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<BarChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const fetchingRef = React.useRef(false)
+  const money = React.useMemo(() => createCurrencyFormatters(currency), [currency])
 
   const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
@@ -88,6 +90,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load top products data', { err })
       setError(t('dashboards.analytics.widgets.topProducts.error', 'Failed to load data'))
@@ -172,7 +175,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           loading={loading}
           error={error}
           layout={hydrated.layout}
-          valueFormatter={formatCurrencyCompact}
+          valueFormatter={money.formatCompact}
           colors={['emerald']}
           showLegend={false}
           emptyMessage={t('dashboards.analytics.widgets.topProducts.empty', 'No product sales data for this period')}

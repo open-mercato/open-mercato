@@ -9,7 +9,7 @@ import { DateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DEFAULT_SETTINGS, hydrateSettings, type TopCustomersSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencySafe } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'top-customers' })
@@ -56,8 +56,10 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<CustomerRow[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency), [currency])
 
   const unknownLabel = t('dashboards.analytics.labels.unknown', 'Unknown')
   const columns: TopNTableColumn<CustomerRow>[] = React.useMemo(
@@ -76,10 +78,10 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
         key: 'revenue',
         header: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue'),
         align: 'right',
-        formatter: (value: unknown) => formatCurrencySafe(value),
+        formatter: (value: unknown) => money.formatSafe(value),
       },
     ],
-    [t, unknownLabel],
+    [t, unknownLabel, money],
   )
 
   const fetchWidgetData = useWidgetData()
@@ -95,6 +97,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
         revenue: item.value ?? 0,
       }))
       setData(tableData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load top customers data', { err })
       setError(t('dashboards.analytics.widgets.topCustomers.error', 'Failed to load data'))
