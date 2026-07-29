@@ -384,7 +384,7 @@ describe('built-in activity types', () => {
       return contract
     }
 
-    test('resolves the registered command outputSchema by commandId', () => {
+    test('nests the registered command outputSchema under the executor envelope', () => {
       const { registryModule, commandRegistryModule } = loadIsolated()
       const dealOutputSchema = z.object({ dealId: z.string().uuid() })
       commandRegistryModule.commandRegistry.register({
@@ -394,7 +394,16 @@ describe('built-in activity types', () => {
       })
       try {
         const contract = resolveContract(registryModule)
-        expect(contract({ commandId: 'customers.deals.update', input: {} })).toBe(dealOutputSchema)
+        const resolved = contract({ commandId: 'customers.deals.update', input: {} })
+        if (resolved === 'unknown') throw new Error('[internal] expected a resolved contract')
+        expect(
+          resolved.safeParse({
+            executed: true,
+            commandId: 'customers.deals.update',
+            logEntryId: 'log-1',
+            result: { dealId: '5f0b2f2a-8f6f-4a2f-9a1e-3c1d2e4f5a6b' },
+          }).success,
+        ).toBe(true)
       } finally {
         commandRegistryModule.commandRegistry.clear()
       }
