@@ -5,6 +5,7 @@ import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
   recoverMikroOrmV7GeneratedCacheFromImportError,
 } from './generatedCacheRecovery'
+import { createClientOnlyStubPlugin } from './clientOnlyModules'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -82,7 +83,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
       format: 'esm',
       platform: 'node',
       target: 'node18',
-      plugins: [aliasPlugin, externalNonJsonPlugin],
+      plugins: [createClientOnlyStubPlugin(), aliasPlugin, externalNonJsonPlugin],
       // Allow JSON imports
       loader: { '.json': 'json' },
     })
