@@ -347,6 +347,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.31 Align the CLI scaffold integration expectation with the intentionally removed unreachable package guides — `58216de54`
 - [x] 3.32 Stabilize measured high-effort mini timeouts, exact unavailable-read startup recovery, installed-contract UMES routing, callback inbox claiming, and observed context floors — `13d13ab6a`
 - [x] 3.33 Recover once from a successful routing startup with no observed context reads while keeping untraceable commands fail-closed — `06156c8bf`
+- [x] 3.34 Tighten measured runner floors, exact residual owner contracts, and contradictory catalog expectations without weakening compatibility or trace safety — `dd2c172e8`
 
 ### Phase 4: Compatibility baseline
 
