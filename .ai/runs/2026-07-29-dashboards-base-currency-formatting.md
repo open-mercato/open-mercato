@@ -38,4 +38,4 @@ in the tenant's own currency without a second round-trip and without a per-widge
 - [x] 7 widgets format via the resolved currency
 - [x] Unit tests (formatters + service)
 - [x] Validation gate
-- [ ] PR opened
+- [x] PR opened — https://github.com/open-mercato/open-mercato/pull/4631
