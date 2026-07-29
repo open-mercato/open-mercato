@@ -87,6 +87,15 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     expect(where.$or[0]).toEqual({ status: 'FAILED' })
   })
 
+  test('excludes dry runs, like every other run surface', async () => {
+    // A simulated failure is a report about a definition, not a run to triage,
+    // and bulk-replaying one from this list would start a REAL instance from a
+    // dry run's context.
+    await listFailureQueue(new NextRequest('http://localhost/api/workflows/instances/failure-queue'))
+
+    expect(mockEm.find.mock.calls[0][1].isDryRun).toBe(false)
+  })
+
   test('groups similar failures and returns them biggest-first', async () => {
     mockEm.find.mockResolvedValue([
       row({ id: 'a', errorMessage: 'Order 11111111-1111-4111-8111-111111111111 not found' }),

@@ -87,6 +87,11 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {
       tenantId,
       ...orgFilter.where,
+      // A simulation that "failed" is a report about a definition, never a run
+      // an operator must triage — and replaying one from here would start a
+      // REAL instance from a dry-run's context. The run list has excluded dry
+      // runs by default since spec §8.2; this union missed the same filter.
+      isDryRun: false,
       $or: [{ status: 'FAILED' }, { [attentionPath]: { $ne: null } }],
     }
     if (workflowId) where.workflowId = workflowId
