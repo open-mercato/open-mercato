@@ -1,5 +1,6 @@
 import type { Module, ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetMetadata, DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import { applyDashboardWidgetOverridesToEntries } from '@open-mercato/shared/modules/overrides'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 
 type LoadedWidgetModule = DashboardWidgetModule<any> & { metadata: DashboardWidgetMetadata }
@@ -20,13 +21,14 @@ async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
     widgetEntriesPromise = Promise.resolve().then(() => {
       const list = getModules() as Module[]
-      return list.flatMap((mod) => {
-        const entries = mod.dashboardWidgets ?? []
-        return entries.map((entry) => ({
+      const entries = list.flatMap((mod) => {
+        const moduleEntries = mod.dashboardWidgets ?? []
+        return moduleEntries.map((entry) => ({
           ...entry,
           moduleId: mod.id,
         }))
       })
+      return applyDashboardWidgetOverridesToEntries(entries) as WidgetEntry[]
     })
   }
   return widgetEntriesPromise

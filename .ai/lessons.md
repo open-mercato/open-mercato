@@ -970,6 +970,8 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
 
+- 2026-07-11 · shared data engine: tenant-scope tests covered explicit null but not omitted scope → parameterize non-null, null, and omitted tenantId for every predicate path.
+
 ## Shared security-default changes require a complete consumer audit
 
 **Context**: Hardening the shared rate-limit proxy-depth default fixed auth and metadata-driven consumers, but checkout public routes still passed a hard-coded trust depth of `1`.
