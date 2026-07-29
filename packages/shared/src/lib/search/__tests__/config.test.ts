@@ -132,6 +132,13 @@ describe('isSearchFieldBlocklisted', () => {
     expect(isSearchFieldBlocklisted('BODY', ' Customers:Customer_Interaction ', config)).toBe(true)
   })
 
+  it('ignores inherited Object.prototype keys when looking up an entity type', () => {
+    const config = { ...baseConfig, blocklistedFields: [], entityBlocklistedFields: {} }
+    expect(isSearchFieldBlocklisted('body', 'constructor', config)).toBe(false)
+    expect(isSearchFieldBlocklisted('body', 'toString', config)).toBe(false)
+    expect(isSearchFieldBlocklisted('body', '__proto__', config)).toBe(false)
+  })
+
   it('tolerates a config without the per-entity map', () => {
     const config = { ...baseConfig, blocklistedFields: ['secret'] }
     expect(isSearchFieldBlocklisted('client_secret', 'customers:person', config)).toBe(true)

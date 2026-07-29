@@ -110,7 +110,7 @@ export function isSearchFieldBlocklisted(
   if (config.blocklistedFields.some((blocked) => lower.includes(blocked))) return true
   if (!entityType) return false
   const scoped = config.entityBlocklistedFields?.[entityType.trim().toLowerCase()]
-  if (!scoped?.length) return false
+  if (!Array.isArray(scoped) || !scoped.length) return false
   return scoped.some((blocked) => lower.includes(blocked))
 }
 
