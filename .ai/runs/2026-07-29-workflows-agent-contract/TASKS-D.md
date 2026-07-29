@@ -10,8 +10,36 @@ Brief: `BRIEFING-phase5.md` §8.1/§8.2 + "Code view stage 2". Owned by this exe
 |------|-------|--------|--------|
 | D.1 | `INVOKE_AGENT` gets a `mock` — the one built-in that could not dry-run | done | `5d63aeb33` |
 | D.2 | `WorkflowInstance.isDryRun` + mocked-effector execution + the isolation guarantees | done | `21310f145` |
-| D.3 | Start fixtures + step-through | done | (this commit) |
-| D.4 | Code view stage 2 — two-way sync + issue-to-node squiggles | done | (this commit) |
+| D.3 | Start fixtures + step-through | done | `eedcc8191` |
+| D.4 | Code view stage 2 — two-way sync + issue-to-node squiggles | done | `cdf085aaa` |
+
+## Validation
+
+Runner: **local** (no compose `app` container running).
+
+| Command | Result |
+|---|---|
+| `yarn build:packages` · `yarn generate` | pass |
+| `yarn typecheck` | pass (22/22) |
+| `yarn i18n:check-sync` | pass |
+| `yarn lint` | 0 errors (12 pre-existing warnings in `@open-mercato/app`) |
+| `yarn workspace @open-mercato/core test --testPathPatterns='modules/(workflows\|business_rules)'` | 254 suites / 3412 tests pass |
+| `yarn workspace @open-mercato/enterprise test --testPathPatterns='metric'` | 3 suites / 17 tests pass |
+| `yarn build:app` | pass |
+
+**Pre-existing failures, verified against the base commit `005804cf2` in a throwaway
+worktree and untouched by this PR:**
+
+- `@open-mercato/enterprise` — `agent_orchestrator/__tests__/{agent-source-files,
+  agent-token-usage,webSearchEgress.integration}` (3 suites / 7 tests). Same three PR C
+  recorded.
+- `create-mercato-app` — the scaffolded-script assertion (`'yarn mercato test:integration'`
+  vs `'mercato test:integration'`). Reproduced identically at the base commit; this PR
+  touches nothing under `packages/create-app` or `apps/`.
+
+Integration specs `TC-WF-057` (dry-run isolation) and `TC-WF-062` (Code view stage 2) are
+WRITTEN, not run — no app is running in this worktree, and the brief forbids running
+Playwright.
 
 ## Binding constraints
 
