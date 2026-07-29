@@ -23,11 +23,21 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Trash2 } from 'lucide-react'
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../components/TemplateGalleryDialog'
 import { buildVisualEditorHref, WORKFLOW_STUDIO_CREATE_HREF } from '../../lib/visual-editor-navigation'
+import {
+  P95DurationCell,
+  RunsCell,
+  SuccessRateCell,
+  TaskSlaCell,
+  useDefinitionMetrics,
+} from '../../components/DefinitionMetricsCells'
+import type { WorkflowRollupWindowKey } from '../../lib/metrics/definition-metrics'
 
 type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
 
@@ -89,6 +99,7 @@ export default function WorkflowDefinitionsListPage() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { payload } = useBackendChrome()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; updatedAt: string | null } | null>(null)
   const [showTemplateGallery, setShowTemplateGallery] = React.useState(false)
@@ -131,6 +142,22 @@ export default function WorkflowDefinitionsListPage() {
       return response?.data || []
     },
   })
+
+  // Spec §8.5 operations KPIs. One batched request for the ids on this page, so
+  // paging costs one extra call rather than one per row, and a failure degrades
+  // the four columns to dashes instead of taking the list down. Columns are
+  // hidden — not dashed — without the feature: a permanently empty column reads
+  // as "this process has no runs", which is a different and wrong claim.
+  const canViewMetrics = hasFeature(payload?.grantedFeatures, 'workflows.metrics.view')
+  const visibleWorkflowIds = React.useMemo(
+    () => (canViewMetrics ? (data ?? []).map((definition) => definition.workflowId) : []),
+    [data, canViewMetrics],
+  )
+  const metricsWindow: WorkflowRollupWindowKey = '7d'
+  const { byWorkflowId: metricsByWorkflowId, isLoading: metricsLoading } = useDefinitionMetrics(
+    visibleWorkflowIds,
+    metricsWindow,
+  )
 
   const handleDelete = (id: string, workflowName: string, updatedAt: string | null) => {
     setDeleteTarget({ id, name: workflowName, updatedAt })
@@ -345,6 +372,51 @@ export default function WorkflowDefinitionsListPage() {
         )
       },
     },
+    ...(canViewMetrics
+      ? ([
+          {
+            id: 'metricsRuns',
+            header: t('workflows.metrics.columns.runs'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <RunsCell item={metricsByWorkflowId.get(row.original.workflowId)} loading={metricsLoading} />
+            ),
+          },
+          {
+            id: 'metricsSuccessRate',
+            header: t('workflows.metrics.columns.successRate'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <SuccessRateCell
+                item={metricsByWorkflowId.get(row.original.workflowId)}
+                loading={metricsLoading}
+              />
+            ),
+          },
+          {
+            id: 'metricsP95Duration',
+            header: t('workflows.metrics.columns.p95Duration'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <P95DurationCell
+                item={metricsByWorkflowId.get(row.original.workflowId)}
+                loading={metricsLoading}
+              />
+            ),
+          },
+          {
+            id: 'metricsTaskSla',
+            header: t('workflows.metrics.columns.taskSla'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <TaskSlaCell
+                item={metricsByWorkflowId.get(row.original.workflowId)}
+                loading={metricsLoading}
+              />
+            ),
+          },
+        ] as ColumnDef<WorkflowDefinition>[])
+      : []),
     {
       id: 'createdAt',
       header: t('workflows.fields.createdAt'),
