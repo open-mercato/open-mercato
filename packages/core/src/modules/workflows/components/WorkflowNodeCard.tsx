@@ -6,7 +6,11 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_ACCENTS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
 import { NODE_MAX_WIDTH, NODE_MIN_WIDTH } from '../lib/node-geometry'
-import { NODE_CONFIG_SUMMARY_SEPARATOR, type NodeConfigSummarySegment } from '../lib/node-config-summary'
+import {
+  NODE_CONFIG_SUMMARY_SEPARATOR,
+  resolveNodeConfigSummarySegment,
+  type NodeConfigSummarySegment,
+} from '../lib/node-config-summary'
 
 /**
  * Rendered node sizing. Cards size to their content between these bounds and
@@ -106,6 +110,10 @@ export function WorkflowNodeCard({
   summary,
 }: WorkflowNodeCardProps) {
   const t = useT()
+  const resolvedSummary = summary?.map((segment) => ({
+    segment,
+    text: resolveNodeConfigSummarySegment(segment, t),
+  }))
   // In edit mode (not_started), use white background
   const isEditMode = status === 'not_started'
   const colors = STATUS_COLORS[status]
@@ -274,12 +282,12 @@ export function WorkflowNodeCard({
           <h3 className={`break-words text-sm font-semibold leading-snug ${colors.text}`}>
             {title}
           </h3>
-          {summary && summary.length > 0 ? (
+          {resolvedSummary && resolvedSummary.length > 0 ? (
             <p className="mt-0.5 truncate text-xs text-muted-foreground" title={description}>
-              {summary.map((segment, index) => (
-                <span key={`${segment.text}-${index}`}>
+              {resolvedSummary.map(({ segment, text }, index) => (
+                <span key={`${segment.translationKey ?? segment.text}-${index}`}>
                   {index > 0 && NODE_CONFIG_SUMMARY_SEPARATOR}
-                  <span className={segment.mono ? 'font-mono' : undefined}>{segment.text}</span>
+                  <span className={segment.mono ? 'font-mono' : undefined}>{text}</span>
                 </span>
               ))}
             </p>

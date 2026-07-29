@@ -61,6 +61,7 @@ export type EdgeReattachRejectionCode =
   | 'duplicateRoute'
   | 'dataMappingRoute'
   | 'errorHandleUnsupported'
+  | 'kindHandleUnsupported'
   | 'graphInvalid'
   | 'forkJoinInvalid'
 
@@ -140,7 +141,12 @@ export function reattachWorkflowEdge(
   const routeKind = routeKindOfEdge(existing)
   const allowedSourceTypes = routeKind ? ROUTE_KIND_SOURCE_NODE_TYPES[routeKind.kind] : undefined
   if (allowedSourceTypes && !allowedSourceTypes.has(sourceNode.type ?? '')) {
-    return { ok: false, code: 'errorHandleUnsupported' }
+    return {
+      ok: false,
+      code: routeKind?.kind === ERROR_TRANSITION_KIND
+        ? 'errorHandleUnsupported'
+        : 'kindHandleUnsupported',
+    }
   }
 
   // A kinded route keeps its own handle: dropping the endpoint on a node's

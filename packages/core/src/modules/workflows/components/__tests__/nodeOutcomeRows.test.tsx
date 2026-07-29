@@ -10,12 +10,15 @@
  * distinction anyone can read.
  */
 import * as React from 'react'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { NodeOutcomeRows } from '../nodes/NodeOutcomeRows'
+import { InvokeAgentNode } from '../nodes/InvokeAgentNode'
 import {
   buildAgentOutcomeRows,
+  buildAllAgentOutcomeRows,
   buildDecisionOutcomeRows,
+  isDecisionSourceHandle,
   readDecisionLabel,
 } from '../../lib/node-outcome-rows'
 import { outcomeSourceHandleId } from '../../lib/outcome-routing'
@@ -68,6 +71,17 @@ describe('agent outcome rows — progressive disclosure', () => {
     expect(red).toHaveLength(2)
     expect(new Set(red.map((row) => row.glyph)).size).toBe(2)
   })
+
+  it('can reveal every authorable outcome without changing the default rows', () => {
+    expect(buildAllAgentOutcomeRows().map((row) => row.labelKey)).toEqual([
+      'workflows.outcomes.approved',
+      'workflows.outcomes.informative',
+      'workflows.outcomes.rejected',
+      'workflows.outcomes.guardrailBlocked',
+      'workflows.outcomes.error',
+    ])
+    expect(buildAgentOutcomeRows([], agentStep)).toHaveLength(1)
+  })
 })
 
 describe('user task decision rows — no engine work needed', () => {
@@ -82,6 +96,12 @@ describe('user task decision rows — no engine work needed', () => {
 
   it('skips a decision that binds to no route', () => {
     expect(buildDecisionOutcomeRows([{ id: 'orphan', label: 'Orphan' }])).toEqual([])
+  })
+
+  it('recognizes only authored decision handles', () => {
+    const decisions = [{ id: 'done', label: 'Done', transitionId: 't_done' }]
+    expect(isDecisionSourceHandle(decisions, 't_done')).toBe(true)
+    expect(isDecisionSourceHandle(decisions, 'source')).toBe(false)
   })
 
   it('reads a localized decision label rather than rendering an object', () => {
@@ -118,8 +138,44 @@ describe('the footer never lets colour carry the meaning', () => {
     expect(screen.getByText('unhandled → error directive')).toBeInTheDocument()
   })
 
+  it('renders an accessible progressive reveal control', () => {
+    const onReveal = jest.fn()
+    renderWithProviders(
+      <NodeOutcomeRows
+        rows={buildAgentOutcomeRows([], agentStep)}
+        revealLabel="+ outcome"
+        onReveal={onReveal}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '+ outcome' }))
+    expect(onReveal).toHaveBeenCalledTimes(1)
+  })
+
   it('renders nothing at all when a node has no rows', () => {
     const { container } = renderWithProviders(<NodeOutcomeRows rows={[]} />)
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('invoke-agent progressive outcome authoring', () => {
+  it('reveals every outcome handle from the localized add control', () => {
+    const props = {
+      id: agentStep,
+      data: {
+        label: 'Assess request',
+        outcomeRows: buildAgentOutcomeRows([], agentStep),
+      },
+      isConnectable: true,
+      selected: false,
+    } as unknown as React.ComponentProps<typeof InvokeAgentNode>
+
+    renderWithProviders(<InvokeAgentNode {...props} />)
+    expect(document.querySelectorAll('[data-outcome-handle]')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '+ outcome' }))
+
+    expect(document.querySelectorAll('[data-outcome-handle]')).toHaveLength(5)
+    expect(screen.queryByRole('button', { name: '+ outcome' })).toBeNull()
   })
 })

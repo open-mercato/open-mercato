@@ -151,6 +151,7 @@ describe('task inspector vocabulary round trip (spec §6.1)', () => {
     expect(reloaded?.data.priority).toBe('high')
     expect(reloaded?.data.decisions).toEqual(inspectorNode.data.decisions)
     expect(reloaded?.data.entityBindings).toEqual(inspectorNode.data.entityBindings)
+    expect(edges.find((edge) => edge.id === 't_approve')?.sourceHandle).toBe('t_approve')
 
     const resaved = saveStep(
       graphToDefinition(nodes, edges).steps.find((step: any) => step.stepId === 'approve-refund')

@@ -173,6 +173,6 @@ describe('reattachment keeps a route on its own handle', () => {
       targetHandle: null,
     })
 
-    expect(result).toEqual({ ok: false, code: 'errorHandleUnsupported' })
+    expect(result).toEqual({ ok: false, code: 'kindHandleUnsupported' })
   })
 })

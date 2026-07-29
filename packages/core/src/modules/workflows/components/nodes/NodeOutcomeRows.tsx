@@ -3,6 +3,7 @@
 import { Handle, Position } from '@xyflow/react'
 import { Check, CircleAlert, Info, ShieldMinus, Slash, Dot } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
 import type { NodeOutcomeRow, NodeOutcomeRowGlyph, NodeOutcomeRowTone } from '../../lib/node-outcome-rows'
 
 /**
@@ -52,10 +53,19 @@ export interface NodeOutcomeRowsProps {
    * state that unwired outcomes inherit the step's error directive.
    */
   inheritanceNote?: string
+  revealLabel?: string
+  onReveal?: () => void
   testId?: string
 }
 
-export function NodeOutcomeRows({ rows, isConnectable, inheritanceNote, testId }: NodeOutcomeRowsProps) {
+export function NodeOutcomeRows({
+  rows,
+  isConnectable,
+  inheritanceNote,
+  revealLabel,
+  onReveal,
+  testId,
+}: NodeOutcomeRowsProps) {
   const t = useT()
   if (rows.length === 0) return null
 
@@ -90,6 +100,19 @@ export function NodeOutcomeRows({ rows, isConnectable, inheritanceNote, testId }
           )
         })}
       </div>
+      {revealLabel && onReveal && (
+        <div className="mt-1 flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="2xs"
+            className="nodrag nopan"
+            onClick={onReveal}
+          >
+            {revealLabel}
+          </Button>
+        </div>
+      )}
       {inheritanceNote && (
         <p className="mt-0.5 text-right text-overline text-muted-foreground">{inheritanceNote}</p>
       )}

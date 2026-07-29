@@ -7,6 +7,7 @@ import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 import { NodeOutcomeRows } from './NodeOutcomeRows'
 import { buildDecisionOutcomeRows, type DecisionRowLike } from '../../lib/node-outcome-rows'
+import { useLocale } from '@open-mercato/shared/lib/i18n/context'
 
 export interface UserTaskNodeData {
   label: string
@@ -36,10 +37,11 @@ export interface UserTaskNodeData {
  */
 export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as UserTaskNodeData
+  const locale = useLocale()
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
   const summary = buildNodeConfigSummary('userTask', nodeData as never)
-  const decisionRows = buildDecisionOutcomeRows(nodeData.decisions)
+  const decisionRows = buildDecisionOutcomeRows(nodeData.decisions, locale)
 
   return (
     <div className="user-task-node" title={nodeData.tooltip}>

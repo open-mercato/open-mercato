@@ -30,6 +30,7 @@ import {
 } from '../outcome-routing'
 import { ERROR_TRANSITION_KIND } from '../error-routing'
 import { definitionToGraph, graphToDefinition } from '../graph-utils'
+import { findRouteKindDescriptorForHandle } from '../route-kinds'
 import * as transitionHandler from '../transition-handler'
 import * as workflowExecutor from '../workflow-executor'
 import * as ruleEvaluator from '../../../business_rules/lib/rule-evaluator'
@@ -242,6 +243,16 @@ describe('agent outcome routing — author-time checks', () => {
 })
 
 describe('agent outcome routing — canvas round trip', () => {
+  test('a newly drawn outcome handle immediately carries its discriminator', () => {
+    const sourceHandle = outcomeSourceHandleId('rejected')
+    const descriptor = findRouteKindDescriptorForHandle(sourceHandle)
+
+    expect(descriptor?.kind).toBe(OUTCOME_TRANSITION_KIND)
+    expect(descriptor?.discriminatorFields({ sourceHandle })).toEqual({
+      outcomeKind: 'rejected',
+    })
+  })
+
   test.each(AGENT_OUTCOME_KINDS)('an %s route survives a Studio save', (outcome) => {
     const definition = {
       steps: baseSteps,
@@ -367,7 +378,7 @@ describe('agent outcome routing — executor', () => {
       expect.anything(),
       'agent',
       'review',
-      expect.anything(),
+      expect.objectContaining({ transitionId: 't_out_rejected' }),
     )
     expect(result.events.some((event) => event.eventType === 'OUTCOME_ROUTED')).toBe(true)
     expect(createdEventTypes()).toContain('OUTCOME_ROUTED')
@@ -422,7 +433,7 @@ describe('agent outcome routing — executor', () => {
       expect.anything(),
       'agent',
       'apply',
-      expect.anything(),
+      expect.objectContaining({ transitionId: 't_agent_apply' }),
     )
   })
   // Regression: `sendSignal` advances a resumed instance ITSELF — it picks the
@@ -459,8 +470,60 @@ describe('agent outcome routing — executor', () => {
       expect.anything(),
       'agent',
       'review',
-      expect.anything(),
+      expect.objectContaining({ transitionId: 't_out_rejected' }),
     )
+  })
+
+  test('an inherited continue directive writes its fallback and resumes normal routing', async () => {
+    const definition = makeDefinition([
+      ...normalRoutes,
+      outcomeRoute('t_out_rejected', 'review', 'rejected'),
+    ])
+    const agentStep = definition.definition.steps.find((step) => step.stepId === 'agent') as {
+      errorDirective?: { mode: string; fallbackValue?: unknown }
+    }
+    agentStep.errorDirective = { mode: 'continueWithFallback', fallbackValue: { reviewed: false } }
+    const instance = makeInstance({
+      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'informative'),
+    })
+
+    const dispatched = await workflowExecutor.dispatchAgentOutcomeForCurrentStep(
+      mockEm,
+      mockContainer,
+      instance,
+      definition.definition as never,
+      { workflowContext: instance.context },
+    )
+
+    expect(dispatched).toEqual({ kind: 'default' })
+    expect(instance.context.agent).toEqual({ reviewed: false })
+    expect(createdEventTypes()).toContain('ERROR_DIRECTIVE_APPLIED')
+  })
+
+  test('an inherited failureQueue directive parks the instance for attention', async () => {
+    const definition = makeDefinition([
+      ...normalRoutes,
+      outcomeRoute('t_out_rejected', 'review', 'rejected'),
+    ])
+    const agentStep = definition.definition.steps.find((step) => step.stepId === 'agent') as {
+      errorDirective?: { mode: string }
+    }
+    agentStep.errorDirective = { mode: 'failureQueue' }
+    const instance = makeInstance({
+      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'informative'),
+    })
+
+    const dispatched = await workflowExecutor.dispatchAgentOutcomeForCurrentStep(
+      mockEm,
+      mockContainer,
+      instance,
+      definition.definition as never,
+      { workflowContext: instance.context },
+    )
+
+    expect(dispatched).toEqual({ kind: 'parked' })
+    expect(instance.status).toBe('PAUSED')
+    expect(instance.metadata).toMatchObject({ attention: { stepId: 'agent' } })
   })
 
   test('the resume path reports no dispatch when there is no marker', async () => {

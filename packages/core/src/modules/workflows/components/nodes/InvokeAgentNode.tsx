@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
@@ -7,7 +8,7 @@ import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 import { NodeOutcomeRows } from './NodeOutcomeRows'
-import type { NodeOutcomeRow } from '../../lib/node-outcome-rows'
+import { buildAllAgentOutcomeRows, type NodeOutcomeRow } from '../../lib/node-outcome-rows'
 
 export interface InvokeAgentNodeData {
   label: string
@@ -41,6 +42,12 @@ export interface InvokeAgentNodeData {
 export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps) {
   const t = useT()
   const nodeData = data as unknown as InvokeAgentNodeData
+  const [showAllOutcomes, setShowAllOutcomes] = useState(false)
+  const availableOutcomeRows = buildAllAgentOutcomeRows()
+  const outcomeRows = showAllOutcomes ? availableOutcomeRows : (nodeData.outcomeRows ?? [])
+  const canRevealOutcomes = Boolean(
+    isConnectable && !showAllOutcomes && outcomeRows.length < availableOutcomeRows.length,
+  )
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
   const summary = buildNodeConfigSummary('invokeAgent', nodeData as never)
@@ -103,12 +110,18 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
           editable={isConnectable}
           footer={
             <NodeOutcomeRows
-              rows={nodeData.outcomeRows ?? []}
+              rows={outcomeRows}
               isConnectable={isConnectable}
               inheritanceNote={t(
                 'workflows.outcomes.inheritsErrorDirective',
                 'unhandled → error directive',
               )}
+              revealLabel={
+                canRevealOutcomes
+                  ? t('workflows.outcomes.add', '+ outcome')
+                  : undefined
+              }
+              onReveal={canRevealOutcomes ? () => setShowAllOutcomes(true) : undefined}
               testId="workflow-agent-outcome-rows"
             />
           }

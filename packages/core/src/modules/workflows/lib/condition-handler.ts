@@ -347,7 +347,7 @@ async function completeConditionWait(
     instance,
     stepInstance.stepId,
     firstValidTransition.transition.toStepId,
-    transitionContext
+    { ...transitionContext, transitionId: firstValidTransition.transition.transitionId },
   )
 
   if (!transitionResult.success) {

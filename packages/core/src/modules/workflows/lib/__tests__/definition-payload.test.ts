@@ -1,6 +1,6 @@
 import { buildDefinitionPayload, buildMetadataPayload } from '../definition-payload'
 import { workflowMetadataSchema } from '../../data/validators'
-import { STEP_TYPE_MIN_ENGINE_VERSIONS } from '../engine-version'
+import { STEP_TYPE_MIN_ENGINE_VERSIONS, TRANSITION_KIND_MIN_ENGINE_VERSIONS } from '../engine-version'
 import type { WorkflowContextSchema, WorkflowDefinitionData, WorkflowDefinitionTrigger } from '../../data/entities'
 
 const graphDefinition: WorkflowDefinitionData = {
@@ -159,6 +159,58 @@ describe('buildMetadataPayload', () => {
       definition: conditionDefinition,
     })
     expect(payload).toEqual({ minEngineVersion: STEP_TYPE_MIN_ENGINE_VERSIONS.WAIT_FOR_CONDITION })
+  })
+
+  it('stamps the outcome-transition engine version when the definition uses agent disposition routing', () => {
+    const outcomeDefinition: WorkflowDefinitionData = {
+      steps: graphDefinition.steps,
+      transitions: [
+        {
+          transitionId: 't1',
+          fromStepId: 'agent',
+          toStepId: 'end',
+          trigger: 'AUTO',
+          kind: 'outcome',
+          outcomeKind: 'approved',
+        },
+      ],
+    }
+    const payload = buildMetadataPayload({
+      loadedMetadata: null,
+      category: '',
+      tags: [],
+      icon: '',
+      definition: outcomeDefinition,
+    })
+    expect(payload).toEqual({ minEngineVersion: TRANSITION_KIND_MIN_ENGINE_VERSIONS.outcome })
+  })
+
+  it('stamps the highest engine version required across steps and transitions', () => {
+    const mixedDefinition: WorkflowDefinitionData = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'branch', stepName: 'Branch', stepType: 'IF_ELSE' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        {
+          transitionId: 't1',
+          fromStepId: 'branch',
+          toStepId: 'end',
+          trigger: 'AUTO',
+          kind: 'outcome',
+          outcomeKind: 'approved',
+        },
+      ],
+    }
+    const payload = buildMetadataPayload({
+      loadedMetadata: null,
+      category: '',
+      tags: [],
+      icon: '',
+      definition: mixedDefinition,
+    })
+    expect(payload).toEqual({ minEngineVersion: TRANSITION_KIND_MIN_ENGINE_VERSIONS.outcome })
   })
 
   it('leaves baseline definitions without a minEngineVersion key', () => {

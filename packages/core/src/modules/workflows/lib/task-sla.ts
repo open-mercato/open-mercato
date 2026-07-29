@@ -292,7 +292,7 @@ type BreachOutcome = 'none' | 'notified' | 'reassigned' | 'routed' | 'route_skip
 interface AppliedBreachHandling {
   outcome: BreachOutcome
   detail?: Record<string, unknown>
-  resumeInstance?: { stepId: string; toStepId: string }
+  resumeInstance?: { stepId: string; toStepId: string; transitionId?: string }
 }
 
 /**
@@ -391,7 +391,7 @@ async function applyBreachHandling(
     return {
       outcome: 'routed',
       detail: { transitionId: resolution.transition.transitionId, toStepId },
-      resumeInstance: { stepId, toStepId },
+      resumeInstance: { stepId, toStepId, transitionId: resolution.transition.transitionId },
     }
   }
 
@@ -411,7 +411,7 @@ async function resumeAfterBreachRoute(
   container: AwilixContainer,
   task: UserTask,
   options: RunTaskSlaJobOptions,
-  route: { stepId: string; toStepId: string }
+  route: { stepId: string; toStepId: string; transitionId?: string }
 ): Promise<void> {
   try {
     const instance = await em.findOne(WorkflowInstance, {
@@ -442,7 +442,11 @@ async function resumeAfterBreachRoute(
       instance,
       route.stepId,
       route.toStepId,
-      { workflowContext: instance.context, userId: options.userId }
+      {
+        workflowContext: instance.context,
+        userId: options.userId,
+        transitionId: route.transitionId,
+      },
     )
 
     if (!transitionResult.success) {

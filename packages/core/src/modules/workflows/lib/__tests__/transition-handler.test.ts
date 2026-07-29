@@ -124,6 +124,42 @@ describe('Transition Handler (Unit Tests)', () => {
       expect(result.transition.toStepId).toBe('step-2')
     })
 
+    test('selects the durable transition id when multiple routes share endpoints', async () => {
+      const definitionWithDuplicateEndpoints = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            {
+              transitionId: 'normal-route',
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              kind: 'normal',
+            },
+            {
+              transitionId: 'outcome-route',
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              kind: 'outcome',
+              outcomeKind: 'rejected',
+            },
+          ],
+        },
+      }
+      mockEm.findOne.mockResolvedValue(definitionWithDuplicateEndpoints as WorkflowDefinition)
+
+      const result = await transitionHandler.evaluateTransition(
+        mockEm,
+        mockInstance,
+        'step-1',
+        'step-2',
+        { workflowContext: {}, transitionId: 'outcome-route' },
+      )
+
+      expect(result.isValid).toBe(true)
+      expect(result.transition.transitionId).toBe('outcome-route')
+    })
+
     test('should return false if workflow definition not found', async () => {
       mockEm.findOne.mockResolvedValue(null)
 

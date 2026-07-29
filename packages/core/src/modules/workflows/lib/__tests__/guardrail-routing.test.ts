@@ -187,7 +187,7 @@ describe('guardrail escalation in the activity worker', () => {
     )
   })
 
-  it('does not divert an ordinary agent failure onto the guardrail route', async () => {
+  it('applies inherited error handling when a step opted into another outcome', async () => {
     const invokeAgentForWorkflow = jest.fn().mockRejectedValue(new Error('unknown agent id'))
     const { em, container } = makeDeps([guardrailRoute])
     ;(container.resolve as jest.Mock).mockImplementation((name: string) => {
@@ -197,8 +197,33 @@ describe('guardrail escalation in the activity worker', () => {
 
     await handleInvokeAgentJob(em, container, makeJob())
 
-    expect(sendSignalMock).not.toHaveBeenCalled()
-    expect(completeWorkflowMock).toHaveBeenCalledTimes(1)
+    expect(sendSignalMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ agentOutcome: 'error' }),
+    )
+    expect(completeWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it('routes an ordinary terminal failure through a wired error outcome', async () => {
+    const errorRoute = { ...guardrailRoute, transitionId: 't_error', outcomeKind: 'error' }
+    const invokeAgentForWorkflow = jest.fn().mockRejectedValue(new Error('provider unavailable'))
+    const { em, container } = makeDeps([errorRoute])
+    ;(container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'agentWorkflowBridge') return { invokeAgentForWorkflow }
+      throw new Error(`unexpected resolve(${name})`)
+    })
+
+    await handleInvokeAgentJob(em, container, makeJob())
+
+    expect(completeWorkflowMock).not.toHaveBeenCalled()
+    const [, , options] = sendSignalMock.mock.calls[0] as [
+      unknown,
+      unknown,
+      { agentOutcome: string; payload: Record<string, unknown> },
+    ]
+    expect(options.agentOutcome).toBe('error')
+    expect(options.payload).toHaveProperty('__error')
   })
 })
 

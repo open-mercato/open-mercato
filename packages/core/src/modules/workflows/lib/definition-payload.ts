@@ -19,7 +19,7 @@ import type {
 } from '../data/entities'
 import type { WorkflowErrorHandlerConfig } from '../data/validators'
 import { writeEditorAnnotations, type WorkflowEditorAnnotations } from './editor-annotations'
-import { resolveRequiredEngineVersion } from './engine-version'
+import { resolveRequiredEngineVersion, type EngineVersionedDefinition } from './engine-version'
 import type { WorkflowInterpolationMode } from './interpolation-pipeline'
 
 export type DefinitionPayloadInput = {
@@ -49,11 +49,12 @@ export type MetadataPayloadInput = {
   icon: string
   /**
    * Definition being saved. Used to stamp `minEngineVersion` when the graph
-   * contains a step type older engines cannot execute (spec section 5.8).
+   * contains a step or transition capability older engines cannot execute
+   * (spec section 5.8).
    * Definitions that need nothing beyond the baseline keep no such key, so
    * saving an existing workflow stays byte-identical.
    */
-  definition?: { steps?: unknown } | null
+  definition?: EngineVersionedDefinition | null
   /**
    * Sticky notes and groups (spec section 4.5). The canvas owns them as nodes,
    * so they are derived back out of the node array on every persistence path and

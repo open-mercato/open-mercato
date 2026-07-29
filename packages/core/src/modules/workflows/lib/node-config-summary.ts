@@ -14,11 +14,32 @@
  * canvas and `graph-utils` could consume it if the layout ever needs to.
  */
 
-/** A summary is segments so command ids can render monospaced and the rest not. */
-export interface NodeConfigSummarySegment {
-  text: string
-  mono?: boolean
-}
+import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
+
+export type NodeConfigSummaryTranslationKey =
+  | 'workflows.nodeSummary.alwaysAsk'
+  | 'workflows.nodeSummary.assigned'
+  | 'workflows.nodeSummary.autoApproveThreshold'
+  | 'workflows.nodeSummary.bound'
+  | 'workflows.nodeSummary.decisions'
+  | 'workflows.nodeSummary.retries'
+  | 'workflows.nodeSummary.role'
+  | 'workflows.nodeSummary.until'
+
+/** A summary is segments so command ids can render monospaced and labels can be translated. */
+export type NodeConfigSummarySegment =
+  | {
+      text: string
+      translationKey?: never
+      translationParams?: never
+      mono?: boolean
+    }
+  | {
+      text?: never
+      translationKey: NodeConfigSummaryTranslationKey
+      translationParams?: TranslateParams
+      mono?: boolean
+    }
 
 export const NODE_CONFIG_SUMMARY_SEPARATOR = ' · '
 
@@ -60,7 +81,10 @@ function firstActivityConfig(
 function retrySegment(data: NodeConfigSummarySource): NodeConfigSummarySegment | null {
   const attempts = data.retryPolicy?.maxAttempts
   if (typeof attempts !== 'number' || attempts <= 1) return null
-  return { text: `retries ${attempts}×` }
+  return {
+    translationKey: 'workflows.nodeSummary.retries',
+    translationParams: { count: attempts },
+  }
 }
 
 function automatedSummary(data: NodeConfigSummarySource): NodeConfigSummarySegment[] {
@@ -101,9 +125,12 @@ function invokeAgentSummary(data: NodeConfigSummarySource): NodeConfigSummarySeg
     | { autoApproveThreshold?: unknown; alwaysAsk?: unknown }
     | undefined
   if (onResult?.alwaysAsk === true) {
-    segments.push({ text: 'always ask' })
+    segments.push({ translationKey: 'workflows.nodeSummary.alwaysAsk' })
   } else if (typeof onResult?.autoApproveThreshold === 'number') {
-    segments.push({ text: `auto ≥ ${onResult.autoApproveThreshold}` })
+    segments.push({
+      translationKey: 'workflows.nodeSummary.autoApproveThreshold',
+      translationParams: { threshold: onResult.autoApproveThreshold },
+    })
   }
   return segments
 }
@@ -112,16 +139,29 @@ function userTaskSummary(data: NodeConfigSummarySource): NodeConfigSummarySegmen
   const segments: NodeConfigSummarySegment[] = []
   const roles = (data.assignedToRoles ?? []).filter((role): role is string => !!text(role))
   if (roles.length > 0) {
-    segments.push({ text: `role: ${roles.join(', ')}` })
+    segments.push({
+      translationKey: 'workflows.nodeSummary.role',
+      translationParams: { roles: roles.join(', ') },
+    })
   } else if (text(data.assignedTo)) {
-    segments.push({ text: `assigned` })
+    segments.push({ translationKey: 'workflows.nodeSummary.assigned' })
   }
 
   const bindings = data.entityBindings ?? []
-  if (bindings.length > 0) segments.push({ text: `bound: ${bindings.length}` })
+  if (bindings.length > 0) {
+    segments.push({
+      translationKey: 'workflows.nodeSummary.bound',
+      translationParams: { count: bindings.length },
+    })
+  }
 
   const decisions = (data.decisions ?? []).length
-  if (decisions > 0) segments.push({ text: `${decisions} decisions` })
+  if (decisions > 0) {
+    segments.push({
+      translationKey: 'workflows.nodeSummary.decisions',
+      translationParams: { count: decisions },
+    })
+  }
   return segments
 }
 
@@ -137,7 +177,12 @@ function waitForTimerSummary(data: NodeConfigSummarySource): NodeConfigSummarySe
   const duration = text(data.duration) ?? text((data.config as { duration?: unknown } | null)?.duration)
   if (duration) return [{ text: duration }]
   const until = text(data.until) ?? text((data.config as { until?: unknown } | null)?.until)
-  return until ? [{ text: `until ${until}` }] : []
+  return until
+    ? [{
+        translationKey: 'workflows.nodeSummary.until',
+        translationParams: { value: until },
+      }]
+    : []
 }
 
 function subWorkflowSummary(data: NodeConfigSummarySource): NodeConfigSummarySegment[] {
@@ -170,6 +215,21 @@ export function buildNodeConfigSummary(
   return builder(data)
 }
 
-export function formatNodeConfigSummary(segments: NodeConfigSummarySegment[]): string {
-  return segments.map((segment) => segment.text).join(NODE_CONFIG_SUMMARY_SEPARATOR)
+export function resolveNodeConfigSummarySegment(
+  segment: NodeConfigSummarySegment,
+  translate: TranslateFn,
+): string {
+  if (segment.translationKey) {
+    return translate(segment.translationKey, segment.translationParams)
+  }
+  return segment.text
+}
+
+export function formatNodeConfigSummary(
+  segments: NodeConfigSummarySegment[],
+  translate: TranslateFn,
+): string {
+  return segments
+    .map((segment) => resolveNodeConfigSummarySegment(segment, translate))
+    .join(NODE_CONFIG_SUMMARY_SEPARATOR)
 }

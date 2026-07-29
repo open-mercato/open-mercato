@@ -105,8 +105,19 @@ describe('WorkflowNodeCard — validation error badge', () => {
         title="Update deal"
         nodeType="automated"
         description="Run deals.health_check and disposition the proposal inline. Parks on the human."
-        summary={[{ text: 'customers.deals.update', mono: true }, { text: 'retries 3×' }]}
+        summary={[
+          { text: 'customers.deals.update', mono: true },
+          {
+            translationKey: 'workflows.nodeSummary.retries',
+            translationParams: { count: 3 },
+          },
+        ]}
       />,
+      {
+        dict: {
+          'workflows.nodeSummary.retries': 'retries {count}×',
+        },
+      },
     )
 
     expect(container.textContent).toContain('customers.deals.update')

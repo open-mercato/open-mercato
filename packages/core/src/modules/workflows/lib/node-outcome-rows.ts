@@ -87,6 +87,14 @@ export function buildAgentOutcomeRows(
   }))
 }
 
+export function buildAllAgentOutcomeRows(): NodeOutcomeRow[] {
+  return AGENT_OUTCOME_KINDS.map((outcome) => ({
+    handleId: outcomeSourceHandleId(outcome),
+    labelKey: `workflows.outcomes.${outcome}`,
+    ...OUTCOME_ROW_PRESENTATION[outcome],
+  }))
+}
+
 export interface DecisionRowLike {
   id?: string
   label?: unknown
@@ -145,4 +153,12 @@ export function buildDecisionOutcomeRows(
     })
   }
   return rows
+}
+
+export function isDecisionSourceHandle(
+  decisions: DecisionRowLike[] | null | undefined,
+  sourceHandle: unknown,
+): sourceHandle is string {
+  if (typeof sourceHandle !== 'string' || sourceHandle.length === 0) return false
+  return (decisions ?? []).some((decision) => decision.transitionId === sourceHandle)
 }

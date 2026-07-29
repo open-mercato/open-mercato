@@ -84,6 +84,7 @@ export interface TransitionEvaluationContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  transitionId?: string
 }
 
 export interface TransitionEvaluationResult {
@@ -98,6 +99,7 @@ export interface TransitionExecutionContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  transitionId?: string
 }
 
 export interface TransitionExecutionResult {
@@ -184,7 +186,10 @@ export async function evaluateTransition(
     if (toStepId) {
       // Find specific transition
       transition = transitions.find(
-        (t: any) => t.fromStepId === fromStepId && t.toStepId === toStepId
+        (candidate: { fromStepId?: unknown; toStepId?: unknown; transitionId?: unknown }) =>
+          candidate.fromStepId === fromStepId
+          && candidate.toStepId === toStepId
+          && (context.transitionId === undefined || candidate.transitionId === context.transitionId)
       )
 
       if (!transition) {
@@ -301,7 +306,7 @@ export async function findValidTransitions(
         instance,
         fromStepId,
         transition.toStepId,
-        context
+        { ...context, transitionId: transition.transitionId },
       )
 
       if (!conditionResult.isValid) {

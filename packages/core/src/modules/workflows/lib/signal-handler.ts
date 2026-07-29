@@ -19,6 +19,7 @@ import {
   WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
   buildAgentOutcomeContextEntry,
   mapDispositionToAgentOutcome,
+  type AgentOutcomeKind,
 } from './outcome-routing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -39,6 +40,12 @@ export interface SendSignalOptions {
    * Optional payload to merge into workflow context
    */
   payload?: Record<string, any>
+
+  /** Engine-owned outcome metadata kept separate from author-visible mappings. */
+  agentOutcome?: AgentOutcomeKind
+
+  /** Proposal identifier associated with `agentOutcome`, when present. */
+  agentProposalId?: string
 
   /**
    * User ID sending the signal
@@ -71,7 +78,16 @@ export async function sendSignal(
   container: AwilixContainer,
   options: SendSignalOptions
 ): Promise<void> {
-  const { instanceId, signalName, payload, userId, tenantId, organizationId } = options
+  const {
+    instanceId,
+    signalName,
+    payload,
+    agentOutcome,
+    agentProposalId,
+    userId,
+    tenantId,
+    organizationId,
+  } = options
 
   const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
   const stepHandler = container.resolve<typeof stepHandlerModule>('stepHandler')
@@ -273,11 +289,12 @@ export async function sendSignal(
   // marker the executor routes on. Recorded regardless of who sent the signal;
   // the author-visible `disposition` key stays untouched and unread by routing.
   if (isInvokeAgentStep && instance.currentStepId) {
-    const resolvedOutcome = mapDispositionToAgentOutcome(
+    const resolvedOutcome = agentOutcome ?? mapDispositionToAgentOutcome(
       (payload as Record<string, unknown> | undefined)?.disposition,
     )
     if (resolvedOutcome) {
-      const proposalId = (payload as Record<string, unknown> | undefined)?.agentProposalId
+      const proposalId = agentProposalId
+        ?? (payload as Record<string, unknown> | undefined)?.agentProposalId
         ?? (payload as Record<string, unknown> | undefined)?.proposalId
       instance.context = {
         ...instance.context,
@@ -344,10 +361,13 @@ export async function sendSignal(
   )
   if (outcomeDispatch && outcomeDispatch.kind !== 'default') {
     if (outcomeDispatch.kind === 'failed') {
-      throw new SignalError('Agent outcome could not be routed', 'OUTCOME_ROUTE_FAILED', {
+      await workflowExecutor.completeWorkflow(em, container, instance.id, 'FAILED', {
         error: outcomeDispatch.error,
       })
+      return
     }
+    if (outcomeDispatch.kind === 'parked') return
+    if (outcomeDispatch.paused || instance.status === 'PAUSED') return
     instance.status = 'RUNNING'
     await em.flush()
     await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
@@ -404,7 +424,7 @@ export async function sendSignal(
     instance,
     instance.currentStepId,
     firstValidTransition.transition.toStepId,
-    transitionContext
+    { ...transitionContext, transitionId: firstValidTransition.transition.transitionId },
   )
 
   if (!transitionResult.success) {

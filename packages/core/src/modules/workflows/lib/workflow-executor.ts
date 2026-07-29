@@ -498,6 +498,15 @@ export async function executeWorkflow(
               executionTime: Date.now() - startTime,
             }
           }
+          if (dispatched.kind === 'parked') {
+            return {
+              status: 'RUNNING',
+              currentStep: currentInstance.currentStepId,
+              context: currentInstance.context,
+              events,
+              executionTime: Date.now() - startTime,
+            }
+          }
         }
 
         const transitions = excludeNonNormalTransitions(definition.definition.transitions).filter(
@@ -552,7 +561,7 @@ export async function executeWorkflow(
             currentInstance,
             selectedTransition.fromStepId,
             selectedTransition.toStepId,
-            evalContext
+            { ...evalContext, transitionId: selectedTransition.transitionId },
           )
 
           if (!transitionResult.success) {
@@ -828,7 +837,8 @@ export async function executeWorkflow(
 }
 
 export type AgentOutcomeDispatch =
-  | { kind: 'routed'; toStepId: string; transitionId?: string }
+  | { kind: 'routed'; toStepId: string; transitionId?: string; paused?: boolean }
+  | { kind: 'parked' }
   | { kind: 'failed'; error: string }
   | { kind: 'default' }
 
@@ -847,7 +857,7 @@ export async function dispatchAgentOutcomeForCurrentStep(
   container: AwilixContainer,
   instance: WorkflowInstance,
   definition: OutcomeRoutingDefinitionLike,
-  evalContext: { workflowContext: Record<string, any>; userId?: string }
+  evalContext: { workflowContext: Record<string, unknown>; userId?: string }
 ): Promise<AgentOutcomeDispatch | null> {
   const marker = readAgentOutcomeMarker(instance.context, instance.currentStepId ?? '')
   if (!marker) return null
@@ -872,10 +882,10 @@ async function dispatchAgentOutcome(
   instance: WorkflowInstance,
   definition: OutcomeRoutingDefinitionLike,
   marker: WorkflowAgentOutcomeContextEntry,
-  evalContext: { workflowContext: Record<string, any>; userId?: string }
+  evalContext: { workflowContext: Record<string, unknown>; userId?: string }
 ): Promise<AgentOutcomeDispatch> {
   const { [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: _consumed, ...remainingContext } =
-    (instance.context || {}) as Record<string, any>
+    (instance.context || {}) as Record<string, unknown>
   instance.context = remainingContext
   instance.updatedAt = new Date()
   await em.flush()
@@ -924,19 +934,22 @@ async function dispatchAgentOutcome(
       instance,
       marker.stepId,
       toStepId,
-      clearedEvalContext
+      { ...clearedEvalContext, transitionId: handling.transition.transitionId },
     )
     if (routed.success) {
-      return { kind: 'routed', toStepId, transitionId: handling.transition.transitionId }
+      return {
+        kind: 'routed',
+        toStepId,
+        transitionId: handling.transition.transitionId,
+        paused: routed.paused,
+      }
     }
     return await failUnhandled(`Outcome route for "${marker.outcome}" could not be followed`)
   }
 
-  // `inherit`: an unwired non-approved outcome follows the step's error
-  // directive, which is the inheritance §7.2 asks the node face to state
-  // ("unhandled → fail instance"). A directive resolving to an error route is
-  // followed like any failure; every other resolution fails the instance rather
-  // than silently continuing down the happy path the author did not wire.
+  // `inherit`: an unwired non-approved outcome follows the complete step-error
+  // handling contract, including continuation, failure-queue parking and the
+  // definition-level handler step.
   const unhandled = `Agent step ${marker.stepId} resolved outcome "${marker.outcome}", which is not wired`
   if (handling.handling.kind === 'route') {
     const errorRoute = handling.handling.transition
@@ -951,7 +964,60 @@ async function dispatchAgentOutcome(
         clearedEvalContext
       )
       if (routed) {
-        return { kind: 'routed', toStepId: errorRoute.toStepId, transitionId: errorRoute.transitionId }
+        return {
+          kind: 'routed',
+          toStepId: errorRoute.toStepId,
+          transitionId: errorRoute.transitionId,
+          paused: instance.status === 'PAUSED',
+        }
+      }
+    }
+  }
+
+  if (handling.handling.kind === 'continue') {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      eventType: 'ERROR_DIRECTIVE_APPLIED',
+      eventData: {
+        stepId: marker.stepId,
+        directive: 'continueWithFallback',
+        source: 'agentOutcome',
+        hasFallbackValue: handling.handling.fallbackValue !== undefined,
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+    if (handling.handling.fallbackValue !== undefined) {
+      instance.context = {
+        ...(instance.context || {}),
+        [marker.stepId]: handling.handling.fallbackValue,
+      }
+      instance.updatedAt = new Date()
+      await em.flush()
+    }
+    return { kind: 'default' }
+  }
+
+  if (handling.handling.kind === 'park') {
+    await parkInstanceForAttention(em, instance, marker.stepId, unhandled)
+    return { kind: 'parked' }
+  }
+
+  if (handling.handling.kind === 'handlerStep') {
+    const entered = await enterErrorHandlerStep(
+      em,
+      container,
+      instance,
+      marker.stepId,
+      handling.handling.stepId,
+      unhandled,
+      clearedEvalContext.userId,
+    )
+    if (entered) {
+      return {
+        kind: 'routed',
+        toStepId: handling.handling.stepId,
+        paused: instance.status === 'PAUSED',
       }
     }
   }
@@ -1010,7 +1076,8 @@ async function followErrorRoute(
         ...evalContext.workflowContext,
         [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
       },
-    }
+      transitionId: errorRoute.transitionId,
+    },
   )
 
   return routedResult.success === true

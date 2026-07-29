@@ -319,7 +319,8 @@ export async function completeUserTask(
     })
   }
 
-  let targetStepId = decisionTransition?.toStepId ?? null
+  let selectedTransition = decisionTransition ?? null
+  let targetStepId = selectedTransition?.toStepId ?? null
 
   if (!targetStepId) {
     // Find automatic transitions from current step
@@ -350,6 +351,7 @@ export async function completeUserTask(
     }
 
     targetStepId = firstValidTransition.transition.toStepId
+    selectedTransition = firstValidTransition.transition
   }
 
   // Execute the transition to move to next step
@@ -360,7 +362,7 @@ export async function completeUserTask(
     instance,
     currentStepId,
     targetStepId,
-    transitionContext
+    { ...transitionContext, transitionId: selectedTransition?.transitionId },
   )
 
   if (!transitionResult.success) {

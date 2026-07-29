@@ -14,8 +14,31 @@ import {
   formatNodeConfigSummary,
 } from '../node-config-summary'
 
+const translations: Record<string, string> = {
+  'workflows.nodeSummary.alwaysAsk': 'always ask',
+  'workflows.nodeSummary.assigned': 'assigned',
+  'workflows.nodeSummary.autoApproveThreshold': 'auto ≥ {threshold}',
+  'workflows.nodeSummary.bound': 'bound: {count}',
+  'workflows.nodeSummary.decisions': '{count} decisions',
+  'workflows.nodeSummary.retries': 'retries {count}×',
+  'workflows.nodeSummary.role': 'role: {roles}',
+  'workflows.nodeSummary.until': 'until {value}',
+}
+
+function translate(
+  key: string,
+  fallbackOrParams?: string | Record<string, string | number>,
+  params?: Record<string, string | number>,
+): string {
+  const resolvedParams = typeof fallbackOrParams === 'string' ? params : fallbackOrParams
+  return (translations[key] ?? key).replace(/\{(\w+)\}/g, (match, name: string) => {
+    const value = resolvedParams?.[name]
+    return value === undefined ? match : String(value)
+  })
+}
+
 function summaryOf(nodeType: string, data: Record<string, unknown>): string {
-  return formatNodeConfigSummary(buildNodeConfigSummary(nodeType, data as never))
+  return formatNodeConfigSummary(buildNodeConfigSummary(nodeType, data as never), translate)
 }
 
 describe('automated steps state their command and retry policy', () => {
@@ -34,7 +57,10 @@ describe('automated steps state their command and retry policy', () => {
       retryPolicy: { maxAttempts: 3 },
     } as never)
     expect(segments[0]).toEqual({ text: 'customers.deals.update', mono: true })
-    expect(segments[1]?.mono).toBeUndefined()
+    expect(segments[1]).toEqual({
+      translationKey: 'workflows.nodeSummary.retries',
+      translationParams: { count: 3 },
+    })
   })
 
   test('omits a retry policy that retries nothing', () => {
