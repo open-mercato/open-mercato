@@ -32,8 +32,8 @@ asks for. The terminal row is read for its `stepType` and otherwise untouched �
 | C.5 | Run-list filters — date range + failure-queue attention | done | `9acd91874` |
 | C.6a | Fix: `DataTable`'s `bulkActions` prop discarded `{ ok, progressJobId }` | done | `4c563843f` |
 | C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | done | `0d6e24a12` |
-| C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, fresh step-instance row | done | PENDING_SHA |
-| C.8 | Studio canvas "Show last run" execution overlay | pending | — |
+| C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, fresh step-instance row | done | `d05905dfd` |
+| C.8 | Studio canvas "Show last run" execution overlay | done | PENDING_SHA |
 
 ## Binding constraints
 

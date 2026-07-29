@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import type { Node, Edge, Connection } from '@xyflow/react'
 import type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import type { RunExecution } from '../lib/run-execution'
 
 export type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 
@@ -39,6 +40,13 @@ export interface WorkflowGraphProps {
   nodeErrorCounts?: Record<string, number>
   /** Render the dashed reverse compensation ghosts (spec section 4.4). */
   showCompensation?: boolean
+  /**
+   * "Show last run" execution overlay (spec §8.3). Display-only: node statuses
+   * and taken routes are applied at render time and never enter the editor's
+   * node/edge state, so they cannot reach `graphToDefinition`, the undo stack or
+   * an autosave.
+   */
+  runOverlay?: RunExecution | null
 }
 
 const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {

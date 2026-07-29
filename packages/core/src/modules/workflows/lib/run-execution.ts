@@ -77,6 +77,14 @@ export type RunExecution = {
   takenTransitionIds: Set<string>
   /** `from->to` pairs, so a route whose transition id was never recorded still paints. */
   takenStepPairs: Set<string>
+  /**
+   * Carried on the overlay so `resolveNodeRunStatus` can answer the START/END
+   * conventions without every caller having to remember to pass them. A caller
+   * that forgets is not obviously wrong — it just silently paints the END node
+   * as never-reached on a completed run.
+   */
+  currentStepId: string | null
+  instanceStatus: string | null
 }
 
 export type RunExecutionInput = {
@@ -277,7 +285,14 @@ export function deriveRunExecution(input: RunExecutionInput): RunExecution {
 
   applyLiveInstanceStatus(stepStates, input.currentStepId, input.instanceStatus)
 
-  return { stepStates, routes, takenTransitionIds, takenStepPairs }
+  return {
+    stepStates,
+    routes,
+    takenTransitionIds,
+    takenStepPairs,
+    currentStepId: input.currentStepId ?? null,
+    instanceStatus: input.instanceStatus ?? null,
+  }
 }
 
 export type GraphNodeDescriptor = {
@@ -297,12 +312,14 @@ export function resolveNodeRunStatus(
   const recorded = execution.stepStates.get(node.id)
   if (recorded) return recorded.status
 
-  const isCurrentStep = options.currentStepId === node.id
+  const currentStepId = options.currentStepId ?? execution.currentStepId
+  const instanceStatus = options.instanceStatus ?? execution.instanceStatus
+  const isCurrentStep = currentStepId === node.id
   if (node.type === 'start') {
     return isCurrentStep ? 'active' : 'completed'
   }
   if (node.type === 'end') {
-    return isCurrentStep || options.instanceStatus === 'COMPLETED' ? 'completed' : 'pending'
+    return isCurrentStep || instanceStatus === 'COMPLETED' ? 'completed' : 'pending'
   }
   return 'pending'
 }
