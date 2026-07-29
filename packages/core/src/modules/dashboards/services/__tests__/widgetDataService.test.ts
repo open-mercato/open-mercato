@@ -148,7 +148,7 @@ describe('WidgetDataService base currency resolution', () => {
   }
 
   test('reports the scope base currency instead of a hard-coded default', async () => {
-    const execute = createCurrencyExecute([{ code: 'PLN' }])
+    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
     const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
 
     const response = await service.fetchWidgetData(request)
@@ -160,7 +160,22 @@ describe('WidgetDataService base currency resolution', () => {
   })
 
   test('resolves to null when the scope spans different base currencies', async () => {
-    const execute = createCurrencyExecute([{ code: 'PLN' }, { code: 'EUR' }])
+    const execute = createCurrencyExecute([
+      { organization_id: 'org-1', code: 'PLN' },
+      { organization_id: 'org-2', code: 'EUR' },
+    ])
+    const service = createService(execute, {
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1', 'org-2'],
+    })
+
+    const response = await service.fetchWidgetData(request)
+
+    expect(response.metadata.currency).toBeNull()
+  })
+
+  test('resolves to null when one organization in the scope has no base currency', async () => {
+    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
     const service = createService(execute, {
       tenantId: 'tenant-1',
       organizationIds: ['org-1', 'org-2'],
@@ -173,11 +188,21 @@ describe('WidgetDataService base currency resolution', () => {
 
   test('resolves to null when no base currency is configured', async () => {
     const execute = createCurrencyExecute([])
+    const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
+
+    const response = await service.fetchWidgetData(request)
+
+    expect(response.metadata.currency).toBeNull()
+  })
+
+  test('leaves an unbounded organization scope unlabelled without querying currencies', async () => {
+    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
     const service = createService(execute)
 
     const response = await service.fetchWidgetData(request)
 
     expect(response.metadata.currency).toBeNull()
+    expect(execute.mock.calls.some(([sql]: [string]) => isBaseCurrencyQuery(sql))).toBe(false)
   })
 
   test('degrades to null when the currencies lookup fails', async () => {
@@ -185,7 +210,7 @@ describe('WidgetDataService base currency resolution', () => {
       if (isBaseCurrencyQuery(sql)) throw new Error('relation "currencies" does not exist')
       return [{ value: 10 }]
     })
-    const service = createService(execute)
+    const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
 
     const response = await service.fetchWidgetData(request)
 
@@ -194,8 +219,8 @@ describe('WidgetDataService base currency resolution', () => {
   })
 
   test('resolves the base currency once per service instance', async () => {
-    const execute = createCurrencyExecute([{ code: 'PLN' }])
-    const service = createService(execute)
+    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
+    const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
 
     await service.fetchWidgetData(request)
     await service.fetchWidgetData({ ...request, metric: { field: 'total', aggregate: 'avg' } })

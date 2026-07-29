@@ -207,21 +207,36 @@ export class WidgetDataService {
   }
 
   private async queryBaseCurrency(): Promise<string | null> {
-    const clauses = ['tenant_id = ?', 'is_base = true', 'deleted_at IS NULL']
-    const params: unknown[] = [this.scope.tenantId]
+    const organizationIds = [...new Set(this.scope.organizationIds ?? [])]
+    if (organizationIds.length === 0) return null
 
-    if (this.scope.organizationIds && this.scope.organizationIds.length > 0) {
-      clauses.push('organization_id = ANY(?::uuid[])')
-      params.push(`{${this.scope.organizationIds.join(',')}}`)
+    const clauses = ['tenant_id = ?', 'is_base = true', 'deleted_at IS NULL']
+    const params: unknown[] = [this.scope.tenantId, `{${organizationIds.join(',')}}`]
+    clauses.push('organization_id = ANY(?::uuid[])')
+
+    const sql = `SELECT organization_id, code FROM currencies WHERE ${clauses.join(' AND ')}`
+    const rows = await this.em.getConnection().execute(sql, params)
+    const resultRows = (Array.isArray(rows) ? rows : []) as Array<Record<string, unknown>>
+    const expectedOrganizationIds = new Set(organizationIds)
+    const resolvedOrganizationIds = new Set<string>()
+    const codes = new Set<string>()
+
+    for (const row of resultRows) {
+      const organizationId = typeof row.organization_id === 'string' ? row.organization_id : ''
+      const code = typeof row.code === 'string' ? row.code.trim().toUpperCase() : ''
+      if (
+        !expectedOrganizationIds.has(organizationId) ||
+        resolvedOrganizationIds.has(organizationId) ||
+        !code
+      ) {
+        return null
+      }
+      resolvedOrganizationIds.add(organizationId)
+      codes.add(code)
     }
 
-    const sql = `SELECT DISTINCT code FROM currencies WHERE ${clauses.join(' AND ')} LIMIT 2`
-    const rows = await this.em.getConnection().execute(sql, params)
-    const codes = (Array.isArray(rows) ? rows : [])
-      .map((row: Record<string, unknown>) => (typeof row.code === 'string' ? row.code.trim() : ''))
-      .filter((code: string) => code.length > 0)
-
-    return codes.length === 1 ? codes[0] : null
+    if (resolvedOrganizationIds.size !== expectedOrganizationIds.size || codes.size !== 1) return null
+    return codes.values().next().value ?? null
   }
 
   private validateRequest(request: WidgetDataRequest): void {
