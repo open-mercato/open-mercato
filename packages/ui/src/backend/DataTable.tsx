@@ -406,7 +406,7 @@ const STICKY_RIGHT_SHADOW_CLASS =
 const STICKY_LEFT_SHADOW_CLASS =
   'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
 
-type BulkActionExecuteResult = {
+export type BulkActionExecuteResult = {
   ok: boolean
   message?: string
   affectedCount?: number
@@ -2695,14 +2695,61 @@ export function DataTable<T>({
     [confirm, extensionTableId, refreshButton, resolvedInjectionContext, router, selectedRows, t],
   )
 
+  /**
+   * Host-owned bulk actions (the `bulkActions` prop) used to DISCARD whatever
+   * they returned. An action that queued server-side work and returned
+   * `{ ok: true, progressJobId }` — the contract `progress/AGENTS.md` requires
+   * — was answered with silence: no toast, no top-bar tracking, and a rejected
+   * promise surfaced as an unhandled rejection instead of an error flash.
+   *
+   * The `void` / `true` / `false` returns keep their exact previous behaviour,
+   * because the callers that use them (customers, messages) already flash from
+   * their own `runBulkMutation` and a second toast would be a regression. Only
+   * a RESULT OBJECT is now acted on.
+   */
   const runPropBulkAction = React.useCallback(
     async (action: BulkAction<T>) => {
-      const result = await action.onExecute(selectedRows)
-      if (result !== false) {
+      try {
+        const result = await action.onExecute(selectedRows)
+        if (result === false) return
+        if (!result || typeof result !== 'object') {
+          setRowSelection({})
+          return
+        }
+
+        if (result.ok === false) {
+          if (result.message === undefined) return
+          flash(result.message, 'error')
+          return
+        }
+
         setRowSelection({})
+        if (result.progressJobId) {
+          trackedBulkProgressJobIdsRef.current.add(result.progressJobId)
+          flash(
+            result.message
+              ?? t('ui.dataTable.bulkAction.started', 'Bulk action started. Track progress in the top bar.'),
+            'success',
+          )
+          return
+        }
+        flash(
+          result.message ?? t('ui.dataTable.bulkAction.success', 'Bulk action completed.'),
+          'success',
+        )
+        if (refreshButton?.onRefresh) {
+          refreshButton.onRefresh()
+        } else {
+          scheduleRouterRefresh(router)
+        }
+      } catch (error) {
+        flash(
+          error instanceof Error ? error.message : t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
+          'error',
+        )
       }
     },
-    [selectedRows],
+    [refreshButton, router, selectedRows, t],
   )
 
   const builtToolbar = React.useMemo(() => {

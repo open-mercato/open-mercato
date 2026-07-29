@@ -18,7 +18,8 @@ hold, STOP and escalate rather than widening the state machine.
 | C.2 | Run detail restructured into Flow / Timeline / Context / Raw tabs + per-step I/O inspector | done | `ee5f9f648` |
 | C.3 | Gantt run timeline with collapsed waits | done | `68ad96c3c` |
 | C.4 | Live SSE — `clientBroadcast` on `workflows.instance.*` + run views subscribe | done | `a699bb6e2` |
-| C.5 | Run-list filters — date range + failure-queue attention | done | PENDING_SHA |
+| C.5 | Run-list filters — date range + failure-queue attention | done | `9acd91874` |
+| C.6a | Fix: `DataTable`'s `bulkActions` prop discarded `{ ok, progressJobId }` | done | PENDING_SHA |
 | C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | pending | — |
 | C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, new `PENDING` step instance | pending | — |
 | C.8 | Studio canvas "Show last run" execution overlay | pending | — |
@@ -52,3 +53,10 @@ hold, STOP and escalate rather than widening the state machine.
    ten emit sites in the step-handler files is a state-machine-adjacent change PR C should not make
    unasked. It costs little in practice: every step advance re-emits
    `workflows.instance.started` with the destination step, so a run that parks still pushes.
+5. **`DataTable`'s `bulkActions` prop threw away its action's result.** `runPropBulkAction` did
+   `const result = await action.onExecute(rows); if (result !== false) setRowSelection({})` and
+   nothing else — so a host-owned action returning `{ ok, progressJobId }` (the shape
+   `progress/AGENTS.md` mandates, and the injected `:bulk-actions` path already honours) got no
+   toast, no top-bar tracking, and a rejected promise surfaced as an unhandled rejection. Fixed
+   narrowly: only an object result is acted on, so the `void`/`true`/`false` returns the existing
+   customers/messages callers use keep their exact previous behaviour.
