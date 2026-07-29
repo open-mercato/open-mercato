@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import { parseDuration } from '../lib/duration'
+import {
+  taskDeadlineSchema,
+  taskPrioritySchema,
+  taskReminderSchema,
+} from './task-primitives'
 
 /**
  * Per-type activity config schemas for the Activity Registry (spec
@@ -105,6 +110,43 @@ export const executeFunctionConfigSchema = z.looseObject({
 })
 export type ExecuteFunctionConfig = z.infer<typeof executeFunctionConfigSchema>
 
+/**
+ * What happens when nobody dispositions a proposal before its deadline (§7.5).
+ *
+ * The vocabulary is deliberately NARROWER than `taskOnBreachSchema`: it has no
+ * `route` action, and no verdict of any kind. A breached deadline ESCALATES —
+ * it never decides. Auto-rejecting (or auto-approving, or routing the run past
+ * a proposal nobody answered) would be a disposition reached without a human,
+ * which is the boundary `agent_orchestrator/AGENTS.md` guards, so the missing
+ * arm is the feature rather than an omission. The proposal stays `pending`
+ * until a person acts on it.
+ */
+export const agentReviewOnBreachSchema = z.object({
+  action: z.enum(['notify', 'reassign', 'attention']),
+  reassignTo: z.string().optional(),
+})
+export type AgentReviewOnBreach = z.infer<typeof agentReviewOnBreachSchema>
+
+/**
+ * The Invoke Agent node's Review section (§7.5) — who reviews a proposal this
+ * step raises, and by when.
+ *
+ * Speaks the SAME vocabulary as the Task inspector's Who (§6.1.3) and When
+ * (§6.1.4) groups, because the thing being authored IS a task: the implicit
+ * disposition task `dispositionService` raises when the confidence gate routes
+ * to a human. Every key is optional and additive — a step declaring none of
+ * them raises exactly the task it raised before.
+ */
+export const agentReviewConfigSchema = z.object({
+  assignedTo: z.string().optional(),
+  assignedToRoles: z.array(z.string()).optional(),
+  priority: taskPrioritySchema.optional(),
+  deadline: taskDeadlineSchema.optional(),
+  reminders: z.array(taskReminderSchema).optional(),
+  onBreach: agentReviewOnBreachSchema.optional(),
+})
+export type AgentReviewConfig = z.infer<typeof agentReviewConfigSchema>
+
 // INVOKE_AGENT activity configuration — runs a callable agent (area 02a) and
 // dispositions any actionable proposal. `onResult` is carried verbatim to the
 // agent_orchestrator disposition service.
@@ -126,6 +168,11 @@ export const invokeAgentConfigSchema = z.object({
   // to the agent_orchestrator bridge (additive; the enterprise module validates
   // the shape) so its process projection can render a claim-centric caseload.
   subject: z.record(z.string(), z.any()).optional(),
+  // The Review section (spec 7.5) — who reviews the proposal this step raises,
+  // and by when. A sibling key rather than a member of the `onResult` union:
+  // `alwaysAsk` and a threshold can BOTH end in a human review, so the two
+  // decisions are orthogonal.
+  review: agentReviewConfigSchema.optional(),
 })
 export type InvokeAgentConfig = z.infer<typeof invokeAgentConfigSchema>
 

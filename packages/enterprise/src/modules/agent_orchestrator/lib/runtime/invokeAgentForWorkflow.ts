@@ -10,6 +10,7 @@ import type { AgentRunAs } from './persistence'
 import { resolveAgentPrincipal } from '../identity/agentPrincipalService'
 import { withProcessSubject } from '../processes/subjectContext'
 import type {
+  AgentDispositionReview,
   DispositionService,
   DispositionOnResult,
 } from '../disposition/dispositionService'
@@ -37,6 +38,15 @@ export type InvokeAgentForWorkflowArgs = {
      * the `proposal.created` event payload. Never persisted on run/proposal rows.
      */
     subject?: unknown
+    /**
+     * The INVOKE_AGENT node's already-resolved Review section (spec §7.5): who
+     * reviews the proposal this step raises, and by when. Additive + optional —
+     * absent means the unassigned disposition task this service raised before
+     * the section existed. Resolution (interpolation, dynamic-assignee fallback)
+     * happens in the workflows engine, which owns the run context; this module
+     * only carries the answer onto the task it creates.
+     */
+    review?: AgentDispositionReview
   }
 }
 
@@ -140,6 +150,7 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       userId: ctx.userId,
       processId: ctx.processId,
       stepId: ctx.stepId,
+      ...(ctx.review ? { review: ctx.review } : {}),
     })
 
     return outcome.kind === 'auto_approved'

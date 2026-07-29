@@ -13,6 +13,7 @@ import {
   WorkflowActivityJobResumeSubWorkflowParent,
 } from './activity-queue-types'
 import { mapAgentResultToContext } from './agent-result-mapping'
+import type { AgentDispositionReview } from './agent-disposition-task'
 import {
   WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY,
   findOutcomeTransition,
@@ -322,6 +323,9 @@ type AgentWorkflowBridgeLike = {
       stepId: string
       // Optional interpolated business-record descriptor (invokeAgentConfigSchema.subject).
       subject?: unknown
+      // Optional already-resolved Review section (spec 7.5); see the identical
+      // declaration in `lib/activity-executor.ts`.
+      review?: AgentDispositionReview
     }
   }) => Promise<
     | { kind: 'informative'; data: unknown }
@@ -397,6 +401,7 @@ export async function handleInvokeAgentJob(
         processId: instance.id,
         stepId: payload.stepId,
         ...(payload.subject ? { subject: payload.subject } : {}),
+        ...(payload.review ? { review: payload.review } : {}),
       },
     })
   } catch (agentError: any) {

@@ -16,12 +16,27 @@ export type DispositionOnResult =
   | { autoApproveThreshold: number }
   | { alwaysAsk: true }
 
+/**
+ * The Invoke Agent node's Review section (spec §7.5), already resolved by the
+ * workflows engine against the run context. Re-exported from the workflows
+ * module so the two sides cannot drift; `workflows` is an OPTIONAL peer, so the
+ * import is type-only and erased at run time.
+ */
+export type AgentDispositionReview =
+  import('@open-mercato/core/modules/workflows/lib/agent-disposition-task').AgentDispositionReview
+
 export type DispositionCtx = {
   tenantId: string
   organizationId: string
   userId?: string
   processId: string
   stepId: string
+  /**
+   * Who reviews this proposal and by when, authored on the agent node. Absent
+   * means the unassigned task this service raised before §7.5 — which under the
+   * workflows §6.4 visibility model is a task nobody can act on.
+   */
+  review?: AgentDispositionReview
 }
 
 export type DispositionOutcome =
@@ -57,9 +72,13 @@ function shouldAutoApprove(proposal: AgentProposal, onResult: DispositionOnResul
  *   `proposal.disposed`. NO `proposal.ready` is emitted and the executor
  *   proceeds without parking (avoids a park-before-signal race).
  * - Ask-a-human (below threshold / `alwaysAsk` / null confidence): raise a
- *   workflows `USER_TASK` surfacing the proposal payload; the instance stays
- *   parked at `WAIT_FOR_SIGNAL`. Return `{ kind:'user_task' }`. The operator's
- *   dispose endpoint later emits `proposal.ready` to resume.
+ *   workflows `USER_TASK` surfacing the proposal payload, routed to whoever the
+ *   agent node's Review section names (spec §7.5); the instance stays parked at
+ *   `WAIT_FOR_SIGNAL`. Return `{ kind:'user_task' }`. The operator's dispose
+ *   endpoint later emits `proposal.ready` to resume. Building that row belongs
+ *   to the workflows module — it owns the entity, the audit log and the
+ *   assignment event — so this service passes the Review descriptor to
+ *   `createAgentDispositionTask` rather than assembling the row itself.
  *
  * `workflows` is an optional peer: the USER_TASK creation is guarded so the
  * service degrades gracefully when the module is absent (it still returns a
@@ -119,32 +138,26 @@ export class DispositionServiceImpl implements DispositionService {
     ctx: DispositionCtx,
   ): Promise<string> {
     try {
-      const entities = (await import(
-        '@open-mercato/core/modules/workflows/data/entities'
-      )) as typeof import('@open-mercato/core/modules/workflows/data/entities')
+      const dispositionTask = (await import(
+        '@open-mercato/core/modules/workflows/lib/agent-disposition-task'
+      )) as typeof import('@open-mercato/core/modules/workflows/lib/agent-disposition-task')
       const em = (this.container.resolve('em') as EntityManager).fork()
 
-      const stepInstance = await em.findOne(entities.StepInstance, {
+      const created = await dispositionTask.createAgentDispositionTask(em, this.container, {
         workflowInstanceId: ctx.processId,
         stepId: ctx.stepId,
-        status: 'ACTIVE',
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-      })
-
-      const task = em.create(entities.UserTask, {
-        workflowInstanceId: ctx.processId,
-        stepInstanceId: stepInstance?.id ?? ctx.processId,
+        proposalId: proposal.id,
+        agentId: proposal.agentId,
+        proposalPayload: proposal.payload,
+        confidence: proposal.confidence ?? null,
         taskName: `Dispose agent proposal (${proposal.agentId})`,
         description: 'Review and approve, edit, or reject the agent proposal.',
-        status: 'PENDING',
-        formSchema: { proposalId: proposal.id, payload: proposal.payload, confidence: proposal.confidence ?? null },
+        review: ctx.review ?? null,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
+        userId: ctx.userId,
       })
-      em.persist(task)
-      await em.flush()
-      return task.id
+      return created.userTaskId
     } catch (error) {
       console.warn('[agent_orchestrator] USER_TASK not created (workflows peer absent?)', {
         proposalId: proposal.id,
