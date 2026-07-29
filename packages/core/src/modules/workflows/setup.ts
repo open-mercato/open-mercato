@@ -36,6 +36,10 @@ export const setup: ModuleSetupConfig = {
   },
 
   defaultRoleFeatures: {
+    // `workflows.*` already grants every concrete id, including the spec §8.4
+    // recovery features `workflows.instances.rerun_step` and
+    // `workflows.instances.bulk_ops`. Existing tenants pick up newly declared
+    // features only after `yarn mercato auth sync-role-acls`.
     admin: ['workflows.*'],
     employee: [
       'workflows.view',

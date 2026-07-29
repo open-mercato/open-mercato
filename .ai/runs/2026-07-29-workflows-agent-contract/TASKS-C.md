@@ -10,6 +10,17 @@ Rerun inserts a **new `PENDING` `StepInstance`** and leaves the terminal row unt
 is ever set out of order and both attempts stay in the audit trail. If that mitigation ever fails to
 hold, STOP and escalate rather than widening the state machine.
 
+**Outcome — the mitigation holds, and more cheaply than proposed.** The engine ALREADY mints a
+fresh row on every step entry: `lib/step-handler.ts` `enterStep` does an unconditional
+`em.create(StepInstance, { … status: 'ACTIVE' … })`, and `executeStep` calls it. So the rerun does
+not have to insert a placeholder row at all — it repoints `currentStepId` and calls `executeStep`,
+which is the same cursor-move shape `enterErrorHandlerStep` already uses for the definition-level
+error handler. Inserting an explicit `PENDING` row on top of that would have produced a SECOND,
+never-advanced row per rerun, polluting the Gantt and the failure queue forever; the `STEP_RERUN`
+workflow event is the audit record instead, which is also what the module's event-sourcing rule
+asks for. The terminal row is read for its `stepType` and otherwise untouched — pinned by
+`rerunStep.route.test.ts` "never mutates the terminal StepInstance of the previous attempt".
+
 ## Tasks
 
 | Step | Title | Status | Commit |
@@ -20,8 +31,8 @@ hold, STOP and escalate rather than widening the state machine.
 | C.4 | Live SSE — `clientBroadcast` on `workflows.instance.*` + run views subscribe | done | `a699bb6e2` |
 | C.5 | Run-list filters — date range + failure-queue attention | done | `9acd91874` |
 | C.6a | Fix: `DataTable`'s `bulkActions` prop discarded `{ ok, progressJobId }` | done | `4c563843f` |
-| C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | done | PENDING_SHA |
-| C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, new `PENDING` step instance | pending | — |
+| C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | done | `0d6e24a12` |
+| C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, fresh step-instance row | done | PENDING_SHA |
 | C.8 | Studio canvas "Show last run" execution overlay | pending | — |
 
 ## Binding constraints

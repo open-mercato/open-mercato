@@ -20,10 +20,15 @@ import { WorkflowLegend } from '../../../components/WorkflowLegend'
 import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
 import { RunStepInspector } from '../../../components/run/RunStepInspector'
 import { RunGantt } from '../../../components/run/RunGantt'
+import { RerunStepDialog } from '../../../components/run/RerunStepDialog'
 import { useLiveRunUpdates } from '../../../components/run/useLiveRunUpdates'
 import { RunEventBadge, runEventBadgeClass } from '../../../components/run/RunEventBadge'
 import { InstanceStatusBadge, instanceStatusBadgeClass } from '../../../components/run/RunStatusBadge'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { definitionToGraph } from '../../../lib/graph-utils'
 import { STEP_STATUS_STYLES } from '../../../lib/status-colors'
 import {
@@ -56,6 +61,11 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [activeTab, setActiveTab] = React.useState<RunTab>('flow')
   const [selectedStepId, setSelectedStepId] = React.useState<string | null>(null)
+  const [rerunOpen, setRerunOpen] = React.useState(false)
+  const [rerunPending, setRerunPending] = React.useState(false)
+  const { payload: chromePayload } = useBackendChrome()
+  const { runMutation } = useGuardedMutation({ contextId: 'workflows.instances.rerunStep' })
+  const canRerunStep = hasFeature(chromePayload?.grantedFeatures, 'workflows.instances.rerun_step')
 
   const { data: instance, isLoading, error } = useQuery({
     queryKey: ['workflow-instance', id],
@@ -380,6 +390,51 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   const canRetry = instance.status === 'FAILED'
   const actionLoading = cancelMutation.isPending || retryMutation.isPending
 
+  // Rerun-from-step (spec §8.4). Gated on its own ACL feature, and only
+  // offered on a run that is actually stopped — the API refuses a RUNNING
+  // instance rather than racing the execution loop.
+  const canOfferRerun =
+    canRerunStep && (instance.status === 'FAILED' || instance.status === 'PAUSED')
+
+  const submitRerun = async (contextPatch: Record<string, unknown> | undefined) => {
+    if (!selectedStepId || !id) return
+    setRerunPending(true)
+    try {
+      await runMutation({
+        operation: async () => {
+          const result = await apiCall<{ message?: string; error?: string }>(
+            `/api/workflows/instances/${id}/rerun-step`,
+            {
+              method: 'POST',
+              body: JSON.stringify({ stepId: selectedStepId, contextPatch }),
+            }
+          )
+          if (!result.ok) {
+            throw new Error(
+              result.result?.error
+                ?? t('workflows.rerunStep.failed', 'Could not rerun the step.')
+            )
+          }
+          return result.result
+        },
+        context: { instanceId: id, stepId: selectedStepId },
+        mutationPayload: { stepId: selectedStepId, contextPatch },
+      })
+      flash(t('workflows.rerunStep.started', 'Rerun started.'), 'success')
+      setRerunOpen(false)
+      refreshRun()
+    } catch (rerunError) {
+      flash(
+        rerunError instanceof Error
+          ? rerunError.message
+          : t('workflows.rerunStep.failed', 'Could not rerun the step.'),
+        'error'
+      )
+    } finally {
+      setRerunPending(false)
+    }
+  }
+
   const menuActions = [
     ...(canCancel ? [{
       id: 'cancel',
@@ -604,6 +659,22 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                   <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     {t('workflows.instances.run.inspector.title', 'Step inspector')}
                   </h3>
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {t('workflows.instances.run.inspector.hint', 'Click a node on the canvas to inspect it.')}
+                    </span>
+                    {canOfferRerun ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!selectedStepId || (executionsByStepId.get(selectedStepId ?? '')?.length ?? 0) === 0}
+                        onClick={() => setRerunOpen(true)}
+                      >
+                        {t('workflows.rerunStep.action', 'Rerun from this step')}
+                      </Button>
+                    ) : null}
+                  </div>
                   <RunStepInspector
                     stepId={selectedStepId}
                     stepLabel={selectedNode ? String(selectedNode.data?.label ?? '') : null}
@@ -794,6 +865,14 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
         </div>
       </PageBody>
       {ConfirmDialogElement}
+      <RerunStepDialog
+        open={rerunOpen}
+        onOpenChange={setRerunOpen}
+        stepId={selectedStepId}
+        stepLabel={selectedNode ? String(selectedNode.data?.label ?? '') : null}
+        isSubmitting={rerunPending}
+        onConfirm={(contextPatch) => { void submitRerun(contextPatch) }}
+      />
     </Page>
   )
 }
