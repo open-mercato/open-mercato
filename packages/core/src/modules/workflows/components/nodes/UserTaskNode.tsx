@@ -1,12 +1,18 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 import { NodeOutcomeRows } from './NodeOutcomeRows'
-import { buildDecisionOutcomeRows, type DecisionRowLike } from '../../lib/node-outcome-rows'
+import {
+  buildDecisionOutcomeRows,
+  buildDefaultRouteRow,
+  type DecisionRowLike,
+} from '../../lib/node-outcome-rows'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
 import { useLocale } from '@open-mercato/shared/lib/i18n/context'
 
 export interface UserTaskNodeData {
@@ -42,6 +48,7 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
   const workflowStatus = toWorkflowStatus(nodeData.status)
   const summary = buildNodeConfigSummary('userTask', nodeData as never)
   const decisionRows = buildDecisionOutcomeRows(nodeData.decisions, locale)
+  const hasDecisionFooter = decisionRows.length > 0
 
   return (
     <div className="user-task-node" title={nodeData.tooltip}>
@@ -51,7 +58,7 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
         position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <WorkflowNodeCard
@@ -66,17 +73,28 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
         errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
-        footer={<NodeOutcomeRows rows={decisionRows} isConnectable={isConnectable} testId="workflow-task-decision-rows" />}
+        footer={
+          <NodeOutcomeRows
+            rows={decisionRows}
+            defaultRow={hasDecisionFooter ? buildDefaultRouteRow() : undefined}
+            isConnectable={isConnectable}
+            testId="workflow-task-decision-rows"
+          />
+        }
       />
 
-      {/* Source Handle */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="source"
-        isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
-      />
+      {/* The default route joins the decision rows in the footer when there is
+          one, so it stops floating over the first decision. A task with no
+          authored decisions has no footer, and keeps its handle unchanged. */}
+      {!hasDecisionFooter && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={DEFAULT_SOURCE_HANDLE_ID}
+          isConnectable={isConnectable}
+          className={`${NODE_HANDLE_CLASS} !bg-primary`}
+        />
+      )}
 
       <ErrorOutputHandle isConnectable={isConnectable} />
     </div>

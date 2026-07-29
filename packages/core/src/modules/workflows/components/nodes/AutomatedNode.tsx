@@ -1,6 +1,8 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
+import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import { buildNodeConfigSummary } from '../../lib/node-config-summary'
@@ -54,7 +56,7 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
         position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <WorkflowNodeCard
@@ -75,9 +77,9 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
       <Handle
         type="source"
         position={Position.Right}
-        id="source"
+        id={DEFAULT_SOURCE_HANDLE_ID}
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <ErrorOutputHandle isConnectable={isConnectable} />

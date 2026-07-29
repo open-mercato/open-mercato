@@ -1347,6 +1347,7 @@
   "workflows.orderApproval.submitDecision": "Submit Decision",
   "workflows.outcomes.add": "+ outcome",
   "workflows.outcomes.approved": "approved",
+  "workflows.outcomes.default": "default",
   "workflows.outcomes.error": "error",
   "workflows.outcomes.guardrailBlocked": "guardrail blocked",
   "workflows.outcomes.informative": "informative",

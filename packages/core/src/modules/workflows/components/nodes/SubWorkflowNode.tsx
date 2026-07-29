@@ -1,6 +1,8 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
+import { NODE_HANDLE_CLASS, NODE_PORT_HANDLE_CLASS } from '../../lib/node-geometry'
 import { ArrowUpRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
@@ -85,7 +87,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
         position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <WorkflowNodeCard
@@ -117,7 +119,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
                     id={`in:${port.name}`}
                     isConnectable={isConnectable}
                     style={{ left: `${((index + 1) / (inputs.length + 1)) * 100}%` }}
-                    className="!w-2.5 !h-2.5 !bg-primary !border !border-background"
+                    className={`${NODE_PORT_HANDLE_CLASS} !bg-primary`}
                   />
                   <span className="truncate text-foreground">{port.label || port.name}</span>
                   <span className="shrink-0 text-muted-foreground">{t(`workflows.ports.types.${port.type}`)}</span>
@@ -140,7 +142,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
                     id={`out:${port.name}`}
                     isConnectable={isConnectable}
                     style={{ left: `${((index + 1) / (outputs.length + 1)) * 100}%` }}
-                    className="!w-2.5 !h-2.5 !bg-muted-foreground !border !border-background"
+                    className={`${NODE_PORT_HANDLE_CLASS} !bg-muted-foreground`}
                   />
                 </div>
               ))}
@@ -153,9 +155,9 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
       <Handle
         type="source"
         position={Position.Right}
-        id="source"
+        id={DEFAULT_SOURCE_HANDLE_ID}
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <ErrorOutputHandle isConnectable={isConnectable} />

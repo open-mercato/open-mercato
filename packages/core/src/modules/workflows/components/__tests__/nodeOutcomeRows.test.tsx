@@ -14,20 +14,23 @@ import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { NodeOutcomeRows } from '../nodes/NodeOutcomeRows'
 import { InvokeAgentNode } from '../nodes/InvokeAgentNode'
+import { UserTaskNode } from '../nodes/UserTaskNode'
 import {
   buildAgentOutcomeRows,
   buildAllAgentOutcomeRows,
   buildDecisionOutcomeRows,
+  buildDefaultRouteRow,
   isDecisionSourceHandle,
   readDecisionLabel,
 } from '../../lib/node-outcome-rows'
 import { outcomeSourceHandleId } from '../../lib/outcome-routing'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
 
 jest.mock('@xyflow/react', () => ({
   Handle: ({ id, 'aria-label': ariaLabel }: { id: string; 'aria-label'?: string }) => (
     <span data-testid="handle" data-handle-id={id} aria-label={ariaLabel} />
   ),
-  Position: { Right: 'right' },
+  Position: { Right: 'right', Left: 'left' },
 }))
 
 const agentStep = 'assess'
@@ -155,6 +158,100 @@ describe('the footer never lets colour carry the meaning', () => {
   it('renders nothing at all when a node has no rows', () => {
     const { container } = renderWithProviders(<NodeOutcomeRows rows={[]} />)
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('the default route is the footer last row, not a floating handle', () => {
+  it('keeps the handle id the canvas and every stored transition already use', () => {
+    expect(buildDefaultRouteRow().handleId).toBe(DEFAULT_SOURCE_HANDLE_ID)
+    expect(DEFAULT_SOURCE_HANDLE_ID).toBe('source')
+  })
+
+  it('pairs the row with a label and a glyph of its own, never colour alone', () => {
+    const row = buildDefaultRouteRow()
+    expect(row.labelFallback).toBe('default')
+    expect(row.labelKey).toBe('workflows.outcomes.default')
+    expect(row.glyph).toBe('corner')
+    expect(buildAllAgentOutcomeRows().map((outcome) => outcome.glyph)).not.toContain(row.glyph)
+  })
+
+  it('renders last, so every outgoing connection leaves from a row', () => {
+    const rows = buildAgentOutcomeRows([outcomeTransition('rejected')], agentStep)
+    const { container } = renderWithProviders(
+      <NodeOutcomeRows rows={rows} defaultRow={buildDefaultRouteRow()} isConnectable />,
+    )
+
+    const handleIds = Array.from(container.querySelectorAll('[data-handle-id]')).map((node) =>
+      node.getAttribute('data-handle-id'),
+    )
+    expect(handleIds).toEqual([
+      outcomeSourceHandleId('approved'),
+      outcomeSourceHandleId('rejected'),
+      DEFAULT_SOURCE_HANDLE_ID,
+    ])
+    expect(screen.getByText('default')).toBeInTheDocument()
+  })
+
+  it('stays out of the footer when a node passes none, so its own handle still renders', () => {
+    const { container } = renderWithProviders(
+      <NodeOutcomeRows rows={buildAgentOutcomeRows([], agentStep)} isConnectable />,
+    )
+    expect(container.querySelector(`[data-handle-id="${DEFAULT_SOURCE_HANDLE_ID}"]`)).toBeNull()
+  })
+
+  it('gives an agent node with no outcome routes a default exit, in the footer', () => {
+    const props = {
+      id: agentStep,
+      data: { label: 'Assess request', outcomeRows: buildAgentOutcomeRows([], agentStep) },
+      isConnectable: true,
+      selected: false,
+    } as unknown as React.ComponentProps<typeof InvokeAgentNode>
+
+    renderWithProviders(<InvokeAgentNode {...props} />)
+
+    expect(
+      document.querySelectorAll(`[data-handle-id="${DEFAULT_SOURCE_HANDLE_ID}"]`),
+    ).toHaveLength(1)
+    expect(
+      document.querySelector(`[data-default-route-handle="${DEFAULT_SOURCE_HANDLE_ID}"]`),
+    ).not.toBeNull()
+  })
+
+  it('leaves a user task with no decisions exactly as it was', () => {
+    const props = {
+      id: 'approve',
+      data: { label: 'Approve order' },
+      isConnectable: true,
+      selected: false,
+    } as unknown as React.ComponentProps<typeof UserTaskNode>
+
+    renderWithProviders(<UserTaskNode {...props} />)
+
+    expect(
+      document.querySelectorAll(`[data-handle-id="${DEFAULT_SOURCE_HANDLE_ID}"]`),
+    ).toHaveLength(1)
+    expect(document.querySelector('[data-default-route-handle]')).toBeNull()
+  })
+
+  it('moves a decision-bearing user task default route into the footer', () => {
+    const props = {
+      id: 'approve',
+      data: {
+        label: 'Approve order',
+        decisions: [{ id: 'done', label: 'Done', transitionId: 't_done', style: 'primary' }],
+      },
+      isConnectable: true,
+      selected: false,
+    } as unknown as React.ComponentProps<typeof UserTaskNode>
+
+    renderWithProviders(<UserTaskNode {...props} />)
+
+    expect(
+      document.querySelectorAll(`[data-handle-id="${DEFAULT_SOURCE_HANDLE_ID}"]`),
+    ).toHaveLength(1)
+    expect(
+      document.querySelector(`[data-default-route-handle="${DEFAULT_SOURCE_HANDLE_ID}"]`),
+    ).not.toBeNull()
   })
 })
 

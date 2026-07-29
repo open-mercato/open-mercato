@@ -25,6 +25,7 @@ import {
   outcomeSourceHandleId,
   type AgentOutcomeKind,
 } from './outcome-routing'
+import { DEFAULT_SOURCE_HANDLE_ID } from './route-kinds'
 
 /**
  * How a row reads at a glance. Paired with the row's LABEL, never standing in
@@ -33,7 +34,7 @@ import {
  * status token; the glyph gives each row a second, non-colour discriminator.
  */
 export type NodeOutcomeRowTone = 'success' | 'warning' | 'error' | 'info' | 'neutral'
-export type NodeOutcomeRowGlyph = 'check' | 'info' | 'slash' | 'shield' | 'alert' | 'dot'
+export type NodeOutcomeRowGlyph = 'check' | 'info' | 'slash' | 'shield' | 'alert' | 'dot' | 'corner'
 
 export interface NodeOutcomeRow {
   /** Stable key AND the React Flow source handle id the dot binds to. */
@@ -93,6 +94,36 @@ export function buildAllAgentOutcomeRows(): NodeOutcomeRow[] {
     labelKey: `workflows.outcomes.${outcome}`,
     ...OUTCOME_ROW_PRESENTATION[outcome],
   }))
+}
+
+/**
+ * The step's ORDINARY output, as the footer's last row.
+ *
+ * It used to render as a lone handle floating at the card's right edge, roughly
+ * level with the first outcome row it then collided with. It is not decorative
+ * and deleting it would be a regression: `resolveAgentOutcomeHandling` returns
+ * `{ kind: 'default' }` — "route exactly as this instance always would have" —
+ * for a step that wired NO outcome at all (so this handle carries every
+ * disposition, which is how every definition written before §7.2 still runs)
+ * and for `approved` whenever `approved` is not separately wired.
+ *
+ * It is NOT a catch-all, which is why it is named `default` rather than
+ * `otherwise`: an unwired `rejected` / `informative` / `guardrailBlocked` /
+ * `error` inherits the step's error directive instead, exactly as the footer's
+ * inheritance note states. A row promising "everything else comes here" would
+ * be the one label on this card an author could act on and be wrong.
+ *
+ * The handle id is unchanged (`source`), so a stored transition that resolves
+ * to it keeps resolving to it — this is presentation, not routing.
+ */
+export function buildDefaultRouteRow(): NodeOutcomeRow {
+  return {
+    handleId: DEFAULT_SOURCE_HANDLE_ID,
+    labelKey: 'workflows.outcomes.default',
+    labelFallback: 'default',
+    tone: 'neutral',
+    glyph: 'corner',
+  }
 }
 
 export interface DecisionRowLike {

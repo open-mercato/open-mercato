@@ -235,6 +235,16 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   run agree by construction.
 - **The dot IS the connection handle** — wiring a disposition is drawing a line from the row that
   names it.
+- **The step's DEFAULT route is the footer's last row**, `buildDefaultRouteRow()`. Its handle id is
+  still `DEFAULT_SOURCE_HANDLE_ID` (`'source'`, `lib/route-kinds.ts`) — the move is presentation, so
+  every stored transition keeps resolving to it. It renders as a row only when a footer renders at
+  all; without one the node keeps its own `<Handle>` unchanged. It is named `default`, NOT
+  `otherwise`: `resolveAgentOutcomeHandling` returns `{ kind: 'default' }` for a step that wired no
+  outcome and for an unwired `approved`, while every OTHER unwired outcome inherits the error
+  directive — a row promising "everything else comes here" would be wrong.
+- **Every handle on the canvas is sized from `NODE_HANDLE_CLASS`** (`lib/node-geometry.ts`), footer
+  dots included. MUST NOT spell `!w-3 !h-3` in a node component; `nodeHandleGeometry.test.ts` fails
+  if you do. `countOutcomeRows` adds one for the default row, or dagre under-reserves the card.
 - **The LABEL carries the meaning, never the dot colour** (§4.6 acceptance criterion). Two rows paint
   the same red (`rejected`, `guardrailBlocked`), which at 10px and at canvas zoom is not a
   distinction anyone can read, so every row also carries its own GLYPH and every handle is named.

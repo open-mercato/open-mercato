@@ -1347,6 +1347,7 @@
   "workflows.orderApproval.submitDecision": "Zatwierdź decyzję",
   "workflows.outcomes.add": "+ wynik",
   "workflows.outcomes.approved": "zatwierdzone",
+  "workflows.outcomes.default": "domyślne",
   "workflows.outcomes.error": "błąd",
   "workflows.outcomes.guardrailBlocked": "zablokowane przez zabezpieczenie",
   "workflows.outcomes.informative": "informacyjne",

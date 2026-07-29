@@ -1,6 +1,8 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
+import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import { buildNodeConfigSummary } from '../../lib/node-config-summary'
@@ -44,7 +46,7 @@ export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProp
         position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <WorkflowNodeCard
@@ -64,9 +66,9 @@ export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProp
       <Handle
         type="source"
         position={Position.Right}
-        id="source"
+        id={DEFAULT_SOURCE_HANDLE_ID}
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
     </div>
   )
