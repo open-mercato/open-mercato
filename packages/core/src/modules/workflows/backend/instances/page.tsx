@@ -88,6 +88,13 @@ export default function WorkflowInstancesListPage() {
     if (filterValues.correlationKey) params.set('correlationKey', filterValues.correlationKey as string)
     if (filterValues.entityType) params.set('entityType', filterValues.entityType as string)
     if (filterValues.entityId) params.set('entityId', filterValues.entityId as string)
+    // The date-range control emits calendar days; the API widens `startedTo` to
+    // cover the whole day, so "started on the 3rd" does not exclude everything
+    // after midnight.
+    const startedAt = filterValues.startedAt as { from?: string; to?: string } | undefined
+    if (startedAt?.from) params.set('startedFrom', startedAt.from)
+    if (startedAt?.to) params.set('startedTo', startedAt.to)
+    if (filterValues.attention) params.set('attention', 'true')
     return params
   }, [filterValues])
 
@@ -306,6 +313,23 @@ export default function WorkflowInstancesListPage() {
       type: 'text',
       label: t('workflows.instances.filters.entityId'),
       placeholder: t('workflows.instances.filters.entityIdPlaceholder'),
+    },
+    {
+      id: 'startedAt',
+      type: 'dateRange',
+      label: t('workflows.instances.filters.startedAt', 'Started'),
+    },
+    {
+      // The failure queue (spec 5.9 / 8.4): a `failureQueue` error directive
+      // parks an instance as PAUSED with an engine-owned attention marker. The
+      // API has filtered on it since Phase 3a; this is the control for it.
+      id: 'attention',
+      type: 'checkbox',
+      label: t('workflows.instances.filters.attention', 'Needs attention'),
+      tooltip: t(
+        'workflows.instances.filters.attentionTooltip',
+        'Instances parked by a failure-queue directive, waiting for a human to triage them.'
+      ),
     },
   ]
 

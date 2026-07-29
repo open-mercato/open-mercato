@@ -174,6 +174,49 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    test('filters by a started-at date range, widening the calendar day to cover it', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?startedFrom=2026-07-01&startedTo=2026-07-29'
+      )
+      await listInstances(request)
+
+      const where = mockEm.findAndCount.mock.calls[0][1]
+      expect(where.startedAt.$gte.toISOString()).toBe('2026-07-01T00:00:00.000Z')
+      expect(where.startedAt.$lte.toISOString()).toBe('2026-07-29T23:59:59.999Z')
+    })
+
+    test('rejects an unparseable date bound with a 400 instead of querying on an Invalid Date', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?startedFrom=garbage')
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+    })
+
+    test('rejects an inverted date range', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?startedFrom=2026-07-29&startedTo=2026-07-01'
+      )
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+    })
+
+    test('adds no startedAt predicate when no date bound is given', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances'))
+
+      expect(mockEm.findAndCount.mock.calls[0][1].startedAt).toBeUndefined()
+    })
+
     test('should filter instances by status', async () => {
       mockEm.findAndCount.mockResolvedValue([[], 0])
 
