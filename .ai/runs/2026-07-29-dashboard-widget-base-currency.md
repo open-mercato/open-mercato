@@ -58,22 +58,24 @@ Full `validation.commands` gate.
 
 ## Progress
 
+PR: #4627
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Currency-aware formatting primitives
 
-- [ ] 1.1 Make `formatCurrency*` helpers accept and honor a currency code
-- [ ] 1.2 Update and extend the formatter unit tests
+- [x] 1.1 Make `formatCurrency*` helpers accept and honor a currency code — a2efb7860
+- [x] 1.2 Update and extend the formatter unit tests — a2efb7860
 
 ### Phase 2: Resolve the base currency server-side
 
-- [ ] 2.1 Add the scope-aware base-currency lookup helper with tests
-- [ ] 2.2 Expose the resolved currency on `WidgetDataResponse.metadata`
+- [x] 2.1 Add the scope-aware base-currency lookup helper with tests — c5dec6d36
+- [x] 2.2 Expose the resolved currency on `WidgetDataResponse.metadata` — c5dec6d36
 
 ### Phase 3: Wire the widgets
 
-- [ ] 3.1 Pass the resolved currency through all seven money-rendering widgets
+- [x] 3.1 Pass the resolved currency through all seven money-rendering widgets — c8b1bc5d8
 
 ### Phase 4: Validation
 
-- [ ] 4.1 Run the full validation gate
+- [x] 4.1 Run the full validation gate
