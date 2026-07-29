@@ -209,6 +209,83 @@ export async function createAgentDispositionTask(
   }
 }
 
+export interface CloseAgentDispositionTaskOptions {
+  userTaskId: string
+  /** The verdict that closed it — audit only; it never decides anything here. */
+  disposition: string
+  closedBy?: string | null
+  tenantId: string
+  organizationId: string
+  now?: Date
+}
+
+/** Statuses a disposition task is still open in — anything else is already closed. */
+const OPEN_TASK_STATUSES = ['PENDING', 'IN_PROGRESS'] as const
+
+/**
+ * Close the review task a disposed proposal no longer needs (A7).
+ *
+ * The decision has already been made and committed by the caller; this only
+ * clears the work item so the operator's inbox stops offering a decision that
+ * has already been taken. It deliberately does NOT complete the task through
+ * `completeUserTask`: that would ADVANCE the run, and the run resumes on
+ * `agent_orchestrator.proposal.ready` instead. Closing a task and advancing a
+ * workflow are different acts, and only the second one belongs to the engine.
+ *
+ * Idempotent by construction: the status change is claimed with a conditional
+ * UPDATE, so a redelivered close (or a task a human already completed) updates
+ * zero rows and returns `noop`.
+ */
+export async function closeAgentDispositionTask(
+  em: EntityManager,
+  container: AwilixContainer,
+  options: CloseAgentDispositionTaskOptions,
+): Promise<'closed' | 'noop'> {
+  const { tenantId, organizationId } = options
+  const now = options.now ?? new Date()
+
+  const task = await em.findOne(UserTask, {
+    id: options.userTaskId,
+    tenantId,
+    organizationId,
+  })
+  if (!task) return 'noop'
+
+  const claimed = await em.nativeUpdate(
+    UserTask,
+    {
+      id: task.id,
+      tenantId,
+      organizationId,
+      status: { $in: [...OPEN_TASK_STATUSES] },
+    },
+    {
+      status: 'COMPLETED',
+      completedAt: now,
+      completedBy: options.closedBy ?? null,
+      updatedAt: now,
+    },
+  )
+  if (claimed === 0) return 'noop'
+
+  await logDispositionTaskEvent(em, container, {
+    workflowInstanceId: task.workflowInstanceId,
+    stepInstanceId: task.stepInstanceId,
+    ...(task.branchInstanceId ? { branchInstanceId: task.branchInstanceId } : {}),
+    eventType: 'USER_TASK_COMPLETED',
+    eventData: {
+      userTaskId: task.id,
+      taskName: task.taskName,
+      closedBy: 'agent_disposition',
+      disposition: options.disposition,
+    },
+    tenantId,
+    organizationId,
+  })
+
+  return 'closed'
+}
+
 /**
  * Publish `workflows.task.assigned` for a disposition task, so it reaches the
  * notification subscriber the same way every other task does. Best-effort by

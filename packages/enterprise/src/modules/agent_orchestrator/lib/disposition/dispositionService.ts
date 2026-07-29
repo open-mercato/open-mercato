@@ -1,7 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { AgentProposal } from '../../data/entities'
+import { AgentProposal } from '../../data/entities'
 import type {
   DisposeProposalCommandInput,
   DisposeProposalCommandResult,
@@ -157,6 +157,7 @@ export class DispositionServiceImpl implements DispositionService {
         organizationId: ctx.organizationId,
         userId: ctx.userId,
       })
+      await this.recordUserTaskId(proposal, created.userTaskId)
       return created.userTaskId
     } catch (error) {
       console.warn('[agent_orchestrator] USER_TASK not created (workflows peer absent?)', {
@@ -165,6 +166,35 @@ export class DispositionServiceImpl implements DispositionService {
         error: error instanceof Error ? error.message : String(error),
       })
       return `pending:${proposal.id}`
+    }
+  }
+
+  /**
+   * Link the proposal to the review task raised for it, so `commands/dispose.ts`
+   * can close that task once a verdict lands (A7).
+   *
+   * A targeted `nativeUpdate` rather than a managed write: it must NOT touch
+   * `updated_at`, which is the proposal's optimistic-lock token — bumping it
+   * here would invalidate a caseload modal that had already loaded the row and
+   * turn the link into a spurious 409 for the operator.
+   */
+  private async recordUserTaskId(proposal: AgentProposal, userTaskId: string): Promise<void> {
+    try {
+      const em = (this.container.resolve('em') as EntityManager).fork()
+      await em.nativeUpdate(
+        AgentProposal,
+        { id: proposal.id, tenantId: proposal.tenantId, organizationId: proposal.organizationId },
+        { userTaskId },
+      )
+      proposal.userTaskId = userTaskId
+    } catch (error) {
+      // The task exists and the proposal is pending; losing the link costs the
+      // automatic close, never the review itself.
+      console.warn('[agent_orchestrator] proposal not linked to its review task', {
+        proposalId: proposal.id,
+        userTaskId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 }

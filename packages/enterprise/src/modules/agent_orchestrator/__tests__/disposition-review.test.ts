@@ -43,14 +43,15 @@ function makeProposal(overrides: Partial<AgentProposal> = {}): AgentProposal {
 }
 
 function makeService(execute = jest.fn<(...args: unknown[]) => Promise<unknown>>()) {
+  const nativeUpdate = jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1)
   const container = {
     resolve: (token: string) => {
       if (token === 'commandBus') return { execute }
-      if (token === 'em') return { fork: () => ({}) }
+      if (token === 'em') return { fork: () => ({ nativeUpdate }) }
       throw new Error(`Unexpected DI token in test: ${token}`)
     },
   }
-  return { service: new DispositionServiceImpl(container as never), execute }
+  return { service: new DispositionServiceImpl(container as never), execute, nativeUpdate }
 }
 
 const ctx = {
@@ -146,6 +147,32 @@ describe('DispositionService — the human arm is routable', () => {
       expect.anything(),
       expect.objectContaining({ review: null }),
     )
+  })
+
+  test('links the proposal to its review task without bumping the optimistic-lock token', async () => {
+    const { service, nativeUpdate } = makeService()
+    const proposal = makeProposal({ confidence: 0.1 })
+
+    await service.dispose(proposal, { alwaysAsk: true }, ctx)
+
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'proposal-1', tenantId: TENANT_ID, organizationId: ORG_ID }),
+      { userTaskId: 'task-1' },
+    )
+    // `updated_at` is the proposal's lock token; writing it here would 409 a
+    // caseload modal that had already loaded the row.
+    expect(nativeUpdate.mock.calls[0][2]).not.toHaveProperty('updatedAt')
+    expect(proposal.userTaskId).toBe('task-1')
+  })
+
+  test('a failed link costs the automatic close, never the review', async () => {
+    const { service, nativeUpdate } = makeService()
+    nativeUpdate.mockRejectedValue(new Error('db down'))
+
+    const outcome = await service.dispose(makeProposal({ confidence: 0.1 }), { alwaysAsk: true }, ctx)
+
+    expect(outcome).toEqual({ kind: 'user_task', userTaskId: 'task-1', proposalId: 'proposal-1' })
   })
 
   test('an absent workflows peer degrades to the synthetic id, never to a verdict', async () => {
