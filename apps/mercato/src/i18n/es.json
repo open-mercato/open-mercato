@@ -802,6 +802,8 @@
   "ui.contextHelp.hide": "Ocultar",
   "ui.contextHelp.show": "Mostrar",
   "ui.crud.dragHandle.aria": "Arrastra para reordenar",
+  "ui.customFields.phone.defaultCountry": "País predeterminado",
+  "ui.customFields.phone.defaultCountryAuto": "Detectar automáticamente del valor",
   "ui.dataLoader.loading": "Cargando...",
   "ui.dataTable.actionsColumn": "Acciones",
   "ui.dataTable.bulkAction.error": "Bulk action failed.",

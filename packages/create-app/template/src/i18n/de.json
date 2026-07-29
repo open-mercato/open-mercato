@@ -705,6 +705,8 @@
   "ui.contextHelp.hide": "Ausblenden",
   "ui.contextHelp.show": "Anzeigen",
   "ui.crud.dragHandle.aria": "Zum Neuanordnen ziehen",
+  "ui.customFields.phone.defaultCountry": "Standardland",
+  "ui.customFields.phone.defaultCountryAuto": "Automatisch aus Wert erkennen",
   "ui.dataLoader.loading": "Wird geladen...",
   "ui.dataTable.actionsColumn": "Aktionen",
   "ui.dataTable.bulkAction.error": "Bulk action failed.",
