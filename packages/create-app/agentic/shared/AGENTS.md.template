@@ -94,7 +94,7 @@ Delivery skills come from pinned `open-mercato/skills` (`yarn install-skills`; i
 |---|---|---|
 | `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) + exact `.ai/agentic.config.json` for its specs-directory setting |
 | `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
-| `spec-pr` | Ship whole spec / one-shot PR / tracker issue / review | `om-auto-implement-spec` / `om-auto-create-pr` (resume `om-auto-continue-pr`) / `om-auto-fix-issue` / `om-auto-review-pr`, which invokes `om-code-review` |
+| `spec-pr` | Whole-spec / commit+open-ready PR / issue / review; preserve task routes (`delivery-route-preserves-task-routes`) | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
 | `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
 | — | No PR/spec workflow requested | Do not load delivery skills |
 

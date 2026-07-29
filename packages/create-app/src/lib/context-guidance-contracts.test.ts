@@ -289,6 +289,7 @@ test('business one-shot route keys remain binding for installed-module links', (
 test('spec routing binds integration coverage to its decision label', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /integration coverage \(`integration-coverage`\); no domain routes/)
+  assert.match(root, /commit\+open-ready PR .* preserve task routes \(`delivery-route-preserves-task-routes`\).*`om-auto-create-pr`/)
 })
 
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
