@@ -359,6 +359,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.43 Bind field-versus-history architecture and explicit eject-last reporting to their exact owners — `d9c14fac1`
 - [x] 3.44 Bind installed-host workflow ownership and new-account setup hooks to their exact owner — `c183ffca7`
 - [x] 3.45 Bind AI files, storage cleanup, ephemeral provider tests, ready-PR delivery, read-only installed context, injected tables, and mutation guards to their exact owners — `f18f75485`
+- [x] 3.46 Bind residual attachment, delivery, CRM, renewal, and bounded installed-context routing to their exact owners — `972547781`
 
 ### Phase 4: Compatibility baseline
 
