@@ -169,6 +169,35 @@ const resolveInvokeAgentOutputContract = (config: unknown): ZodTypeAny | 'unknow
 const asConfigRecord = (config: unknown): Record<string, unknown> =>
   typeof config === 'object' && config !== null ? (config as Record<string, unknown>) : {}
 
+/**
+ * INVOKE_AGENT's would-do payload (spec section 8.2).
+ *
+ * It names the agent and the disposition the step would REQUEST — never a
+ * fabricated outcome. A real run's disposition is decided by the model's
+ * confidence against `onResult.autoApproveThreshold`, and a simulation has no
+ * confidence, so the honest answer is the one `dispositionService` already
+ * gives for a missing confidence: fail closed to human review. The envelope
+ * deliberately does NOT reuse the runtime `kind` vocabulary
+ * (`auto_approved` / `informative` / `user_task`) so nothing downstream can
+ * mistake a simulation for a disposition that actually happened.
+ */
+const buildInvokeAgentWouldDo = (config: unknown): Record<string, unknown> => {
+  const record = asConfigRecord(config)
+  const onResult = asConfigRecord(record.onResult)
+  const threshold = typeof onResult.autoApproveThreshold === 'number'
+    ? onResult.autoApproveThreshold
+    : null
+  return {
+    simulated: true,
+    invoked: false,
+    kind: 'would_invoke',
+    wouldInvokeAgent: typeof record.agentId === 'string' ? record.agentId : null,
+    wouldRequestDisposition: 'human_review',
+    reason: onResult.alwaysAsk === true ? 'alwaysAsk' : 'noConfidenceInSimulation',
+    autoApproveThreshold: threshold,
+  }
+}
+
 export function registerBuiltinActivityTypes(): void {
   if (BUILTIN_ACTIVITY_TYPE_IDS.every((id) => getActivityType(id) != null)) return
 
@@ -354,9 +383,10 @@ export function registerBuiltinActivityTypes(): void {
     // the step handler PAUSES the instance on INVOKE_AGENT_SIGNAL_NAME. The job
     // rides its own queue and resumes via sendSignal — not the generic
     // resumeWorkflowAfterActivities path — so the activity is not async-capable
-    // in the registry's sense. No mock: agent runs are not simulatable here.
+    // in the registry's sense.
     execute: async (config, ctx, deps) => (await loadExecutor()).executeInvokeAgent(config, ctx, deps.container),
     async: { capable: false, reason: 'parksOnDedicatedQueue' },
+    mock: buildInvokeAgentWouldDo,
     outputContract: resolveInvokeAgentOutputContract,
   })
 }
