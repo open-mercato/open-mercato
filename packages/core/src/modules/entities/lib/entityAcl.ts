@@ -75,8 +75,8 @@ function loadDeclaredCustomEntityRestrictions(): Map<string, boolean> {
         customEntities?: Array<{ id?: string; accessRestricted?: boolean }>
       }>
       const restrictions = new Map<string, boolean>()
-      for (const module of modules ?? []) {
-        for (const spec of module.customEntities ?? []) {
+      for (const moduleEntry of modules ?? []) {
+        for (const spec of moduleEntry.customEntities ?? []) {
           if (spec.id) restrictions.set(spec.id, spec.accessRestricted === true)
         }
       }
@@ -108,6 +108,7 @@ export function canReadAllEntityMetadata(acl: {
 export function canReadEntityMetadata(args: {
   entityId: string
   isCustomEntity: boolean
+  isRestricted?: boolean
   acl: { isSuperAdmin?: boolean; features?: readonly string[] }
 }): boolean {
   if (args.acl.isSuperAdmin) return true
@@ -115,7 +116,13 @@ export function canReadEntityMetadata(args: {
   const requirement = resolveEntityAclRequirement(args.entityId)
   if (requirement?.platformOnly) return false
   if (canReadAllEntityMetadata(args.acl)) return true
-  if (args.isCustomEntity) return hasAllFeatures(args.acl.features, ['entities.records.view'])
+  if (args.isCustomEntity) {
+    const requiredFeatures = ['entities.records.view']
+    if (args.isRestricted) {
+      requiredFeatures.push(deriveCustomEntityRecordFeature(args.entityId, 'view'))
+    }
+    return hasAllFeatures(args.acl.features, requiredFeatures)
+  }
   if (!requirement) return false
   return hasAllFeatures(args.acl.features, requirement.view)
 }

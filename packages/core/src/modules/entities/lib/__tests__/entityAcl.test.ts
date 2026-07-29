@@ -80,6 +80,24 @@ describe('canReadEntityMetadata', () => {
     })).toBe(false)
   })
 
+  test('requires the per-entity view feature for restricted custom entity metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'hr:salaries',
+      isCustomEntity: true,
+      isRestricted: true,
+      acl: { isSuperAdmin: false, features: ['entities.records.view'] },
+    })).toBe(false)
+    expect(canReadEntityMetadata({
+      entityId: 'hr:salaries',
+      isCustomEntity: true,
+      isRestricted: true,
+      acl: {
+        isSuperAdmin: false,
+        features: ['entities.records.view', 'entities.records.hr:salaries.view'],
+      },
+    })).toBe(true)
+  })
+
   test('fails closed for platform-only and unmapped system metadata', () => {
     const acl = { isSuperAdmin: false, features: ['directory.*'] }
     expect(canReadEntityMetadata({ entityId: 'directory:tenant', isCustomEntity: false, acl })).toBe(false)

@@ -11,7 +11,7 @@ import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { canReadEntityMetadata, isDeclaredCustomEntity } from '../lib/entityAcl'
+import { canReadEntityMetadata, getDeclaredCustomEntityRestriction } from '../lib/entityAcl'
 import {
   beginEntitiesMutationGuard,
   ENTITY_DEFINITION_RESOURCE_KIND,
@@ -88,12 +88,19 @@ export async function GET(req: Request) {
 
   const visibleEntityIds = new Set(
     Array.from(byId.values())
-      .filter((item: any) => canReadEntityMetadata({
-        entityId: item.entityId,
-        isCustomEntity: !isOrmBackedSystemEntityId(em, item.entityId)
-          && (item.source === 'custom' || isDeclaredCustomEntity(item.entityId)),
-        acl,
-      }))
+      .filter((item: any) => {
+        const isOrmBacked = isOrmBackedSystemEntityId(em, item.entityId)
+        const declaredRestriction = isOrmBacked
+          ? undefined
+          : getDeclaredCustomEntityRestriction(item.entityId)
+        return canReadEntityMetadata({
+          entityId: item.entityId,
+          isCustomEntity: !isOrmBacked
+            && (item.source === 'custom' || declaredRestriction !== undefined),
+          isRestricted: declaredRestriction ?? item.accessRestricted === true,
+          acl,
+        })
+      })
       .map((item: any) => item.entityId),
   )
   if (!visibleEntityIds.size) return NextResponse.json({ items: [] })

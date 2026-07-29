@@ -28,7 +28,7 @@ import {
 import {
   canReadAllEntityMetadata,
   canReadEntityMetadata,
-  isDeclaredCustomEntity,
+  getDeclaredCustomEntityRestriction,
   resolveEntityAclRequirement,
 } from '../lib/entityAcl'
 import {
@@ -254,12 +254,15 @@ export async function GET(req: Request) {
     organizationId,
   })
   const designerCanRead = canReadAllEntityMetadata(acl)
-  const customEntityIds = new Set(selectableEntityIds.filter(
-    (entityId) => !isOrmBackedSystemEntityId(em, entityId) && isDeclaredCustomEntity(entityId),
-  ))
+  const customEntityRestrictions = new Map<string, boolean>()
+  for (const entityId of selectableEntityIds) {
+    if (isOrmBackedSystemEntityId(em, entityId)) continue
+    const declaredRestriction = getDeclaredCustomEntityRestriction(entityId)
+    if (declaredRestriction !== undefined) customEntityRestrictions.set(entityId, declaredRestriction)
+  }
   if (!designerCanRead) {
     const unresolvedEntityIds = selectableEntityIds.filter(
-      (entityId) => !resolveEntityAclRequirement(entityId) && !customEntityIds.has(entityId),
+      (entityId) => !resolveEntityAclRequirement(entityId) && !customEntityRestrictions.has(entityId),
     )
     if (unresolvedEntityIds.length) {
       const registrations = await em.find(CustomEntity as any, {
@@ -272,13 +275,16 @@ export async function GET(req: Request) {
       } as any)
       for (const registration of registrations as any[]) {
         const entityId = String(registration.entityId)
-        if (!isOrmBackedSystemEntityId(em, entityId)) customEntityIds.add(entityId)
+        if (!isOrmBackedSystemEntityId(em, entityId)) {
+          customEntityRestrictions.set(entityId, registration.accessRestricted === true)
+        }
       }
     }
   }
   const entityIds = selectableEntityIds.filter((entityId) => canReadEntityMetadata({
     entityId,
-    isCustomEntity: customEntityIds.has(entityId),
+    isCustomEntity: customEntityRestrictions.has(entityId),
+    isRestricted: customEntityRestrictions.get(entityId) === true,
     acl,
   }))
   if (!entityIds.length) {

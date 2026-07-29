@@ -94,6 +94,33 @@ describe('entities/definitions API', () => {
     await expect(response.json()).resolves.toMatchObject({ items: [] })
   })
 
+  it('does not expose restricted custom-entity definitions to a coarse records reader', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.loadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['entities.records.view'],
+      organizations: null,
+    })
+    mockEm.find.mockResolvedValueOnce([{
+      entityId: 'hr:salaries',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      isActive: true,
+      accessRestricted: true,
+    }])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=hr:salaries'),
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      fieldsetsByEntity: {},
+      entitySettings: {},
+    })
+  })
+
   it('synchronizes module-backed definitions for requested entities when the caller can manage definitions', async () => {
     const response = await GET(
       new Request('http://x/api/entities/definitions?entityId=customers:customer_interaction'),
