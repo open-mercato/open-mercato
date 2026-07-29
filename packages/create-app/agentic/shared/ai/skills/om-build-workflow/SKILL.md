@@ -9,13 +9,15 @@ Compose the installed workflow engine; do not bypass its executor, state machine
 
 ## Workflow
 
-Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Load `.ai/guides/modules/workflows.md`, not `.ai/guides/contracts.md`; use module-data or `om-data-model-design` only when the request also adds a separate app-owned business entity.
+Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Workflow-only work loads `.ai/guides/modules/workflows.md`, not `.ai/guides/contracts.md`; coordinating host domain statuses or quantities also selects module-data and loads `.ai/guides/contracts.md`.
 
 1. Read `.ai/guides/ai-workflows.md`; inspect the installed workflows module facts and use `om-framework-context` for exact service/activity contracts.
 2. Always load `references/workflow-design.md` before defining steps, transitions, triggers, variables, tasks, compensation, or terminal states.
 3. Load `references/activity-contracts.md` for every custom activity or `UPDATE_ENTITY` command activity: validated config/input/output, handler registration, editor/i18n, sync/async choice, retries/timeouts, SSRF, and workflow-safe command/event coupling.
 4. Load `references/durability-and-progress.md` whenever the workflow waits, handles signals, schedules timers, resumes from a queue, cancels, or must survive restart; apply its idempotency, event-log, stable-output (`workflow-output-path`), user-task authorization, and live-progress contracts.
 5. Run `yarn generate`; test event storms, retry/restart, rollback, duplicate signal/callback, cancellation, compensation failure, and scope isolation.
+
+Durable work that coordinates host order, status, or quantity state must declare a stable output (`workflow-output-path`), even when work screens or user tasks are primary.
 
 ## Rules
 

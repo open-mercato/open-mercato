@@ -209,9 +209,13 @@ test('progressive runtime reference pins cache invalidation and discovered queue
 })
 
 test('progressive AI reference pins generated registration and approval-gated command writes', () => {
+  const aiSkill = readAgentic('shared/ai/skills/om-create-ai-agent/SKILL.md')
   const moduleAi = readAgentic(
     'shared/ai/skills/om-create-ai-agent/references/module-agents-and-tools.md',
   )
+  assert.match(aiSkill, /scores or explains customer, contact, lead, or deal records/)
+  assert.match(aiSkill, /load `\.ai\/guides\/modules\/customers\.md`/)
+  assert.match(aiSkill, /read-only access still targets that host/)
   assert.match(moduleAi, /`ai-agents\.ts`\/`ai-tools\.ts`/)
   assert.match(moduleAi, /`prepareMutation`/)
   assert.match(moduleAi, /dispatches a command with optimistic locking/)
@@ -365,9 +369,10 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
 
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
   const root = readAgentic('shared/AGENTS.md.template')
-  assert.match(root, /Persistent multi-stage business state/)
-  assert.match(root, /waits\/cancels\/survives restarts is durable/)
-  assert.match(root, /one-step reminders are `module-data`/)
+  assert.match(root, /Multi-stage waits\/cancel\/restart are durable/)
+  assert.match(root, /reminders and renewal\/batch schedules are `module-data`/)
+  assert.match(root, /spreadsheet\/CSV\/file import\/export, sync\/webhook\/storage/)
+  assert.match(root, /imports stay `integration` with preview\/UI/)
 })
 
 test('installed behavior discovery and field-versus-history design bind their exact owners', () => {
@@ -399,6 +404,9 @@ test('workflow skill binds implementation prompts to the progressive contract re
   assert.match(workflowSkill, /Load `references\/durability-and-progress\.md` whenever the workflow waits, handles signals, schedules timers/)
   assert.match(workflowSkill, /`command-state-machine`/)
   assert.match(workflowSkill, /`subscriber-idempotency`/)
+  assert.match(workflowSkill, /coordinating host domain statuses or quantities also selects module-data/)
+  assert.match(workflowSkill, /loads `\.ai\/guides\/contracts\.md`/)
+  assert.match(workflowSkill, /stable output \(`workflow-output-path`\)/)
 })
 
 test('integration routing binds installed-record imports and optional carriers at their direct owners', () => {
