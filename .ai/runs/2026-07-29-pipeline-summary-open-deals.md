@@ -85,6 +85,17 @@ formatting, still a draft) will touch the same component.
 - **Overlap with PR #4627.** That draft will also edit `pipeline-summary/widget.client.tsx` (money
   formatting). The changes touch different lines; whichever lands second rebases.
 
+## Validation blocker (pre-existing, not caused by this change)
+
+`yarn i18n:check-usage` exits 1 on this branch **and on a clean `upstream/develop`**, reporting two
+missing keys referenced from `packages/ui/src/backend/fields/phone.tsx:58,69`:
+`ui.customFields.phone.defaultCountry` and `ui.customFields.phone.defaultCountryAuto`. This branch
+touches neither `packages/ui` nor `apps/mercato/src/i18n` — the diff is confined to `.ai/runs/` and
+`packages/core/src/modules/dashboards/`. PR #4608 (`fix(i18n): define the phone custom-field
+translation keys`, still open) is the fix for it; duplicating that work here would collide with it
+on the same locale files. Every other gate command passes, including `i18n:check-sync`, which is the
+one that covers the keys this change adds.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -106,4 +117,4 @@ formatting, still a draft) will touch the same component.
 
 ### Phase 4: Validation
 
-- [ ] 4.1 Run the full validation gate
+- [x] 4.1 Run the full validation gate — 7/8 green; `i18n:check-usage` blocked by a pre-existing failure (see Validation blocker)
