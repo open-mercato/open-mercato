@@ -128,10 +128,10 @@ rule) with the entity-scoped syntax.
 
 ### Phase 2: Honour the blocklist in the aggregate and unify the per-field path
 
-- [ ] 2.1 Thread entityType and config into the aggregate composition
-- [ ] 2.2 Route shouldIndexField through the shared matcher
-- [ ] 2.3 Pass entityType from indexer, batch, and customers CLI call sites
-- [ ] 2.4 Unit tests for the aggregate and token paths
+- [x] 2.1 Thread entityType and config into the aggregate composition — d038deab5
+- [x] 2.2 Route shouldIndexField through the shared matcher — d038deab5
+- [x] 2.3 Pass entityType from indexer, batch, and customers CLI call sites — d038deab5
+- [x] 2.4 Unit tests for the aggregate and token paths — d038deab5
 
 ### Phase 3: Documentation
 
