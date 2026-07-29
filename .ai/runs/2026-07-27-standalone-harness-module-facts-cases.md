@@ -113,5 +113,11 @@ four commits. They are raised on #4529 instead of being patched from a stacked b
       changelog entry the count alignment owed — 47a120a4b, f2cbf0ed7
 - [x] 4.7 Run the full configured `validation.commands` gate locally instead of relying on GitHub checks —
       8/8 green on f2cbf0ed7; create-app 333 pass / 0 fail / 5 skipped once dist/agentic is built
-- [ ] 4.8 Re-run the live routing lane for OMH-188/189 against the tightened assertions — requires a
-      scaffolded controller
+- [x] 4.8 Re-run the live routing lane for OMH-188/189 against the tightened assertions — both pass on
+      claude 2.1.220 / sonnet, controller scaffolded from `create-mercato-app@0.6.7-canary.317.1.106b9d993b`.
+      OMH-188: `om-help` + `om-data-model-design` + `om-module-scaffold`, decisions `facts-first`,
+      `tenant-scope`, `acl-features`, `smallest-validation`, 11 files, 0 violations, 0 corrections.
+      OMH-189: `om-help`, the same four decisions, 11 files, 0 violations, 0 corrections. The
+      deterministic gate over the committed bytes is 189/189 on the same controller. This is the run the
+      earlier live evidence could not provide: it predated 28603a4e4, when both cases still declared an
+      empty `requiredSkills` and asserted only one of the two scope/ACL decisions each.
