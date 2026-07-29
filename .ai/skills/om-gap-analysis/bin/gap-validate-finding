@@ -1,0 +1,445 @@
+#!/usr/bin/env bash
+# gap-validate-finding — structural gate for one gap-analysis findings block.
+# Usage:  gap-validate-finding <story-id> --repo-root <path> [--companion-root <path>]
+#                              [--story <file>] [--tier-map <file>]  < findings-block.md
+#
+#   --repo-root <path>       The validated platform checkout on the configured
+#                            integration branch (stdout line 1 of
+#                            bin/gap-orientation-preflight). REQUIRED for every
+#                            grounded verdict whose Grounding source is not
+#                            "companion" — merged-code verdicts are re-run as a
+#                            local `git grep` against this checkout, never a
+#                            live host-side search. Falls back to env
+#                            GAP_REPO_ROOT if the flag is absent.
+#   --companion-root <path>  The validated companion-repo checkout (stdout
+#                            line 2 of bin/gap-orientation-preflight). REQUIRED
+#                            only when a finding's Grounding source is
+#                            "companion" — a shipped capability there is real
+#                            positive evidence, not just the supplementary
+#                            Upstream-pipeline PR signal. Falls back to env
+#                            GAP_COMPANION_ROOT.
+#   --story <file>           Story context (title + acceptance criteria) the
+#                            verdict is about. REQUIRED to ground a ❌ Missing —
+#                            without it the gate cannot prove the grounding
+#                            query is non-degenerate, so the absence verdict
+#                            cannot be trusted (the strawman guard). Falls back
+#                            to env GAP_STORY.
+#   --tier-map <file>        Optional license-tier map: one `<path-prefix> <tier>`
+#                            pair per line (repo-relative prefix, whitespace-
+#                            separated; blank lines and `#` comments skipped).
+#                            When a positive verdict's grounding hits land
+#                            under a mapped prefix, the gate derives that tier;
+#                            see TIER below. Falls back to env GAP_TIER_MAP.
+#
+# Two layers, both outside the subagent's model loop (prose rules inside a
+# subagent prompt do not bind it against fabrication-shape failures):
+#   FORM      — deterministic regex checks on the block.
+#   GROUNDING — the orchestrator RE-RUNS the cited query as a `git grep`/`rg`
+#               against the checkout the finding names (platform or companion)
+#               and compares the result to the claimed verdict, UNCONDITIONALLY —
+#               every capability claim is re-run, no exemption. A regex over
+#               the returned citation only proves a string is present; it
+#               cannot tell a real `no match` from a hallucinated one. AND the
+#               query must share a noun with the story (else a strawman query
+#               self-confirms a verdict). Local re-runs cost nothing, so there
+#               is no shape-trust exemption for any source.
+#
+# TIER (license-tier tagging, derived — never subagent-claimed):
+#   On a grounded ✅/🟡 the gate prints exactly one machine-readable line to
+#   stdout: `TIER: <tier>`. Derivation is deterministic from the re-run's own
+#   hit paths: a companion-sourced verdict is tier `companion`; a platform-
+#   checkout verdict is the mapped tier when EVERY hit path falls under a
+#   --tier-map prefix (first matching prefix of the first hit decides), and
+#   `core` when any hit lands outside the map (the capability exists in the
+#   free core too) or when no map is given. The orchestrator records the tier
+#   on the verdict line (e.g. `✅ Implemented (core)`); the summary splits the
+#   coverage headline by tier. Tier never changes WHAT counts as covered —
+#   present/absent grounding is untouched; it partitions the covered set so a
+#   paid overlay is never silently counted as free-core coverage.
+#
+# CRITERIA (derived verdicts — see the inline section below for the full
+# contract): every capability verdict must carry a **Criteria coverage** block,
+# one row per acceptance criterion — `C<i>: covered \`path\`` or
+# `C<i>: gap: <text>`. The verdict symbol must agree with its rows (all
+# covered → ✅, none → ❌, mixed → 🟡), every covered path is
+# existence-checked in a validated checkout, and stdout carries
+# `CRITERIA: <covered>/<total>` for the orchestrator to record.
+#
+# Exit codes:
+#   0  PASS  — write the block to the MD (stdout carries the CRITERIA and
+#              TIER lines for capability verdicts).
+#   1  FAIL  — block malformed, verdict contradicted by the re-run, grounding
+#              query degenerate, the relevant --repo-root/--companion-root
+#              missing/invalid, or the query malformed (leading '-').
+#              Orchestrator marks the story needs-review and re-dispatches once
+#              with reinforcement.
+#
+#   No exit 2: grounding is a local search against an already-validated
+#   checkout, not a rate-limited network call — there is no transient case.
+#
+# Scope honesty (these holes remain, by design — do not read a PASS as more):
+#   - Falsifier, not confirmer: a grep hit proves a string matches, not that
+#     the matched code satisfies the story's acceptance criteria.
+#   - A verdict grounded in the integration branch proves the capability is
+#     merged there, not that it has shipped in a tagged release.
+#   - The tier map settles only what its prefixes name; a repo whose paid/free
+#     boundary is not path-visible needs its map maintained accordingly.
+
+set -euo pipefail
+
+STORY_ID="${1:-?}"; [ $# -gt 0 ] && shift || true
+REPO_ROOT="${GAP_REPO_ROOT:-}"
+COMPANION_ROOT="${GAP_COMPANION_ROOT:-}"
+STORY_CONTEXT="${GAP_STORY:-}"
+TIER_MAP="${GAP_TIER_MAP:-}"
+
+fail() { echo "GATE FAIL [$STORY_ID]: $1" >&2; exit 1; }
+
+# `shift 2 || fail`, never `|| true`: a value-taking flag with no value would
+# otherwise leave $1 unshifted and respin this loop forever — a silent hang in
+# an unattended batch is worse than a rejected story.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo-root)        REPO_ROOT="${2:-}"; shift 2 || fail "missing value for --repo-root" ;;
+    --repo-root=*)      REPO_ROOT="${1#--repo-root=}"; shift ;;
+    --companion-root)   COMPANION_ROOT="${2:-}"; shift 2 || fail "missing value for --companion-root" ;;
+    --companion-root=*) COMPANION_ROOT="${1#--companion-root=}"; shift ;;
+    --story)            STORY_CONTEXT="$(cat "${2:-/dev/null}" 2>/dev/null || true)"; shift 2 || fail "missing value for --story" ;;
+    --story=*)          STORY_CONTEXT="$(cat "${1#--story=}" 2>/dev/null || true)"; shift ;;
+    --tier-map)         TIER_MAP="${2:-}"; shift 2 || fail "missing value for --tier-map" ;;
+    --tier-map=*)       TIER_MAP="${1#--tier-map=}"; shift ;;
+    *)                  shift ;;
+  esac
+done
+
+BLOCK="$(cat)"
+
+# Returns 0 (true = degenerate) when QUERY shares no noun token with the story.
+# Stem-matches on the first 5 chars so plural/inflection (appointment/appointments)
+# still ties. Path/stopword noise is stripped so `modules/<x>` matches on `<x>`.
+degenerate_query() {
+  local q="$1" story="$2" storylc qtokens t stem
+  storylc="$(printf '%s' "$story" | tr 'A-Z' 'a-z')"
+  qtokens="$(printf '%s' "$q" | tr -c '[:alnum:]' ' ' | tr 'A-Z' 'a-z' | tr ' ' '\n' \
+             | grep -vE '^(modules?|packages?|src|code|the|and|for|with|api|app|page|pages|new|core|ui)$' \
+             | awk 'length($0)>=4' || true)"
+  [ -z "$qtokens" ] && return 0   # no usable noun → degenerate
+  while IFS= read -r t; do
+    [ -z "$t" ] && continue
+    stem="${t:0:5}"
+    case "$storylc" in *"$stem"*) return 1 ;; esac   # shared noun → NOT degenerate
+  done <<< "$qtokens"
+  return 0   # nothing shared → degenerate
+}
+
+# ---------------------------------------------------------------------------
+# FORM checks (deterministic regex, no network)
+# ---------------------------------------------------------------------------
+
+# 1 — no percentage without an explicit fraction
+if grep -qE "[0-9]+(\.[0-9]+)?%" <<<"$BLOCK" && ! grep -qE "[0-9]+/[0-9]+" <<<"$BLOCK"; then
+  fail "percentage emitted without N/M fraction"
+fi
+
+# 2 — no hedges before numbers (output must be measured or absent)
+if grep -iqE "\b(approximately|around|roughly|approx\.|szacunkowo|około|mniej więcej|w przybliżeniu)\b" <<<"$BLOCK" \
+   || grep -qE "~[0-9]" <<<"$BLOCK"; then
+  fail "hedge word before an unmeasured number (output must be measured or absent)"
+fi
+
+# 3 — currency: no T-shirt sizes leaked. Effort MUST be an atomic-commit
+#     score, never XS/S/M/L/XL. Applies always.
+if grep -qE "\*\*Effort\*\*:[[:space:]]*\b(XS|S|M|L|XL)\b" <<<"$BLOCK"; then
+  fail "T-shirt effort size leaked — effort must be an atomic-commit score 0–5"
+fi
+
+# 4 — Upstream pipeline: a required, non-verdict-altering field — shape only,
+#     never re-run. Recognized values: none | PR #<n> (open) |
+#     companion PR #<n> (open) | spec: <path> (planned, unbuilt).
+#     Applies regardless of verdict — an Unclear story can still have an open PR.
+UPLINE="$(grep -E "\*\*Upstream pipeline\*\*:" <<<"$BLOCK" | head -1 \
+          | sed -E 's/.*\*\*Upstream pipeline\*\*:[[:space:]]*//; s/[[:space:]]*$//' || true)"
+[ -n "$UPLINE" ] || fail "missing **Upstream pipeline** field (required — use 'none' if nothing found)"
+# The cited value may carry the snapshot's depth suffix ("[+123/-4, ...]") —
+# strip it before shape-matching; the citation identity is the PR/spec ref.
+UPLINE="$(sed -E 's/[[:space:]]*\[\+[0-9]+.*\]$//' <<<"$UPLINE")"
+# Bash regex with the pattern in a variable (inline `[[ =~ ]]` patterns don't
+# reliably honor escapes like `\#`/`\(` on bash 3.2).
+UPLINE_NONE='^[Nn]one$'
+UPLINE_PR='^PR #[0-9]+ \(open\)$'
+UPLINE_COMPANION='^companion PR #[0-9]+ \(open\)$'
+UPLINE_SPEC='^spec: .+ \(planned, unbuilt\)$'
+if [[ "$UPLINE" =~ $UPLINE_NONE || "$UPLINE" =~ $UPLINE_PR || "$UPLINE" =~ $UPLINE_COMPANION || "$UPLINE" =~ $UPLINE_SPEC ]]; then
+  :
+else
+  fail "unrecognized **Upstream pipeline** value: '$UPLINE' (expected: none | PR #<n> (open) | companion PR #<n> (open) | spec: <path> (planned, unbuilt))"
+fi
+
+# ---------------------------------------------------------------------------
+# Parse the verdict. The EMOJI is authoritative: a positive line that merely
+# contains the word "Missing" must NOT classify as missing. Fall back to the
+# verdict WORD only when no emoji is present, and only as the leading token of
+# the verdict value — never a substring anywhere in the line.
+# ---------------------------------------------------------------------------
+VERDICT_LINE="$(grep -E "\*\*Verdict\*\*:" <<<"$BLOCK" | head -1 || true)"
+[ -n "$VERDICT_LINE" ] || fail "no **Verdict** line"
+
+if   grep -q "✅" <<<"$VERDICT_LINE"; then VERDICT="implemented"
+elif grep -q "🟡" <<<"$VERDICT_LINE"; then VERDICT="partial"
+elif grep -q "❌" <<<"$VERDICT_LINE"; then VERDICT="missing"
+elif grep -q "⚠️" <<<"$VERDICT_LINE"; then VERDICT="unclear"
+else
+  VVAL="$(sed -E 's/.*\*\*Verdict\*\*:[[:space:]]*//' <<<"$VERDICT_LINE")"
+  case "$VVAL" in
+    [Ii]mplemented*) VERDICT="implemented" ;;
+    [Pp]artial*)     VERDICT="partial" ;;
+    [Mm]issing*)     VERDICT="missing" ;;
+    [Uu]nclear*)     VERDICT="unclear" ;;
+    *) fail "unrecognized verdict (no emoji, no leading verdict word): $VERDICT_LINE" ;;
+  esac
+fi
+
+# ⚠️ Unclear is an honest non-verdict — no capability claim to ground, no effort required.
+if [ "$VERDICT" = "unclear" ]; then
+  echo "GATE PASS [$STORY_ID]: ⚠️ Unclear — no capability claim to ground" >&2
+  exit 0
+fi
+
+# 5 — effort present as an atomic-commit score 0–5.
+if ! grep -qE "\*\*Effort\*\*:[[:space:]]*[0-5]\b" <<<"$BLOCK"; then
+  fail "missing or non-numeric atomic-commit effort score (expected 0–5)"
+fi
+
+# ---------------------------------------------------------------------------
+# GROUNDING — re-run the cited query as a local search against whichever
+# checkout the finding names
+# ---------------------------------------------------------------------------
+QUERY="$(grep -E "\*\*Grounding query\*\*:" <<<"$BLOCK" | head -1 \
+         | sed -E 's/.*\*\*Grounding query\*\*:[[:space:]]*//; s/^`//; s/`[[:space:]]*$//' || true)"
+GSOURCE="$(grep -E "\*\*Grounding source\*\*:" <<<"$BLOCK" | head -1 \
+           | sed -E 's/.*\*\*Grounding source\*\*:[[:space:]]*//; s/<!--.*-->//; s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' || true)"
+
+# Every capability claim reaching this point (missing/implemented/partial —
+# unclear already returned above) is grounded, unconditionally. Grounding
+# source only selects WHICH checkout to search below — but a typo'd or missing
+# value would silently default to the wrong checkout, so it gets its own
+# recognized-enum check, same as Upstream pipeline.
+case "$GSOURCE" in
+  core|companion) ;;
+  *) fail "missing or unrecognized **Grounding source**: '${GSOURCE:-<empty>}' (expected exactly one of: core, companion)" ;;
+esac
+
+[ -n "$QUERY" ] || fail "verdict '$VERDICT' requires grounding but no **Grounding query** field was emitted"
+
+# A query beginning with '-' is malformed (parses as a flag).
+case "$QUERY" in
+  -*) fail "grounding query may not begin with '-' ('$QUERY')" ;;
+esac
+
+# The strawman guard: the grounding query must be tied to the story, or a
+# strawman query self-confirms the verdict — applies to every verdict (a
+# fabricated positive grounded by a strawman query is just as untrustworthy
+# as a strawman absence).
+if [ "$VERDICT" = "missing" ]; then
+  # A ❌ is only trustworthy if its query provably references the story. No story
+  # context → cannot prove non-degeneracy → cannot trust the absence.
+  [ -n "$STORY_CONTEXT" ] || fail "❌ Missing requires story context to verify the grounding query is non-degenerate (strawman guard); pass --story <file>"
+  if degenerate_query "$QUERY" "$STORY_CONTEXT"; then
+    fail "degenerate grounding query '$QUERY' shares no noun with the story — a strawman absence"
+  fi
+elif [ -n "$STORY_CONTEXT" ]; then
+  if degenerate_query "$QUERY" "$STORY_CONTEXT"; then
+    fail "degenerate grounding query '$QUERY' shares no noun with the story"
+  fi
+fi
+
+# Pick which validated checkout to search: a companion-sourced claim searches
+# --companion-root (a shipped capability there is real evidence, not just the
+# supplementary Upstream-pipeline PR signal); a core-sourced claim searches
+# --repo-root, the platform checkout.
+if [ "$GSOURCE" = "companion" ]; then
+  SEARCH_ROOT="$COMPANION_ROOT"
+  SEARCH_ROOT_FLAG="--companion-root"
+else
+  SEARCH_ROOT="$REPO_ROOT"
+  SEARCH_ROOT_FLAG="--repo-root"
+fi
+
+[ -n "$SEARCH_ROOT" ] || fail "verdict '$VERDICT' requires grounding but no $SEARCH_ROOT_FLAG was provided (pass the matching path bin/gap-orientation-preflight printed, or set the matching GAP_*_ROOT env var)"
+# Normalize away trailing slashes: rg prints single-slash root-prefixed paths,
+# so a trailing-slash root would defeat the tier derivation's prefix strip and
+# silently misreport a licensed-only hit as core.
+while [ "${SEARCH_ROOT%/}" != "$SEARCH_ROOT" ] && [ -n "${SEARCH_ROOT%/}" ]; do SEARCH_ROOT="${SEARCH_ROOT%/}"; done
+git -C "$SEARCH_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+  fail "$SEARCH_ROOT_FLAG '$SEARCH_ROOT' is not a git checkout — run bin/gap-orientation-preflight first and pass its stdout here"
+
+# ---------------------------------------------------------------------------
+# CRITERIA COVERAGE — the verdict is derived, not declared (one row per
+# acceptance criterion; the declared verdict symbol must agree with the rows,
+# or the block is rejected). This shrinks the judgment surface from "the whole
+# story" to one criterion per row, and gives the gate a per-row surface to
+# check: every `covered` row names exactly one repo-relative path that must
+# exist in a validated checkout. A verdict whose symbol disagrees with its own
+# rows (e.g. ✅ with gap rows, ❌ with covered rows) is the same
+# fabrication-shape failure as an empty positive — rejected, not trusted.
+#
+# Row shapes (inside the `- **Criteria coverage**:` block, one per criterion,
+# in story order):
+#   - C1: covered `path/inside/the/checkout`
+#   - C2: gap: <named missing piece>
+# Derivation rule the gate enforces: all covered → ✅ Implemented; none
+# covered → ❌ Missing; mixed → 🟡 Partial. On PASS, stdout carries
+# `CRITERIA: <covered>/<total>` (before TIER) for the orchestrator to record
+# on the verdict line.
+#
+# Scope honesty: the path check proves the evidence file/dir EXISTS, not that
+# it semantically satisfies the criterion — that judgment stays with the
+# subagent, but it is now reviewable one criterion at a time instead of one
+# opaque story at a time.
+# ---------------------------------------------------------------------------
+grep -q "\*\*Criteria coverage\*\*" <<<"$BLOCK" || \
+  fail "missing **Criteria coverage** block (one row per acceptance criterion: 'C<i>: covered \`path\`' or 'C<i>: gap: <text>')"
+
+COV_ROWS="$(grep -E '^[[:space:]]*- C[0-9]+: covered `[^`]+`' <<<"$BLOCK" || true)"
+GAP_ROWS="$(grep -cE '^[[:space:]]*- C[0-9]+: gap: .+' <<<"$BLOCK" || true)"
+N_COV=0; [ -n "$COV_ROWS" ] && N_COV=$(printf '%s\n' "$COV_ROWS" | grep -c . || true)
+N_GAP=${GAP_ROWS:-0}
+N_ROWS=$((N_COV + N_GAP))
+[ "$N_ROWS" -ge 1 ] || fail "**Criteria coverage** block has no parseable rows (expected 'C<i>: covered \`path\`' or 'C<i>: gap: <text>')"
+
+# One row per criterion: when the story context carries countable criteria
+# (bullet lines below the title — the orchestrator writes title + criteria),
+# the row count must match. A story file without bullets skips this count
+# (WARN), never fails it — the shape/consistency/path checks below still bind.
+if [ -n "$STORY_CONTEXT" ]; then
+  CRIT_TOTAL="$(grep -cE '^[[:space:]]*- ' <<<"$STORY_CONTEXT" || true)"
+  if [ "${CRIT_TOTAL:-0}" -gt 0 ]; then
+    [ "$N_ROWS" -eq "$CRIT_TOTAL" ] || fail "criteria rows ($N_ROWS) do not match the story's acceptance criteria ($CRIT_TOTAL) — one row per criterion, in order"
+  else
+    echo "GATE WARN [$STORY_ID]: story context has no countable criteria bullets — skipping the row-count check" >&2
+  fi
+fi
+
+# The verdict symbol must agree with the rows (derivation rule).
+case "$VERDICT" in
+  implemented) { [ "$N_GAP" -eq 0 ] && [ "$N_COV" -ge 1 ]; } || fail "✅ Implemented disagrees with its own criteria rows ($N_COV covered / $N_GAP gap) — all criteria must be covered for ✅" ;;
+  missing)     [ "$N_COV" -eq 0 ] || fail "❌ Missing disagrees with its own criteria rows ($N_COV covered) — any covered criterion makes this 🟡 Partial at least" ;;
+  partial)     { [ "$N_COV" -ge 1 ] && [ "$N_GAP" -ge 1 ]; } || fail "🟡 Partial disagrees with its own criteria rows ($N_COV covered / $N_GAP gap) — partial means some covered AND some gaps" ;;
+esac
+
+# Every covered row's path must exist in a validated checkout (the grounding-
+# source checkout first; the other checkout as fallback when provided).
+if [ "$N_COV" -ge 1 ]; then
+  OTHER_ROOT=""
+  if [ "$GSOURCE" = "companion" ]; then OTHER_ROOT="$REPO_ROOT"; else OTHER_ROOT="$COMPANION_ROOT"; fi
+  while [ "${OTHER_ROOT%/}" != "$OTHER_ROOT" ] && [ -n "${OTHER_ROOT%/}" ]; do OTHER_ROOT="${OTHER_ROOT%/}"; done
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    cpath="$(sed -E 's/^[[:space:]]*- C[0-9]+: covered `([^`]+)`.*/\1/' <<<"$row")"
+    case "$cpath" in
+      -*|*..*) fail "malformed criteria evidence path '$cpath'" ;;
+    esac
+    found=""
+    [ -n "$(git -C "$SEARCH_ROOT" ls-files -- "$cpath" 2>/dev/null | head -1)" ] && found=1
+    if [ -z "$found" ] && [ -n "$OTHER_ROOT" ] && git -C "$OTHER_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      [ -n "$(git -C "$OTHER_ROOT" ls-files -- "$cpath" 2>/dev/null | head -1)" ] && found=1
+    fi
+    [ -n "$found" ] || fail "criteria evidence path \`$cpath\` not found in any validated checkout (phantom evidence)"
+  done <<< "$COV_ROWS"
+fi
+
+echo "CRITERIA: $N_COV/$N_ROWS"
+
+# Prefer rg (faster, respects .gitignore) when present; fall back to git grep.
+# Both share the same exit-code convention: 0 = match, 1 = no match (not an
+# error), >=2 = a real error (bad pattern, unreadable path, etc).
+#
+# Content search alone is NOT enough: the query may be a repo-relative PATH,
+# not a content term — the subagent prompt explicitly recommends path-shaped
+# queries (e.g. `modules/<x>`, `packages/<name>`), and a real, existing
+# directory with no textual echo elsewhere in the repo returns ZERO content
+# hits despite genuinely existing. So a hit is content OR path — path checked
+# only when content search cleanly returns "no match" (rc=1), never on a real
+# error.
+local_search() {
+  local root="$1" query="$2"
+  local content_out content_rc path_hit
+  if command -v rg >/dev/null 2>&1; then
+    content_out="$(rg --no-messages -il -- "$query" "$root" 2>&1)"; content_rc=$?
+  else
+    content_out="$(git -C "$root" grep -riIl -- "$query" 2>&1)"; content_rc=$?
+  fi
+  if [ "$content_rc" -eq 0 ]; then
+    printf '%s\n' "$content_out"
+    return 0
+  fi
+  if [ "$content_rc" -ge 2 ]; then
+    printf '%s\n' "$content_out"
+    return "$content_rc"
+  fi
+  path_hit="$(git -C "$root" ls-files 2>/dev/null | grep -i -- "$query" | head -1)"
+  if [ -n "$path_hit" ]; then
+    printf '%s\n' "$path_hit"
+    return 0
+  fi
+  return 1
+}
+
+set +e
+SEARCH_OUT="$(local_search "$SEARCH_ROOT" "$QUERY" 2>&1)"
+SEARCH_RC=$?
+set -e
+
+if [ "$SEARCH_RC" -gt 1 ]; then
+  fail "local search error for query \"$QUERY\" against $SEARCH_ROOT: $(head -1 <<<"$SEARCH_OUT")"
+fi
+
+HITS=0
+[ "$SEARCH_RC" -eq 0 ] && HITS=1
+
+if [ "$VERDICT" = "missing" ] && [ "$HITS" = 1 ]; then
+  fail "❌ Missing contradicted — \`$QUERY\` has hits in $SEARCH_ROOT (stale/ungrounded absence)"
+fi
+if { [ "$VERDICT" = "implemented" ] || [ "$VERDICT" = "partial" ]; } && [ "$HITS" = 0 ]; then
+  fail "$VERDICT claimed but \`$QUERY\` has no hits in $SEARCH_ROOT (empty positive)"
+fi
+
+# ---------------------------------------------------------------------------
+# TIER — derive the license tier of a grounded positive from the re-run's own
+# hit paths (deterministic; never subagent-claimed). See the TIER contract in
+# the header. Missing verdicts carry no tier.
+# ---------------------------------------------------------------------------
+if [ "$VERDICT" = "implemented" ] || [ "$VERDICT" = "partial" ]; then
+  TIER="core"
+  if [ "$GSOURCE" = "companion" ]; then
+    TIER="companion"
+  elif [ -n "$TIER_MAP" ] && [ -f "$TIER_MAP" ]; then
+    TIER=""
+    FIRST_TIER=""
+    while IFS= read -r hit; do
+      [ -n "$hit" ] || continue
+      # Normalize to a repo-relative path (rg prints root-prefixed paths).
+      rel="${hit#"$SEARCH_ROOT"/}"
+      hit_tier=""
+      while read -r prefix tier _; do
+        case "$prefix" in ''|\#*) continue ;; esac
+        case "$rel" in "$prefix"*) hit_tier="$tier"; break ;; esac
+      done < "$TIER_MAP"
+      if [ -z "$hit_tier" ]; then
+        # A hit outside every mapped prefix → the capability exists in the
+        # free core too; core wins.
+        TIER="core"
+        break
+      fi
+      [ -n "$FIRST_TIER" ] || FIRST_TIER="$hit_tier"
+    done <<< "$SEARCH_OUT"
+    [ -n "$TIER" ] || TIER="$FIRST_TIER"
+    [ -n "$TIER" ] || TIER="core"
+  fi
+  echo "TIER: $TIER"
+  echo "GATE PASS [$STORY_ID]: $VERDICT grounded (tier: $TIER) — local re-run of \"$QUERY\" against $SEARCH_ROOT agrees" >&2
+  exit 0
+fi
+
+echo "GATE PASS [$STORY_ID]: $VERDICT grounded — local re-run of \"$QUERY\" against $SEARCH_ROOT agrees" >&2
+exit 0
