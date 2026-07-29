@@ -50,7 +50,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 - Exercise update and delete with current, stale, and missing versions.
 - Test malformed IDs/filters and ensure invalid input cannot widen a query.
 - Test retry, duplicate delivery, cancellation, and worker restart for external/queued operations.
-- For provider logs/errors, assert secrets and credentials are absent; provider health/retry tests also verify redacted diagnostics (`health-retry-redaction`).
+- Provider failure/retry/idempotency tests use mock effects, assert secrets are absent and diagnostics redacted (`health-retry-redaction`), and surface every real failure (`honest-test-result`).
 
 ## UI Regression Oracles
 

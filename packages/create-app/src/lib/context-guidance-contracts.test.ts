@@ -420,6 +420,9 @@ test('integration routing binds installed-record imports and optional carriers a
   assert.match(providerFamilies, /host domain state provider-neutral \(`provider-neutral-domain`\)/)
   assert.match(providerFamilies, /carrier module is optional/)
   assert.match(providerFamilies, /safe absent-provider path \(`optional-provider`\)/)
+  assert.match(providerFamilies, /object\/record access \(`artifact-authorization`\)/)
+  assert.match(providerFamilies, /encrypted metadata \(`encrypted-storage`\)/)
+  assert.match(providerFamilies, /lifecycle cleanup \(`cleanup`\)/)
   assert.match(root, /`testing`.*`\.ai\/guides\/testing-debugging\.md`/)
 })
 
@@ -434,6 +437,7 @@ test('debugging stays additive to cross-module domain and extension work', () =>
   assert.match(debugging, /Provider cursor\/retry\/idempotency fixes therefore load `om-integration-builder`/)
   assert.match(debugging, /explicitly asks for tests, coverage, or app-level verification also selects `testing`/)
   assert.match(debugging, /`health-retry-redaction`/)
+  assert.match(debugging, /surface every real failure \(`honest-test-result`\)/)
   const troubleshooter = readAgentic('shared/ai/skills/om-troubleshooter/SKILL.md')
   assert.match(troubleshooter, /explicitly asks to add a test, select the `testing` route/)
 })
