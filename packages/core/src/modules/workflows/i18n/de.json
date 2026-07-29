@@ -1070,6 +1070,7 @@
   "workflows.inputDataPanel.hint": "Ziehen Sie ein Feld in einen Parameter oder klicken Sie es an, um den Platzhalter zu kopieren.",
   "workflows.inputDataPanel.rowHint": "In ein Feld ziehen oder zum Kopieren klicken",
   "workflows.inputDataPanel.title": "Eingabedaten",
+  "workflows.inspector.close": "Inspektor schließen",
   "workflows.instances.actions.backToList": "Zurück zu Instanzen",
   "workflows.instances.actions.cancel": "Abbrechen",
   "workflows.instances.actions.retry": "Wiederholen",
