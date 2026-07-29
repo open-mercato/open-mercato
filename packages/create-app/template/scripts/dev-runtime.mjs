@@ -3,8 +3,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import spawn from 'cross-spawn'
 import {
+  buildUnexpectedChildExitReport,
   createRuntimeNoiseFilter,
+  formatChildExitStatus,
   isStatelessRuntimeNoiseLine,
+  resolveChildExitCode,
+  resolveUnexpectedExitCode,
 } from './dev-runtime-log-policy.mjs'
 
 function resolveSplashHelpersImport() {
@@ -624,53 +628,22 @@ function isGracefulShutdownResult(result) {
   return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
-function resolveChildExitCode(result, fallback = 1) {
-  if (typeof result?.code === 'number') {
-    return result.code
-  }
-  if (result?.signal === 'SIGINT') {
-    return 130
-  }
-  if (result?.signal === 'SIGTERM') {
-    return 143
-  }
-  return fallback
-}
-
-function formatChildExitStatus(result) {
-  if (typeof result?.code === 'number') {
-    return `exit code ${result.code}`
-  }
-  if (result?.signal) {
-    return `signal ${result.signal}`
-  }
-  return 'an unknown status'
-}
-
-function resolveUnexpectedExitCode(result) {
-  const exitCode = resolveChildExitCode(result, 1)
-  return exitCode === 0 ? 1 : exitCode
-}
-
 function reportUnexpectedChildExit(result) {
-  const message = `❌ ${result?.label ?? 'Child process'} exited unexpectedly with ${formatChildExitStatus(result)}`
-  // Compact mode classifies most child output as `ignore`, so the error that
-  // actually killed the runtime never reaches the terminal. Replay the buffered
-  // tail here — without it a startup crash reports only its exit code.
-  const precedingLines = collectRuntimeFailureLines(failureLogTailLines)
-  console.error(message)
-  if (!logsVisible && precedingLines.length > 0) {
-    console.error(`📄 Last ${precedingLines.length} runtime log line(s) before the exit:`)
-    for (const line of precedingLines) {
-      console.error(line)
-    }
-    console.error('ℹ️ Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.')
+  const report = buildUnexpectedChildExitReport({
+    label: result?.label,
+    exitStatus: formatChildExitStatus(result),
+    bufferedFailureLines: collectRuntimeFailureLines(failureLogTailLines),
+    logsVisible,
+  })
+  for (const line of report.terminalLines) {
+    console.error(line)
   }
-  bufferRawLog(message)
-  publishRuntimeFailure(message, {
+  // The banner was just printed, so buffer it without echoing it a second time.
+  bufferRawLog(report.banner)
+  publishRuntimeFailure(report.banner, {
     progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
     progressLabel: splashState.progressLabel || startupProgress.label,
-    failureLines: [...precedingLines, message].slice(-10),
+    failureLines: report.failureLines,
   })
 }
 

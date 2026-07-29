@@ -63,18 +63,53 @@ test('standalone template dev wrapper defaults background services to lazy mode'
   assert.match(source, /env: buildAppDevEnv\(/)
 })
 
-test('standalone template dev runtime replays buffered output when a child exits unexpectedly', () => {
-  const runtimeScriptPath = new URL('../../template/scripts/dev-runtime.mjs', import.meta.url)
-  const source = fs.readFileSync(runtimeScriptPath, 'utf8')
+test('standalone template dev runtime replays buffered output when a child exits unexpectedly', async () => {
+  const moduleUrl = new URL('../../template/scripts/dev-runtime-log-policy.mjs', import.meta.url)
+  const { buildUnexpectedChildExitReport } = await import(moduleUrl.href)
 
   // Compact mode drops unclassified child output, so a crash would otherwise
   // report nothing but an exit code.
-  assert.match(source, /const precedingLines = collectRuntimeFailureLines\(failureLogTailLines\)/)
-  assert.match(source, /runtime log line\(s\) before the exit/)
-  assert.match(source, /MERCATO_DEV_OUTPUT=verbose/)
-  // The exit banner is printed directly, so buffering it must not echo it again.
-  assert.match(source, /bufferRawLog\(message\)/)
-  assert.doesNotMatch(source, /console\.error\(message\)\n {2}rememberRawLog\(message\)/)
+  const compact = buildUnexpectedChildExitReport({
+    label: 'App runtime',
+    exitStatus: 'exit code 1',
+    bufferedFailureLines: ['Another next dev server is already running.'],
+    logsVisible: false,
+  })
+
+  const banner = '❌ App runtime exited unexpectedly with exit code 1'
+  assert.deepEqual(compact.terminalLines, [
+    banner,
+    '📄 Last 1 runtime log line(s) before the exit:',
+    'Another next dev server is already running.',
+    'ℹ️ Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
+  ])
+  assert.equal(compact.terminalLines.filter((line: string) => line === banner).length, 1)
+  assert.deepEqual(compact.failureLines, ['Another next dev server is already running.', banner])
+
+  // With raw logs already streaming, replaying them would duplicate the output.
+  const streaming = buildUnexpectedChildExitReport({
+    label: 'App runtime',
+    exitStatus: 'exit code 1',
+    bufferedFailureLines: ['Another next dev server is already running.'],
+    logsVisible: true,
+  })
+  assert.deepEqual(streaming.terminalLines, [banner])
+  assert.deepEqual(streaming.failureLines, ['Another next dev server is already running.', banner])
+})
+
+test('standalone template dev runtime wires the exit report into the child exit path', () => {
+  const runtimeScriptPath = new URL('../../template/scripts/dev-runtime.mjs', import.meta.url)
+  const source = fs.readFileSync(runtimeScriptPath, 'utf8')
+
+  // The behavior lives in dev-runtime-log-policy.mjs; this guards the wiring so
+  // the replay cannot silently stop running on an unexpected child exit.
+  assert.match(source, /buildUnexpectedChildExitReport,/)
+  assert.match(source, /const report = buildUnexpectedChildExitReport\(\{/)
+  assert.match(source, /for \(const line of report\.terminalLines\) \{\n {4}console\.error\(line\)/)
+  assert.match(source, /failureLines: report\.failureLines,/)
+  // The banner is printed from terminalLines, so buffering must not echo it again.
+  assert.match(source, /bufferRawLog\(report\.banner\)/)
+  assert.match(source, /reportUnexpectedChildExit\(result\)/)
 })
 
 test('standalone template dev runtime surfaces Next.js startup failures and cold-start retries', () => {
@@ -85,6 +120,17 @@ test('standalone template dev runtime surfaces Next.js startup failures and cold
   assert.match(source, /TurbopackInternalError/)
   assert.match(source, /EADDRINUSE/)
   assert.match(source, /\[server\] Next\.js dev server exited before becoming ready/)
+})
+
+test('standalone template dev runtime log policy mirrors the monorepo source', async () => {
+  const templateUrl = new URL('../../template/scripts/dev-runtime-log-policy.mjs', import.meta.url)
+  const monorepoUrl = new URL('../../../../apps/mercato/scripts/dev-runtime-log-policy.mjs', import.meta.url)
+
+  assert.equal(
+    fs.readFileSync(templateUrl, 'utf8'),
+    fs.readFileSync(monorepoUrl, 'utf8'),
+    'template/scripts/dev-runtime-log-policy.mjs must stay byte-identical to apps/mercato/scripts/dev-runtime-log-policy.mjs',
+  )
 })
 
 test('standalone template setup forwards the verbose flag to the dev orchestrator', () => {
