@@ -36,6 +36,12 @@ import {
   type TaskEntityBindingDraft,
   type TaskOnBreachDraft,
 } from './task-inspector-config'
+import {
+  agentReviewToFormValues,
+  formValuesToAgentReview,
+  type AgentReviewFormValues,
+  type AgentReviewOnBreachDraft,
+} from './agent-review-inspector'
 
 // userTaskConfig keys owned by dedicated form fields. At dialog load they are
 // EXCLUDED from the Advanced Configuration blob (only genuinely unhandled keys
@@ -212,6 +218,19 @@ export interface NodeFormValues {
 
   // InvokeAgent fields
   agentConfig?: AgentInvokeConfigValue
+
+  // The Invoke Agent node's Review section (spec §7.5). Editor-side drafts; the
+  // mapping back onto the INVOKE_AGENT activity config lives in
+  // `lib/agent-review-inspector.ts`, which owns the "untouched means unchanged"
+  // rule the task inspector states for its own keys.
+  reviewAssignmentMode?: TaskAssignmentMode
+  reviewAssignedTo?: string
+  reviewAssignedToRoles?: string[]
+  reviewAssignmentRule?: string
+  reviewPriority?: string
+  reviewDeadline?: string
+  reviewReminders?: string[]
+  reviewOnBreach?: AgentReviewOnBreachDraft
 
   // Advanced configuration. JsonBuilder emits the parsed object; legacy
   // callers may still provide a JSON string.
@@ -468,6 +487,7 @@ export function nodeToFormValues(node: Node): NodeFormValues {
       })),
       subject: subjectToFormValue(config.subject),
     }
+    Object.assign(values, agentReviewToFormValues(config.review))
   }
 
   // Advanced config (preserve only fields not explicitly handled by form fields)
@@ -711,6 +731,7 @@ export function formValuesToNodeUpdates(
         : { autoApproveThreshold: Number.parseFloat(agent?.autoApproveThreshold ?? '') || 0 }
 
     const subject = formValueToSubject(existingConfig.subject, agent?.subject)
+    const review = formValuesToAgentReview(values as Partial<AgentReviewFormValues>)
     const config: InvokeAgentConfig = {
       // Preserve config the visual editor does not expose.
       ...existingConfig,
@@ -718,6 +739,11 @@ export function formValuesToNodeUpdates(
       input: mappingsToRecord(agent?.inputs),
       onResult,
     }
+    // A CLEARED Review section must not be resurrected by the copy
+    // `...existingConfig` carried in, which is why this deletes rather than
+    // merely skipping the assignment.
+    if (review) config.review = review
+    else delete config.review
     if (subject) config.subject = subject
     else delete config.subject
     if (Object.keys(outputMapping).length > 0) {
