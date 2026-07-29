@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import spawn from 'cross-spawn'
 import {
   buildUnexpectedChildExitReport,
+  createRuntimeFailureLatch,
   createRuntimeNoiseFilter,
   formatChildExitStatus,
   isStatelessRuntimeNoiseLine,
@@ -1518,7 +1519,8 @@ async function runInitialGenerate() {
 }
 
 function createFilteredReporter(label, classifyLine) {
-  let passthrough = false
+  const failureLatch = createRuntimeFailureLatch()
+  let autoRevealedLogs = false
   const ignoreLine = createRuntimeNoiseFilter()
 
   return (line) => {
@@ -1532,8 +1534,13 @@ function createFilteredReporter(label, classifyLine) {
     }
     captureBackgroundServiceLine(plain)
 
-    if (passthrough) {
-      return
+    if (failureLatch.isLatched()) {
+      if (!failureLatch.releaseOn(plain)) return
+      if (autoRevealedLogs) {
+        autoRevealedLogs = false
+        hideBufferedLogs()
+      }
+      lastRenderedStatus = null
     }
 
     if (ignoreLine(plain, { startupReady: splashState.ready })) {
@@ -1598,8 +1605,9 @@ function createFilteredReporter(label, classifyLine) {
       progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
       progressLabel: splashState.progressLabel || startupProgress.label,
     })
-    passthrough = true
+    failureLatch.latch()
     if (interactiveLogToggle) {
+      autoRevealedLogs = !logsVisible
       showBufferedLogs(`❌ ${label} emitted raw output`)
       return
     }

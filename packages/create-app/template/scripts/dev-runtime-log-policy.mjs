@@ -234,3 +234,38 @@ export function buildUnexpectedChildExitReport({
     failureLines: [...buffered, banner].slice(-maxFailureLines),
   }
 }
+
+// `mercato server dev` announces an in-flight restart on stdout before it respawns
+// Next.js. These are the markers it prints; the compact reporter keys on them to
+// leave its failure state, because the runtime it just declared failed is coming back.
+const RUNTIME_RESTART_MARKERS = [
+  '[server] Next.js dev server exited before becoming ready',
+  '[server] Detected corrupted Turbopack dev cache.',
+]
+
+export function isRuntimeRestartMarker(line) {
+  if (typeof line !== 'string') return false
+  return RUNTIME_RESTART_MARKERS.some((marker) => line.startsWith(marker))
+}
+
+// The compact reporter switches to raw passthrough on the first failure-looking
+// line and stops classifying everything after it. A runtime that self-heals — a
+// retried cold start, a Turbopack cache reset — would then stay reported as failed
+// forever: the restart and ready lines never reach `classifyServerLine`, so warmup
+// never starts and the splash never leaves the error state. The latch therefore
+// releases on a restart marker and re-arms on the next failure.
+export function createRuntimeFailureLatch() {
+  let latched = false
+
+  return {
+    isLatched: () => latched,
+    latch: () => {
+      latched = true
+    },
+    releaseOn: (line) => {
+      if (!latched || !isRuntimeRestartMarker(line)) return false
+      latched = false
+      return true
+    },
+  }
+}

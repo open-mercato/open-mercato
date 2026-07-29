@@ -112,6 +112,35 @@ test('standalone template dev runtime wires the exit report into the child exit 
   assert.match(source, /reportUnexpectedChildExit\(result\)/)
 })
 
+test('standalone template dev runtime releases raw passthrough when the runtime restarts', async () => {
+  const moduleUrl = new URL('../../template/scripts/dev-runtime-log-policy.mjs', import.meta.url)
+  const { createRuntimeFailureLatch } = await import(moduleUrl.href)
+
+  const latch = createRuntimeFailureLatch()
+  latch.latch()
+  // Without a release the retried dev server would stay reported as failed:
+  // classification stops, so warmup never starts and the splash never turns ready.
+  assert.equal(latch.releaseOn('- PID:          4242'), false)
+  assert.equal(
+    latch.releaseOn('[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...'),
+    true,
+  )
+  assert.equal(latch.isLatched(), false)
+})
+
+test('standalone template dev runtime wires the failure latch into the compact reporter', () => {
+  const runtimeScriptPath = new URL('../../template/scripts/dev-runtime.mjs', import.meta.url)
+  const source = fs.readFileSync(runtimeScriptPath, 'utf8')
+
+  // The latch behavior lives in dev-runtime-log-policy.mjs; this guards the wiring
+  // so the reporter cannot go back to swallowing every line after a failure.
+  assert.match(source, /createRuntimeFailureLatch,/)
+  assert.match(source, /const failureLatch = createRuntimeFailureLatch\(\)/)
+  assert.match(source, /if \(!failureLatch\.releaseOn\(plain\)\) return/)
+  assert.match(source, /failureLatch\.latch\(\)/)
+  assert.doesNotMatch(source, /passthrough = true/)
+})
+
 test('standalone template dev runtime surfaces Next.js startup failures and cold-start retries', () => {
   const runtimeScriptPath = new URL('../../template/scripts/dev-runtime.mjs', import.meta.url)
   const source = fs.readFileSync(runtimeScriptPath, 'utf8')

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 
 import {
   buildUnexpectedChildExitReport,
+  createRuntimeFailureLatch,
   createRuntimeNoiseFilter,
+  isRuntimeRestartMarker,
   createSplashPassthroughIgnoreMatcher,
   formatChildExitStatus,
   resolveChildExitCode,
@@ -335,6 +337,69 @@ test('buildUnexpectedChildExitReport caps splash failure lines at the newest ent
   assert.equal(report.failureLines.at(-1), '❌ App runtime exited unexpectedly with exit code 1')
   // The terminal replay is not capped by maxFailureLines.
   assert.equal(report.terminalLines.length, buffered.length + 3)
+})
+
+test('isRuntimeRestartMarker recognises the restart announcements the CLI prints', () => {
+  assert.equal(
+    isRuntimeRestartMarker('[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...'),
+    true,
+  )
+  assert.equal(
+    isRuntimeRestartMarker('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...'),
+    true,
+  )
+  assert.equal(isRuntimeRestartMarker('Another next dev server is already running.'), false)
+  assert.equal(isRuntimeRestartMarker('[server] Ready in 1ms'), false)
+  assert.equal(isRuntimeRestartMarker(undefined), false)
+})
+
+test('createRuntimeFailureLatch swallows output until the runtime announces a restart', () => {
+  const latch = createRuntimeFailureLatch()
+
+  assert.equal(latch.isLatched(), false)
+  // A line that arrives before any failure is classified normally.
+  assert.equal(latch.releaseOn('✓ Ready in 1ms'), false)
+
+  latch.latch()
+  assert.equal(latch.isLatched(), true)
+  // Ordinary output stays swallowed while the reporter is in raw passthrough.
+  assert.equal(latch.releaseOn('- PID:          4242'), false)
+  assert.equal(latch.isLatched(), true)
+
+  // The cold-start retry marker hands classification back, so the restart and
+  // ready lines that follow can reset the splash and start route warmup.
+  assert.equal(
+    latch.releaseOn('[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...'),
+    true,
+  )
+  assert.equal(latch.isLatched(), false)
+})
+
+test('createRuntimeFailureLatch releases on the Turbopack cache recovery marker', () => {
+  const latch = createRuntimeFailureLatch()
+  latch.latch()
+
+  assert.equal(
+    latch.releaseOn('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...'),
+    true,
+  )
+  assert.equal(latch.isLatched(), false)
+})
+
+test('createRuntimeFailureLatch re-arms after a release and keeps instances independent', () => {
+  const latch = createRuntimeFailureLatch()
+  latch.latch()
+  latch.releaseOn('[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...')
+
+  // A second failure after the restart must latch again.
+  latch.latch()
+  assert.equal(latch.isLatched(), true)
+  assert.equal(latch.releaseOn('⨯ TurbopackInternalError'), false)
+
+  const other = createRuntimeFailureLatch()
+  assert.equal(other.isLatched(), false)
+  // A released latch reports no release for a marker it never latched on.
+  assert.equal(other.releaseOn('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...'), false)
 })
 
 test('unexpected child exits resolve a non-zero exit code', () => {
