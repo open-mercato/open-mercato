@@ -1375,26 +1375,33 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
-        "umes"
+        "module-data"
       ],
       "allowedExtra": [
         "architecture",
-        "debugging"
+        "debugging",
+        "umes"
       ]
     },
     "requiredSkills": [
-      "om-module-scaffold",
-      "om-system-extension"
+      "om-module-scaffold"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-system-extension",
+        "route": "umes"
+      }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/events.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -1530,25 +1537,33 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui",
-        "umes"
+        "backend-ui"
       ],
-      "allowedExtra": []
+      "allowedExtra": [
+        "umes"
+      ]
     },
     "requiredSkills": [
       "om-module-scaffold",
-      "om-backend-ui-design",
-      "om-system-extension"
+      "om-backend-ui-design"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-system-extension",
+        "route": "umes"
+      }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
       ".ai/guides/backend-ui.md",
-        ".ai/guides/extensions.md",
         ".ai/guides/modules/notifications.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
@@ -12188,7 +12203,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-auto-create-pr/SKILL.md","ruleIds":["BC-01","BC-02","BC-05","BC-07","BC-10"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes","testing","spec-pr"],"allowedExtra":["ai-workflow"]},
     "requiredSkills":["om-module-scaffold","om-data-model-design","om-backend-ui-design","om-system-extension","om-auto-create-pr"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["public-scope-derived-server-side","idempotent-submission","deterministic-deduplication","optional-crm","delivery-route-preserves-task-routes","smallest-validation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","git (?:add|commit).{0,20}(?:--all|-a)","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12427,7 +12442,7 @@
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","atomic-inbox-claim","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","catch.{0,40}(?:ignore|swallow)","(?:random|timestamp).{0,20}idempotency"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
+    "maxContextFiles":8,"maxInitialContextBytes":51200,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
   },
   {
     "id":"OMH-174","title":"Fix an ERP synchronization job skipping records after a page failure","family":"bugfix","mode":"bugfix","evaluationKind":"routing","risk":"high",
@@ -12487,10 +12502,10 @@
     "prompt":"Before changing order confirmation, explain how this installed version currently confirms an order, who is allowed to do it, what other behavior depends on it, and the safest supported place to customize it.",
     "tags":["business-language","installed-context","sales"],
     "owner":{"kind":"skill","path":".ai/skills/om-framework-context/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-14"]},
-    "expectedRouter":{"required":["architecture","framework-context"],"allowedExtra":["umes"]},
+    "expectedRouter":{"required":["framework-context"],"allowedExtra":["architecture","umes"]},
     "requiredSkills":["om-framework-context"],
     "optionalSkills":[{"id":"om-system-extension","route":"umes"}],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/architecture.md",".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["installed-version","bounded-source-search","facts-first","read-only-framework-context"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","assume.{0,30}(?:event|permission|route|version)","(?:load|read).{0,20}all (?:packages|modules|source)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],

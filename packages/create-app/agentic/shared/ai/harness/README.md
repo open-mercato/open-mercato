@@ -7,7 +7,7 @@ yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009
 ```
 
-For an explicitly requested Codex comparison outside the blocking release matrix, pin both dimensions so the sanitized result is reproducible, for example `--model gpt-5.4-mini --reasoning-effort high`. The effort override is Codex-only; supported values are `minimal`, `low`, `medium`, `high`, and `xhigh`, and omitting it preserves the existing runner default. Because measured high-effort mini runs legitimately exceed five minutes on broad context, that exact model/effort pair uses a 10-minute per-attempt floor unless the operator passes `--timeout`; other routing runs retain the five-minute default.
+For an explicitly requested Codex comparison outside the blocking release matrix, pin both dimensions so the sanitized result is reproducible, for example `--model gpt-5.4-mini --reasoning-effort high`. The effort override is Codex-only; supported values are `minimal`, `low`, `medium`, `high`, and `xhigh`, and omitting it preserves the existing runner default. Measured high-effort mini runs legitimately exceed ten minutes on broad context, so that exact model/effort pair uses a 15-minute per-attempt floor; measured Claude/Sonnet runs use a 10-minute floor. Passing `--timeout` remains authoritative, and other routing runs retain the five-minute default.
 
 A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 45-case representative read-only set:
 

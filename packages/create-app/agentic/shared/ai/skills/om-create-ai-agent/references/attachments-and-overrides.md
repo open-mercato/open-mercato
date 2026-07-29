@@ -2,8 +2,8 @@
 
 Load when the agent consumes files, emits artifacts, or changes installed agents/tools.
 
-- Validate attachment type/size/count and authorize scope/record ownership before model/tool access.
-- Store through framework attachment/artifact services; encrypt sensitive metadata, use scoped/signed downloads, and define retention/cleanup.
+- Validate attachment type/size/count and authorize scope/record ownership before model/tool access (`artifact-authorization`).
+- Store through framework attachment/artifact services; encrypt sensitive metadata (`encrypted-storage`), use scoped/signed downloads, and define retention/cleanup (`cleanup`).
 - Keep tool results and committed traces free of raw file secrets/private transcript bodies.
 - Prefer `aiAgentExtensions` for prompt/tool/suggestion changes. Extensions apply to an existing enabled agent and cannot resurrect a disabled one.
 - Use full agent/tool override only for replacement/disable; keep map key equal to definition ID/name. Use `null` to disable.

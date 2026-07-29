@@ -308,7 +308,7 @@ test('the catalog count and release coverage are derived from the validator regi
   )
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
-    'OMH-082', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150', 'OMH-169',
+    'OMH-082', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
     'OMH-182',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
@@ -377,7 +377,7 @@ test('runner selection distinguishes explicit primary all-cases from the default
   assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: false, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-002', 'OMH-003'])
 })
 
-test('live timeout policy gives only default high-effort mini runs the measured ten-minute floor', async () => {
+test('live timeout policy gives slow default runners measured floors without overriding operator timeouts', async () => {
   const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
     resolveLiveCaseTimeout: (
       options: { timeout: number; timeoutExplicit: boolean; runner: string; reasoningEffort?: string },
@@ -386,11 +386,12 @@ test('live timeout policy gives only default high-effort mini runs the measured 
     ) => number
   }
   const defaultOptions = { timeout: 300_000, timeoutExplicit: false, runner: 'codex', reasoningEffort: 'high' }
-  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini'), 600_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini'), 900_000)
   assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, timeoutExplicit: true }, 'gpt-5.4-mini'), 300_000)
   assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, reasoningEffort: 'medium' }, 'gpt-5.4-mini'), 300_000)
-  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined }, 'sonnet'), 300_000)
-  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 700_000), 700_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined }, 'sonnet'), 600_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined, timeoutExplicit: true }, 'sonnet'), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 1_000_000), 1_000_000)
 })
 
 test('trace-start recovery recognizes only bounded unavailable-read startup reports', async () => {
@@ -403,6 +404,7 @@ test('trace-start recovery recognizes only bounded unavailable-read startup repo
     'Required harness.read access was unavailable in this environment',
     'required harness.read tool unavailable in this environment',
     'harness.read is not available in this environment',
+    'exact-path harness.read tool is unavailable in this environment',
   ]) assert.equal(evaluator.isCorrectableTraceStartupResponseViolation(violation), true, violation)
   for (const violation of [
     'harness.write is unavailable in this environment',

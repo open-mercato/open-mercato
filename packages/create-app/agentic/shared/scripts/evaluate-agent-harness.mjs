@@ -112,7 +112,8 @@ const CLAUDE_DISCOVERY_TOOL = 'ToolSearch'
 // routing. Refused attempts transfer no bytes, so they never enter the context budgets.
 const MAX_REFUSED_CONTEXT_READS = 6
 const DEFAULT_LIVE_TIMEOUT_MS = 300_000
-const HIGH_EFFORT_MINI_TIMEOUT_MS = 600_000
+const CLAUDE_TIMEOUT_MS = 600_000
+const HIGH_EFFORT_MINI_TIMEOUT_MS = 900_000
 
 function usage() {
   return `Open Mercato standalone agent harness evaluator
@@ -1639,7 +1640,7 @@ function isCorrectableTraceStartupFailure(violation) {
 }
 
 export function isCorrectableTraceStartupResponseViolation(violation) {
-  return /^(?:(?:required )?harness\.read(?: tool| access)?|harness read tool) (?:(?:is|was) )?(?:unavailable|not available)\b/i.test(violation)
+  return /^(?:exact-path )?(?:(?:required )?harness\.read(?: tool| access)?|harness read tool) (?:(?:is|was) )?(?:unavailable|not available)\b/i.test(violation)
 }
 
 function isCorrectableTraceStartupResponseFailure(violation) {
@@ -2523,12 +2524,15 @@ function deterministicRun(selected, validation) {
 }
 
 export function resolveLiveCaseTimeout(options, model, caseTimeout = 0) {
-  const runnerTimeout = !options.timeoutExplicit
-    && options.runner === 'codex'
-    && options.reasoningEffort === 'high'
-    && model === 'gpt-5.4-mini'
-    ? HIGH_EFFORT_MINI_TIMEOUT_MS
-    : options.timeout
+  const runnerTimeout = options.timeoutExplicit
+    ? options.timeout
+    : options.runner === 'claude'
+      ? CLAUDE_TIMEOUT_MS
+      : options.runner === 'codex'
+        && options.reasoningEffort === 'high'
+        && model === 'gpt-5.4-mini'
+        ? HIGH_EFFORT_MINI_TIMEOUT_MS
+        : options.timeout
   return Math.max(runnerTimeout, caseTimeout)
 }
 
