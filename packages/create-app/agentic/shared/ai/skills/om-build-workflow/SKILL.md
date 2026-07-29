@@ -9,7 +9,7 @@ Compose the installed workflow engine; do not bypass its executor, state machine
 
 ## Workflow
 
-Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Workflow-only work loads `.ai/guides/modules/workflows.md`, not `.ai/guides/contracts.md`; coordinating host domain statuses or quantities also selects module-data and loads `.ai/guides/contracts.md`.
+Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Workflow-only work loads `.ai/guides/modules/workflows.md`, not `.ai/guides/contracts.md`; coordinating installed-host order, status, or quantity state also selects `module-data` + `umes` and loads `.ai/guides/contracts.md`, `.ai/guides/extensions.md`, and `om-system-extension`.
 
 1. Read `.ai/guides/ai-workflows.md`; inspect the installed workflows module facts and use `om-framework-context` for exact service/activity contracts.
 2. Always load `references/workflow-design.md` before defining steps, transitions, triggers, variables, tasks, compensation, or terminal states.
@@ -18,6 +18,7 @@ Route before reading: workflow definitions, activities, durable engine state, id
 5. Run `yarn generate`; test event storms, retry/restart, rollback, duplicate signal/callback, cancellation, compensation failure, and scope isolation.
 
 Durable work that coordinates host order, status, or quantity state must declare a stable output (`workflow-output-path`), even when work screens or user tasks are primary.
+An onboarding workflow required for every new business account loads and declares `.ai/guides/modules/onboarding.md`, then uses `onTenantCreated` (`on-tenant-created-hook`).
 
 ## Rules
 
