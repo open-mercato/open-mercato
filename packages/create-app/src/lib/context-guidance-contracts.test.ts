@@ -472,7 +472,7 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
     'shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
   )
   assert.match(root, /AI file or content drafting\/attachment\/override.*`om-create-ai-agent`/)
-  assert.match(aiSkill, /MUST load the `attachments` facts plus `references\/attachments-and-overrides\.md` and report ALL offered decisions/)
+  assert.match(aiSkill, /MUST load the `attachments` facts, every named domain-record fact \(product → `catalog`\), plus `references\/attachments-and-overrides\.md`/)
   for (const decision of ['artifact-authorization', 'encrypted-storage', 'cleanup', 'draft-only-ai-output']) {
     assert.ok(aiSkill.includes(`\`${decision}\``), `missing AI attachment decision ${decision}`)
   }
