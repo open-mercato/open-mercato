@@ -96,6 +96,42 @@ describe('buildDocumentCrudOptions', () => {
     })
   })
 
+  describe('enrichers', () => {
+    const orderBinding = {
+      kind: 'order' as const,
+      entity: SalesOrder,
+      entityId: E.sales.sales_order,
+      numberField: 'orderNumber' as const,
+      createCommandId: 'sales.orders.create',
+      updateCommandId: 'sales.orders.update',
+      deleteCommandId: 'sales.orders.delete',
+      manageFeature: 'sales.orders.manage',
+      viewFeature: 'sales.orders.view',
+    }
+
+    const quoteBinding = {
+      kind: 'quote' as const,
+      entity: SalesQuote,
+      entityId: E.sales.sales_quote,
+      numberField: 'quoteNumber' as const,
+      createCommandId: 'sales.quotes.create',
+      updateCommandId: 'sales.quotes.update',
+      deleteCommandId: 'sales.quotes.delete',
+      manageFeature: 'sales.quotes.manage',
+      viewFeature: 'sales.quotes.view',
+    }
+
+    it('opts orders into the sales order enricher surface', () => {
+      const options = buildDocumentCrudOptions(orderBinding)
+      expect(options.enrichers).toEqual({ entityId: 'sales:sales_order' })
+    })
+
+    it('does not opt quotes into WMS order enrichers', () => {
+      const options = buildDocumentCrudOptions(quoteBinding)
+      expect(options.enrichers).toBeUndefined()
+    })
+  })
+
   describe('list projection (#2233)', () => {
     const orderBinding = {
       kind: 'order' as const,

@@ -23,7 +23,7 @@ type Translator = (key: string, params?: Record<string, string | number>) => str
 type PartitionStatus = {
   partitionIndex: number | null
   partitionCount: number | null
-  status: 'reindexing' | 'purging' | 'stalled' | 'completed'
+  status: 'reindexing' | 'purging' | 'stalled' | 'completed' | 'failed'
   processedCount?: number | null
   totalCount?: number | null
   heartbeatAt?: string | null
@@ -32,7 +32,7 @@ type PartitionStatus = {
 }
 
 type JobStatus = {
-  status: 'idle' | 'reindexing' | 'purging' | 'stalled'
+  status: 'idle' | 'reindexing' | 'purging' | 'stalled' | 'failed'
   startedAt?: string | null
   finishedAt?: string | null
   heartbeatAt?: string | null
@@ -40,7 +40,7 @@ type JobStatus = {
   totalCount?: number | null
   partitions?: PartitionStatus[]
   scope?: {
-    status?: 'reindexing' | 'purging' | 'stalled' | 'completed' | null
+    status?: 'reindexing' | 'purging' | 'stalled' | 'completed' | 'failed' | null
     processedCount?: number | null
     totalCount?: number | null
   } | null
@@ -90,6 +90,7 @@ function translateJobStatus(t: Translator, status: JobStatus['status'] | undefin
   if (status === 'reindexing') return t('query_index.table.status.reindexing')
   if (status === 'purging') return t('query_index.table.status.purging')
   if (status === 'stalled') return t('query_index.table.status.stalled')
+  if (status === 'failed') return t('query_index.table.status.failed')
   return ok ? t('query_index.table.status.in_sync') : t('query_index.table.status.out_of_sync')
 }
 
@@ -100,6 +101,7 @@ function translateScopeStatus(
   if (status === 'reindexing') return t('query_index.table.status.scope.reindexing')
   if (status === 'purging') return t('query_index.table.status.scope.purging')
   if (status === 'stalled') return t('query_index.table.status.scope.stalled')
+  if (status === 'failed') return t('query_index.table.status.scope.failed')
   return t('query_index.table.status.scope.completed')
 }
 
@@ -158,6 +160,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         const job = record.job
         const partitions = job?.partitions ?? []
         const ok = record.ok && (!job || job.status === 'idle')
+        const jobFailed = job?.status === 'failed'
         const statusText = translateJobStatus(t, job?.status, ok)
         const jobProgress = job ? formatProgressLabel(job.processedCount ?? null, job.totalCount ?? null, t) : null
         const label = jobProgress
@@ -165,7 +168,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
           : statusText
         let variant: StatusBadgeVariant = 'neutral'
         if (job) {
-          if (job.status === 'stalled') variant = 'error'
+          if (job.status === 'stalled' || jobFailed) variant = 'error'
           else if (job.status === 'reindexing' || job.status === 'purging') variant = 'warning'
           else variant = ok ? 'success' : 'neutral'
         } else {
