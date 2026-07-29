@@ -22,6 +22,7 @@ import type {
   TaskOnBreach,
   TaskPriority,
   TaskReminder,
+  UserTaskAssigneeKind,
   UserTaskConfig,
 } from '../data/validators'
 
@@ -42,6 +43,90 @@ export const TASK_DECISION_STYLES: readonly NonNullable<TaskDecision['style']>[]
  * source of truth to keep in sync.
  */
 export type TaskAssignmentMode = 'role' | 'user' | 'dynamic' | 'rule'
+
+/**
+ * Which principal namespace the task is addressed to (design §7.1). `'user'` is
+ * the backoffice; `'customer'` is a portal principal, and the only value the
+ * engine treats as portal work.
+ */
+export const TASK_ASSIGNEE_KINDS: readonly UserTaskAssigneeKind[] = ['user', 'customer'] as const
+
+/**
+ * The assignment modes each audience can actually be EXECUTED in — read off
+ * `resolveTaskAssignment`, not off what the tab strip happens to render.
+ *
+ * `assigneeKind: 'customer'` is honoured ONLY when an individual assignee
+ * resolves to a non-empty string, and it forces `assignedToRoles` to null. So
+ * the two modes that name no individual are inert for a portal task: a role
+ * queue leaves `assignedTo` null (the row is created backoffice), and
+ * `assignmentRule` is not read by `resolveTaskAssignment` at all. Offering them
+ * under the customer audience would be offering an author a control the engine
+ * silently discards.
+ *
+ * Order mirrors the full list so a tab does not move when the audience changes.
+ */
+export const TASK_ASSIGNEE_KIND_MODES: Record<UserTaskAssigneeKind, readonly TaskAssignmentMode[]> = {
+  user: ['role', 'user', 'dynamic', 'rule'],
+  customer: ['user', 'dynamic'],
+}
+
+export function isTaskAssigneeKind(value: unknown): value is UserTaskAssigneeKind {
+  return typeof value === 'string' && (TASK_ASSIGNEE_KINDS as readonly string[]).includes(value)
+}
+
+/**
+ * The audience a stored config opens on. Absent means `'user'` — which is what
+ * every definition authored before the key existed has always meant, and why
+ * nothing has to be written for the default.
+ */
+export function deriveTaskAssigneeKind(
+  config: Pick<UserTaskConfig, 'assigneeKind'>,
+): UserTaskAssigneeKind {
+  return config.assigneeKind === 'customer' ? 'customer' : 'user'
+}
+
+export function assignmentModesForAssigneeKind(
+  kind: UserTaskAssigneeKind,
+): readonly TaskAssignmentMode[] {
+  return TASK_ASSIGNEE_KIND_MODES[kind] ?? TASK_ASSIGNEE_KIND_MODES.user
+}
+
+/**
+ * The tab a mode collapses to when the audience no longer offers it.
+ *
+ * Only the customer audience narrows the set, and what it drops are the two
+ * modes that name no individual. Landing on Dynamic rather than on the first
+ * remaining tab is the honest default: a portal principal's id comes out of the
+ * run context, it is not a literal an author types.
+ */
+export function coerceAssignmentModeToAssigneeKind(
+  mode: TaskAssignmentMode,
+  kind: UserTaskAssigneeKind,
+): TaskAssignmentMode {
+  const allowed = assignmentModesForAssigneeKind(kind)
+  if (allowed.includes(mode)) return mode
+  if (allowed.includes('dynamic')) return 'dynamic'
+  return allowed[0] ?? 'role'
+}
+
+/**
+ * What the audience picker writes back.
+ *
+ * `'customer'` is the only value the engine acts on, so it is the only value
+ * that has to be persisted: a step left on the backoffice audience writes
+ * NOTHING and a config that never declared the key serializes byte-identically
+ * after a save that opened the inspector. The one exception is a config that
+ * already spelled `'user'` explicitly — the same "untouched means unchanged"
+ * rule `resolveTaskDeadlinePersistence` follows for its two keys, so opening the
+ * inspector never rewrites a shape the author chose.
+ */
+export function resolveTaskAssigneeKindPersistence(
+  original: UserTaskAssigneeKind | undefined,
+  edited: UserTaskAssigneeKind,
+): UserTaskAssigneeKind | undefined {
+  if (edited === 'customer') return 'customer'
+  return original === 'user' ? 'user' : undefined
+}
 
 export interface TaskEntityBindingDraft {
   /** Stable React key; never persisted. */

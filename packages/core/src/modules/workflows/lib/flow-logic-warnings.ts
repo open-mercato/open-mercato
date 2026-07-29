@@ -41,6 +41,7 @@ export type FlowLogicWarningCode =
   | 'taskDecisionUnknownRoute'
   | 'taskDecisionDuplicateId'
   | 'taskWithoutOwner'
+  | 'taskPortalWithoutBinding'
   | 'taskBindingUnknownEntityType'
   | 'taskBindingAssigneeCannotView'
   | 'outcomeRouteUnknownKind'
@@ -385,6 +386,46 @@ export function collectTaskOwnerWarnings(definition: FlowLogicDefinition): FlowL
 }
 
 /**
+ * A task addressed to a portal customer that is about no record — a WARNING.
+ *
+ * A portal principal carries no org-membership grant, so the binding to their
+ * own record IS the whole authorization story. `decideTaskVisibility` denies an
+ * unbound portal row outright (`denied:portal-unbound`) and
+ * `buildPortalTaskConditions` additionally excludes it in SQL, so the task is
+ * invisible to every portal principal including a company admin — the run parks
+ * at a step nobody in the portal can even see.
+ *
+ * It is a WARNING, matching this module's stance that work-in-progress stays
+ * saveable and matching `taskWithoutOwner`, which describes the same shape of
+ * problem: the bindings live in a different inspector section, an author part-way
+ * through addressing a task must not be trapped, and a definition authored
+ * before the audience picker existed must not become unsaveable to somebody who
+ * opened it for something unrelated.
+ */
+export function collectPortalTaskBindingWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
+  const warnings: FlowLogicWarning[] = []
+
+  asArray(definition.steps).forEach((step, stepIndex) => {
+    if (!isUserTaskStep(step)) return
+    const stepId = readString(step, 'stepId')
+    if (!stepId) return
+    const config = readUserTaskConfig(step)
+    if (!config) return
+    if (config.assigneeKind !== 'customer') return
+    if (asArray(config.entityBindings).length > 0) return
+
+    warnings.push({
+      code: 'taskPortalWithoutBinding',
+      path: ['steps', stepIndex],
+      params: { stepId },
+      severity: 'warning',
+    })
+  })
+
+  return warnings
+}
+
+/**
  * Binding problems on a USER_TASK's "About what" list.
  *
  * - An `entityType` that resolves to no known entity is an ERROR: the visibility
@@ -528,6 +569,7 @@ export function collectFlowLogicWarnings(
     ...collectUnmappedStepConfigWarnings(definition),
     ...collectTaskDecisionWarnings(definition),
     ...collectTaskOwnerWarnings(definition),
+    ...collectPortalTaskBindingWarnings(definition),
     ...collectTaskBindingWarnings(definition, options),
     ...collectBranchingRouteWarnings(definition).map<FlowLogicWarning>((warning) => ({
       code: 'branchingWithoutOtherwise',

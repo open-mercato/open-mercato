@@ -13,23 +13,27 @@ import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
 import type { AgentInvokeConfigValue, AgentSubjectValue } from '../components/fields/AgentInvokeConfigField'
-import type { InvokeAgentConfig, UserTaskConfig } from '../data/validators'
+import type { InvokeAgentConfig, UserTaskAssigneeKind, UserTaskConfig } from '../data/validators'
 import { sanitizeId } from './graph-utils'
 import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
 import { isPlainRecord, parseAdvancedConfigValue } from './advanced-config'
 import {
   applyEditedTaskText,
+  coerceAssignmentModeToAssigneeKind,
   decisionsToDrafts,
+  deriveTaskAssigneeKind,
   deriveTaskAssignmentMode,
   draftsToDecisions,
   draftsToEntityBindings,
   draftToOnBreach,
   entityBindingsToDrafts,
   flattenTaskTextForEditing,
+  isTaskAssigneeKind,
   isTaskPriority,
   offsetsToReminders,
   onBreachToDraft,
   remindersToOffsets,
+  resolveTaskAssigneeKindPersistence,
   resolveTaskDeadlinePersistence,
   type TaskAssignmentMode,
   type TaskDecisionDraft,
@@ -65,6 +69,8 @@ const USER_TASK_STRUCTURED_CONFIG_KEYS = [
   'onBreach',
   'decisions',
   'editablePrefilled',
+  // The §7.1 portal audience, owned by the "Who" section's audience picker.
+  'assigneeKind',
 ] as const
 
 /**
@@ -82,6 +88,7 @@ const USER_TASK_INSPECTOR_NODE_KEYS = [
   'onBreach',
   'decisions',
   'editablePrefilled',
+  'assigneeKind',
 ] as const
 
 // Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
@@ -166,6 +173,12 @@ export interface NodeFormValues {
   // onto `userTaskConfig` lives in `lib/task-inspector-config.ts`, which is
   // where the "untouched means unchanged" rules are stated and tested.
   assignmentMode?: TaskAssignmentMode
+  /**
+   * Which principal namespace this task is addressed to (§7.1). Editor-side
+   * only: `'user'` is the absent-by-default backoffice audience, so it is not
+   * necessarily written back — `resolveTaskAssigneeKindPersistence` decides.
+   */
+  taskAssigneeKind?: UserTaskAssigneeKind
   taskInstructions?: string
   taskEntityBindings?: TaskEntityBindingDraft[]
   taskPriority?: string
@@ -368,10 +381,16 @@ export function nodeToFormValues(node: Node): NodeFormValues {
     // to the legacy bare `slaDuration`.
     const inspectorConfig = readUserTaskInspectorConfig(node)
     if (inspectorConfig.deadline?.duration) values.slaDuration = inspectorConfig.deadline.duration
-    values.assignmentMode = deriveTaskAssignmentMode({
-      assignedTo: values.assignedTo,
-      assignmentRule: values.assignmentRule,
-    })
+    // The audience gates which assignment tabs the engine can honour, so the tab
+    // a stored config opens on is derived against it rather than on its own.
+    values.taskAssigneeKind = deriveTaskAssigneeKind(inspectorConfig)
+    values.assignmentMode = coerceAssignmentModeToAssigneeKind(
+      deriveTaskAssignmentMode({
+        assignedTo: values.assignedTo,
+        assignmentRule: values.assignmentRule,
+      }),
+      values.taskAssigneeKind,
+    )
     values.taskInstructions = flattenTaskTextForEditing(inspectorConfig.instructions)
     values.taskEntityBindings = entityBindingsToDrafts(inspectorConfig.entityBindings)
     values.taskPriority = isTaskPriority(inspectorConfig.priority) ? inspectorConfig.priority : ''
@@ -548,6 +567,12 @@ export function formValuesToNodeUpdates(
     const onBreach = draftToOnBreach(values.taskOnBreach)
     const decisions = draftsToDecisions(values.taskDecisions)
     const editablePrefilled = values.taskEditablePrefilled?.filter((entry) => entry.trim().length > 0)
+    // Only `'customer'` is written: the backoffice audience is what an absent
+    // key has always meant, so a step nobody re-addressed adds no key.
+    const assigneeKind = resolveTaskAssigneeKindPersistence(
+      inspectorConfig.assigneeKind,
+      isTaskAssigneeKind(values.taskAssigneeKind) ? values.taskAssigneeKind : 'user',
+    )
 
     // Build userTaskConfig with all fields
     updates.userTaskConfig = {
@@ -571,6 +596,7 @@ export function formValuesToNodeUpdates(
       ...(onBreach !== undefined && { onBreach }),
       ...(decisions !== undefined && { decisions }),
       ...(editablePrefilled?.length ? { editablePrefilled } : {}),
+      ...(assigneeKind !== undefined && { assigneeKind }),
     }
 
     // Mirror onto `node.data` so a CLEARED value cannot be resurrected by the
@@ -585,6 +611,7 @@ export function formValuesToNodeUpdates(
     updates.onBreach = onBreach
     updates.decisions = decisions
     updates.editablePrefilled = editablePrefilled?.length ? editablePrefilled : undefined
+    updates.assigneeKind = assigneeKind
   }
 
   // Automated task specific fields
