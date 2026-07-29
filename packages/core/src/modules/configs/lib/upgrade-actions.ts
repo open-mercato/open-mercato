@@ -1,6 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import * as semver from 'semver'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { reconcileAttachmentOrganizations } from '@open-mercato/core/modules/attachments/lib/reconcileOrganization'
+
+const logger = createLogger('configs').child({ component: 'upgrade-actions' })
 
 export type UpgradeActionContext = {
   tenantId: string
@@ -38,6 +43,25 @@ export function compareVersions(a: string, b: string): number {
 }
 
 export const upgradeActions: UpgradeActionDefinition[] = [
+  {
+    id: 'attachments.reconcile-organization',
+    version: '0.6.6',
+    messageKey: 'configs.upgrades.attachmentsOrgReconcile.message',
+    ctaKey: 'configs.upgrades.attachmentsOrgReconcile.cta',
+    successKey: 'configs.upgrades.attachmentsOrgReconcile.success',
+    loadingKey: 'configs.upgrades.attachmentsOrgReconcile.loading',
+    async run({ container, em, tenantId }) {
+      const queryEngine = container.resolve('queryEngine') as QueryEngine
+      const report = await reconcileAttachmentOrganizations({ em, queryEngine, tenantId })
+      logger.info('attachments organization reconcile completed', {
+        tenantId,
+        scanned: report.scanned,
+        updated: report.updated,
+        unresolved: report.unresolved,
+        skippedVirtual: report.skippedVirtual,
+      })
+    },
+  },
   {
     id: 'customers.seed-interaction-statuses',
     version: '0.6.5',

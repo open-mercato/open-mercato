@@ -100,6 +100,11 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'TurbopackInternalError',
 ]
 
+// Next.js gives up on `.mercato/next/dev/lock` after 1000ms, so a dev server
+// that lost a startup race against a still-shutting-down sibling needs a
+// slightly longer pause before the retry can win the lock.
+const DEV_COLD_START_RETRY_DELAY_MS = 1500
+
 const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
@@ -264,7 +269,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 }
 
 function isTurbopackCacheCorruption(output: string): boolean {
-  return TURBOPACK_CORRUPTION_PATTERNS.every((pattern) => output.includes(pattern))
+  return TURBOPACK_CORRUPTION_PATTERNS.some((pattern) => output.includes(pattern))
 }
 
 function removeTurbopackDevCache(appDir: string): void {
@@ -706,40 +711,40 @@ async function runModuleCommand(
   return true
 }
 
-async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void> {
+async function runPostGenerateStructuralInvalidation(quiet: boolean): Promise<void> {
   try {
-    const [{ bootstrapFromAppRoot }, { createResolver }] = await Promise.all([
-      import('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
-      import('./lib/resolver'),
-    ])
+    const { createResolver } = await import('./lib/resolver')
     const resolver = createResolver()
     const appDir = resolver.getAppDir()
-    const data = await bootstrapFromAppRoot(appDir)
-    registerCliModules(data.modules)
-    const configsModule = data.modules.find((mod) => mod.id === 'configs')
-    const hasCacheCommand = configsModule?.cli?.some((command) => command.command === 'cache') ?? false
+    const hasConfigsModule = resolver.loadEnabledModules().some((module) => module.id === 'configs')
 
-    if (!hasCacheCommand) {
+    if (!hasConfigsModule) {
       if (!quiet) {
-        console.log('[generate] Skipping structural cache purge: "configs cache" is not available in this app.')
+        console.log('[generate] Skipping structural invalidation: the "configs" module is not enabled in this app.')
       }
       return
     }
 
+    const { runPostGenerateStructuralInvalidation: invalidate } = await import('./lib/post-generate-invalidation')
     if (!quiet) {
-      console.log('[generate] Purging structural cache for all tenants...')
+      console.log('[generate] Invalidating generated structure...')
     }
-    await runModuleCommand(data.modules, 'configs', 'cache', ['structural', '--all-tenants', '--quiet'], {
-      optional: true,
-      silentOptional: quiet,
-    })
+    const result = await invalidate(appDir)
     if (!quiet) {
-      console.log('[generate] Structural cache purge completed.')
+      if (result.cacheError) {
+        console.log(`[generate] Structural cache purge skipped: ${formatCliFailureMessage('configs', 'cache', result.cacheError)}`)
+      }
+      if (result.generatedFilesError) {
+        console.log(`[generate] Generated artifact refresh skipped: ${formatCliFailureMessage('generate', 'refresh', result.generatedFilesError)}`)
+      }
+      console.log(
+        `[generate] Structural invalidation completed (${result.cacheEntriesDeleted} cache entr${result.cacheEntriesDeleted === 1 ? 'y' : 'ies'}, ${result.generatedFilesTouched.length} generated artifact${result.generatedFilesTouched.length === 1 ? '' : 's'} refreshed).`,
+      )
     }
   } catch (error) {
     if (!quiet) {
       const message = formatCliFailureMessage('configs', 'cache', error)
-      console.log(`[generate] Skipping structural cache purge: ${message}`)
+      console.log(`[generate] Skipping structural invalidation: ${message}`)
     }
   }
 }
@@ -750,48 +755,93 @@ async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void
  * so the watcher embedded in the server lifecycle can reuse the same closure
  * without re-importing the closure-scoped version inside `buildBaseModules`.
  */
-async function runGeneratorSuite(quiet: boolean): Promise<void> {
+async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
   const { createResolver } = await import('./lib/resolver')
   const {
     generateEntityIds,
-    generateModuleRegistry,
-    generateModuleRegistryApp,
-    generateModuleRegistryCli,
+    generateModuleRegistries,
     generateModuleEntities,
     generateModuleDi,
     generateModulePackageSources,
     generateOpenApi,
   } = await import('./lib/generators')
   const resolver = createResolver()
-  await generateEntityIds({ resolver, quiet })
-  await generateModuleRegistry({ resolver, quiet })
-  await generateModuleRegistryApp({ resolver, quiet })
-  await generateModuleRegistryCli({ resolver, quiet })
-  await generateModuleEntities({ resolver, quiet })
-  await generateModuleDi({ resolver, quiet })
-  await generateModulePackageSources({ resolver, quiet })
-  await generateOpenApi({ resolver, quiet })
+  const results = [
+    await generateEntityIds({ resolver, quiet }),
+    ...(await generateModuleRegistries({ resolver, quiet })),
+    await generateModuleEntities({ resolver, quiet }),
+    await generateModuleDi({ resolver, quiet }),
+    await generateModulePackageSources({ resolver, quiet }),
+    await generateOpenApi({ resolver, quiet }),
+  ]
+  return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
+}
+
+async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Promise<void> {
+  const generatedFilesChanged = await runGeneratorSuite(quiet)
+  if (!generatedFilesChanged) {
+    if (!quiet) {
+      console.log('[generate] Generated outputs unchanged; skipping structural invalidation.')
+    }
+    return
+  }
+  await runPostGenerateStructuralInvalidation(quiet)
 }
 
 /**
- * Builds the structural-fingerprint function used by the in-process generate
- * watcher. Walks the same module roots the legacy `mercato generate watch`
- * CLI command tracked, so the polling semantics are byte-for-byte identical.
+ * Builds the event-gated structural fingerprint runtime used by generate
+ * watchers. Filesystem events mark the tree dirty; the existing full content
+ * checksum remains the final authority and the fallback when watching fails.
  */
-function createGenerateWatchChecksumFn(): () => Promise<string> {
-  return async () => {
-    const { createResolver } = await import('./lib/resolver')
-    const { calculateGenerateWatchStructureChecksum } = await import('./lib/generate-watch-structure')
+async function createGenerateWatchRuntime() {
+  const [
+    { createResolver },
+    { calculateGenerateWatchStructureChecksum },
+    { createGenerateWatchChangeSignal },
+    { resolveStandaloneSourceMirrorBase },
+  ] = await Promise.all([
+    import('./lib/resolver'),
+    import('./lib/generate-watch-structure'),
+    import('./lib/generate-watch-events'),
+    import('./lib/generators/scanner'),
+  ])
+
+  const collectWatchState = () => {
     const resolver = createResolver()
     const moduleRoots = []
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
       moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
     }
-    return calculateGenerateWatchStructureChecksum({
-      modulesFile: path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+    return {
+      modulesFile: resolver.getModulesConfigPath(),
       moduleRoots,
-    })
+    }
+  }
+
+  return {
+    computeStructureChecksum: async () => {
+      return calculateGenerateWatchStructureChecksum(collectWatchState())
+    },
+    changeSignal: createGenerateWatchChangeSignal({
+      getWatchTargets: () => {
+        const state = collectWatchState()
+        const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
+          directory: path.dirname(state.modulesFile),
+          recursive: false,
+          fileName: path.basename(state.modulesFile),
+        }]
+        for (const roots of state.moduleRoots) {
+          targets.push({ directory: path.dirname(roots.appBase), recursive: true })
+          targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
+          const sourceMirror = resolveStandaloneSourceMirrorBase(roots.pkgBase)
+          if (sourceMirror) {
+            targets.push({ directory: path.dirname(sourceMirror), recursive: true })
+          }
+        }
+        return targets
+      },
+    }),
   }
 }
 
@@ -1006,12 +1056,10 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
-      await generateModuleRegistry({ resolver, quiet: true })
-      await generateModuleRegistryApp({ resolver, quiet: true })
-      await generateModuleRegistryCli({ resolver, quiet: true })
+      await generateModuleRegistries({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
@@ -1777,8 +1825,7 @@ export async function run(argv = process.argv) {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await runGeneratorSuite(quiet)
-          await runPostGenerateStructuralCachePurge(quiet)
+          await runGeneratorSuiteWithStructuralInvalidation(quiet)
           console.log('All generators completed.')
         },
       },
@@ -1791,14 +1838,14 @@ export async function run(argv = process.argv) {
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
 
+          const generateWatchRuntime = await createGenerateWatchRuntime()
           const watcher = startInProcessGenerateWatcher({
             pollMs: intervalMs,
             skipInitial,
             quiet,
-            computeStructureChecksum: createGenerateWatchChecksumFn(),
+            ...generateWatchRuntime,
             runGenerators: async () => {
-              await runGeneratorSuite(true)
-              await runPostGenerateStructuralCachePurge(true)
+              await runGeneratorSuiteWithStructuralInvalidation(true)
             },
           })
 
@@ -1841,11 +1888,9 @@ export async function run(argv = process.argv) {
         command: 'registry',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateModulePackageSources, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } = await import('./lib/generators')
+          const { generateModulePackageSources, generateModuleRegistries } = await import('./lib/generators')
           const resolver = createResolver()
-          await generateModuleRegistry({ resolver, quiet: args.includes('--quiet') })
-          await generateModuleRegistryApp({ resolver, quiet: args.includes('--quiet') })
-          await generateModuleRegistryCli({ resolver, quiet: args.includes('--quiet') })
+          await generateModuleRegistries({ resolver, quiet: args.includes('--quiet') })
           await generateModulePackageSources({ resolver, quiet: args.includes('--quiet') })
         },
       },
@@ -1920,6 +1965,7 @@ export async function run(argv = process.argv) {
 
           let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
+          let didRetryFailedColdStart = false
           let stopping = false
           let devRestartPromiseResolve: ((result: DevServerRestartResult) => void) | null = null
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
@@ -2082,6 +2128,30 @@ export async function run(argv = process.argv) {
                   restarted.readyPromise.then(readyResolve)
                   return resolve(await restarted.exitPromise)
                 }
+                // A dev server that dies before it ever reported "ready in" lost a
+                // startup race rather than crashing on user code: a sibling instance
+                // still holding the dev lock, a port that is about to free up, or a
+                // bundler init hiccup on a cold cache. Those all clear on their own,
+                // which is why a second `yarn dev` usually succeeds — retry once here
+                // so the first run succeeds too.
+                if (
+                  !didRetryFailedColdStart
+                  && !reportedReady
+                  && !stopping
+                  && typeof code === 'number'
+                  && code !== 0
+                ) {
+                  didRetryFailedColdStart = true
+                  lastRestartReason = 'a failed cold start'
+                  writeDevSplashRuntimeRestarting(lastRestartReason)
+                  console.log(`[server] Next.js dev server exited before becoming ready (exit code ${code}). Retrying once...`)
+                  await new Promise((wake) => setTimeout(wake, DEV_COLD_START_RETRY_DELAY_MS))
+                  if (!stopping) {
+                    const restarted = startNextDev(runtimeEnv)
+                    restarted.readyPromise.then(readyResolve)
+                    return resolve(await restarted.exitPromise)
+                  }
+                }
                 resolve({
                   label: 'Next.js dev server',
                   code,
@@ -2238,6 +2308,7 @@ export async function run(argv = process.argv) {
                 // (measured against the legacy sidecar). Opt back into the
                 // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
                 console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                const generateWatchRuntime = await createGenerateWatchRuntime()
                 activeGenerateWatcher = startInProcessGenerateWatcher({
                   // `--skip-initial` equivalent: `yarn dev` always runs an
                   // initial `mercato generate` before reaching the server
@@ -2246,10 +2317,9 @@ export async function run(argv = process.argv) {
                   // twice in a row.
                   skipInitial: true,
                   quiet: false,
-                  computeStructureChecksum: createGenerateWatchChecksumFn(),
+                  ...generateWatchRuntime,
                   runGenerators: async () => {
-                    await runGeneratorSuite(true)
-                    await runPostGenerateStructuralCachePurge(true)
+                    await runGeneratorSuiteWithStructuralInvalidation(true)
                   },
                 })
               } else {

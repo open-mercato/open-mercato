@@ -16,6 +16,7 @@ import { registerMcpTool } from './tool-registry'
 import type { McpToolContext } from './types'
 import { createSandbox } from './sandbox'
 import { truncateResult } from './truncate'
+import { applyContextScopeToQuery, applyContextScopeToBody } from './scope-injection'
 import { hasRequiredFeatures } from './auth'
 import { getApiEndpoints, getRawOpenApiSpec, type ApiEndpoint } from './api-endpoint-index'
 import {
@@ -792,25 +793,19 @@ export function createApiRequestFn(
 
     let url = `${baseUrl}${apiPath}`
 
-    // Build query parameters
-    const queryParams: Record<string, string> = { ...query }
-
-    if (normalizedMethod === 'GET') {
-      if (ctx.tenantId) queryParams.tenantId = ctx.tenantId
-      if (ctx.organizationId) queryParams.organizationId = ctx.organizationId
-    }
+    // Build query parameters — scope is enforced from ctx for every method, not only
+    // GET, so AI-supplied tenantId/organizationId can never survive (see scope-injection).
+    const queryParams = applyContextScopeToQuery(query, ctx)
 
     if (Object.keys(queryParams).length > 0) {
       const separator = url.includes('?') ? '&' : '?'
       url += separator + new URLSearchParams(queryParams).toString()
     }
 
-    // Build request body with context injection
+    // Build request body with context-enforced scope
     let requestBody: Record<string, unknown> | undefined
     if (['POST', 'PUT', 'PATCH'].includes(normalizedMethod)) {
-      requestBody = { ...body }
-      if (ctx.tenantId) requestBody.tenantId = ctx.tenantId
-      if (ctx.organizationId) requestBody.organizationId = ctx.organizationId
+      requestBody = applyContextScopeToBody(body, ctx)
     }
 
     // Build headers

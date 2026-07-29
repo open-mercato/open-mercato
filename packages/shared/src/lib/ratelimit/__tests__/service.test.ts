@@ -220,7 +220,7 @@ describe('RateLimiterService', () => {
       expect(config.enabled).toBe(true)
       expect(config.strategy).toBe('memory')
       expect(config.keyPrefix).toBe('rl')
-      expect(config.trustProxyDepth).toBe(1)
+      expect(config.trustProxyDepth).toBe(0)
 
       if (originalEnabled !== undefined) process.env.RATE_LIMIT_ENABLED = originalEnabled; else delete process.env.RATE_LIMIT_ENABLED
       if (originalStrategy !== undefined) process.env.RATE_LIMIT_STRATEGY = originalStrategy; else delete process.env.RATE_LIMIT_STRATEGY

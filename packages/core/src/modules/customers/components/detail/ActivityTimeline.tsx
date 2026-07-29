@@ -135,7 +135,7 @@ function TimelineEntry({
                 size="sm"
                 disabled={markingDone}
                 onClick={handleMarkDone}
-                className="shrink-0"
+                className="h-7 shrink-0 text-xs"
               >
                 <Check className="size-3.5" />
                 {t('customers.activities.actions.markDone', 'Mark done')}

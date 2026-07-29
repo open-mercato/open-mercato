@@ -1,6 +1,7 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { deriveCustomEntityRecordFeature } from './recordFeatures'
 
 export type EntityAclRequirement = {
   view: string[]
@@ -80,6 +81,10 @@ type AssertEntityAclArgs = {
   entityId: string
   action: 'view' | 'manage'
   isCustomEntity: boolean
+  // Set for a custom entity flagged `access_restricted`. When true, the coarse
+  // route-level entities.records.* feature is no longer sufficient — the caller
+  // must additionally hold the synthesized per-entity feature.
+  isRestricted?: boolean
   rbac: RbacService
 }
 
@@ -87,15 +92,32 @@ function forbiddenEntityAccess(): CrudHttpError {
   return new CrudHttpError(403, { error: 'Forbidden' })
 }
 
-export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Promise<void> {
-  if (args.isCustomEntity) return
-
-  const requirement = resolveEntityAclRequirement(args.entityId)
-
-  const acl = await args.rbac.loadAcl(args.auth.sub ?? '', {
+async function loadActorAcl(args: AssertEntityAclArgs) {
+  return args.rbac.loadAcl(args.auth.sub ?? '', {
     tenantId: args.auth.tenantId ?? null,
     organizationId: args.auth.orgId ?? null,
   })
+}
+
+export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Promise<void> {
+  if (args.isCustomEntity) {
+    // Unrestricted custom entities keep the historical behavior: the coarse
+    // entities.records.view/.manage route guard is the whole authorization.
+    if (!args.isRestricted) return
+
+    const acl = await loadActorAcl(args)
+    if (acl?.isSuperAdmin) return
+
+    const required = deriveCustomEntityRecordFeature(args.entityId, args.action)
+    if (!hasAllFeatures(acl?.features, [required])) {
+      throw forbiddenEntityAccess()
+    }
+    return
+  }
+
+  const requirement = resolveEntityAclRequirement(args.entityId)
+
+  const acl = await loadActorAcl(args)
 
   if (acl?.isSuperAdmin) return
 

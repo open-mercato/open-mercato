@@ -1,5 +1,4 @@
 {
-  "attachments.customers.storage.nav.group": "Storage",
   "attachments.errors.activeContentBlocked": "Active content uploads are not allowed.",
   "attachments.errors.dangerousExecutable": "Executable file types are not allowed as attachments.",
   "attachments.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
@@ -94,6 +93,7 @@
   "attachments.library.upload.success": "Attachment uploaded.",
   "attachments.library.upload.tagsPlaceholder": "Add tags",
   "attachments.library.upload.title": "Upload attachment",
+  "attachments.nav.group": "Media",
   "attachments.partitions.actions.add": "Add partition",
   "attachments.partitions.actions.cancel": "Cancel",
   "attachments.partitions.actions.create": "Create partition",

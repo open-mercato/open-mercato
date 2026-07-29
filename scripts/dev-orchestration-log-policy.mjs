@@ -71,6 +71,7 @@ export function isIgnorableConsolidatedWatchLine(line) {
   const plain = normalize(line)
   if (!plain.startsWith('[watch]')) return false
   return /^\[watch\] consolidated watcher: /.test(plain)
+    || /^\[watch\] watch scope: /.test(plain)
     || /^\[watch\] [^:]+: rebuilding\.\.\.$/.test(plain)
     || /^\[watch\] [^:]+: rebuild complete$/.test(plain)
     || /^\[watch\] [^:]+: no source files found, skipping rebuild$/.test(plain)

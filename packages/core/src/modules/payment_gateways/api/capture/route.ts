@@ -61,6 +61,7 @@ export async function POST(req: Request) {
       parsed.data.transactionId,
       parsed.data.amount,
       { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+      parsed.data.operationId,
     )
     await runPaymentGatewayMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
       tenantId: auth.tenantId,

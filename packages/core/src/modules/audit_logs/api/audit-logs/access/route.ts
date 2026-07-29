@@ -109,18 +109,26 @@ export async function GET(req: Request) {
     actorUserId = actorQuery
   }
 
-  const list = await accessLogs.list({
-    tenantId: auth.tenantId ?? undefined,
-    organizationId: organizationId ?? undefined,
-    actorUserId,
-    resourceKind: resourceKind ?? undefined,
-    accessType: accessType ?? undefined,
-    page,
-    pageSize,
-    limit: url.searchParams.get('limit') ? parseNumber(url.searchParams.get('limit'), { min: 1, max: 200, fallback: pageSize }) : undefined,
-    before,
-    after,
-  })
+  let list: Awaited<ReturnType<AccessLogService['list']>>
+  try {
+    list = await accessLogs.list({
+      tenantId: auth.tenantId ?? undefined,
+      organizationId: organizationId ?? undefined,
+      actorUserId,
+      resourceKind: resourceKind ?? undefined,
+      accessType: accessType ?? undefined,
+      page,
+      pageSize,
+      limit: url.searchParams.get('limit') ? parseNumber(url.searchParams.get('limit'), { min: 1, max: 200, fallback: pageSize }) : undefined,
+      before,
+      after,
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
+    }
+    throw err
+  }
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),

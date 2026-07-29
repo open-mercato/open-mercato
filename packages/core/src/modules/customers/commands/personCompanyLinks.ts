@@ -2,7 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -126,7 +126,7 @@ async function requirePersonEntity(
     { tenantId, organizationId },
   )
   if (!person) {
-    throw new CrudHttpError(404, { error: 'Person not found' })
+    throw notFound('Person not found')
   }
   return person
 }
@@ -145,7 +145,7 @@ async function requireCompanyEntity(
     { tenantId, organizationId },
   )
   if (!company) {
-    throw new CrudHttpError(404, { error: 'Company not found' })
+    throw notFound('Company not found')
   }
   return company
 }
@@ -162,7 +162,7 @@ async function requirePersonProfile(
     { tenantId: person.tenantId, organizationId: person.organizationId },
   )
   if (!profile) {
-    throw new CrudHttpError(404, { error: 'Person profile not found' })
+    throw notFound('Person profile not found')
   }
   return profile
 }
@@ -433,7 +433,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!link) {
-      throw new CrudHttpError(404, { error: 'Company link not found' })
+      throw notFound('Company link not found')
     }
 
     const personId = typeof link.person === 'string' ? link.person : link.person.id
@@ -606,7 +606,7 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!link) {
-      throw new CrudHttpError(404, { error: 'Company link not found' })
+      throw notFound('Company link not found')
     }
 
     const personId = typeof link.person === 'string' ? link.person : link.person.id

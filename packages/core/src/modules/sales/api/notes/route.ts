@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -97,9 +97,7 @@ async function loadNoteForPermission(
   })
 
   if (!note) {
-    throw new CrudHttpError(404, {
-      error: translate('sales.documents.detail.error', 'Document not found or inaccessible.'),
-    })
+    throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
   }
 
   return note

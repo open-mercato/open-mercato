@@ -282,28 +282,28 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       expect(fs.existsSync(path.join(appDir, '.ai', 'skills', 'om-spec-writing'))).toBe(false)
       expect(fs.existsSync(path.join(appDir, 'scripts', 'install-skills.sh'))).toBe(true)
 
-      // install-skills.sh (run by agentic:init) replaces the legacy directory-level
-      // .claude/skills and .codex/skills symlinks with real directories holding one
-      // symlink per default-tier local skill; .cursor/skills keeps the directory link.
-      const cursorSkillsLinkPath = path.join(appDir, '.cursor', 'skills')
-      expect(fs.lstatSync(cursorSkillsLinkPath).isSymbolicLink()).toBe(true)
-      expect(normalizePath(fs.readlinkSync(cursorSkillsLinkPath))).toBe('../.ai/skills')
-
+      // install-skills.sh (run by agentic:init) installs every local tier skill once,
+      // into the canonical .agents/skills/. Codex and Cursor read that directory
+      // natively, so they get no skills directory of their own; Claude Code cannot,
+      // so it keeps a link layer pointing back at the canonical copy.
       const tiersManifest = JSON.parse(
         fs.readFileSync(path.join(agenticRoot, 'shared', 'ai', 'skills', 'tiers.json'), 'utf8'),
       ) as { default: string[]; tiers: Record<string, { skills: string[] }> }
       const defaultTierSkills = tiersManifest.default.flatMap((tierName) => tiersManifest.tiers[tierName].skills)
       expect(defaultTierSkills.length).toBeGreaterThan(0)
 
-      for (const toolDir of ['.claude', '.codex']) {
-        const harnessSkillsDir = path.join(appDir, toolDir, 'skills')
-        expect(fs.lstatSync(harnessSkillsDir).isDirectory()).toBe(true)
-        for (const skillName of defaultTierSkills) {
-          const skillLinkPath = path.join(harnessSkillsDir, skillName)
-          expect(fs.lstatSync(skillLinkPath).isSymbolicLink()).toBe(true)
-          expect(normalizePath(fs.readlinkSync(skillLinkPath))).toBe(`../../.ai/skills/${skillName}`)
-        }
+      for (const skillName of defaultTierSkills) {
+        const canonicalLinkPath = path.join(appDir, '.agents', 'skills', skillName)
+        expect(fs.lstatSync(canonicalLinkPath).isSymbolicLink()).toBe(true)
+        expect(normalizePath(fs.readlinkSync(canonicalLinkPath))).toBe(`../../.ai/skills/${skillName}`)
+
+        const claudeLinkPath = path.join(appDir, '.claude', 'skills', skillName)
+        expect(fs.lstatSync(claudeLinkPath).isSymbolicLink()).toBe(true)
+        expect(normalizePath(fs.readlinkSync(claudeLinkPath))).toBe(`../../.agents/skills/${skillName}`)
       }
+
+      expect(fs.existsSync(path.join(appDir, '.codex', 'skills'))).toBe(false)
+      expect(fs.existsSync(path.join(appDir, '.cursor', 'skills'))).toBe(false)
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true })
     }
