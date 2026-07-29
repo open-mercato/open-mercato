@@ -118,6 +118,12 @@ rule) with the entity-scoped syntax.
 
 ## Progress
 
+PR: #4630
+
+### Review pass (om-auto-review-pr, self-authored → autofix eligible)
+
+- [x] R.1 Guard the entity blocklist lookup against inherited `Object.prototype` keys — 213d8aad7
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Entity-aware blocklist in the shared search config
