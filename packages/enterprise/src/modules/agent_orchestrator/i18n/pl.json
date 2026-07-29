@@ -982,7 +982,7 @@
   "agent_orchestrator.settings.webSearch.preview.count": "{count} wyników",
   "agent_orchestrator.settings.webSearch.preview.description": "Uruchamia każdy włączony adapter dla jednego zapytania i pokazuje, co każdy zwrócił osobno. Nigdy nie jest cache’owane i zużywa realny limit na płatnych źródłach.",
   "agent_orchestrator.settings.webSearch.preview.elapsed": "Zakończono w {ms}ms",
-  "agent_orchestrator.settings.webSearch.preview.empty": "Żaden adapter nic nie zwrócił. Sprawdź stan adapterów powyżej.",
+  "agent_orchestrator.settings.webSearch.preview.empty": "Żaden adapter w ogóle się nie uruchomił. Sprawdź stan adapterów powyżej.",
   "agent_orchestrator.settings.webSearch.preview.failed": "Porównanie nie powiodło się.",
   "agent_orchestrator.settings.webSearch.preview.placeholder": "Zapytanie do porównania, np. najlepszy CRM dla małych zespołów",
   "agent_orchestrator.settings.webSearch.preview.run": "Porównaj",

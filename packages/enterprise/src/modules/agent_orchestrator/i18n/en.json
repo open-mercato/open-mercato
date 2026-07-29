@@ -982,7 +982,7 @@
   "agent_orchestrator.settings.webSearch.preview.count": "{count} results",
   "agent_orchestrator.settings.webSearch.preview.description": "Runs every enabled adapter for one query and shows what each returned on its own. Never cached, and it spends real quota on metered sources.",
   "agent_orchestrator.settings.webSearch.preview.elapsed": "Finished in {ms}ms",
-  "agent_orchestrator.settings.webSearch.preview.empty": "No adapter returned anything. Check the per-adapter health above.",
+  "agent_orchestrator.settings.webSearch.preview.empty": "No adapter ran at all. Check the per-adapter health above.",
   "agent_orchestrator.settings.webSearch.preview.failed": "The comparison run failed.",
   "agent_orchestrator.settings.webSearch.preview.placeholder": "A query to compare, e.g. best CRM for small teams",
   "agent_orchestrator.settings.webSearch.preview.run": "Compare",

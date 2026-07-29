@@ -144,5 +144,29 @@ export function describeAdapterContract<TOptions>(
         expect(result.url.length > 0).toBe(true)
       }
     })
+
+    // The host builds an engine per request and disposes it after, so a `dispose`
+    // that throws on an adapter which was never used, or on a second call, breaks
+    // teardown for every other adapter in the same engine. This is the surface
+    // that leaked a browser sidecar and a Chromium per tool call.
+    it('tears down cleanly even when it was never used', async () => {
+      const adapter = module.createAdapter(testCase.configuredOptions)
+      if (!adapter.dispose) return
+      await adapter.dispose()
+      await adapter.dispose()
+      expect(true).toBe(true)
+    })
+
+    it('answers a health check without throwing', async () => {
+      const adapter = module.createAdapter(testCase.configuredOptions)
+      if (!adapter.healthCheck) return
+      const context = createTestContext({
+        http: createStubHttpClient(() => {
+          throw new Error('network exploded')
+        }),
+      })
+      const health = await adapter.healthCheck(context)
+      expect(typeof health.ok).toBe('boolean')
+    })
   })
 }

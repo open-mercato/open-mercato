@@ -82,7 +82,14 @@ export function WebSearchPreview() {
     }
   }, [query, running, t])
 
-  const diagnosticById = new Map((preview?.diagnostics?.adapters ?? []).map((entry) => [entry.id, entry]))
+  // Diagnostics are the spine, not `byAdapter`. The engine only reports adapters
+  // that produced results, so keying off it would hide exactly the rows an
+  // operator is looking for: the source that ran and came back with nothing.
+  const resultsById = new Map((preview?.byAdapter ?? []).map((entry) => [entry.adapterId, entry]))
+  const rows = (preview?.diagnostics?.adapters ?? []).map((diagnostic) => ({
+    diagnostic,
+    payload: resultsById.get(diagnostic.id) ?? null,
+  }))
 
   return (
     <Card>
@@ -117,9 +124,9 @@ export function WebSearchPreview() {
 
         {error ? <p className="text-sm text-status-error-fg">{error}</p> : null}
 
-        {preview?.byAdapter && preview.byAdapter.length > 0 ? (
+        {rows.length > 0 ? (
           <div className="space-y-3">
-            {preview.diagnostics?.elapsedMs !== undefined ? (
+            {preview?.diagnostics?.elapsedMs !== undefined ? (
               <p className="text-xs text-muted-foreground">
                 {t('agent_orchestrator.settings.webSearch.preview.elapsed', 'Finished in {ms}ms', {
                   ms: String(preview.diagnostics.elapsedMs),
@@ -127,33 +134,32 @@ export function WebSearchPreview() {
               </p>
             ) : null}
 
-            {preview.byAdapter.map((adapter) => {
-              const diagnostic = diagnosticById.get(adapter.adapterId)
-              return (
-                <div key={adapter.adapterId} className="rounded-lg border border-border p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-medium">{adapter.adapterId}</span>
-                    {diagnostic ? (
-                      <StatusBadge variant={VARIANT_BY_STATUS[diagnostic.status] ?? 'neutral'}>
-                        {diagnostic.status}
-                      </StatusBadge>
-                    ) : null}
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {t('agent_orchestrator.settings.webSearch.preview.count', '{count} results', {
-                        count: String(adapter.results.length),
-                      })}
-                    </span>
-                    {diagnostic ? (
-                      <span className="text-xs tabular-nums text-muted-foreground">{`${diagnostic.latencyMs}ms`}</span>
-                    ) : null}
-                  </div>
+            {rows.map(({ diagnostic, payload }) => (
+              <div key={diagnostic.id} className="rounded-lg border border-border p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs font-medium">{diagnostic.id}</span>
+                  <StatusBadge variant={VARIANT_BY_STATUS[diagnostic.status] ?? 'neutral'}>
+                    {diagnostic.status}
+                  </StatusBadge>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {t('agent_orchestrator.settings.webSearch.preview.count', '{count} results', {
+                      count: String(payload?.results.length ?? 0),
+                    })}
+                  </span>
+                  <span className="text-xs tabular-nums text-muted-foreground">{`${diagnostic.latencyMs}ms`}</span>
+                </div>
 
-                  {adapter.answer ? (
-                    <p className="mt-2 line-clamp-3 text-xs text-muted-foreground">{adapter.answer}</p>
-                  ) : null}
+                {diagnostic.reason ? (
+                  <p className="mt-1 text-xs text-muted-foreground">{diagnostic.reason}</p>
+                ) : null}
 
+                {payload?.answer ? (
+                  <p className="mt-2 line-clamp-3 text-xs text-muted-foreground">{payload.answer}</p>
+                ) : null}
+
+                {payload && payload.results.length > 0 ? (
                   <ol className="mt-2 space-y-1">
-                    {adapter.results.map((hit, index) => (
+                    {payload.results.map((hit, index) => (
                       <li key={`${hit.url}:${index}`} className="flex items-baseline gap-2 text-sm">
                         <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                           {index + 1}
@@ -175,17 +181,17 @@ export function WebSearchPreview() {
                       </li>
                     ))}
                   </ol>
-                </div>
-              )
-            })}
+                ) : null}
+              </div>
+            ))}
           </div>
         ) : null}
 
-        {preview && (preview.byAdapter?.length ?? 0) === 0 && !running ? (
+        {preview && rows.length === 0 && !running ? (
           <p className="text-sm text-muted-foreground">
             {t(
               'agent_orchestrator.settings.webSearch.preview.empty',
-              'No adapter returned anything. Check the per-adapter health above.',
+              'No adapter ran at all. Check the per-adapter health above.',
             )}
           </p>
         ) : null}

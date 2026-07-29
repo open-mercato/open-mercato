@@ -741,7 +741,7 @@
   "agent_orchestrator.settings.webSearch.preview.count": "{count} resultados",
   "agent_orchestrator.settings.webSearch.preview.description": "Ejecuta cada adaptador activado para una consulta y muestra lo que devolvió cada uno por separado. Nunca se almacena en caché y consume cuota real en fuentes de pago.",
   "agent_orchestrator.settings.webSearch.preview.elapsed": "Finalizado en {ms}ms",
-  "agent_orchestrator.settings.webSearch.preview.empty": "Ningún adaptador devolvió nada. Revisa el estado de los adaptadores arriba.",
+  "agent_orchestrator.settings.webSearch.preview.empty": "Ningún adaptador llegó a ejecutarse. Revisa el estado de los adaptadores arriba.",
   "agent_orchestrator.settings.webSearch.preview.failed": "La comparación ha fallado.",
   "agent_orchestrator.settings.webSearch.preview.placeholder": "Una consulta para comparar, p. ej. mejor CRM para equipos pequeños",
   "agent_orchestrator.settings.webSearch.preview.run": "Comparar",
