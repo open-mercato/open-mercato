@@ -98,6 +98,8 @@ one that covers the keys this change adds.
 
 ## Progress
 
+PR: #4629
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Status-aware request
