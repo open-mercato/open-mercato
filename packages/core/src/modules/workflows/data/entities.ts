@@ -920,6 +920,91 @@ export class WorkflowEventTrigger {
   deletedAt?: Date | null
 }
 
+// ============================================================================
+// Entity: WorkflowDefinitionMetricRollup
+// ============================================================================
+
+/**
+ * WorkflowDefinitionMetricRollup entity (spec §8.5)
+ *
+ * Precomputed per-definition operational KPIs — runs, success rate, run-duration
+ * percentiles and task SLA hit-rate — over the sliding windows an operator reads.
+ * Deliberately shaped after `agent_orchestrator`'s `AgentMetricRollup`
+ * (tenant/org + logical id + window bounds + `computed_at` + a zod-validated
+ * `metrics` jsonb) so the two ops surfaces stay legible side by side. The shape
+ * is MIRRORED, never imported: `enterprise` is an optional peer and core must
+ * not hard-require it.
+ *
+ * Two deliberate divergences from that model, both fixing a latent flaw in it:
+ *
+ * - **`window_key` is its own column and part of the unique key.** The mirrored
+ *   table identifies a row by `(org, agent, window_start)` alone, so a 7d window
+ *   computed in one pass and a 30d window computed 23 days later can land on the
+ *   same `window_start` and silently overwrite each other with metrics for a
+ *   different span. Naming the span makes that impossible.
+ * - **The unique key is enforced by the DATABASE**, and includes `tenant_id`.
+ *   The mirrored writer does a read-then-insert with no constraint behind it, so
+ *   two concurrent passes both miss and both insert. Here the recompute-and-
+ *   upsert is idempotent because the index says so, not because only one worker
+ *   happens to run.
+ *
+ * Not user-editable: rows are written only by the rollup worker and read only by
+ * `api/metrics/definitions`. It therefore carries no `updated_at` and takes the
+ * background-job / machine-aggregate exemption from the optimistic-lock rule —
+ * there is no edit form, no delete endpoint and no concurrent human writer for a
+ * version token to protect. `computed_at` is the freshness stamp readers use.
+ *
+ * Keyed on `workflow_id` (the logical id, like `AgentMetricRollup.agentId`)
+ * rather than on a `workflow_definitions` row id: `WorkflowInstance.workflowId`
+ * is already denormalized so no join is needed, and an operator asks how a
+ * PROCESS is doing, not how version 3 of it is doing.
+ */
+@Entity({ tableName: 'workflow_definition_metric_rollups' })
+@Unique({
+  name: 'workflow_definition_metric_rollups_bucket_uq',
+  properties: ['tenantId', 'organizationId', 'workflowId', 'windowKey', 'windowStart'],
+})
+@Index({
+  name: 'workflow_definition_metric_rollups_lookup_idx',
+  properties: ['tenantId', 'organizationId', 'workflowId', 'windowKey'],
+})
+export class WorkflowDefinitionMetricRollup {
+  [OptionalProps]?: 'computedAt' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** Logical workflow id, mirroring `WorkflowInstance.workflowId`. */
+  @Property({ name: 'workflow_id', type: 'varchar', length: 100 })
+  workflowId!: string
+
+  /** Window length this row measures: `24h`, `7d` or `30d`. */
+  @Property({ name: 'window_key', type: 'varchar', length: 10 })
+  windowKey!: string
+
+  @Property({ name: 'window_start', type: Date })
+  windowStart!: Date
+
+  @Property({ name: 'window_end', type: Date })
+  windowEnd!: Date
+
+  @Property({ name: 'computed_at', type: Date, onCreate: () => new Date() })
+  computedAt: Date = new Date()
+
+  /** Validated by `workflowDefinitionMetricsSchema` on every read. */
+  @Property({ name: 'metrics', type: 'jsonb' })
+  metrics!: Record<string, unknown>
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 // Export all entities as default for MikroORM discovery
 export default [
   WorkflowDefinition,
@@ -930,4 +1015,5 @@ export default [
   UserTask,
   WorkflowEvent,
   WorkflowEventTrigger,
+  WorkflowDefinitionMetricRollup,
 ]
