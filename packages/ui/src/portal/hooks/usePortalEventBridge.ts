@@ -160,6 +160,7 @@ export function usePortalEventBridge(): void {
 
     return () => {
       mounted = false
+      publishPortalBridgeHealth(false)
       disconnect()
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current)

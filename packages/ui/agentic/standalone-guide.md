@@ -189,7 +189,7 @@ import {
 | `usePortalAppEvent(pattern, handler, deps?)` | Listen for portal SSE events by glob pattern (e.g., `'sales.order.*'`) |
 | `usePortalEventBridge()` | Establish singleton SSE connection — mount once in shell/layout |
 | `usePortalInjectedMenuItems(surfaceId)` | Load feature-gated menu items for portal nav surfaces: `{ items, isLoading }` |
-| `usePortalNotifications()` | Poll portal notifications: `{ notifications, unreadCount, hasNew, isLoading, refresh, markAsRead, dismiss, markAllRead }` |
+| `usePortalNotifications()` | Load portal notifications with SSE-first refresh and an 8-second fallback until the portal event bridge reports healthy: `{ notifications, unreadCount, hasNew, isLoading, refresh, markAsRead, dismiss, markAllRead }` |
 | `usePortalDashboardWidgets(spotId)` | Load UI injection widgets (with `Widget` component) for a portal spot: `{ widgets, isLoading, error }` |
 
 ### Portal Components

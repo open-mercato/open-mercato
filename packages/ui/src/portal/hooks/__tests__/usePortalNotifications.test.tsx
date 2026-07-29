@@ -36,10 +36,23 @@ describe('usePortalNotifications strategy', () => {
     }
   })
 
-  it('uses SSE strategy without installing the polling interval when EventSource is available', async () => {
+  it('keeps polling until an available EventSource bridge reports healthy', async () => {
     ;(window as unknown as { EventSource?: typeof EventSource }).EventSource = function EventSourceMock() {
       return {} as EventSource
     } as unknown as typeof EventSource
+
+    const { result } = renderHook(() => usePortalNotifications())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(apiCallMock).toHaveBeenCalled()
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 8000)
+  })
+
+  it('uses SSE strategy without polling when the bridge is explicitly healthy', async () => {
+    ;(window as unknown as { EventSource?: typeof EventSource }).EventSource = function EventSourceMock() {
+      return {} as EventSource
+    } as unknown as typeof EventSource
+    publishPortalBridgeHealth(true)
 
     const { result } = renderHook(() => usePortalNotifications())
     await waitFor(() => expect(result.current.isLoading).toBe(false))
@@ -75,6 +88,7 @@ describe('usePortalNotifications strategy', () => {
     ;(window as unknown as { EventSource?: typeof EventSource }).EventSource = function EventSourceMock() {
       return {} as EventSource
     } as unknown as typeof EventSource
+    publishPortalBridgeHealth(true)
 
     const { result } = renderHook(() => usePortalNotifications())
     await waitFor(() => expect(result.current.isLoading).toBe(false))
@@ -94,6 +108,7 @@ describe('usePortalNotifications strategy', () => {
     ;(window as unknown as { EventSource?: typeof EventSource }).EventSource = function EventSourceMock() {
       return {} as EventSource
     } as unknown as typeof EventSource
+    publishPortalBridgeHealth(true)
 
     const { result } = renderHook(() => usePortalNotifications())
     await waitFor(() => expect(result.current.isLoading).toBe(false))

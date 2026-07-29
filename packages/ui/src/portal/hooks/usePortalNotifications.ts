@@ -33,13 +33,11 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
 }
 
 /**
- * Portal notification hook — polls customer notification endpoints.
+ * Portal notification hook with SSE-first delivery and polling fallback.
  *
- * Fetches notifications from `/api/customer_accounts/portal/notifications`
- * and unread count from `.../unread-count`. Polls every 8 seconds.
- *
- * Also listens for portal SSE events (`notifications.notification.created`)
- * to trigger immediate refresh.
+ * Performs an initial list/count reconciliation, refreshes on notification,
+ * reconnect, and focus events, and polls every 8 seconds until the portal
+ * event bridge explicitly reports a healthy connection.
  */
 export function usePortalNotifications(): UsePortalNotificationsResult {
   const [notifications, setNotifications] = React.useState<NotificationDto[]>([])
@@ -75,7 +73,7 @@ export function usePortalNotifications(): UsePortalNotificationsResult {
     if (typeof window === 'undefined' || !('EventSource' in window)) {
       return true
     }
-    return readPortalBridgeHealth() === false
+    return readPortalBridgeHealth() !== true
   })
 
   React.useEffect(() => {
