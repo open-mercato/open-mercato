@@ -1,6 +1,7 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
 import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
@@ -46,7 +47,7 @@ export function StartNode({ id, data, isConnectable, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Right}
-        id="source"
+        id={DEFAULT_SOURCE_HANDLE_ID}
         isConnectable={isConnectable}
         className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />

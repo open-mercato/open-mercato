@@ -37,6 +37,18 @@ import {
  */
 export const NORMAL_TRANSITION_KIND = 'normal'
 
+/**
+ * The canvas source handle a normal route leaves from — every node's ordinary
+ * output, and the one handle no `RouteKindDescriptor` claims.
+ *
+ * FROZEN: stored transitions re-attach to it by id (`definitionToGraph` emits
+ * no `sourceHandle` for a normal route, which React Flow resolves to the node's
+ * only unnamed source), and moving where it RENDERS must never change what it
+ * is called. It moved into the outcome-row footer so every outgoing connection
+ * leaves from a row; the id did not move with it.
+ */
+export const DEFAULT_SOURCE_HANDLE_ID = 'source'
+
 export interface RouteKindTransitionLike {
   kind?: string
   outcomeKind?: string

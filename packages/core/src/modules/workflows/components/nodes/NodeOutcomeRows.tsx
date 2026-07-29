@@ -1,7 +1,7 @@
 'use client'
 
 import { Handle, Position } from '@xyflow/react'
-import { Check, CircleAlert, Info, ShieldMinus, Slash, Dot } from 'lucide-react'
+import { Check, CircleAlert, CornerDownLeft, Info, ShieldMinus, Slash, Dot } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { NodeOutcomeRow, NodeOutcomeRowGlyph, NodeOutcomeRowTone } from '../../lib/node-outcome-rows'
@@ -44,10 +44,19 @@ const GLYPH_COMPONENTS: Record<NodeOutcomeRowGlyph, typeof Check> = {
   shield: ShieldMinus,
   alert: CircleAlert,
   dot: Dot,
+  corner: CornerDownLeft,
 }
 
 export interface NodeOutcomeRowsProps {
   rows: NodeOutcomeRow[]
+  /**
+   * The step's ordinary output, rendered as the LAST row so every outgoing
+   * connection leaves the card from a footer row — one x-position, one dot
+   * size, one vertical rhythm. Passing it is what tells the node not to render
+   * its own floating source handle; omitting it keeps the node's handle where
+   * it always was.
+   */
+  defaultRow?: NodeOutcomeRow
   isConnectable?: boolean
   /**
    * Announced when an outcome has no route: §7.2 requires the node face to
@@ -61,6 +70,7 @@ export interface NodeOutcomeRowsProps {
 
 export function NodeOutcomeRows({
   rows,
+  defaultRow,
   isConnectable,
   inheritanceNote,
   revealLabel,
@@ -68,7 +78,9 @@ export function NodeOutcomeRows({
   testId,
 }: NodeOutcomeRowsProps) {
   const t = useT()
-  if (rows.length === 0) return null
+  if (rows.length === 0 && !defaultRow) return null
+
+  const allRows = defaultRow ? [...rows, defaultRow] : rows
 
   return (
     <div
@@ -76,14 +88,16 @@ export function NodeOutcomeRows({
       data-testid={testId ?? 'workflow-node-outcome-rows'}
     >
       <div className="grid gap-0.5">
-        {rows.map((row) => {
+        {allRows.map((row) => {
           const label = row.labelKey ? t(row.labelKey, row.labelFallback) : row.labelFallback
           const Glyph = GLYPH_COMPONENTS[row.glyph]
           return (
             <div
               key={row.handleId}
               className="relative flex min-h-4 items-center justify-end gap-1 pr-2"
-              data-outcome-handle={row.handleId}
+              {...(row === defaultRow
+                ? { 'data-default-route-handle': row.handleId }
+                : { 'data-outcome-handle': row.handleId })}
             >
               <Glyph className={`h-3 w-3 shrink-0 ${TONE_TEXT_CLASSES[row.tone]}`} aria-hidden="true" />
               <span className="truncate text-overline text-muted-foreground">{label}</span>

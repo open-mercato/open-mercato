@@ -59,4 +59,11 @@ describe('node connection handles share one geometry constant', () => {
       .map(({ file }) => file)
     expect(offenders).toEqual([])
   })
+
+  it('names the default source handle from the frozen constant, never a literal', () => {
+    const offenders = readNodeSources()
+      .filter(({ source }) => source.includes('id="source"'))
+      .map(({ file }) => file)
+    expect(offenders).toEqual([])
+  })
 })

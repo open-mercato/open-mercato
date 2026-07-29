@@ -9,7 +9,12 @@ import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 import { NodeOutcomeRows } from './NodeOutcomeRows'
-import { buildAllAgentOutcomeRows, type NodeOutcomeRow } from '../../lib/node-outcome-rows'
+import {
+  buildAllAgentOutcomeRows,
+  buildDefaultRouteRow,
+  type NodeOutcomeRow,
+} from '../../lib/node-outcome-rows'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
 
 export interface InvokeAgentNodeData {
   label: string
@@ -49,6 +54,8 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
   const canRevealOutcomes = Boolean(
     isConnectable && !showAllOutcomes && outcomeRows.length < availableOutcomeRows.length,
   )
+  const hasOutcomeFooter = outcomeRows.length > 0
+  const defaultRouteRow = buildDefaultRouteRow()
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
   const summary = buildNodeConfigSummary('invokeAgent', nodeData as never)
@@ -112,6 +119,7 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
           footer={
             <NodeOutcomeRows
               rows={outcomeRows}
+              defaultRow={hasOutcomeFooter ? defaultRouteRow : undefined}
               isConnectable={isConnectable}
               inheritanceNote={t(
                 'workflows.outcomes.inheritsErrorDirective',
@@ -136,13 +144,19 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
         )}
       </div>
 
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="source"
-        isConnectable={isConnectable}
-        className={`${NODE_HANDLE_CLASS} !bg-brand-violet`}
-      />
+      {/* The default route leaves from the footer's last row whenever there is
+          a footer, so it shares the outcome rows' x-position, size and rhythm
+          instead of floating over the first of them. Without a footer there is
+          nothing to hang it off, so it stays exactly where it always was. */}
+      {!hasOutcomeFooter && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={DEFAULT_SOURCE_HANDLE_ID}
+          isConnectable={isConnectable}
+          className={`${NODE_HANDLE_CLASS} !bg-brand-violet`}
+        />
+      )}
 
       <ErrorOutputHandle isConnectable={isConnectable} />
     </div>

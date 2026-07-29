@@ -677,8 +677,20 @@ export function nodeFootprint(
  * shows its WIRED outcomes plus `approved`; a user task shows one row per
  * authored decision. Both are derived here rather than measured, because dagre
  * runs before React Flow has laid a single card out.
+ *
+ * A footer that renders at all also carries the step's DEFAULT route as its last
+ * row, which is why a non-empty count gets one more: under-estimating here is
+ * exactly what makes dagre pack ranks into each other.
  */
 function countOutcomeRows(
+  step: NodeFootprintLike,
+  transitions: OutcomeLayoutTransitionLike[],
+): number {
+  const rows = countAuthoredOutcomeRows(step, transitions)
+  return rows > 0 ? rows + 1 : 0
+}
+
+function countAuthoredOutcomeRows(
   step: NodeFootprintLike,
   transitions: OutcomeLayoutTransitionLike[],
 ): number {
