@@ -126,6 +126,12 @@ import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from
 import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import {
+  listStartFixtures,
+  removeStartFixture,
+  upsertStartFixture,
+  type WorkflowStartFixtures,
+} from '../../../lib/start-fixtures'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, History, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, ShieldMinus, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -435,6 +441,11 @@ export default function VisualEditorPage() {
   const [startOpen, setStartOpen] = useState(false)
   const [startContext, setStartContext] = useState('{}')
   const [starting, setStarting] = useState(false)
+  // Spec section 8.2 test-run modes. Independent by design: a real run can be
+  // stepped through, and a dry run can be let loose end to end.
+  const [startDryRun, setStartDryRun] = useState(false)
+  const [startStepThrough, setStartStepThrough] = useState(false)
+  const [fixtureName, setFixtureName] = useState('')
 
   // Undo/redo (spec §4.5). One stack over the whole editor document, so an
   // inspector save undoes exactly like a deleted route. Snapshots are cheap
@@ -470,6 +481,9 @@ export default function VisualEditorPage() {
     editAnnotation: t('workflows.visualEditor.history.editAnnotation', 'Edit annotation'),
     deleteAnnotation: t('workflows.visualEditor.history.deleteAnnotation', 'Delete annotation'),
     toggleGroup: t('workflows.visualEditor.history.toggleGroup', 'Collapse group'),
+    saveFixture: t('workflows.visualEditor.history.saveFixture', 'Save start fixture'),
+    deleteFixture: t('workflows.visualEditor.history.deleteFixture', 'Delete start fixture'),
+    applyCode: t('workflows.visualEditor.history.applyCode', 'Apply JSON from Code view'),
   }), [t])
 
   const captureDocument = useCallback((): WorkflowEditorDocument => ({
@@ -1578,6 +1592,78 @@ export default function VisualEditorPage() {
     })
   }, [commitHistory, historyLabels.unpinSample])
 
+  // Named START contexts (spec section 8.1). They live beside samples in
+  // metadata.editor, but they are a DIFFERENT thing — a whole start context,
+  // not per-step data — so they get their own key and their own cap.
+  const startFixtures = useMemo(() => {
+    const editorValue = loadedMetadata?.editor
+    if (!editorValue || typeof editorValue !== 'object' || Array.isArray(editorValue)) return undefined
+    const fixturesValue = (editorValue as Record<string, unknown>).fixtures
+    if (!fixturesValue || typeof fixturesValue !== 'object' || Array.isArray(fixturesValue)) return undefined
+    return fixturesValue as WorkflowStartFixtures
+  }, [loadedMetadata])
+
+  const startFixtureList = useMemo(() => listStartFixtures(startFixtures), [startFixtures])
+
+  const handleSaveFixture = useCallback(() => {
+    let context: Record<string, unknown>
+    try {
+      const parsed = startContext.trim() ? JSON.parse(startContext) : {}
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('[internal] context must be a JSON object')
+      }
+      context = parsed as Record<string, unknown>
+    } catch {
+      flash(t('workflows.startInstance.invalidJson'), 'error')
+      return
+    }
+
+    const result = upsertStartFixture(startFixtures, fixtureName, context, new Date().toISOString())
+    if (!result.ok) {
+      flash(t(`workflows.fixtures.errors.${result.reason}`), 'error')
+      return
+    }
+
+    commitHistory(historyLabels.saveFixture)
+    setLoadedMetadata((previous) => {
+      const base: Record<string, unknown> = { ...(previous ?? {}) }
+      const editorValue = base.editor
+      const editor: Record<string, unknown> =
+        editorValue && typeof editorValue === 'object' && !Array.isArray(editorValue)
+          ? { ...(editorValue as Record<string, unknown>) }
+          : {}
+      editor.fixtures = result.fixtures
+      base.editor = editor
+      return base
+    })
+    setFixtureName('')
+    flash(t('workflows.fixtures.saved'), 'success')
+  }, [startContext, startFixtures, fixtureName, commitHistory, historyLabels.saveFixture, t])
+
+  const handleApplyFixture = useCallback((name: string) => {
+    const fixture = startFixtures?.[name]
+    if (!fixture) return
+    setStartContext(JSON.stringify(fixture.context, null, 2))
+    setFixtureName(fixture.name)
+  }, [startFixtures])
+
+  const handleDeleteFixture = useCallback((name: string) => {
+    commitHistory(historyLabels.deleteFixture)
+    setLoadedMetadata((previous) => {
+      if (!previous) return previous
+      const editorValue = previous.editor
+      if (!editorValue || typeof editorValue !== 'object' || Array.isArray(editorValue)) return previous
+      const editor = { ...(editorValue as Record<string, unknown>) }
+      const next = removeStartFixture(editor.fixtures as WorkflowStartFixtures | undefined, name)
+      if (Object.keys(next).length > 0) editor.fixtures = next
+      else delete editor.fixtures
+      const base = { ...previous }
+      if (Object.keys(editor).length > 0) base.editor = editor
+      else delete base.editor
+      return Object.keys(base).length > 0 ? base : null
+    })
+  }, [commitHistory, historyLabels.deleteFixture])
+
   const edgeDialogLedgerEntries = useMemo(
     () => (dialogLedger && selectedEdge ? dialogLedger.steps[selectedEdge.target]?.entries : undefined),
     [dialogLedger, selectedEdge],
@@ -2337,6 +2423,8 @@ export default function VisualEditorPage() {
               workflowId,
               version,
               initialContext,
+              ...(startDryRun ? { dryRun: true } : {}),
+              ...(startStepThrough ? { stepThrough: true } : {}),
             }),
           })
           if (!response.ok) {
@@ -2366,7 +2454,7 @@ export default function VisualEditorPage() {
     } finally {
       setStarting(false)
     }
-  }, [startContext, workflowId, version, definitionId, mutationContextId, retryLastMutation, router, t])
+  }, [startContext, startDryRun, startStepThrough, workflowId, version, definitionId, mutationContextId, retryLastMutation, router, t])
 
   // Apply a gallery template to the canvas: populate metadata from the
   // template's i18n keys and convert its definition into graph nodes/edges.
@@ -2549,13 +2637,44 @@ export default function VisualEditorPage() {
           <DialogHeader>
             <DialogTitle>{t('workflows.startInstance.title')}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 px-1 py-2">
+          <div className="space-y-3 px-1 py-2">
             <p className="text-xs text-muted-foreground">{t('workflows.startInstance.description')}</p>
-            <label className="text-sm font-medium">{t('workflows.startInstance.contextLabel')}</label>
+
+            {startFixtureList.length > 0 ? (
+              <div className="space-y-1">
+                <span className="text-overline text-muted-foreground">{t('workflows.fixtures.label')}</span>
+                <div className="flex flex-wrap gap-1">
+                  {startFixtureList.map((fixture) => (
+                    <span key={fixture.name} className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1">
+                      <button
+                        type="button"
+                        className="text-xs font-medium hover:underline"
+                        onClick={() => handleApplyFixture(fixture.name)}
+                      >
+                        {fixture.name}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                        aria-label={t('workflows.fixtures.delete', { name: fixture.name })}
+                        onClick={() => handleDeleteFixture(fixture.name)}
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <label className="text-sm font-medium" htmlFor="workflow-start-context">
+              {t('workflows.startInstance.contextLabel')}
+            </label>
             <Textarea
+              id="workflow-start-context"
               value={startContext}
               onChange={(e) => setStartContext(e.target.value)}
-              rows={10}
+              rows={9}
               spellCheck={false}
               className="font-mono text-sm"
               onKeyDown={(e) => {
@@ -2565,6 +2684,49 @@ export default function VisualEditorPage() {
                 }
               }}
             />
+
+            <div className="flex items-end gap-2">
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="workflow-fixture-name" className="text-xs">
+                  {t('workflows.fixtures.nameLabel')}
+                </Label>
+                <Input
+                  id="workflow-fixture-name"
+                  value={fixtureName}
+                  onChange={(e) => setFixtureName(e.target.value)}
+                  placeholder={t('workflows.fixtures.namePlaceholder')}
+                />
+              </div>
+              <Button variant="outline" onClick={handleSaveFixture} disabled={!fixtureName.trim()}>
+                {t('workflows.fixtures.save')}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('workflows.fixtures.storageWarning')}</p>
+
+            <div className="space-y-2 rounded-md border border-border p-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="workflow-start-dry-run" className="text-sm font-medium">
+                  {t('workflows.startInstance.dryRunLabel')}
+                </Label>
+                <Switch
+                  id="workflow-start-dry-run"
+                  checked={startDryRun}
+                  onCheckedChange={(checked) => setStartDryRun(checked === true)}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">{t('workflows.startInstance.dryRunHint')}</p>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="workflow-start-step-through" className="text-sm font-medium">
+                  {t('workflows.startInstance.stepThroughLabel')}
+                </Label>
+                <Switch
+                  id="workflow-start-step-through"
+                  checked={startStepThrough}
+                  onCheckedChange={(checked) => setStartStepThrough(checked === true)}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">{t('workflows.startInstance.stepThroughHint')}</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setStartOpen(false)} disabled={starting}>

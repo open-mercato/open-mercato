@@ -40,6 +40,12 @@ import { findWorkflowDefinition, findDefinitionForInstance } from './find-defini
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
 import { DRY_RUN_EVENT_TYPES } from './dry-run'
+import {
+  STEP_THROUGH_EVENT_TYPE,
+  consumeStepThroughRelease,
+  isStepThroughArmed,
+  shouldPauseForStepThrough,
+} from './step-through'
 import type {
   WorkflowActivityJob,
   WorkflowActivityJobResumeSubWorkflowParent,
@@ -449,6 +455,44 @@ export async function executeWorkflow(
         const currentStep = definition.definition.steps.find(
           (s: any) => s.stepId === currentInstance.currentStepId
         )
+
+        // Step-through (spec section 8.2). An instance-level PAUSED between
+        // steps — no new instance status and no new step status, so the state
+        // machines are untouched. The marker is a RELEASE TOKEN for exactly one
+        // step id, so replaying this loop after a crash cannot run a step the
+        // author never released, and a double Continue cannot run two.
+        if (
+          shouldPauseForStepThrough(
+            currentInstance,
+            currentInstance.currentStepId,
+            currentStep?.stepType
+          )
+        ) {
+          await pauseForStepThrough(trx, currentInstance)
+          events.push({
+            eventType: STEP_THROUGH_EVENT_TYPE,
+            occurredAt: new Date(),
+            data: { stepId: currentInstance.currentStepId },
+          })
+          return {
+            status: 'RUNNING',
+            currentStep: currentInstance.currentStepId,
+            context: currentInstance.context,
+            events,
+            executionTime: Date.now() - startTime,
+          }
+        }
+
+        if (isStepThroughArmed(currentInstance)) {
+          // The released step is about to run: burn the token now so the cursor
+          // landing on the NEXT step pauses, whatever route it takes.
+          currentInstance.metadata = {
+            ...(currentInstance.metadata || {}),
+            stepThrough: consumeStepThroughRelease(),
+          }
+          currentInstance.updatedAt = new Date()
+          await trx.flush()
+        }
 
         if (currentStep?.stepType === 'END') {
           await completeWorkflow(trx, container, instanceId, 'COMPLETED')
@@ -1165,6 +1209,32 @@ async function enterErrorHandlerStep(
   )
 
   return result.status !== 'FAILED'
+}
+
+/**
+ * Park a step-through run before the step the author has not released yet.
+ *
+ * Reuses PAUSED exactly as the failure queue does, and deliberately writes NO
+ * `attention` marker: the run is waiting for the author, not for triage, so it
+ * must not appear in the failure queue.
+ */
+async function pauseForStepThrough(
+  em: EntityManager,
+  instance: WorkflowInstance
+): Promise<void> {
+  const now = new Date()
+  instance.status = 'PAUSED'
+  instance.pausedAt = now
+  instance.updatedAt = now
+  await em.flush()
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: STEP_THROUGH_EVENT_TYPE,
+    eventData: { stepId: instance.currentStepId },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
 }
 
 /**

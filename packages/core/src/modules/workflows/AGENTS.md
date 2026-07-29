@@ -554,6 +554,29 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Starting one needs `workflows.definitions.test_run` ON TOP of `workflows.instances.create` — it is
   the definition author's test loop, not a way to start instances.
 
+## Step-Through & Start Fixtures (spec §8.1 · §8.2)
+
+- **Step-through is an instance-level `PAUSED` between steps** (`lib/step-through.ts`, PURE) — the
+  same shape the `failureQueue` directive uses. NO new instance status and NO new step status, so
+  the state machines are untouched. Independent of dry run: a real run can be stepped through, and a
+  dry run can be let loose end to end.
+- **The marker is a RELEASE TOKEN, not a paused boolean.** The author releases ONE named step, the
+  engine burns the token before running it, and the cursor landing anywhere else pauses again. That
+  is what makes it idempotent: replaying `executeWorkflow` after a crash cannot run a step nobody
+  released, and a double Continue cannot run two steps.
+- **`POST api/instances/[id]/step-through`** (`continue` | `stop`, feature
+  `workflows.definitions.test_run`) mints the token from the instance's OWN `currentStepId` — never
+  from the request body — so a client cannot release a step the run is not sitting on. Aborting is
+  the existing cancel endpoint; a second way to cancel would be a second place to get compensation
+  wrong. The marker is engine-owned: only the feature-gated start flag and this route write it.
+- **END is exempt from the pause**, so a finished step-through reads COMPLETED rather than parked one
+  click short of the end.
+- **Start fixtures are named START contexts** (`lib/start-fixtures.ts`, PURE,
+  `metadata.editor.fixtures`) and are a DIFFERENT thing from pinned per-step samples — the spec says
+  so, and conflating them would make "which wins" unanswerable. Caps are checked against the RESULT,
+  so shrinking your way back under a cap always works. Fixture data is stored verbatim and is neither
+  redacted nor encrypted; keep the warning copy wherever one is saved.
+
 ## Code View (stage 1 — read-only)
 
 - `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste

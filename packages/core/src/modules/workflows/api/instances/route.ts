@@ -256,7 +256,7 @@ export async function POST(request: NextRequest) {
     // Dry run (spec section 8.2) is the definition-author's test loop, not a
     // way to start instances, so it carries its own grant on top of
     // `instances.create` — the same feature the per-node Test step uses.
-    if (input.dryRun) {
+    if (input.dryRun || input.stepThrough) {
       const canTestRun = await rbacService.userHasAllFeatures(
         auth.sub,
         ['workflows.definitions.test_run'],
@@ -287,9 +287,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Server-authoritative actor; do not trust client-supplied metadata.initiatedBy.
+    // The step-through marker is engine-owned for the same reason: it is set
+    // ONLY from the feature-gated flag above, never from client metadata.
     const metadata = {
       ...input.metadata,
       initiatedBy: auth.sub,
+      ...(input.stepThrough ? { stepThrough: { enabled: true as const, releaseStepId: null } } : {}),
     }
 
     // Start workflow

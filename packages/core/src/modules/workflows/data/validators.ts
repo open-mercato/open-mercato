@@ -3,6 +3,11 @@ import { conditionExpressionSchema } from '@open-mercato/core/modules/business_r
 import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
 import { parseDuration } from '../lib/duration'
 import { excludeNonNormalTransitions } from '../lib/route-kinds'
+import {
+  WORKFLOW_START_FIXTURES_MAX_CHARS,
+  WORKFLOW_START_FIXTURES_MAX_COUNT,
+  WORKFLOW_START_FIXTURE_NAME_MAX,
+} from '../lib/start-fixtures'
 import '../lib/activity-registry-bootstrap'
 import { activityTypeIds } from '../lib/activity-registry'
 import {
@@ -989,6 +994,16 @@ export const WORKFLOW_EDITOR_SAMPLES_MAX_CHARS = 65536
 
 export const WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS = 65536
 
+// Named START contexts (spec section 8.1). The caps live in the pure
+// `lib/start-fixtures.ts` so the editor and the schema cannot disagree.
+export const startFixtureSchema = z.object({
+  name: z.string().min(1).max(WORKFLOW_START_FIXTURE_NAME_MAX),
+  savedAt: z.string().datetime({ offset: true }),
+  context: z.record(z.string(), z.any()),
+})
+
+export type WorkflowStartFixtureInput = z.infer<typeof startFixtureSchema>
+
 // Editor annotations (spec §4.5): markdown sticky notes and named groups. They
 // are documentation only — never execution semantics — which is why they live
 // here in metadata and never in `definition.steps`.
@@ -1028,6 +1043,9 @@ export const workflowMetadataSchema = z.object({
   editor: z.object({
     samples: z.record(z.string(), sampleEnvelopeSchema).optional(),
     annotations: editorAnnotationsSchema.optional(),
+    // Named START contexts (spec section 8.1). A different thing from a pinned
+    // per-step sample, which is why it gets its own key and its own cap.
+    fixtures: z.record(z.string(), startFixtureSchema).optional(),
   }).passthrough().optional(),
 }).superRefine((metadata, ctx) => {
   const samples = metadata.editor?.samples
@@ -1044,6 +1062,21 @@ export const workflowMetadataSchema = z.object({
       code: 'custom',
       path: ['editor', 'annotations'],
       message: `Notes and groups exceed the ${WORKFLOW_EDITOR_ANNOTATIONS_MAX_CHARS}-character limit; shorten or remove some before saving`,
+    })
+  }
+  const fixtures = metadata.editor?.fixtures
+  if (fixtures && JSON.stringify(fixtures).length > WORKFLOW_START_FIXTURES_MAX_CHARS) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['editor', 'fixtures'],
+      message: `Start fixtures exceed the ${WORKFLOW_START_FIXTURES_MAX_CHARS}-character limit; delete or shrink fixtures before saving`,
+    })
+  }
+  if (fixtures && Object.keys(fixtures).length > WORKFLOW_START_FIXTURES_MAX_COUNT) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['editor', 'fixtures'],
+      message: `A definition may keep at most ${WORKFLOW_START_FIXTURES_MAX_COUNT} start fixtures`,
     })
   }
 })
@@ -1456,6 +1489,12 @@ export const startWorkflowInputSchema = z.object({
    * The route gates it behind `workflows.definitions.test_run`.
    */
   dryRun: z.boolean().optional(),
+  /**
+   * Pause before each step so the author can inspect the context and continue
+   * or abort (spec section 8.2). Gated by the same `test_run` feature as
+   * `dryRun`, and independent of it: a real run can be stepped through too.
+   */
+  stepThrough: z.boolean().optional(),
 })
 
 export type StartWorkflowApiInput = z.infer<typeof startWorkflowInputSchema>

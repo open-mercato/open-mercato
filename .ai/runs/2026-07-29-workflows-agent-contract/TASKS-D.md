@@ -9,8 +9,8 @@ Brief: `BRIEFING-phase5.md` §8.1/§8.2 + "Code view stage 2". Owned by this exe
 | Step | Title | Status | Commit |
 |------|-------|--------|--------|
 | D.1 | `INVOKE_AGENT` gets a `mock` — the one built-in that could not dry-run | done | `5d63aeb33` |
-| D.2 | `WorkflowInstance.isDryRun` + mocked-effector execution + the isolation guarantees | todo | |
-| D.3 | Start fixtures + step-through | todo | |
+| D.2 | `WorkflowInstance.isDryRun` + mocked-effector execution + the isolation guarantees | done | `21310f145` |
+| D.3 | Start fixtures + step-through | done | (this commit) |
 | D.4 | Code view stage 2 — two-way sync + issue-to-node squiggles | todo | |
 
 ## Binding constraints

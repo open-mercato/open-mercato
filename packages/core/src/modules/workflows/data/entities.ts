@@ -225,6 +225,8 @@ export interface WorkflowInstanceErrorHandlerMetadata {
   forStepId?: string
 }
 
+import type { WorkflowInstanceStepThrough } from '../lib/step-through'
+
 export interface WorkflowInstanceMetadata {
   entityType?: string
   entityId?: string
@@ -232,6 +234,13 @@ export interface WorkflowInstanceMetadata {
   labels?: Record<string, string>
   attention?: WorkflowInstanceAttention | null
   errorHandler?: WorkflowInstanceErrorHandlerMetadata | null
+  /**
+   * Step-through release token (spec section 8.2). Engine-owned and never
+   * user-writable: the start route sets it from a feature-gated flag and the
+   * step-through route advances it, so a client cannot release a step by
+   * writing metadata directly. See `lib/step-through.ts`.
+   */
+  stepThrough?: WorkflowInstanceStepThrough | null
 }
 
 // ============================================================================
