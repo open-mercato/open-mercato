@@ -22,13 +22,22 @@ type CacheLike = {
   set(key: string, value: unknown, options?: { ttl?: number; tags?: string[] }): Promise<void>
 }
 
-function resolveAdapterEntries(container: AwilixContainer): readonly AdapterRegistryEntry[] {
+const MISSING_REGISTRY_REASON =
+  'the generated web-research adapter registry is not registered on this container, so no adapter package could be loaded - run `yarn generate`, and if this is an MCP or CLI process, confirm bootstrap loaded web-research-adapters.generated.ts'
+
+function resolveAdapterEntries(container: AwilixContainer): {
+  entries: readonly AdapterRegistryEntry[]
+  missing: boolean
+} {
   try {
-    return (container.resolve('webResearchAdapterEntries') as AdapterRegistryEntry[]) ?? []
+    const entries = container.resolve('webResearchAdapterEntries') as AdapterRegistryEntry[] | undefined
+    return { entries: entries ?? [], missing: false }
   } catch {
-    // The app registers the generated registry; a process without it (or a
-    // standalone app that installed no adapters) simply has none.
-    return []
+    // An absent registry and an empty one look identical downstream: both give
+    // zero adapters and a fast, empty, `degraded` answer that reads like "the
+    // web had nothing" rather than "this process is misconfigured". The agent
+    // then narrates that guess to the user, so the two cases are kept distinct.
+    return { entries: [], missing: true }
   }
 }
 
@@ -93,10 +102,14 @@ export type BuiltEngine = {
  */
 export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
   const { container, settings, tenantId } = options
-  const registry = resolveAdapterModules(resolveAdapterEntries(container))
+  const { entries, missing } = resolveAdapterEntries(container)
+  const registry = resolveAdapterModules(entries)
   const problems: Array<{ id: string | null; packageName: string; reason: string }> = registry.rejected.map(
     (entry) => ({ id: entry.id, packageName: entry.packageName, reason: entry.reason }),
   )
+  if (missing) {
+    problems.push({ id: null, packageName: '(host)', reason: MISSING_REGISTRY_REASON })
+  }
 
   const policyById = new Map(settings.policy.adapters.map((entry) => [entry.id, entry]))
   const adapters: EngineAdapterEntry[] = []
@@ -116,13 +129,14 @@ export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
       enabled: configured?.enabled ?? false,
       order: configured?.order ?? Number.MAX_SAFE_INTEGER,
       weight: configured?.weight ?? 1,
+      ...(configured?.timeoutMs === undefined ? {} : { timeoutMs: configured.timeoutMs }),
     })
   }
 
-  const http = createHttpClient({
-    maxBytes: settings.guardrails.maxFetchBytes,
-    timeoutMs: settings.policy.adapterTimeoutMs,
-  })
+  // Deliberately not derived from `adapterTimeoutMs`: that is a whole adapter's
+  // budget, while this is one HTTP attempt, and an adapter may make several.
+  // Adapters that legitimately need longer pass `timeoutMs` per request.
+  const http = createHttpClient({ maxBytes: settings.guardrails.maxFetchBytes })
 
   const cache = resolveCache(container, tenantId)
 
