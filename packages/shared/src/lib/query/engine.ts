@@ -293,7 +293,11 @@ export class BasicQueryEngine implements QueryEngine {
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
     const searchConfig = resolveSearchConfig()
-    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
+    // Callers that opt out of automatic tenant/org scoping own the full
+    // visibility predicate. Search-token filtering has its own tenant/org
+    // guards, so it must be disabled on this direct-query path as documented
+    // by QueryOptions.omitAutomaticTenantOrgScope.
+    const searchEnabled = !skipAutoScope && searchConfig.enabled && await this.tableExists('search_tokens')
     const hasSearchTokens = searchEnabled
       ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false

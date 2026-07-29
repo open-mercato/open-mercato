@@ -60,6 +60,10 @@
       "description": "Security audit skills. Opt-in.",
       "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
     },
+    "analysis": {
+      "description": "Business/engagement analysis skills (app specs, platform gap analysis). Opt-in.",
+      "skills": ["om-app-spec-writing", "om-gap-analysis"]
+    },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",
       "skills": ["om-auto-upgrade-0.4.10-to-0.5.0"]

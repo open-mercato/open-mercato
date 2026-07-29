@@ -176,7 +176,7 @@ export interface SearchStrategy {
 export type ResultMergeConfig = {
   /** How to handle duplicate results: 'highest_score' | 'first' | 'merge_scores' */
   duplicateHandling: 'highest_score' | 'first' | 'merge_scores'
-  /** Weight multipliers per strategy (e.g., { meilisearch: 1.2, tokens: 0.8 }) */
+  /** Weight multipliers per strategy (e.g., { fulltext: 1.2, tokens: 0.8 }) */
   strategyWeights?: Record<SearchStrategyId, number>
   /** Minimum score threshold to include in results */
   minScore?: number

@@ -23,6 +23,7 @@ import {
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { resolveNotificationService } from "../../notifications/lib/notificationService";
 import { buildFeatureNotificationFromType } from "../../notifications/lib/notificationBuilder";
+import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
 import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
@@ -126,7 +127,8 @@ import {
   type SalesDocumentCalculationResult,
 } from "../lib/types";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
-import { resolveDictionaryEntryValue } from "../lib/dictionaries";
+import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
+import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
 import { loadSalesSettings } from "./settings";
@@ -855,6 +857,70 @@ function normalizeStatusValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function isConfirmedOrderStatus(status: string | null): boolean {
+  return status === "confirmed";
+}
+
+function isCancelledOrderStatus(status: string | null): boolean {
+  return status === "canceled" || status === "cancelled";
+}
+
+async function emitOrderLifecycleEvent(input: {
+  eventId: "sales.order.confirmed" | "sales.order.cancelled";
+  order: SalesOrder;
+  previousStatus: string | null;
+}): Promise<void> {
+  await emitSalesEvent(input.eventId, {
+    id: input.order.id,
+    orderId: input.order.id,
+    orderNumber: input.order.orderNumber,
+    previousStatus: input.previousStatus,
+    status: normalizeStatusValue(input.order.status),
+    tenantId: input.order.tenantId,
+    organizationId: input.order.organizationId,
+  });
+}
+
+function emitOrderLifecycleEventsForTransition(input: {
+  order: SalesOrder;
+  previousStatus: string | null;
+}): void {
+  const nextStatus = normalizeStatusValue(input.order.status);
+  if (input.previousStatus === nextStatus) return;
+
+  if (isConfirmedOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.confirmed",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      // Surface as warning so downstream automations (e.g. WMS reservation
+      // subscriber) failing to register/persist their own follow-up state is
+      // observable in logs instead of being silently dropped. The order
+      // status transition itself is already committed at this point.
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.confirmed",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
+
+  if (isCancelledOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.cancelled",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.cancelled",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
 }
 
 function resolveNoteAuthorFromAuth(auth: AuthContext | null): string | null {
@@ -5358,6 +5424,7 @@ const updateOrderCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    emitOrderLifecycleEventsForTransition({ order, previousStatus });
     if (statusChangeNote) {
       const dataEngine = ctx.container.resolve("dataEngine");
       await emitCrudSideEffects({
@@ -5464,10 +5531,15 @@ const createOrderCommand: CommandHandler<
     }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    // Soft-resolve the cache so the per-order status/fulfillment/payment dictionary lookups are
+    // memoized across a bulk import; degrades to a straight EM read when no cache is registered.
+    const dictionaryCache = ctx.container.resolve("cache", { allowUnregistered: true }) as
+      | CacheStrategy
+      | undefined;
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
-      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
+      resolveCachedDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
     ]);
     const {
       customerSnapshot: resolvedCustomerSnapshot,
@@ -5793,6 +5865,11 @@ const createOrderCommand: CommandHandler<
       ctx.auth?.tenantId ?? null,
       "created",
     );
+
+    emitOrderLifecycleEventsForTransition({
+      order,
+      previousStatus: null,
+    });
 
     return { orderId: order.id };
   },
