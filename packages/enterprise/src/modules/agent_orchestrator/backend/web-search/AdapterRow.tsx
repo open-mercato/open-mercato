@@ -261,77 +261,83 @@ export function AdapterRow({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <Label className="text-xs text-muted-foreground">
-            {t('agent_orchestrator.settings.webSearch.weight', 'Weight')}
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={10}
-            step={0.5}
-            autoComplete="off"
-            value={weight}
-            className="h-8 w-16"
-            onChange={(event) => onWeight(Number(event.target.value) || 0)}
-          />
-          {/* Latency is not uniform across kinds: a SERP read finishes in about a
-              second while a model running its own web search takes tens of them.
-              Without this the shared budget silently times the slow one out. */}
-          <Label className="text-xs text-muted-foreground">
-            {t('agent_orchestrator.settings.webSearch.timeout', 'Timeout')}
-          </Label>
-          <Input
-            type="number"
-            min={250}
-            max={120000}
-            step={1000}
-            autoComplete="off"
-            value={timeoutMs ?? ''}
-            placeholder={t('agent_orchestrator.settings.webSearch.timeoutDefault', 'default')}
-            title={t(
-              'agent_orchestrator.settings.webSearch.timeoutHint',
-              'Milliseconds this adapter alone may take. Leave empty to use the policy-wide budget.',
-            )}
-            className="h-8 w-24"
-            onChange={(event) => {
-              const raw = event.target.value.trim()
-              onTimeout(raw === '' ? undefined : Number(raw))
-            }}
-          />
-          {/* A model running its own web search is billed per search, and
-              `lastResort` fires it on every run that came up short — so without a
-              ceiling a stuck agent loop is an open tab at the vendor. */}
-          <Label className="text-xs text-muted-foreground">
-            {t('agent_orchestrator.settings.webSearch.maxCalls', 'Calls/h')}
-          </Label>
-          <Input
-            type="number"
-            min={1}
-            step={10}
-            autoComplete="off"
-            value={maxCallsPerHour ?? ''}
-            placeholder={t('agent_orchestrator.settings.webSearch.maxCallsDefault', 'unlimited')}
-            title={t(
-              'agent_orchestrator.settings.webSearch.maxCallsHint',
-              'Most calls this adapter may make per hour for this tenant. Once reached it sits searches out, including as last resort. Leave empty for no ceiling.',
-            )}
-            className="h-8 w-24"
-            onChange={(event) => {
-              const raw = event.target.value.trim()
-              onMaxCalls(raw === '' ? undefined : Number(raw))
-            }}
-          />
-          {fields.length > 0 ? (
-            <Button variant="ghost" size="sm" onClick={() => setOpen((current) => !current)}>
-              {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              {t('agent_orchestrator.settings.webSearch.showConfig', 'Configure')}
-            </Button>
-          ) : null}
+          {/* Always available: an adapter has engine-level knobs even when its
+              package exposes no options of its own. */}
+          <Button variant="ghost" size="sm" onClick={() => setOpen((current) => !current)}>
+            {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            {t('agent_orchestrator.settings.webSearch.showConfig', 'Configure')}
+          </Button>
         </div>
       </div>
 
-      {open && fields.length > 0 ? (
+      {open ? (
         <div className="space-y-4 border-t border-border p-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>{t('agent_orchestrator.settings.webSearch.weight', 'Weight')}</Label>
+              <Input
+                type="number"
+                min={0}
+                max={10}
+                step={0.5}
+                autoComplete="off"
+                value={weight}
+                onChange={(event) => onWeight(Number(event.target.value) || 0)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.weightHint',
+                  'How much this source pulls in the merged ranking.',
+                )}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('agent_orchestrator.settings.webSearch.timeout', 'Timeout')}</Label>
+              <Input
+                type="number"
+                min={250}
+                max={120000}
+                step={1000}
+                autoComplete="off"
+                value={timeoutMs ?? ''}
+                placeholder={t('agent_orchestrator.settings.webSearch.timeoutDefault', 'default')}
+                onChange={(event) => {
+                  const raw = event.target.value.trim()
+                  onTimeout(raw === '' ? undefined : Number(raw))
+                }}
+              />
+              {/* Latency is not uniform across kinds: a SERP read finishes in about
+                  a second while a model running its own web search takes tens. */}
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.timeoutHint',
+                  'Milliseconds this adapter alone may take. Leave empty to use the policy-wide budget.',
+                )}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('agent_orchestrator.settings.webSearch.maxCalls', 'Calls/h')}</Label>
+              <Input
+                type="number"
+                min={1}
+                step={10}
+                autoComplete="off"
+                value={maxCallsPerHour ?? ''}
+                placeholder={t('agent_orchestrator.settings.webSearch.maxCallsDefault', 'unlimited')}
+                onChange={(event) => {
+                  const raw = event.target.value.trim()
+                  onMaxCalls(raw === '' ? undefined : Number(raw))
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.maxCallsHint',
+                  'Most calls this adapter may make per hour for this tenant. Once reached it sits searches out, including as last resort. Leave empty for no ceiling.',
+                )}
+              </p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {fields.map((field) => (
               <div key={field.name} className="space-y-1.5">

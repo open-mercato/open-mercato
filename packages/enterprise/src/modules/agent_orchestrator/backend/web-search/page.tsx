@@ -98,6 +98,20 @@ function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
 }
 
+/**
+ * The list card owns the roster — which adapters run, and in what order. Each
+ * adapter's own card owns its tuning. Splitting them this way is what lets one
+ * edit light exactly one Save button instead of two.
+ */
+function rosterOf(entries: readonly AdapterEntry[]): unknown {
+  return entries.map((entry) => ({ id: entry.id, enabled: entry.enabled, order: entry.order }))
+}
+
+function tuningOf(entry: AdapterEntry | undefined): unknown {
+  if (!entry) return null
+  return { weight: entry.weight, timeoutMs: entry.timeoutMs ?? null, maxCallsPerHour: entry.maxCallsPerHour ?? null }
+}
+
 function isSettings(value: unknown): value is SettingsResponse {
   return typeof value === 'object' && value !== null && 'policy' in value
 }
@@ -402,13 +416,37 @@ export default function WebSearchSettingsPage() {
   const sectionPatch = React.useCallback(
     (section: SectionId): Record<string, unknown> => {
       if (!policy) return {}
+      const savedAdapters = (baseline.adapters ?? []) as AdapterEntry[]
       if (section.startsWith('adapter:')) {
         const id = section.slice('adapter:'.length)
-        return { adapterOptions: { [id]: adapterOptions[id] ?? {} } }
+        const edited = policy.adapters.find((entry) => entry.id === id)
+        // Only this row moves: every other entry, and every position, comes from
+        // what is already stored, so saving one adapter cannot commit a reorder
+        // or another row's toggle that the operator has not finished.
+        return {
+          adapters: savedAdapters.map((saved) =>
+            saved.id === id && edited
+              ? {
+                  ...saved,
+                  weight: edited.weight,
+                  ...(edited.timeoutMs === undefined ? {} : { timeoutMs: edited.timeoutMs }),
+                  ...(edited.maxCallsPerHour === undefined ? {} : { maxCallsPerHour: edited.maxCallsPerHour }),
+                }
+              : saved,
+          ),
+          adapterOptions: { [id]: adapterOptions[id] ?? {} },
+        }
       }
       switch (section) {
         case 'adapters':
-          return { adapters: policy.adapters }
+          // Conversely the roster card carries only enablement and order, taking
+          // each row's tuning from what is stored.
+          return {
+            adapters: policy.adapters.map((entry) => {
+              const saved = savedAdapters.find((candidate) => candidate.id === entry.id)
+              return { ...(saved ?? entry), enabled: entry.enabled, order: entry.order }
+            }),
+          }
         case 'tuning':
           return {
             settleMode: policy.settleMode,
@@ -432,14 +470,22 @@ export default function WebSearchSettingsPage() {
 
   const isDirty = React.useCallback(
     (section: SectionId): boolean => {
+      const savedAdapters = (baseline.adapters ?? []) as AdapterEntry[]
       if (section.startsWith('adapter:')) {
         const id = section.slice('adapter:'.length)
         const savedOptions = (baseline.adapterOptions ?? {}) as AdapterOptions
-        return !sameValue(adapterOptions[id], savedOptions[id])
+        const tuningChanged = !sameValue(
+          tuningOf(policy?.adapters.find((entry) => entry.id === id)),
+          tuningOf(savedAdapters.find((entry) => entry.id === id)),
+        )
+        return tuningChanged || !sameValue(adapterOptions[id], savedOptions[id])
+      }
+      if (section === 'adapters') {
+        return !sameValue(rosterOf(policy?.adapters ?? []), rosterOf(savedAdapters))
       }
       return Object.entries(sectionPatch(section)).some(([key, value]) => !sameValue(value, baseline[key]))
     },
-    [sectionPatch, baseline, adapterOptions],
+    [sectionPatch, baseline, adapterOptions, policy],
   )
 
   const saveSectionNow = React.useCallback(
@@ -447,6 +493,7 @@ export default function WebSearchSettingsPage() {
       const patch = sectionPatch(section)
       if (section.startsWith('adapter:')) {
         void saveSection(section, patch, {
+          adapters: patch.adapters,
           adapterOptions: {
             ...((baseline.adapterOptions ?? {}) as AdapterOptions),
             ...((patch.adapterOptions ?? {}) as AdapterOptions),
@@ -554,7 +601,7 @@ export default function WebSearchSettingsPage() {
             <CardDescription>
               {t(
                 'agent_orchestrator.settings.webSearch.adaptersDragHint',
-                'Drag to set the order they are tried in. {count} of {total} enabled.',
+                'Drag to set the order they are tried in, and open one to tune it. {count} of {total} enabled.',
                 { count: String(enabledCount), total: String(policy.adapters.length) },
               )}
             </CardDescription>
