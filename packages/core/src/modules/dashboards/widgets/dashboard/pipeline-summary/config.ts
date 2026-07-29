@@ -30,6 +30,13 @@ export function hydrateSettings(raw: unknown): PipelineSummarySettings {
   }
 }
 
+export function dehydrateSettings(settings: PipelineSummarySettings): Record<string, unknown> {
+  return {
+    dateRange: settings.dateRange,
+    statusScope: settings.statusScope,
+  }
+}
+
 export function buildPipelineDataRequest(settings: PipelineSummarySettings): WidgetDataRequest {
   const request: WidgetDataRequest = {
     entityType: 'customers:deals',

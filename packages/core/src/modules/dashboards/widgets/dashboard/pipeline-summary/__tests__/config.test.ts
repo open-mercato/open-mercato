@@ -5,6 +5,7 @@ import {
   CLOSED_DEAL_STATUSES,
   DEFAULT_SETTINGS,
   buildPipelineDataRequest,
+  dehydrateSettings,
   hydrateSettings,
 } from '../config'
 
@@ -28,6 +29,21 @@ describe('pipeline summary settings', () => {
 
     it('rejects an unknown status scope', () => {
       expect(hydrateSettings({ dateRange: 'this_month', statusScope: 'won' }).statusScope).toBe('open')
+    })
+  })
+
+  describe('dehydrateSettings', () => {
+    it('persists the status scope so a saved widget keeps it', () => {
+      expect(dehydrateSettings({ dateRange: 'this_year', statusScope: 'all' })).toEqual({
+        dateRange: 'this_year',
+        statusScope: 'all',
+      })
+    })
+
+    it('round-trips through hydrateSettings without losing the scope', () => {
+      const saved = dehydrateSettings({ dateRange: 'this_year', statusScope: 'all' })
+
+      expect(hydrateSettings(saved)).toEqual({ dateRange: 'this_year', statusScope: 'all' })
     })
   })
 
