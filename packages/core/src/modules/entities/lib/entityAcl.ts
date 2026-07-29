@@ -2,6 +2,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { deriveCustomEntityRecordFeature } from './recordFeatures'
 
 export type EntityAclRequirement = {
   view: string[]
@@ -65,20 +66,32 @@ const ENTITY_ACL_REQUIREMENTS: Record<string, EntityAclRequirement> = {
   },
 }
 
-let declaredCustomEntityIds: Set<string> | null = null
+let declaredCustomEntityRestrictions: Map<string, boolean> | null = null
 
-export function isDeclaredCustomEntity(entityId: string): boolean {
-  if (declaredCustomEntityIds === null) {
+function loadDeclaredCustomEntityRestrictions(): Map<string, boolean> {
+  if (declaredCustomEntityRestrictions === null) {
     try {
-      const modules = getModules() as Array<{ customEntities?: Array<{ id?: string }> }>
-      if (Array.isArray(modules) && modules.length) {
-        declaredCustomEntityIds = new Set(
-          modules.flatMap((module) => (module.customEntities ?? []).flatMap((spec) => spec.id ? [spec.id] : [])),
-        )
+      const modules = getModules() as Array<{
+        customEntities?: Array<{ id?: string; accessRestricted?: boolean }>
+      }>
+      const restrictions = new Map<string, boolean>()
+      for (const module of modules ?? []) {
+        for (const spec of module.customEntities ?? []) {
+          if (spec.id) restrictions.set(spec.id, spec.accessRestricted === true)
+        }
       }
+      declaredCustomEntityRestrictions = restrictions
     } catch {}
   }
-  return declaredCustomEntityIds?.has(entityId) ?? false
+  return declaredCustomEntityRestrictions ?? new Map<string, boolean>()
+}
+
+export function getDeclaredCustomEntityRestriction(entityId: string): boolean | undefined {
+  return loadDeclaredCustomEntityRestrictions().get(entityId)
+}
+
+export function isDeclaredCustomEntity(entityId: string): boolean {
+  return loadDeclaredCustomEntityRestrictions().has(entityId)
 }
 
 export function resolveEntityAclRequirement(entityId: string): EntityAclRequirement | null {
@@ -119,6 +132,10 @@ type AssertEntityAclArgs = {
   entityId: string
   action: 'view' | 'manage'
   isCustomEntity: boolean
+  // Set for a custom entity flagged `access_restricted`. When true, the coarse
+  // route-level entities.records.* feature is no longer sufficient — the caller
+  // must additionally hold the synthesized per-entity feature.
+  isRestricted?: boolean
   rbac: RbacService
 }
 
@@ -126,15 +143,32 @@ function forbiddenEntityAccess(): CrudHttpError {
   return new CrudHttpError(403, { error: 'Forbidden' })
 }
 
-export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Promise<void> {
-  if (args.isCustomEntity) return
-
-  const requirement = resolveEntityAclRequirement(args.entityId)
-
-  const acl = await args.rbac.loadAcl(args.auth.sub ?? '', {
+async function loadActorAcl(args: AssertEntityAclArgs) {
+  return args.rbac.loadAcl(args.auth.sub ?? '', {
     tenantId: args.auth.tenantId ?? null,
     organizationId: args.auth.orgId ?? null,
   })
+}
+
+export async function assertEntityAclForRequest(args: AssertEntityAclArgs): Promise<void> {
+  if (args.isCustomEntity) {
+    // Unrestricted custom entities keep the historical behavior: the coarse
+    // entities.records.view/.manage route guard is the whole authorization.
+    if (!args.isRestricted) return
+
+    const acl = await loadActorAcl(args)
+    if (acl?.isSuperAdmin) return
+
+    const required = deriveCustomEntityRecordFeature(args.entityId, args.action)
+    if (!hasAllFeatures(acl?.features, [required])) {
+      throw forbiddenEntityAccess()
+    }
+    return
+  }
+
+  const requirement = resolveEntityAclRequirement(args.entityId)
+
+  const acl = await loadActorAcl(args)
 
   if (acl?.isSuperAdmin) return
 

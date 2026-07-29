@@ -66,7 +66,7 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCache
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
-import { mergeIdFilter, parseIdsParam } from './ids'
+import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
@@ -1445,6 +1445,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ...(interceptorRequest.query ?? {}),
       } as Record<string, unknown>
       const parsedIds = parseIdsParam(queryParams.ids)
+      const idsParamProvided = isIdsParamProvided(queryParams.ids)
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
       profiler.mark('before_list_hook')
@@ -1664,7 +1665,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filters = exportFullRequested
           ? baseFilters
           : mergeAdvancedFilters(baseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
-        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
+        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds, { idsParamProvided })
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
         if (
@@ -1951,7 +1952,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : mergeAdvancedFilters(fallbackBaseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
       const mergedFallbackFilters = exportFullRequested
         ? fallbackFilters
-        : mergeIdFilter(fallbackFilters, parsedIds)
+        : mergeIdFilter(fallbackFilters, parsedIds, { idsParamProvided })
       const ormFilters = translateFiltersForOrm(
         mergedFallbackFilters as Record<string, any>,
         em,
