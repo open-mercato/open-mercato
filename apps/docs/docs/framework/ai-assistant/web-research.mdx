@@ -83,6 +83,7 @@ OM_WEB_SEARCH_HARD_DEADLINE_MS=15000
 OM_WEB_SEARCH_LAST_RESORT=model-native
 OM_WEB_SEARCH_ALLOW_DOMAINS=                    # empty = allow all
 OM_WEB_SEARCH_DENY_DOMAINS=
+OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS=              # empty = every private address refused
 ```
 
 ## Tools agents see
@@ -109,6 +110,16 @@ themselves — that would bypass every control below in a single step.
   link-local, CGNAT and cloud-metadata targets are blocked, including the
   IPv4-mapped IPv6 spelling (`new URL('http://[::ffff:127.0.0.1]/').hostname` is
   `::ffff:7f00:1`, which a dotted-quad check never matches).
+- **A named escape hatch, not a switch.** A service you run yourself — a SearXNG
+  instance on the container network — is unreachable under that guard, so
+  **Agents → Web search → Network egress** takes a list of hosts allowed to
+  resolve privately, matched on exact host or a dot-boundary suffix and empty by
+  default. It is deliberately not an "allow private" boolean: that would open
+  every internal address to whatever URL a model or a search result produces,
+  where this only unblocks destinations you named. A host you name is also
+  reachable by `web_fetch`; add it to the deny list as well when only an adapter
+  should talk to it. The browser tier never gets this — it renders public pages
+  only.
 - **DNS pinning**: the connection resolves to exactly the addresses the guard
   vetted, closing the rebinding window between check and connect.
 - **Content-type gating and streaming byte caps**, decoded incrementally so a cap

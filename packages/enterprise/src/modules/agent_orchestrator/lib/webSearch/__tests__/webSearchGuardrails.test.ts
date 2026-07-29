@@ -101,6 +101,17 @@ describe('resolveEnvSettings', () => {
     expect(settings.policy.adapters?.map((entry) => entry.order)).toEqual([0, 1])
   })
 
+  it('refuses every private address unless a host is named', () => {
+    expect(resolveEnvSettings({}).guardrails.allowPrivateHosts).toEqual([])
+  })
+
+  it('reads the private-host allowlist from env, normalized', () => {
+    const settings = resolveEnvSettings({
+      OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS: 'SearXNG, internal.example.com ,',
+    } as NodeJS.ProcessEnv)
+    expect(settings.guardrails.allowPrivateHosts).toEqual(['searxng', 'internal.example.com'])
+  })
+
   it('normalizes domain lists and ceilings', () => {
     const settings = resolveEnvSettings({
       OM_WEB_SEARCH_ALLOW_DOMAINS: 'Example.com, news.example.org',
