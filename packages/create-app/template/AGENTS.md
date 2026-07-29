@@ -50,7 +50,7 @@ Staff preview/report/bulk actions add `backend-ui` unless API-only.
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Capability/ownership choice, boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
+| `architecture` | Capability/ownership/field-vs-history choice, boundary, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |

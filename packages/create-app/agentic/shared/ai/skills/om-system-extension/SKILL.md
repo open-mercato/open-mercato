@@ -18,7 +18,7 @@ Route before reading: choose routes from the request and mechanism selector, the
 4. For editable additions, follow `references/read-write-roundtrip.md`; implement input, authenticated write, stored data, list/detail read, UI hydration, clear-to-null, and conflict behavior.
 5. Run `yarn generate`; verify host-present/absent, authorized/denied/wildcard, cache/search, and failure fallback using `references/verification.md`.
 
-When deciding whether one installed-host field is sufficient or history/rules require separate extension records, do not stop at this file: directly read the exact paths `.ai/skills/om-system-extension/references/mechanism-selector.md` and `.ai/skills/om-system-extension/references/extension-branches.md`. Apply their `extension-mechanism`, `additive-before-replacement`, `extension-entity`, and `eject-last` decisions before choosing.
+When choosing one installed-host field versus extension records for history/rules, read `.ai/skills/om-system-extension/references/mechanism-selector.md` and `.ai/skills/om-system-extension/references/extension-branches.md`. Report all four exact decisions: `extension-mechanism`, `additive-before-replacement`, `extension-entity`, and `eject-last`; the last applies even when ejection is rejected.
 
 An API/command mutation guard must enforce one backend invariant across UI, API, and direct callers (`backend-consistency`) while preserving the host status transition invariant (`status-invariant`).
 
