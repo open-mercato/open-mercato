@@ -458,7 +458,7 @@ describe('breach routing (spec §6.1 §4)', () => {
       expect.objectContaining({ id: instanceId }),
       stepId,
       'escalation',
-      expect.anything()
+      expect.objectContaining({ transitionId: 't_breach' }),
     )
     expect(mockExecuteWorkflow).toHaveBeenCalled()
     expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
@@ -481,7 +481,7 @@ describe('breach routing (spec §6.1 §4)', () => {
       expect.anything(),
       stepId,
       'fulfil',
-      expect.anything()
+      expect.objectContaining({ transitionId: 't_approved' }),
     )
   })
 

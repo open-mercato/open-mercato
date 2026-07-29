@@ -60,7 +60,8 @@ import { resolveCrudFormDialogsEnabled } from '../../../lib/crud-form-dialogs-fl
 import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } from '../../../lib/draft-restore'
 import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from '../../../lib/interpolation-pipeline'
-import { ERROR_SOURCE_HANDLE_ID } from '../../../lib/error-routing'
+import { findRouteKindDescriptorForHandle } from '../../../lib/route-kinds'
+import { isDecisionSourceHandle, type DecisionRowLike } from '../../../lib/node-outcome-rows'
 import { STRUCTURAL_EDIT_CONFLICT_CODE } from '../../../lib/definition-edit-safety'
 import { DefinitionErrorHandlerField } from '../../../components/DefinitionErrorHandlerField'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
@@ -1104,6 +1105,32 @@ export default function VisualEditorPage() {
   // Save node updates
   const handleSaveNode = useCallback((nodeId: string, updates: Partial<Node['data']>) => {
     commitHistory(historyLabels.editStep)
+    if (Object.prototype.hasOwnProperty.call(updates, 'decisions')) {
+      const previousNode = nodesRef.current.find((node) => node.id === nodeId)
+      const previousDecisions = previousNode?.data.decisions as DecisionRowLike[] | undefined
+      const nextDecisions = updates.decisions as DecisionRowLike[] | undefined
+      const previousIds = new Set(
+        (previousDecisions ?? []).flatMap((decision) =>
+          typeof decision.transitionId === 'string' ? [decision.transitionId] : []
+        ),
+      )
+      const nextIds = new Set(
+        (nextDecisions ?? []).flatMap((decision) =>
+          typeof decision.transitionId === 'string' ? [decision.transitionId] : []
+        ),
+      )
+      setEdges((currentEdges) =>
+        currentEdges.map((edge) => {
+          if (edge.source !== nodeId) return edge
+          if (nextIds.has(edge.id)) return { ...edge, sourceHandle: edge.id }
+          if (previousIds.has(edge.id) && edge.sourceHandle === edge.id) {
+            const { sourceHandle: _removed, ...remainingEdge } = edge
+            return remainingEdge
+          }
+          return edge
+        }),
+      )
+    }
     setNodes((nds) =>
       nds.map((node) =>
         node.id === nodeId
@@ -1345,26 +1372,54 @@ export default function VisualEditorPage() {
       return
     }
 
-    // A connection drawn from a node's error output handle authors an error
-    // route (spec 5.9): normal routing never selects it, the engine follows it
-    // only when that step fails.
-    const isErrorRoute = connection.sourceHandle === ERROR_SOURCE_HANDLE_ID
+    // A connection drawn from one of a node's kinded output handles authors that
+    // kind of route (spec 5.9 error routes, SLA-breach routes, …): normal
+    // routing never selects one, the engine follows it only down its own path.
+    const routeKind = findRouteKindDescriptorForHandle(connection.sourceHandle)
+    const sourceNode = nodesRef.current.find((node) => node.id === connection.source)
+    const decisions = sourceNode?.data.decisions as DecisionRowLike[] | undefined
+    const decisionTransitionId = isDecisionSourceHandle(decisions, connection.sourceHandle)
+      ? connection.sourceHandle
+      : null
+    if (
+      decisionTransitionId &&
+      edgesRef.current.some(
+        (edge) =>
+          edge.source === connection.source &&
+          (edge.id === decisionTransitionId || edge.sourceHandle === decisionTransitionId),
+      )
+    ) {
+      return
+    }
+
+    const routeData = routeKind
+      ? {
+          kind: routeKind.kind,
+          ...routeKind.discriminatorFields({
+            sourceHandle: connection.sourceHandle,
+          }),
+        }
+      : {}
 
     const newEdge: Edge = {
-      id: generateTransitionId(),
+      id: decisionTransitionId ?? generateTransitionId(),
       source: connection.source!,
       target: connection.target!,
-      // An error route must read as one the moment it is drawn, so it takes the
+      // A kinded route must read as one the moment it is drawn, so it takes the
       // workflow edge renderer immediately instead of on the next reload.
-      type: isErrorRoute ? 'workflowTransition' : 'smoothstep',
-      ...(isErrorRoute ? { sourceHandle: ERROR_SOURCE_HANDLE_ID } : {}),
+      type: routeKind ? 'workflowTransition' : 'smoothstep',
+      ...(routeKind
+        ? { sourceHandle: connection.sourceHandle }
+        : decisionTransitionId
+          ? { sourceHandle: decisionTransitionId }
+          : {}),
       data: {
         trigger: 'auto',
         preConditions: [],
         postConditions: [],
         activities: [],
         label: '',
-        ...(isErrorRoute ? { kind: 'error' } : {}),
+        ...routeData,
       },
     }
 
@@ -1387,6 +1442,8 @@ export default function VisualEditorPage() {
         return t('workflows.reattach.rejected.dataMappingRoute', 'Data mapping links are edited in the step configuration, not on the canvas.')
       case 'errorHandleUnsupported':
         return t('workflows.reattach.rejected.errorHandleUnsupported', 'An error route can only start at a step that can fail.')
+      case 'kindHandleUnsupported':
+        return t('workflows.reattach.rejected.kindHandleUnsupported', 'This route cannot start at that type of step.')
       case 'graphInvalid':
         return t('workflows.reattach.rejected.graphInvalid', 'That target would break the workflow: {reason}', { reason: rejection.detail ?? '' })
       case 'forkJoinInvalid':
@@ -3400,4 +3457,3 @@ function getDefaultBadge(nodeType: string): string {
   }
   return badges[nodeType] || 'Task'
 }
-

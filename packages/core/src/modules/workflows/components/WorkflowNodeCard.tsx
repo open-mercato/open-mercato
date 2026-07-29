@@ -1,10 +1,16 @@
 'use client'
 
+import type React from 'react'
 import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
 import { NODE_TYPE_ICONS, NODE_TYPE_ACCENTS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
 import { NODE_MAX_WIDTH, NODE_MIN_WIDTH } from '../lib/node-geometry'
+import {
+  NODE_CONFIG_SUMMARY_SEPARATOR,
+  resolveNodeConfigSummarySegment,
+  type NodeConfigSummarySegment,
+} from '../lib/node-config-summary'
 
 /**
  * Rendered node sizing. Cards size to their content between these bounds and
@@ -70,6 +76,22 @@ interface WorkflowNodeCardProps {
    * competing for attention with the steps between them.
    */
   variant?: WorkflowNodeCardVariant
+  /**
+   * Outcome-row footer (fidelity gap #4). Rendered INSIDE the card, below a
+   * hairline rule, so the rows read as part of the node rather than a second
+   * floating object — which is what lets their dots double as the node's
+   * per-outcome connection handles. Terminals (`variant: 'pill'`) never take
+   * one: a pill has no body to hang rows off.
+   */
+  footer?: React.ReactNode
+  /**
+   * One-line CONFIG summary (fidelity gap #6): `customers.deals.update ·
+   * retries 3×`. Preferred over `description`, which then becomes the card's
+   * tooltip — two clamped lines of prose truncate mid-word and cannot tell you
+   * what the step actually does. An empty list falls back to `description`, so
+   * an unconfigured node never reads emptier than before.
+   */
+  summary?: NodeConfigSummarySegment[]
 }
 
 export function WorkflowNodeCard({
@@ -84,8 +106,14 @@ export function WorkflowNodeCard({
   nodeId,
   editable = false,
   variant = 'card',
+  footer,
+  summary,
 }: WorkflowNodeCardProps) {
   const t = useT()
+  const resolvedSummary = summary?.map((segment) => ({
+    segment,
+    text: resolveNodeConfigSummarySegment(segment, t),
+  }))
   // In edit mode (not_started), use white background
   const isEditMode = status === 'not_started'
   const colors = STATUS_COLORS[status]
@@ -254,13 +282,24 @@ export function WorkflowNodeCard({
           <h3 className={`break-words text-sm font-semibold leading-snug ${colors.text}`}>
             {title}
           </h3>
-          {description && (
+          {resolvedSummary && resolvedSummary.length > 0 ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={description}>
+              {resolvedSummary.map(({ segment, text }, index) => (
+                <span key={`${segment.translationKey ?? segment.text}-${index}`}>
+                  {index > 0 && NODE_CONFIG_SUMMARY_SEPARATOR}
+                  <span className={segment.mono ? 'font-mono' : undefined}>{text}</span>
+                </span>
+              ))}
+            </p>
+          ) : description ? (
             <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
               {description}
             </p>
-          )}
+          ) : null}
         </div>
       </div>
+
+      {footer}
     </div>
   )
 }

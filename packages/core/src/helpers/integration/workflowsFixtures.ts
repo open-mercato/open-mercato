@@ -539,3 +539,115 @@ export async function findInstanceUserTask(
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
+
+/**
+ * Definition whose "agent" step parks on the INVOKE_AGENT proposal-ready signal and
+ * declares outcome routes for two of spec §7.2's five disposition kinds.
+ *
+ * The step parks on a WAIT_FOR_SIGNAL rather than running an agent because the agent
+ * runtime lives in `agent_orchestrator`, an OPTIONAL enterprise peer — `executeInvokeAgent`
+ * refuses outright when it is absent, so a fixture that invoked one would only ever run
+ * where enterprise is installed. Declaring the INVOKE_AGENT activity is what the engine
+ * keys outcome routing off (`signal-handler`'s `isInvokeAgentStep`), so the routing under
+ * test is the real path a disposition takes, not a lookalike.
+ *
+ * Routes out of `agent`: the default `agent -> apply -> end` happy path, plus
+ * `rejected -> rejected_end` and `guardrailBlocked -> guardrail_end`.
+ */
+export function buildAgentOutcomeDefinitionPayload(stamp: string, signalName: string) {
+  const id = `qa-wf-outcome-${stamp}`;
+  return {
+    workflowId: id,
+    workflowName: `QA Agent Outcome Workflow ${stamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        {
+          stepId: 'agent',
+          stepName: 'Assess',
+          stepType: 'WAIT_FOR_SIGNAL',
+          signalConfig: { signalName },
+          activities: [
+            {
+              activityId: 'assess',
+              activityName: 'Assess',
+              activityType: 'INVOKE_AGENT',
+              config: { agentId: 'qa.assessor', input: {}, onResult: { autoApproveThreshold: 0.8 } },
+            },
+          ],
+        },
+        { stepId: 'apply', stepName: 'Apply', stepType: 'AUTOMATED' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+        { stepId: 'rejected_end', stepName: 'Rejected', stepType: 'END' },
+        { stepId: 'guardrail_end', stepName: 'Guardrail Blocked', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-agent', fromStepId: 'start', toStepId: 'agent', trigger: 'auto' },
+        { transitionId: 'agent-to-apply', fromStepId: 'agent', toStepId: 'apply', trigger: 'auto' },
+        { transitionId: 'apply-to-end', fromStepId: 'apply', toStepId: 'end', trigger: 'auto' },
+        {
+          transitionId: 'agent-rejected',
+          fromStepId: 'agent',
+          toStepId: 'rejected_end',
+          trigger: 'auto',
+          kind: 'outcome',
+          outcomeKind: 'rejected',
+        },
+        {
+          transitionId: 'agent-guardrail',
+          fromStepId: 'agent',
+          toStepId: 'guardrail_end',
+          trigger: 'auto',
+          kind: 'outcome',
+          outcomeKind: 'guardrailBlocked',
+        },
+      ],
+    },
+    enabled: true,
+  };
+}
+
+/**
+ * Single-USER_TASK definition carrying an SLA-breach route (`kind: 'slaBreach'`).
+ *
+ * The A.1 regression fixture: `graphToDefinition` used to persist only `kind: 'error'`,
+ * so opening a definition like this in the Studio and saving it silently downgraded the
+ * breach route to a normal transition and the breach stopped routing — with no error
+ * anywhere. The route must survive a create → read → update → read round trip.
+ */
+export function buildSlaBreachRouteDefinitionPayload(stamp: string) {
+  const id = `qa-wf-breach-${stamp}`;
+  return {
+    workflowId: id,
+    workflowName: `QA SLA Breach Route Workflow ${stamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        {
+          stepId: 'review',
+          stepName: 'Review',
+          stepType: 'USER_TASK',
+          userTaskConfig: { assignedToRoles: ['admin'], allowedActions: ['complete'] },
+        },
+        { stepId: 'escalate', stepName: 'Escalate', stepType: 'END' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-review', fromStepId: 'start', toStepId: 'review', trigger: 'auto' },
+        { transitionId: 'review-to-end', fromStepId: 'review', toStepId: 'end', trigger: 'auto' },
+        {
+          transitionId: 'review-breach',
+          fromStepId: 'review',
+          toStepId: 'escalate',
+          trigger: 'auto',
+          kind: 'slaBreach',
+        },
+      ],
+    },
+    enabled: true,
+  };
+}

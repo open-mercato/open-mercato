@@ -3,6 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 
 export interface WaitForSignalNodeData {
   label: string
@@ -27,6 +28,7 @@ export function WaitForSignalNode({ id, data, isConnectable, selected }: NodePro
   const nodeData = data as unknown as WaitForSignalNodeData
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('waitForSignal', nodeData as never)
 
   const description = nodeData.description ||
     (nodeData.signalName  ? `Waiting for signal: ${nodeData.signalName}` : 'Signal invocation')
@@ -43,6 +45,7 @@ export function WaitForSignalNode({ id, data, isConnectable, selected }: NodePro
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={description}
         status={workflowStatus}

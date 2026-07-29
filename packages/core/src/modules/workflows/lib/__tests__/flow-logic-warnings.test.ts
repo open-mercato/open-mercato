@@ -6,6 +6,7 @@ import {
   collectConditionPathWarnings,
   collectErrorRouteWarnings,
   collectFlowLogicWarnings,
+  collectOutcomeRouteWarnings,
 } from '../flow-logic-warnings'
 import type { ContextLedger } from '../context-ledger'
 
@@ -188,6 +189,61 @@ describe('collectFlowLogicWarnings', () => {
       path: ['steps', 0],
       params: { stepId: 'notify', keys: 'assignedTo, config' },
     })
+  })
+
+  // Spec 7.2 outcome routes. Both mistakes are invisible on the canvas — the
+  // route is drawn and looks wired — so the Problems panel is the only place
+  // they can surface.
+  it('warns about an outcome route claiming a kind the platform does not define', () => {
+    const definition = {
+      steps: [{ stepId: 'agent', stepType: 'AUTOMATED' }],
+      transitions: [
+        {
+          transitionId: 't_bogus',
+          fromStepId: 'agent',
+          toStepId: 'end',
+          kind: 'outcome',
+          outcomeKind: 'needsReview',
+        },
+      ],
+    }
+
+    expect(collectOutcomeRouteWarnings(definition)).toEqual([
+      {
+        code: 'outcomeRouteUnknownKind',
+        path: ['transitions', 0],
+        params: { transitionId: 't_bogus', stepId: 'agent', outcomeKind: 'needsReview' },
+      },
+    ])
+    expect(collectFlowLogicWarnings(definition)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'outcomeRouteUnknownKind' })]),
+    )
+  })
+
+  it('warns when two routes claim the same outcome on one step', () => {
+    const warnings = collectOutcomeRouteWarnings({
+      steps: [{ stepId: 'agent', stepType: 'AUTOMATED' }],
+      transitions: [
+        { transitionId: 't_a', fromStepId: 'agent', toStepId: 'review', kind: 'outcome', outcomeKind: 'rejected' },
+        { transitionId: 't_b', fromStepId: 'agent', toStepId: 'halt', kind: 'outcome', outcomeKind: 'rejected' },
+      ],
+    })
+    expect(warnings).toEqual([
+      {
+        code: 'outcomeRouteDuplicateKind',
+        path: ['transitions', 1],
+        params: { transitionId: 't_b', stepId: 'agent', outcomeKind: 'rejected' },
+      },
+    ])
+  })
+
+  it('says nothing about a definition that declares no outcome routing', () => {
+    expect(
+      collectOutcomeRouteWarnings({
+        steps: [{ stepId: 'agent', stepType: 'AUTOMATED' }],
+        transitions: [{ transitionId: 't_a', fromStepId: 'agent', toStepId: 'end' }],
+      }),
+    ).toEqual([])
   })
 
   it('returns nothing for an absent definition', () => {

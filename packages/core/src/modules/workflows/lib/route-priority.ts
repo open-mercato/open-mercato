@@ -21,7 +21,7 @@
  */
 
 import type { Edge } from '@xyflow/react'
-import { isErrorTransition } from './error-routing'
+import { isNonNormalRouteKind } from './route-kinds'
 import { routeCarriesCondition } from './route-chips'
 
 /** Priority of the highest route when a node has at most 10 normal routes. */
@@ -60,10 +60,18 @@ function readPriority(edge: Edge): number {
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
 }
 
-/** A node's outgoing NORMAL routes — error routes and data-mapping edges excluded. */
+/**
+ * A node's outgoing NORMAL routes — every kinded route (error, SLA-breach,
+ * agent outcome) and data-mapping edge excluded. Filtering only error routes
+ * here used to let a breach or outcome route into the priority ladder, where it
+ * would read as a happy path the author never wired.
+ */
 export function outgoingNormalRoutes(edges: Edge[], nodeId: string): Edge[] {
   return edges.filter(
-    (edge) => edge.source === nodeId && edge.type !== 'workflowDataMapping' && !isErrorTransition(edgeData(edge)),
+    (edge) =>
+      edge.source === nodeId &&
+      edge.type !== 'workflowDataMapping' &&
+      !isNonNormalRouteKind(edgeData(edge).kind),
   )
 }
 

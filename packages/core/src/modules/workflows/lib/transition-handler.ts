@@ -26,11 +26,10 @@ import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode } from './interpolation-pipeline'
 import { buildSetVariableContextPatch, isSetVariableOutput } from './set-variable'
 import {
-  excludeErrorTransitions,
   resolveStepFailureHandling,
   type StepFailureHandling,
 } from './error-routing'
-import { excludeSlaBreachTransitions } from './breach-routing'
+import { excludeNonNormalTransitions } from './route-kinds'
 import {
   type ExecutionToken,
   rootToken,
@@ -85,6 +84,7 @@ export interface TransitionEvaluationContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  transitionId?: string
 }
 
 export interface TransitionEvaluationResult {
@@ -99,6 +99,7 @@ export interface TransitionExecutionContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  transitionId?: string
 }
 
 export interface TransitionExecutionResult {
@@ -185,7 +186,10 @@ export async function evaluateTransition(
     if (toStepId) {
       // Find specific transition
       transition = transitions.find(
-        (t: any) => t.fromStepId === fromStepId && t.toStepId === toStepId
+        (candidate: { fromStepId?: unknown; toStepId?: unknown; transitionId?: unknown }) =>
+          candidate.fromStepId === fromStepId
+          && candidate.toStepId === toStepId
+          && (context.transitionId === undefined || candidate.transitionId === context.transitionId)
       )
 
       if (!transition) {
@@ -196,8 +200,9 @@ export async function evaluateTransition(
         }
       }
     } else {
-      // Auto-select first valid transition (never an error or SLA-breach route)
-      const availableTransitions = excludeSlaBreachTransitions(excludeErrorTransitions(transitions)).filter(
+      // Auto-select first valid transition (never a kinded route: error,
+      // SLA-breach or agent-outcome)
+      const availableTransitions = excludeNonNormalTransitions(transitions).filter(
         (t: any) => t.fromStepId === fromStepId
       )
 
@@ -284,11 +289,10 @@ export async function findValidTransitions(
     }
 
     // Find all transitions from current step, sorted by priority (highest first).
-    // Error routes are excluded (reachable only from a step failure) and so are
-    // SLA-breach routes (reachable only from a task's deadline passing).
-    const transitions = excludeSlaBreachTransitions(
-      excludeErrorTransitions(definition.definition.transitions || [])
-    )
+    // Every kinded route is excluded — each is reachable only from its own
+    // trigger (a step failure, a task's deadline passing, a resolved agent
+    // disposition), never from normal routing.
+    const transitions = excludeNonNormalTransitions(definition.definition.transitions || [])
       .filter((t: any) => t.fromStepId === fromStepId)
       .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
 
@@ -302,7 +306,7 @@ export async function findValidTransitions(
         instance,
         fromStepId,
         transition.toStepId,
-        context
+        { ...context, transitionId: transition.transitionId },
       )
 
       if (!conditionResult.isValid) {

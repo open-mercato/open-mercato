@@ -26,6 +26,20 @@ export const NODE_HEIGHT = 88
 export const NODE_DESCRIPTION_HEIGHT = 24
 
 /**
+ * Height one outcome row adds to a card's footer (fidelity gap #4): a 16px row
+ * plus the 2px grid gap. An agent node with four wired outcomes is materially
+ * taller than a bare one, and dagre reserves boxes from these numbers — under-
+ * estimating is exactly what makes ranks overlap.
+ */
+export const NODE_OUTCOME_ROW_HEIGHT = 18
+
+/**
+ * Fixed chrome the footer costs once it exists at all: the hairline rule plus
+ * its 4px vertical padding, and the inheritance note an agent node states.
+ */
+export const NODE_OUTCOME_FOOTER_CHROME_HEIGHT = 22
+
+/**
  * Footprint of a terminal (START / END) node. Terminals render as compact
  * auto-width pills rather than full step cards, so reserving a card-sized box
  * for them would push the first and last rank apart for nothing.

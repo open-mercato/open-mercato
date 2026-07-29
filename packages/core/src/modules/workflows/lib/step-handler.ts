@@ -28,6 +28,11 @@ import {
   readWaitForConditionConfig,
 } from './condition-handler'
 import { mapAgentResultToContext } from './agent-result-mapping'
+import {
+  WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
+  buildAgentOutcomeContextEntry,
+  mapDispositionToAgentOutcome,
+} from './outcome-routing'
 import { logWorkflowEvent } from './event-logger'
 import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
@@ -630,8 +635,25 @@ async function handleAutomatedStep(
               proposalPayload: out.proposalPayload,
             }
           : null)
-      if (contextPatch && Object.keys(contextPatch).length > 0) {
-        instance.context = { ...instance.context, ...contextPatch }
+      // Outcome routing (spec 7.2): record which of the five fixed disposition
+      // kinds this step resolved to under an ENGINE-OWNED context key. The
+      // executor routes on this marker alone — never on the author-visible
+      // `disposition` key — which is what makes branching on a disposition
+      // wiring rather than context string-matching.
+      const resolvedOutcome = mapDispositionToAgentOutcome(out.kind)
+      const outcomeMarker = resolvedOutcome
+        ? {
+            [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry(
+              stepInstance.stepId,
+              resolvedOutcome,
+              out.proposalId,
+            ),
+          }
+        : null
+
+      const nextContext = { ...instance.context, ...(contextPatch ?? {}), ...(outcomeMarker ?? {}) }
+      if (contextPatch || outcomeMarker) {
+        instance.context = nextContext
         instance.updatedAt = new Date()
         await em.flush()
       }

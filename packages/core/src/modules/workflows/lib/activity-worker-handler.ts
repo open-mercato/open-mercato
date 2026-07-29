@@ -13,6 +13,15 @@ import {
   WorkflowActivityJobResumeSubWorkflowParent,
 } from './activity-queue-types'
 import { mapAgentResultToContext } from './agent-result-mapping'
+import {
+  WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY,
+  isGuardrailBlockedError,
+  listWiredOutcomes,
+  readGuardrailBlockEvidenceRef,
+  type AgentOutcomeKind,
+  type OutcomeRoutingDefinitionLike,
+} from './outcome-routing'
+import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
 import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
@@ -26,6 +35,7 @@ import { getActivityType, type ActivityExecuteDeps } from './activity-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
+const INVOKE_AGENT_QUEUE_MAX_ATTEMPTS = 3
 
 /**
  * Shared async dispatch through the Activity Registry — the single lookup
@@ -156,7 +166,10 @@ export function createActivityWorkerHandler(
     // Invoke-agent jobs run an INVOKE_AGENT step's agent OUTSIDE the workflow
     // transaction, then resume the parked step (see handleInvokeAgentJob).
     if (payload.kind === 'invoke_agent') {
-      await handleInvokeAgentJob(em, container, payload)
+      await handleInvokeAgentJob(em, container, payload, {
+        attemptNumber: ctx.attemptNumber,
+        maxAttempts: INVOKE_AGENT_QUEUE_MAX_ATTEMPTS,
+      })
       return
     }
 
@@ -343,7 +356,11 @@ type AgentWorkflowBridgeLike = {
 export async function handleInvokeAgentJob(
   em: EntityManager,
   container: AwilixContainer,
-  payload: WorkflowActivityJobInvokeAgent
+  payload: WorkflowActivityJobInvokeAgent,
+  attempt: { attemptNumber: number; maxAttempts: number } = {
+    attemptNumber: 1,
+    maxAttempts: INVOKE_AGENT_QUEUE_MAX_ATTEMPTS,
+  },
 ): Promise<void> {
   const instance = await em.findOne(WorkflowInstance, {
     id: payload.workflowInstanceId,
@@ -392,20 +409,36 @@ export async function handleInvokeAgentJob(
         ...(payload.subject ? { subject: payload.subject } : {}),
       },
     })
-  } catch (agentError: any) {
+  } catch (agentError: unknown) {
     // Transient capacity rejection (structural `retryable: true`, e.g. the
     // enterprise AgentCapacityError): the agent never ran, so rethrow and let
     // the queue's retry/backoff re-attempt instead of fail-stopping the step.
-    // Only exhausted retries end the job as failed (the step then stays parked).
-    if (isRetryableError(agentError)) {
+    // The terminal attempt becomes the declarative `error` outcome when this
+    // step opted into outcome routing; legacy steps keep their fail-stop.
+    if (isRetryableError(agentError) && attempt.attemptNumber < attempt.maxAttempts) {
       console.warn(
         `[ActivityWorker] invoke_agent ${payload.agentId} rejected by capacity for instance ${payload.workflowInstanceId}; rethrowing for queue retry:`,
-        agentError?.message
+        agentError instanceof Error ? agentError.message : String(agentError),
       )
       throw agentError
     }
+    // Guardrail escalation (spec 7.3). A guardrail `block` is a GOVERNANCE
+    // outcome, not an infra failure: when the step wired the `guardrailBlocked`
+    // handle, resume it down that route (typically → a review task carrying the
+    // guardrail evidence REFERENCE — never the evidence blob, which stays on the
+    // AgentGuardrailCheck row). A step that wired no such route keeps the
+    // fail-stop below byte-for-byte, so nothing changes until an author opts in.
+    if (isGuardrailBlockedError(agentError)) {
+      const routed = await resumeInvokeAgentWithGuardrailBlock(em, container, instance, payload, agentError)
+      if (routed) return
+    } else {
+      const routed = await resumeInvokeAgentWithError(em, container, instance, payload, agentError)
+      if (routed) return
+    }
+
     // Fail-stop: an INVOKE_AGENT step whose agent cannot produce an outcome
-    // (unknown agent id, run error, guardrail block) must HALT the instance, not
+    // (unknown agent id, run error, an unwired guardrail block) must HALT the
+    // instance, not
     // silently retry the job forever while the step stays parked. Mark the parked
     // step + instance FAILED so progression stops and the failure is visible, and
     // do NOT rethrow — a retry would never succeed and would re-run any partial
@@ -460,17 +493,19 @@ export async function handleInvokeAgentJob(
       instanceId: payload.workflowInstanceId,
       signalName: payload.signalName,
       payload: signalPayload,
+      agentOutcome: outcome.kind === 'auto_approved' ? 'approved' : 'informative',
+      agentProposalId: outcome.kind === 'auto_approved' ? outcome.proposalId : undefined,
       userId: payload.userId,
       tenantId: payload.tenantId,
       organizationId: payload.organizationId,
     })
-  } catch (resumeError: any) {
+  } catch (resumeError: unknown) {
     // The agent already ran (and, for auto_approved, its effector already
     // executed). Re-running on retry would double-execute, so do NOT rethrow:
     // log and leave the instance parked (resumable via a manual signal).
     console.error(
       `[ActivityWorker] invoke_agent ${payload.agentId} ran but resume failed for instance ${payload.workflowInstanceId}; left parked:`,
-      resumeError?.message
+      resumeError instanceof Error ? resumeError.message : String(resumeError),
     )
   }
 }
@@ -620,21 +655,89 @@ export async function resumeParentAfterSubWorkflow(
       tenantId,
       organizationId,
     })
-  } catch (resumeError: any) {
+  } catch (resumeError: unknown) {
     console.error(
       `[ActivityWorker] resume_subworkflow_parent: child ${childInstanceId} completed but resuming parent ${parentInstanceId} failed; left parked:`,
-      resumeError?.message
+      resumeError instanceof Error ? resumeError.message : String(resumeError),
     )
   }
 }
 
 /**
- * Fail-stop an INVOKE_AGENT step whose agent run threw. Marks the parked step
- * instance FAILED, then fails the whole workflow instance through the shared
- * `completeWorkflow('FAILED')` path (records the error, logs `WORKFLOW_FAILED`,
- * runs compensation if configured). Best-effort and self-contained: any error
- * here is logged, never rethrown, so the queue does not retry an unwinnable job.
+ * Resume a parked agent step through declarative outcome handling.
+ *
+ * Returns false — leaving the caller's legacy fail-stop to run — when the step
+ * declares no outcome routing at all. Once a step opts in, an unwired outcome
+ * is still resumed so the executor can apply the inherited error directive.
  */
+async function resumeInvokeAgentWithOutcome(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  payload: WorkflowActivityJobInvokeAgent,
+  outcome: AgentOutcomeKind,
+  contextPayload: Record<string, unknown>,
+): Promise<boolean> {
+  let definition: { definition?: OutcomeRoutingDefinitionLike } | null = null
+  try {
+    const { findDefinitionForInstance } = await import('./find-definition')
+    definition = await findDefinitionForInstance(em, instance)
+  } catch {
+    return false
+  }
+  if (!definition?.definition) return false
+  if (listWiredOutcomes(definition.definition, payload.stepId).length === 0) return false
+
+  try {
+    const { sendSignal } = await import('./signal-handler')
+    await sendSignal(em, container, {
+      instanceId: payload.workflowInstanceId,
+      signalName: payload.signalName,
+      payload: contextPayload,
+      agentOutcome: outcome,
+      userId: payload.userId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    })
+    return true
+  } catch (resumeError: unknown) {
+    console.error(
+      `[ActivityWorker] invoke_agent ${payload.agentId}: ${outcome} outcome could not be routed for instance ${payload.workflowInstanceId}; falling back to fail-stop:`,
+      resumeError instanceof Error ? resumeError.message : String(resumeError),
+    )
+    return false
+  }
+}
+
+async function resumeInvokeAgentWithGuardrailBlock(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  payload: WorkflowActivityJobInvokeAgent,
+  agentError: unknown,
+): Promise<boolean> {
+  const evidenceRef = readGuardrailBlockEvidenceRef(agentError)
+  return resumeInvokeAgentWithOutcome(em, container, instance, payload, 'guardrailBlocked', {
+    disposition: 'guardrail_blocked',
+    agentId: payload.agentId,
+    [WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY]: { stepId: payload.stepId, ...evidenceRef },
+  })
+}
+
+async function resumeInvokeAgentWithError(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  payload: WorkflowActivityJobInvokeAgent,
+  agentError: unknown,
+): Promise<boolean> {
+  const message = agentError instanceof Error ? agentError.message : String(agentError)
+  return resumeInvokeAgentWithOutcome(em, container, instance, payload, 'error', {
+    agentId: payload.agentId,
+    [WORKFLOW_ERROR_CONTEXT_KEY]: buildErrorContextEntry(payload.stepId, message),
+  })
+}
+
 async function failInvokeAgentStep(
   em: EntityManager,
   container: AwilixContainer,

@@ -19,8 +19,7 @@
  */
 
 import type { TaskDecision } from '../data/validators'
-import { excludeErrorTransitions } from './error-routing'
-import { excludeSlaBreachTransitions } from './breach-routing'
+import { excludeNonNormalTransitions } from './route-kinds'
 import type { ResolvedTaskDecision } from './task-resolution'
 
 /**
@@ -61,7 +60,7 @@ export function findTaskDecisionTransition<T extends TaskDecisionTransitionLike>
   fromStepId: string,
 ): T | null {
   if (!transitions?.length) return null
-  const candidates = excludeSlaBreachTransitions(excludeErrorTransitions(transitions))
+  const candidates = excludeNonNormalTransitions(transitions)
   return (
     candidates.find(
       (transition) =>

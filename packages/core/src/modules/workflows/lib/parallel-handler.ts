@@ -393,7 +393,7 @@ async function advanceOneBranch(
       token,
       selected.fromStepId,
       selected.toStepId,
-      evalContext,
+      { ...evalContext, transitionId: selected.transitionId },
     )
 
     if (!transitionResult.success) {
@@ -483,6 +483,7 @@ async function followBranchErrorRoute(
         ...evalContext.workflowContext,
         [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
       },
+      transitionId: errorRoute.transitionId,
     },
   )
 

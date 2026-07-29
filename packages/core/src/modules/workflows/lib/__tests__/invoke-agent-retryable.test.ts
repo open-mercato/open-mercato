@@ -113,4 +113,15 @@ describe('handleInvokeAgentJob retryable-error classification', () => {
     await expect(handleInvokeAgentJob(em, container, makeJob())).resolves.toBeUndefined()
     expect(completeWorkflowMock).toHaveBeenCalledTimes(1)
   })
+
+  it('stops rethrowing after the queue retry budget is exhausted', async () => {
+    const capacityError = Object.assign(new Error('queue full'), { retryable: true })
+    const { em, container } = makeDeps(capacityError)
+
+    await expect(
+      handleInvokeAgentJob(em, container, makeJob(), { attemptNumber: 3, maxAttempts: 3 }),
+    ).resolves.toBeUndefined()
+
+    expect(completeWorkflowMock).toHaveBeenCalledTimes(1)
+  })
 })

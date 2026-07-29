@@ -196,7 +196,7 @@ export interface WorkflowMetadata {
   icon?: string
   // Forward-compatibility guard (spec section 5.8): the lowest engine version
   // able to execute this definition. Engines older than the declared version
-  // refuse to instantiate it instead of misexecuting unknown step types.
+  // refuse to instantiate it instead of misexecuting unknown capabilities.
   minEngineVersion?: number
   editor?: WorkflowEditorMetadata
 }

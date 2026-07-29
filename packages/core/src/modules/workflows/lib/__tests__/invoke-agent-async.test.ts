@@ -156,8 +156,9 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     await handleInvokeAgentJob(em, container, makeJob())
     expect(invokeAgentForWorkflow).toHaveBeenCalledTimes(1)
     expect(sendSignalMock).toHaveBeenCalledTimes(1)
-    const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { signalName: string; payload: Record<string, unknown> }]
+    const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { signalName: string; payload: Record<string, unknown>; agentOutcome: string }]
     expect(options.signalName).toBe(INVOKE_AGENT_SIGNAL_NAME)
+    expect(options.agentOutcome).toBe('informative')
     expect(options.payload.disposition).toBe('informative')
     expect(options.payload[`${stepId}_agent`]).toEqual({ coverage: 'OC' })
   })
@@ -173,6 +174,26 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     expect(options.payload.disposition).toBe('auto_approved')
     expect(options.payload.agentProposalId).toBe('prop-1')
     expect(options.payload.proposalPayload).toEqual({ liabilityFlag: true })
+  })
+
+  it('keeps outcome routing metadata when outputMapping replaces the visible payload', async () => {
+    const { em, container } = makeDeps(
+      { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
+      { kind: 'informative', data: { coverage: 'OC' } },
+    )
+
+    await handleInvokeAgentJob(em, container, {
+      ...makeJob(),
+      outputMapping: { coverage: 'data.coverage' },
+    })
+
+    const [, , options] = sendSignalMock.mock.calls[0] as [
+      unknown,
+      unknown,
+      { payload: Record<string, unknown>; agentOutcome: string },
+    ]
+    expect(options.payload).toEqual({ coverage: 'OC' })
+    expect(options.agentOutcome).toBe('informative')
   })
 
   it('leaves the step parked for a user_task outcome (human dispose resumes it)', async () => {

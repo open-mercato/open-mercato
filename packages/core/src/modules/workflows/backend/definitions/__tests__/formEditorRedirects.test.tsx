@@ -65,9 +65,12 @@ describe('retired workflow form editor bridges to the Studio', () => {
     expect(replaceMock).toHaveBeenCalledWith('/backend/definitions/visual-editor')
   })
 
+  // The create bridge guarded on `workflows.create`, an id `acl.ts` never
+  // declared, so only a wildcard grant could open it. The guard now names the
+  // real create feature.
   test('the bridge routes keep their RBAC guards', () => {
     expect(createMetadata.requireAuth).toBe(true)
-    expect(createMetadata.requireFeatures).toEqual(['workflows.create'])
+    expect(createMetadata.requireFeatures).toEqual(['workflows.definitions.create'])
     expect(editMetadata.requireAuth).toBe(true)
     expect(editMetadata.requireFeatures).toEqual(['workflows.view'])
   })

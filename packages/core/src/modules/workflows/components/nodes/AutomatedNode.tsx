@@ -3,6 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { ErrorOutputHandle } from './ErrorOutputHandle'
 
 /**
@@ -43,6 +44,7 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
   const nodeData = data as unknown as AutomatedNodeData
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('automated', nodeData as never)
 
   return (
     <div className="automated-node" title={nodeData.tooltip}>
@@ -56,6 +58,7 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={nodeData.description}
         status={workflowStatus}

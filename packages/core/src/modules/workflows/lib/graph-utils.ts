@@ -5,10 +5,16 @@ import type { WorkflowIoContract } from '../data/validators'
 import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { isAnnotationNode } from './editor-annotations'
-import { ERROR_SOURCE_HANDLE_ID } from './error-routing'
+import {
+  findRouteKindDescriptor,
+  resolveEdgeRouteKind,
+  type RouteKindTransitionLike,
+} from './route-kinds'
 import {
   NODE_DESCRIPTION_HEIGHT,
   NODE_HEIGHT,
+  NODE_OUTCOME_FOOTER_CHROME_HEIGHT,
+  NODE_OUTCOME_ROW_HEIGHT,
   NODE_MAX_WIDTH,
   NODE_MIN_WIDTH,
   TERMINAL_NODE_HEIGHT,
@@ -229,10 +235,13 @@ export function graphToDefinition(
       transition.priority = edgeData.priority
     }
 
-    // Error route marker (spec 5.9). Only the explicit 'error' kind is persisted;
+    // Route kind marker (spec 5.9 error routes, and every kind registered
+    // beside them in lib/route-kinds.ts). Only non-normal kinds are persisted;
     // normal routes stay exactly as they were serialized before.
-    if (edgeData?.kind === 'error' || edge.sourceHandle === ERROR_SOURCE_HANDLE_ID) {
-      transition.kind = 'error'
+    const routeKind = resolveEdgeRouteKind(edgeData?.kind, edge.sourceHandle)
+    if (routeKind) {
+      transition.kind = routeKind.kind
+      Object.assign(transition, routeKind.discriminatorFields(edge))
     }
 
     // Add continueOnActivityFailure if present (default false)
@@ -272,11 +281,12 @@ export function graphToDefinition(
       // executes on failure — it MUST survive the editor round trip.
       ...(activity.compensation && { compensation: activity.compensation }),
       }))
-    } else if (transition.kind !== 'error') {
+    } else if (!transition.kind) {
       // Check if source node is automated and has activity data
-      // If so, place the activity in this transition. An error route never
+      // If so, place the activity in this transition. A non-normal route never
       // inherits the source step's activity — it is the recovery path, and
-      // re-running the activity that just failed is exactly wrong.
+      // re-running the activity that just failed (or that the run never got
+      // past) is exactly wrong.
       const sourceNode = nodes.find(n => n.id === edge.source)
       if (sourceNode && sourceNode.type === 'automated' && sourceNode.data) {
         if (sourceNode.data.activityType || sourceNode.data.activityId) {
@@ -501,20 +511,45 @@ export function definitionToGraph(
     }
   })
 
+  const decisionTransitionIdsByStep = new Map<string, Set<string>>()
+  for (const step of definition.steps) {
+    if (step.stepType !== 'USER_TASK') continue
+    const transitionIds = (step.userTaskConfig?.decisions ?? [])
+      .map((decision: { transitionId?: unknown }) => decision.transitionId)
+      .filter(
+        (transitionId: unknown): transitionId is string =>
+          typeof transitionId === 'string',
+      )
+    if (transitionIds.length > 0) {
+      decisionTransitionIdsByStep.set(step.stepId, new Set(transitionIds))
+    }
+  }
+
   // Convert transitions to edges
   const edges: Edge[] = definition.transitions.map((transition) => {
-    const isErrorRoute = (transition as any).kind === 'error'
+    const routeTransition: RouteKindTransitionLike = transition
+    const routeKind = findRouteKindDescriptor(routeTransition.kind)
+    const decisionSourceHandle = decisionTransitionIdsByStep
+      .get(transition.fromStepId)
+      ?.has(transition.transitionId)
+      ? transition.transitionId
+      : undefined
     return {
       id: transition.transitionId,
       source: transition.fromStepId,
       target: transition.toStepId,
       type: 'workflowTransition',
-      // Error routes re-attach to the node's error output handle so the canvas
-      // renders them leaving the same port the author drew them from.
-      ...(isErrorRoute ? { sourceHandle: ERROR_SOURCE_HANDLE_ID } : {}),
+      // A kinded route re-attaches to its own output handle so the canvas
+      // renders it leaving the same port the author drew it from.
+      ...(routeKind
+        ? { sourceHandle: routeKind.resolveSourceHandle(routeTransition) }
+        : decisionSourceHandle
+          ? { sourceHandle: decisionSourceHandle }
+          : {}),
       data: {
         trigger: transition.trigger,
-        ...(isErrorRoute ? { kind: 'error' } : {}),
+        ...(routeKind ? { kind: routeKind.kind } : {}),
+        ...(routeTransition.outcomeKind ? { outcomeKind: routeTransition.outcomeKind } : {}),
         transitionName: (transition as any).transitionName,
         priority: (transition as any).priority !== undefined ? (transition as any).priority : 0,
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined
@@ -559,6 +594,7 @@ function estimateNodeSize(
   label: unknown,
   hasDescription: boolean,
   isTerminal: boolean,
+  outcomeRowCount = 0,
 ): { width: number; height: number } {
   const text = typeof label === 'string' ? label.trim() : ''
   const titleWidth = Math.round(text.length * 7) + 64
@@ -573,8 +609,12 @@ function estimateNodeSize(
   const width = hasDescription
     ? NODE_MAX_WIDTH
     : Math.min(Math.max(NODE_MIN_WIDTH, titleWidth), NODE_MAX_WIDTH)
-  const height = hasDescription ? NODE_HEIGHT + NODE_DESCRIPTION_HEIGHT : NODE_HEIGHT
-  return { width, height }
+  const bodyHeight = hasDescription ? NODE_HEIGHT + NODE_DESCRIPTION_HEIGHT : NODE_HEIGHT
+  const footerHeight =
+    outcomeRowCount > 0
+      ? NODE_OUTCOME_FOOTER_CHROME_HEIGHT + outcomeRowCount * NODE_OUTCOME_ROW_HEIGHT
+      : 0
+  return { width, height: bodyHeight + footerHeight }
 }
 
 /**
@@ -582,7 +622,27 @@ function estimateNodeSize(
  * steps (which carry `stepType`), `applyAutoLayout` lays out React Flow nodes
  * (which carry the editor `nodeType`).
  */
-function isTerminalStep(step: any): boolean {
+interface NodeFootprintLike {
+  width?: unknown
+  height?: unknown
+  description?: unknown
+  stepName?: unknown
+  label?: unknown
+  stepType?: unknown
+  nodeType?: unknown
+  stepId?: unknown
+  userTaskConfig?: { decisions?: unknown }
+  decisions?: unknown
+  activities?: unknown
+}
+
+interface OutcomeLayoutTransitionLike {
+  fromStepId?: unknown
+  kind?: unknown
+  outcomeKind?: unknown
+}
+
+function isTerminalStep(step: NodeFootprintLike): boolean {
   return step.stepType === 'START'
     || step.stepType === 'END'
     || step.nodeType === 'start'
@@ -595,13 +655,63 @@ function isTerminalStep(step: any): boolean {
  * otherwise the description-aware estimate above. Exported so a layout test can
  * assert that the boxes dagre reserved actually do not overlap.
  */
-export function nodeFootprint(step: any): { width: number; height: number } {
+export function nodeFootprint(
+  step: NodeFootprintLike,
+  outcomeRowCount = 0,
+): { width: number; height: number } {
   if (typeof step.width === 'number' && typeof step.height === 'number') {
     return { width: step.width, height: step.height }
   }
   const description = step.description
   const hasDescription = typeof description === 'string' && description.trim().length > 0
-  return estimateNodeSize(step.stepName ?? step.label, hasDescription, isTerminalStep(step))
+  return estimateNodeSize(
+    step.stepName ?? step.label,
+    hasDescription,
+    isTerminalStep(step),
+    outcomeRowCount,
+  )
+}
+
+/**
+ * How many outcome rows a step's footer renders (fidelity gap #4). An agent step
+ * shows its WIRED outcomes plus `approved`; a user task shows one row per
+ * authored decision. Both are derived here rather than measured, because dagre
+ * runs before React Flow has laid a single card out.
+ */
+function countOutcomeRows(
+  step: NodeFootprintLike,
+  transitions: OutcomeLayoutTransitionLike[],
+): number {
+  const decisions = step?.userTaskConfig?.decisions ?? step?.decisions
+  if (Array.isArray(decisions)) {
+    return decisions.filter(
+      (decision) =>
+        typeof decision === 'object'
+        && decision !== null
+        && typeof (decision as { transitionId?: unknown }).transitionId === 'string',
+    ).length
+  }
+  if (!isInvokeAgentStep(step)) return 0
+  const wired = new Set<string>()
+  for (const transition of transitions) {
+    if (transition?.fromStepId !== step.stepId) continue
+    if (transition?.kind !== 'outcome') continue
+    if (typeof transition.outcomeKind === 'string') wired.add(transition.outcomeKind)
+  }
+  wired.add('approved')
+  return wired.size
+}
+
+function isInvokeAgentStep(step: NodeFootprintLike): boolean {
+  if (step?.nodeType === 'invokeAgent') return true
+  const activities = step?.activities
+  return Array.isArray(activities)
+    && activities.some(
+      (activity) =>
+        typeof activity === 'object'
+        && activity !== null
+        && (activity as { activityType?: unknown }).activityType === 'INVOKE_AGENT',
+    )
 }
 
 function layoutWithDagre(
@@ -623,7 +733,7 @@ function layoutWithDagre(
   // description-aware estimate). `ranksep`/`nodesep` then become the actual
   // visible gap between cards, so the spacing is neither cramped nor blown apart.
   for (const step of steps) {
-    graph.setNode(step.stepId, nodeFootprint(step))
+    graph.setNode(step.stepId, nodeFootprint(step, countOutcomeRows(step, transitions)))
   }
 
   // Transition labels are hover-only (WorkflowTransitionEdge), so they occupy no

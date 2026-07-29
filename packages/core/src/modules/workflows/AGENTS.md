@@ -155,6 +155,96 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Design rationale and the ordering/durability/recursion/branch decisions:
   `.ai/runs/2026-07-27-workflows-ux-phase2b-3/DESIGN-error-handler.md`.
 
+## Agent Outcome Routing (spec §7.2)
+
+- **`lib/outcome-routing.ts` (PURE) is the single decision point**, the third member of the family
+  `lib/error-routing.ts` and `lib/breach-routing.ts` belong to. The three share the mechanical parts
+  through `lib/route-kinds.ts` (`excludeNonNormalTransitions`, the handle ↔ kind round trip) and keep
+  their own decision points, because their fallback vocabularies genuinely differ.
+- **The handle set is spec §7.2's FIXED five disposition kinds** — `approved`, `informative`,
+  `rejected`, `guardrailBlocked`, `error` — NOT the selected agent's OUTCOME-schema enum. Enumerating
+  from the schema would need a per-value condition on each transition, which is exactly the context
+  string-matching §7.2 exists to remove. These five are governance states; the OUTCOME schema is
+  domain data.
+- **Precedence** (`resolveAgentOutcomeHandling`): the step wired NO outcome route ⇒ `default`
+  (today's normal routing, byte-identical for every pre-existing definition) → a wired route for this
+  outcome ⇒ `route` → `approved` unwired ⇒ `default` (§7.2 renders `approved` unconditionally because
+  it IS the node's ordinary output) → anything else ⇒ `inherit`, the step's `errorDirective`, which is
+  the "unhandled → fail instance" the node face states.
+- **Routing NEVER reads the author-visible `disposition` context key.** `lib/step-handler.ts` (inline
+  resolution) and `lib/signal-handler.ts` (every parked resume — the activity worker's and the human
+  dispose path alike) write the ENGINE-OWNED `__agentOutcome` marker
+  (`WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY`), and `dispatchAgentOutcome` in the executor consumes it —
+  clearing it first, so a route looping back through the step cannot re-fire on a stale disposition.
+- **Rejection is a business route, not an error** (§7.2): a rejected proposal routes `rejected`;
+  infra failure keeps the retry policy and then the `error` route. Events: `OUTCOME_ROUTED` /
+  `OUTCOME_UNHANDLED`.
+- **Guardrail escalation (§7.3).** A runtime guardrail `block` is recognised STRUCTURALLY
+  (`isGuardrailBlockedError` — `code === 'agent_guardrail_blocked'` or `guardrailBlocked === true`),
+  the same way `isRetryableError` reads `retryable: true`, so `agent_orchestrator` stays an optional
+  peer core never imports. The activity worker resumes the parked step down the `guardrailBlocked`
+  route **only when the step wired one**; otherwise its fail-stop is byte-identical to before, which
+  is what keeps §7.3 additive. Only the guardrail CLASSIFICATION travels into the run context
+  (`__guardrailBlock`: phase, kind, guardrail-set version) — never the evidence blob, per
+  `agent_orchestrator/AGENTS.md`'s redaction rule.
+- Author-time checks live in `validateOutcomeRoutes` (unknown outcome kind, two routes claiming the
+  same kind on one step) and surface through the Problems panel.
+
+## Node Outcome Rows (the canvas footer — fidelity gap #4)
+
+- **`lib/node-outcome-rows.ts` (PURE) decides what the rows ARE**; `components/nodes/NodeOutcomeRows.tsx`
+  only renders them. That split is what makes the progressive-disclosure rule testable without a
+  canvas.
+- **An agent node shows its WIRED outcomes plus `approved`, nothing else** (§7.2's fan-explosion
+  defense — five agent nodes in a 60-node flow must stay readable), and states the inheritance
+  ("unhandled → error directive") on the node face.
+- **The user-task half needed NO engine work.** `taskDecisionSchema` already binds each decision to a
+  durable `transitionId`, so a decision row's dot IS the route its button takes; the canvas and the
+  run agree by construction.
+- **The dot IS the connection handle** — wiring a disposition is drawing a line from the row that
+  names it.
+- **The LABEL carries the meaning, never the dot colour** (§4.6 acceptance criterion). Two rows paint
+  the same red (`rejected`, `guardrailBlocked`), which at 10px and at canvas zoom is not a
+  distinction anyone can read, so every row also carries its own GLYPH and every handle is named.
+  MUST NOT drop the labels for a denser rendering, and MUST NOT let the collapsed dot-only zoom
+  inherit this pattern.
+- Rows are derived from the committed EDGES at render time in `WorkflowGraphImpl` (like the
+  compensation badges), so they never enter the document, undo, autosave or `graphToDefinition`.
+  `estimateNodeSize` counts them (`NODE_OUTCOME_ROW_HEIGHT`) — a footer makes a card materially
+  taller and dagre would otherwise pack ranks into each other.
+
+## Node Config Summaries (fidelity gap #6)
+
+- **`lib/node-config-summary.ts` (PURE) owns the card's body line.** A step states its
+  CONFIGURATION — `customers.deals.update · retries 3×`, `deal_enricher · auto ≥ 0.8`,
+  `role: Sales Rep · bound: 1 · 2 decisions` — not two clamped lines of the author's prose, which
+  truncate mid-word and cannot say which command runs or what the threshold is.
+- **Nothing new is stored.** Every value is derived from config already on the step, and
+  `description` is not lost: it becomes the card's `title=` tooltip. A step with nothing configured
+  produces an EMPTY summary and the card renders its description exactly as before, so no node ever
+  reads emptier than it did.
+- Command / function / event / agent / signal / sub-workflow ids render `font-mono`; the mockup's
+  10.4px mono has no DS equivalent and is NOT reproduced — `text-xs` is the floor.
+
+## Route Kinds (the handle ↔ `kind` round trip)
+
+- **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers
+  both halves of the round trip — which `kind` a connection drawn from a canvas handle compiles to,
+  and which source handle a stored transition of that kind re-attaches to — and `graph-utils`
+  (`graphToDefinition` + `definitionToGraph`), `lib/edge-reattachment.ts` and the Studio's
+  `handleConnect` all read it. MUST NOT add a fourth inline `kind === '…'` special case.
+- Registering a kind here is what makes it SURVIVE a Studio save. Before it existed only `'error'`
+  was special-cased, so opening a definition carrying a `kind: 'slaBreach'` route and saving it
+  silently downgraded the route to a normal transition and the breach stopped routing.
+- **`kind: 'normal'` and an absent `kind` are the same thing** and both serialize as absent, which is
+  what keeps a definition declaring no kinds byte-identical through a save (guarded by
+  `lib/__tests__/route-kinds.test.ts`).
+- A kinded route NEVER inherits its source AUTOMATED step's activity — it is not the happy path out
+  of that step.
+- `ROUTE_KIND_SOURCE_NODE_TYPES` (`lib/edge-reattachment.ts`) refuses moving a kinded route onto a
+  node type that can never reach it (an error route off a step that cannot fail, a breach route off a
+  step that carries no deadline) rather than leaving a dead route behind.
+
 ## Route Identity & Edit Safety
 
 - **Transition ids are opaque and durable.** `generateTransitionId()` mints `t_<unique>`; it no longer

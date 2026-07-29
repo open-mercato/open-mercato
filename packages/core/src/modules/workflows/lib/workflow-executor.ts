@@ -26,9 +26,15 @@ import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-vers
 import {
   WORKFLOW_ERROR_CONTEXT_KEY,
   buildErrorContextEntry,
-  excludeErrorTransitions,
 } from './error-routing'
-import { excludeSlaBreachTransitions } from './breach-routing'
+import { excludeNonNormalTransitions } from './route-kinds'
+import {
+  WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
+  readAgentOutcomeMarker,
+  resolveAgentOutcomeHandling,
+  type OutcomeRoutingDefinitionLike,
+  type WorkflowAgentOutcomeContextEntry,
+} from './outcome-routing'
 import { scheduleWorkflowErrorHandler } from './error-handler'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -443,9 +449,67 @@ export async function executeWorkflow(
           }
         }
 
-        const transitions = excludeSlaBreachTransitions(
-          excludeErrorTransitions(definition.definition.transitions)
-        ).filter(
+        // Outcome routing (spec 7.2). An agent step that resolved a disposition
+        // leaves an engine-owned marker; a wired outcome route is followed
+        // declaratively instead of via a condition matching a context string.
+        // `default` — the marker's absence, or a step that wired no outcome at
+        // all — falls straight through to the normal routing below, which is the
+        // whole of the backward-compatibility guarantee.
+        const outcomeMarker = readAgentOutcomeMarker(
+          currentInstance.context,
+          currentInstance.currentStepId ?? '',
+        )
+        if (outcomeMarker) {
+          const dispatched = await dispatchAgentOutcome(
+            trx,
+            container,
+            currentInstance,
+            definition.definition,
+            outcomeMarker,
+            { workflowContext: currentInstance.context, userId: executionUserId },
+          )
+          if (dispatched.kind === 'routed') {
+            events.push({
+              eventType: 'OUTCOME_ROUTED',
+              occurredAt: new Date(),
+              data: {
+                stepId: outcomeMarker.stepId,
+                outcome: outcomeMarker.outcome,
+                toStepId: dispatched.toStepId,
+                transitionId: dispatched.transitionId,
+              },
+            })
+            continue
+          }
+          if (dispatched.kind === 'failed') {
+            errors.push(dispatched.error)
+            events.push({
+              eventType: 'OUTCOME_UNHANDLED',
+              occurredAt: new Date(),
+              data: { stepId: outcomeMarker.stepId, outcome: outcomeMarker.outcome },
+            })
+            await completeWorkflow(trx, container, instanceId, 'FAILED', { error: dispatched.error })
+            return {
+              status: 'FAILED',
+              currentStep: currentInstance.currentStepId,
+              context: currentInstance.context,
+              events,
+              errors,
+              executionTime: Date.now() - startTime,
+            }
+          }
+          if (dispatched.kind === 'parked') {
+            return {
+              status: 'RUNNING',
+              currentStep: currentInstance.currentStepId,
+              context: currentInstance.context,
+              events,
+              executionTime: Date.now() - startTime,
+            }
+          }
+        }
+
+        const transitions = excludeNonNormalTransitions(definition.definition.transitions).filter(
           (t: any) =>
             t.fromStepId === currentInstance.currentStepId &&
             t.trigger === 'auto'
@@ -497,7 +561,7 @@ export async function executeWorkflow(
             currentInstance,
             selectedTransition.fromStepId,
             selectedTransition.toStepId,
-            evalContext
+            { ...evalContext, transitionId: selectedTransition.transitionId },
           )
 
           if (!transitionResult.success) {
@@ -772,6 +836,195 @@ export async function executeWorkflow(
   }
 }
 
+export type AgentOutcomeDispatch =
+  | { kind: 'routed'; toStepId: string; transitionId?: string; paused?: boolean }
+  | { kind: 'parked' }
+  | { kind: 'failed'; error: string }
+  | { kind: 'default' }
+
+/**
+ * Dispatch a resolved agent disposition for whatever step the instance is
+ * currently on, or return null when there is no marker to act on.
+ *
+ * Exported because `sendSignal` advances a resumed instance ITSELF — it picks
+ * the next transition and executes it before handing back to the executor — so
+ * an outcome route wired on a parked agent step has to be honoured there too.
+ * Routing it in only one of the two places is how a disposition silently takes
+ * the happy path on the human-dispose path while working on the inline one.
+ */
+export async function dispatchAgentOutcomeForCurrentStep(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  definition: OutcomeRoutingDefinitionLike,
+  evalContext: { workflowContext: Record<string, unknown>; userId?: string }
+): Promise<AgentOutcomeDispatch | null> {
+  const marker = readAgentOutcomeMarker(instance.context, instance.currentStepId ?? '')
+  if (!marker) return null
+  return await dispatchAgentOutcome(em, container, instance, definition, marker, evalContext)
+}
+
+/**
+ * Act on a resolved agent disposition (spec 7.2).
+ *
+ * The engine-owned marker is consumed here — cleared before anything else runs —
+ * so a route that loops back through the same step cannot re-fire on the old
+ * disposition, and so a `default` outcome leaves no residue in the run context.
+ *
+ * `default` means "route exactly as this instance always would have": the step
+ * wired no outcome at all, or the outcome is `approved`, which §7.2 renders as
+ * the node's ordinary output. Only a step that opted into outcome routing can
+ * reach the inheritance branch, which is what keeps this additive.
+ */
+async function dispatchAgentOutcome(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  definition: OutcomeRoutingDefinitionLike,
+  marker: WorkflowAgentOutcomeContextEntry,
+  evalContext: { workflowContext: Record<string, unknown>; userId?: string }
+): Promise<AgentOutcomeDispatch> {
+  const { [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: _consumed, ...remainingContext } =
+    (instance.context || {}) as Record<string, unknown>
+  instance.context = remainingContext
+  instance.updatedAt = new Date()
+  await em.flush()
+
+  const clearedEvalContext = {
+    ...evalContext,
+    workflowContext: remainingContext,
+  }
+
+  const failUnhandled = async (error: string): Promise<AgentOutcomeDispatch> => {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      eventType: 'OUTCOME_UNHANDLED',
+      eventData: { stepId: marker.stepId, outcome: marker.outcome, error },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+    return { kind: 'failed', error }
+  }
+
+  const handling = resolveAgentOutcomeHandling(definition, marker.stepId, marker.outcome)
+  if (handling.kind === 'default') return { kind: 'default' }
+
+  if (handling.kind === 'route') {
+    const toStepId = handling.transition.toStepId
+    if (!toStepId) return { kind: 'default' }
+
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      eventType: 'OUTCOME_ROUTED',
+      eventData: {
+        stepId: marker.stepId,
+        outcome: marker.outcome,
+        toStepId,
+        transitionId: handling.transition.transitionId,
+        proposalId: marker.proposalId,
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    const transitionHandler = await import('./transition-handler')
+    const routed = await transitionHandler.executeTransition(
+      em,
+      container,
+      instance,
+      marker.stepId,
+      toStepId,
+      { ...clearedEvalContext, transitionId: handling.transition.transitionId },
+    )
+    if (routed.success) {
+      return {
+        kind: 'routed',
+        toStepId,
+        transitionId: handling.transition.transitionId,
+        paused: routed.paused,
+      }
+    }
+    return await failUnhandled(`Outcome route for "${marker.outcome}" could not be followed`)
+  }
+
+  // `inherit`: an unwired non-approved outcome follows the complete step-error
+  // handling contract, including continuation, failure-queue parking and the
+  // definition-level handler step.
+  const unhandled = `Agent step ${marker.stepId} resolved outcome "${marker.outcome}", which is not wired`
+  if (handling.handling.kind === 'route') {
+    const errorRoute = handling.handling.transition
+    if (errorRoute.toStepId) {
+      const routed = await followErrorRoute(
+        em,
+        container,
+        instance,
+        marker.stepId,
+        { transitionId: errorRoute.transitionId, toStepId: errorRoute.toStepId },
+        unhandled,
+        clearedEvalContext
+      )
+      if (routed) {
+        return {
+          kind: 'routed',
+          toStepId: errorRoute.toStepId,
+          transitionId: errorRoute.transitionId,
+          paused: instance.status === 'PAUSED',
+        }
+      }
+    }
+  }
+
+  if (handling.handling.kind === 'continue') {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      eventType: 'ERROR_DIRECTIVE_APPLIED',
+      eventData: {
+        stepId: marker.stepId,
+        directive: 'continueWithFallback',
+        source: 'agentOutcome',
+        hasFallbackValue: handling.handling.fallbackValue !== undefined,
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+    if (handling.handling.fallbackValue !== undefined) {
+      instance.context = {
+        ...(instance.context || {}),
+        [marker.stepId]: handling.handling.fallbackValue,
+      }
+      instance.updatedAt = new Date()
+      await em.flush()
+    }
+    return { kind: 'default' }
+  }
+
+  if (handling.handling.kind === 'park') {
+    await parkInstanceForAttention(em, instance, marker.stepId, unhandled)
+    return { kind: 'parked' }
+  }
+
+  if (handling.handling.kind === 'handlerStep') {
+    const entered = await enterErrorHandlerStep(
+      em,
+      container,
+      instance,
+      marker.stepId,
+      handling.handling.stepId,
+      unhandled,
+      clearedEvalContext.userId,
+    )
+    if (entered) {
+      return {
+        kind: 'routed',
+        toStepId: handling.handling.stepId,
+        paused: instance.status === 'PAUSED',
+      }
+    }
+  }
+
+  return await failUnhandled(unhandled)
+}
+
 /**
  * Follow a wired error route out of a failed step (spec 5.9). The failure is
  * published into the run context under `__error` so the handling branch can act
@@ -823,7 +1076,8 @@ async function followErrorRoute(
         ...evalContext.workflowContext,
         [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
       },
-    }
+      transitionId: errorRoute.transitionId,
+    },
   )
 
   return routedResult.success === true

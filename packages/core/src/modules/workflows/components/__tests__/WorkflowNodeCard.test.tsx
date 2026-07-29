@@ -96,4 +96,42 @@ describe('WorkflowNodeCard — validation error badge', () => {
     expect(container.querySelector('.bg-status-error-bg')).not.toBeNull()
     expect(container.querySelector('.text-status-error-text')).not.toBeNull()
   })
+  // Fidelity gap #6: the body line states the step's CONFIGURATION. The author's
+  // prose is not lost — it becomes the tooltip — but it stops being the thing
+  // that truncates mid-word where a command id belongs.
+  it('prefers the config summary over the prose description and keeps the prose as the tooltip', () => {
+    const { container } = renderWithProviders(
+      <WorkflowNodeCard
+        title="Update deal"
+        nodeType="automated"
+        description="Run deals.health_check and disposition the proposal inline. Parks on the human."
+        summary={[
+          { text: 'customers.deals.update', mono: true },
+          {
+            translationKey: 'workflows.nodeSummary.retries',
+            translationParams: { count: 3 },
+          },
+        ]}
+      />,
+      {
+        dict: {
+          'workflows.nodeSummary.retries': 'retries {count}×',
+        },
+      },
+    )
+
+    expect(container.textContent).toContain('customers.deals.update')
+    expect(container.textContent).toContain('retries 3×')
+    expect(container.textContent).not.toContain('Parks on the human')
+    expect(container.querySelector('[title*="Parks on the human"]')).not.toBeNull()
+    expect(container.querySelector('.font-mono')?.textContent).toBe('customers.deals.update')
+  })
+
+  it('falls back to the description when a step has nothing configured', () => {
+    const { container } = renderWithProviders(
+      <WorkflowNodeCard title="Update deal" nodeType="automated" description="Ad-hoc step" summary={[]} />,
+    )
+
+    expect(container.textContent).toContain('Ad-hoc step')
+  })
 })
