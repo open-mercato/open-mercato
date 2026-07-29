@@ -1635,6 +1635,7 @@ function isCorrectableRoutingFailure(violation) {
 
 function isCorrectableTraceStartupFailure(violation) {
   return violation === 'runner trace unavailable; observed context cannot be verified'
+    || violation === 'runner trace contained no observed context reads'
 }
 
 export function isCorrectableTraceStartupResponseViolation(violation) {

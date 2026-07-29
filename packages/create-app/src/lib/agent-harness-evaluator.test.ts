@@ -1332,6 +1332,46 @@ if (correction) {
   }
 })
 
+test('live Codex retries one successful startup that emitted no context reads', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+const prompt = fs.readFileSync(0, 'utf8')
+const correction = prompt.includes('Correction kind: trace-start')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+if (correction) {
+  for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+    }}))
+  }
+} else {
+  console.log(JSON.stringify({ type: 'item.completed', item: { type: 'tool_use', name: 'noop', input: {} } }))
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2)
+    assert.equal(stored.corrections, 1)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('live Codex gives a semantic correction one separate trace-start recovery', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
