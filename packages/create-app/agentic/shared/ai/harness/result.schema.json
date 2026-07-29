@@ -18,7 +18,7 @@
     "selectedContext": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "decisions": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "violations": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
-    "attempts": { "type": "integer", "minimum": 1, "maximum": 3 },
+    "attempts": { "type": "integer", "minimum": 1, "maximum": 4 },
     "corrections": { "type": "integer", "minimum": 0, "maximum": 2 },
     "durationMs": { "type": "integer", "minimum": 0 },
     "exitStatus": { "type": ["integer", "null"] },
@@ -35,6 +35,7 @@
         "steps": { "type": "integer", "minimum": 0 },
         "toolCalls": { "type": "integer", "minimum": 0 },
         "promptTokens": { "type": "integer", "minimum": 0 },
+        "reasoningTokens": { "type": "integer", "minimum": 0 },
         "completionTokens": { "type": "integer", "minimum": 0 },
         "cost": { "type": "number", "minimum": 0 }
       }

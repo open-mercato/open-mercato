@@ -52,7 +52,7 @@ type StoredResult = {
   corrections: number
   sanitizedError?: string
   refusedContextReads?: string[]
-  provider?: { servedBy?: string; structuredOutput?: string; steps?: number; toolCalls?: number; promptTokens: number; completionTokens: number; cost: number }
+  provider?: { servedBy?: string; structuredOutput?: string; steps?: number; toolCalls?: number; promptTokens: number; completionTokens: number; reasoningTokens?: number; cost: number }
   actualContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   declaredContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   writable?: { changedPaths: string[]; targetFingerprint: string }
@@ -1094,6 +1094,7 @@ const server = http.createServer((request, response) => {
       temperature: parsed.temperature ?? null,
       topP: parsed.top_p ?? null,
       roles: (parsed.messages ?? []).map((message) => message.role),
+      reasoningCarried: (parsed.messages ?? []).filter((message) => message.role === 'assistant' && Array.isArray(message.reasoning_details) && message.reasoning_details.length > 0).length,
     }) + '\\n')
     // A fresh evaluator attempt starts from the system+user pair, so the scripted
     // conversation restarts with it instead of leaking state across retries.
@@ -1110,6 +1111,7 @@ const server = http.createServer((request, response) => {
       : {
           role: 'assistant',
           content: '',
+          reasoning_details: [{ type: 'reasoning.text', text: 'mock chain of thought ' + cursor, format: 'unknown', index: 0 }],
           tool_calls: [{
             id: 'call_' + cursor,
             type: 'function',
@@ -1121,7 +1123,7 @@ const server = http.createServer((request, response) => {
       id: 'mock',
       provider: 'MockProvider',
       choices: [{ index: 0, message, finish_reason: step.final ? 'stop' : 'tool_calls' }],
-      usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12, cost: 0.0001 },
+      usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12, cost: 0.0001, completion_tokens_details: { reasoning_tokens: 3 } },
     }))
   })
 })
@@ -1257,6 +1259,37 @@ test('an unconfigured OpenAI-compatible lane sends no sampling or routing prefer
       assert.equal(request.temperature, null)
       assert.equal(request.topP, null)
     }
+  } finally {
+    provider.stop()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Thinking models interleave reasoning with tool calls; the gateway contract is to return
+// `reasoning_details` unmodified with the assistant turn it arrived in. A loop that drops
+// them forces the model to re-derive its reasoning after every tool result, which
+// systematically penalizes exactly the thinking candidates a comparison sweep measures.
+test('the OpenAI-compatible lane returns reasoning_details unmodified across tool turns', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const provider = startMockProvider([
+    { tool: 'mcp__harness__read', args: { path: 'AGENTS.md' } },
+    { tool: 'mcp__harness__read', args: { path: '.ai/guides/architecture.md' } },
+    { final: OAI_ROUTING_ANSWER },
+  ])
+  try {
+    const result = runEvaluator(root, ['--runner', 'oai', '--model', 'mock/model', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_BASE_URL: provider.baseUrl,
+      OM_OAI_API_KEY: 'test-provider-key',
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const requests = provider.requests()
+    // Every request after the first must carry every prior assistant turn's reasoning
+    // block back to the provider: one after the first tool step, two after the second,
+    // and still two on the tool-free finalization turn.
+    assert.deepEqual(requests.map((request) => request.reasoningCarried as number), [0, 1, 2, 2])
+    const [stored] = storedResults(root)
+    assert.equal(stored.provider?.reasoningTokens, 12, 'reasoning token accounting must aggregate across all four turns')
   } finally {
     provider.stop()
     fs.rmSync(root, { recursive: true, force: true })
@@ -1543,7 +1576,10 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
     assert.match(result.stdout, /PASS OMH-009/)
     const [stored] = storedResults(root)
     assert.equal(stored.attempts, 2)
-    assert.equal(stored.corrections, 1)
+    // A transient provider retry re-runs the same contract; it corrects nothing, so it must
+    // not count as a correction — otherwise a 429-retried case that then uses both real
+    // corrections overflows the artifact schema and aborts the lane.
+    assert.equal(stored.corrections, 0)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

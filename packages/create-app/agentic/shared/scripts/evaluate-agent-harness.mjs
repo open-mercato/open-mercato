@@ -1709,11 +1709,40 @@ function providerMetadata(stdout) {
         ...(Number.isInteger(event.toolCalls) ? { toolCalls: event.toolCalls } : {}),
         promptTokens: numeric(usage.prompt_tokens),
         completionTokens: numeric(usage.completion_tokens),
+        ...(Number.isFinite(usage.reasoning_tokens) && usage.reasoning_tokens > 0 ? { reasoningTokens: usage.reasoning_tokens } : {}),
         cost: numeric(usage.cost),
       },
     }
   }
   return undefined
+}
+
+// Paid spend accumulates across every attempt, including retried and corrected ones, so the
+// artifact sums token/cost accounting over all executions while identity fields (serving
+// host, structured-output mode) come from the last attempt that reported them.
+function mergedProviderMetadata(executions) {
+  const collected = executions
+    .map((execution) => providerMetadata(execution.stdout)?.provider)
+    .filter(Boolean)
+  if (!collected.length) return undefined
+  const merged = { promptTokens: 0, completionTokens: 0, cost: 0 }
+  let reasoningTokens = 0
+  let steps = 0
+  let toolCalls = 0
+  for (const entry of collected) {
+    merged.promptTokens += entry.promptTokens ?? 0
+    merged.completionTokens += entry.completionTokens ?? 0
+    merged.cost += entry.cost ?? 0
+    reasoningTokens += entry.reasoningTokens ?? 0
+    steps += entry.steps ?? 0
+    toolCalls += entry.toolCalls ?? 0
+    if (entry.servedBy) merged.servedBy = entry.servedBy
+    if (entry.structuredOutput) merged.structuredOutput = entry.structuredOutput
+  }
+  if (reasoningTokens > 0) merged.reasoningTokens = reasoningTokens
+  if (steps > 0) merged.steps = steps
+  if (toolCalls > 0) merged.toolCalls = toolCalls
+  return { provider: merged }
 }
 
 function runnerVersion(runner, root) {
@@ -1841,7 +1870,9 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, re
       '--model', resolveOaiModel(model),
       '--tool-server', JSON.stringify(mcp),
       '--max-steps', String(Number.isInteger(maxSteps) ? maxSteps : OAI_MAX_STEPS),
-      '--request-timeout', String(timeout ?? DEFAULT_LIVE_TIMEOUT_MS),
+      // The per-request budget sits below the process budget so a slow provider fails as a
+      // graceful, retry-classifiable runner error rather than an opaque process kill.
+      '--request-timeout', String(Math.max((timeout ?? DEFAULT_LIVE_TIMEOUT_MS) - 30_000, 60_000)),
     ]
     if (writable) args.push('--writable')
     return { command: fs.realpathSync(process.execPath), args }
@@ -2800,7 +2831,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         decisions: recursivelySanitize(response.decisions, runRoot),
         violations: violations.map((entry) => sanitize(entry, runRoot, RESULT_VIOLATION_LIMIT)),
         attempts: executions.length,
-        corrections: executions.length - 1,
+        corrections: (semanticCorrectionUsed ? 1 : 0) + (traceStartupCorrectionUsed ? 1 : 0),
         durationMs: executions.reduce((total, attempt) => total + attempt.durationMs, 0),
         exitStatus: execution.exitStatus,
         status,
@@ -2808,7 +2839,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         actualContext: stats,
         declaredContext: declaredStats,
         ...(trace.refusedPaths?.length ? { refusedContextReads: recursivelySanitize(trace.refusedPaths, runRoot) } : {}),
-        ...(providerMetadata(execution.stdout) ?? {}),
+        ...(mergedProviderMetadata(executions) ?? {}),
         ...(writableResult ? { writable: writableResult } : {}),
       }
       const resultPath = writeResult(root, result, resultSchema)

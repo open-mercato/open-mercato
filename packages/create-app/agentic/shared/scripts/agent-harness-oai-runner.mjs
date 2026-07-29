@@ -287,7 +287,17 @@ async function main() {
   let servingProvider
   let steps = 0
   let toolCalls = 0
-  const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 }
+  let metadataEmitted = false
+  const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, reasoning_tokens: 0, cost: 0 }
+  // Spend happens on every path, not only the successful one: a case that exhausts its step
+  // budget or dies on a provider error has still consumed paid turns, and a sweep that sums
+  // only successful cases under-counts exactly where models struggle. Emit the accounting
+  // exactly once, whatever way the run ends.
+  const emitProviderMetadata = () => {
+    if (metadataEmitted) return
+    metadataEmitted = true
+    emit({ type: 'provider_metadata', provider: servingProvider ?? null, structuredOutput: structuredOutputMode, steps, toolCalls, usage })
+  }
 
   try {
     await server.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'om-harness-oai-runner', version: '1.0.0' } })
@@ -324,6 +334,7 @@ async function main() {
         usage.prompt_tokens += payload.usage.prompt_tokens ?? 0
         usage.completion_tokens += payload.usage.completion_tokens ?? 0
         usage.total_tokens += payload.usage.total_tokens ?? 0
+        usage.reasoning_tokens += payload.usage.completion_tokens_details?.reasoning_tokens ?? 0
         usage.cost += payload.usage.cost ?? 0
       }
       const choice = payload.choices?.[0]
@@ -361,9 +372,11 @@ async function main() {
         message = await callProvider(request)
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
-        if (structuredOutputMode !== 'json_schema' || !/response_format|json_schema|structured output|schema/i.test(reason)) throw error
-        // An endpoint that cannot enforce the schema must not fail the lane silently: fall
-        // back once to prompt-enforced JSON and record the weaker mode in the trace.
+        // Downgrade only on a client-side rejection of the field itself. A transient 429/5xx
+        // whose body happens to mention "schema" must keep its retryable classification
+        // instead of silently weakening structured output for the rest of the lane.
+        const schemaRejected = /provider API error 4\d\d/.test(reason) && /response_format|json_schema|structured output|schema/i.test(reason)
+        if (structuredOutputMode !== 'json_schema' || !schemaRejected) throw error
         structuredOutputMode = 'prompt'
         emit({ type: 'structured_output_downgrade', reason: reason.slice(0, 200) })
         delete request.response_format
@@ -376,14 +389,25 @@ async function main() {
       steps += 1
       const message = await callProvider({ ...commonBody(), messages, tools, tool_choice: 'auto' })
       const requested = Array.isArray(message.tool_calls) ? message.tool_calls : []
+      // Thinking models interleave reasoning with tool calls, and the contract is to pass
+      // the reasoning back unmodified in the assistant turn it arrived with. Dropping it
+      // forces the model to re-derive its chain of thought after every tool result, which
+      // systematically penalizes exactly the thinking candidates. OpenRouter carries it as
+      // `reasoning_details`; llama.cpp/vLLM — the local re-measurement target — as a
+      // `reasoning_content` string. Both shapes round-trip verbatim.
       messages.push({
         role: 'assistant',
         content: message.content ?? '',
+        ...(Array.isArray(message.reasoning_details) && message.reasoning_details.length
+          ? { reasoning_details: message.reasoning_details }
+          : typeof message.reasoning_content === 'string' && message.reasoning_content
+            ? { reasoning_content: message.reasoning_content }
+            : {}),
         ...(requested.length ? { tool_calls: requested } : {}),
       })
       if (!requested.length) {
         const structured = await finalizeStructuredObject()
-        emit({ type: 'provider_metadata', provider: servingProvider ?? null, structuredOutput: structuredOutputMode, steps, toolCalls, usage })
+        emitProviderMetadata()
         fs.writeFileSync(options.output, `${JSON.stringify(structured)}\n`, { encoding: 'utf8', mode: 0o600 })
         emit({ type: 'result', structured_output: structured })
         return
@@ -421,6 +445,7 @@ async function main() {
     }
     throw new Error(`runner exceeded its ${options.maxSteps}-step tool budget without a final answer`)
   } finally {
+    emitProviderMetadata()
     server.close()
   }
 }
