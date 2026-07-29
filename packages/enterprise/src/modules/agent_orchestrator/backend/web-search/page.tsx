@@ -356,7 +356,17 @@ export default function WebSearchSettingsPage() {
    * write a half-edited adapter list from another card.
    */
   const saveSection = React.useCallback(
-    async (section: SectionId, patch: Record<string, unknown>) => {
+    async (
+      section: SectionId,
+      patch: Record<string, unknown>,
+      /**
+       * What the baseline becomes on success. Separate from the wire patch because
+       * an adapter card sends only its own entry, while the baseline must keep the
+       * whole `adapterOptions` record — folding the partial in directly would make
+       * every other adapter read as unsaved.
+       */
+      nextBaseline: Record<string, unknown> = patch,
+    ) => {
       setSavingSection(section)
       await runMutation({
         context: { contextId: 'agent_orchestrator.web_search.settings' },
@@ -370,9 +380,9 @@ export default function WebSearchSettingsPage() {
             return
           }
           setSource('tenant')
-          // The baseline moves only for what was actually written, so every other
-          // section keeps showing its own unsaved changes.
-          setBaseline((current) => ({ ...current, ...patch }))
+          // Moves only for what was actually written, so every other card keeps
+          // showing its own unsaved changes.
+          setBaseline((current) => ({ ...current, ...nextBaseline }))
           flash(t('agent_orchestrator.settings.webSearch.saved', 'Saved.'), 'success')
         },
       })
@@ -429,11 +439,12 @@ export default function WebSearchSettingsPage() {
     (section: SectionId) => {
       const patch = sectionPatch(section)
       if (section.startsWith('adapter:')) {
-        const merged = {
-          ...((baseline.adapterOptions ?? {}) as AdapterOptions),
-          ...((patch.adapterOptions ?? {}) as AdapterOptions),
-        }
-        void saveSection(section, patch).then(() => setBaseline((current) => ({ ...current, adapterOptions: merged })))
+        void saveSection(section, patch, {
+          adapterOptions: {
+            ...((baseline.adapterOptions ?? {}) as AdapterOptions),
+            ...((patch.adapterOptions ?? {}) as AdapterOptions),
+          },
+        })
         return
       }
       void saveSection(section, patch)

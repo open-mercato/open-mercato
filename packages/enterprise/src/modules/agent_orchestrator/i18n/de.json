@@ -730,6 +730,7 @@
   "agent_orchestrator.settings.webSearch.hardDeadlineMs": "Hartes Zeitlimit (ms)",
   "agent_orchestrator.settings.webSearch.healthOk": "Fehlerfrei",
   "agent_orchestrator.settings.webSearch.healthProblem": "Problem",
+  "agent_orchestrator.settings.webSearch.healthUntested": "Nicht getestet",
   "agent_orchestrator.settings.webSearch.hideConfig": "Konfiguration ausblenden",
   "agent_orchestrator.settings.webSearch.includeContentDefault": "Seiteninhalt standardmäßig lesen",
   "agent_orchestrator.settings.webSearch.includeContentHint": "Seitentext mit den Ergebnissen zurückgeben, spart einen Abruf pro Link.",

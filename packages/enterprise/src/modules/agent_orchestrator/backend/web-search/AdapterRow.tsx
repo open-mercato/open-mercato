@@ -45,6 +45,8 @@ export type AdapterHealth = {
   ok: boolean
   detail: string | null
   latencyMs: number | null
+  /** False when the row reports configuration only, with no call made. */
+  probed?: boolean
 }
 
 export const SECRET_PLACEHOLDER = '__om_secret_unchanged__'
@@ -229,7 +231,7 @@ export function AdapterRow({
               <span className="text-xs text-status-warning-text">
                 {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
               </span>
-            ) : enabled && health ? (
+            ) : enabled && health?.probed ? (
               <span
                 className={
                   health.ok ? 'text-xs text-status-success-text' : 'text-xs text-status-warning-text'
@@ -238,6 +240,12 @@ export function AdapterRow({
                 {health.ok
                   ? t('agent_orchestrator.settings.webSearch.healthOk', 'Healthy')
                   : t('agent_orchestrator.settings.webSearch.healthProblem', 'Problem')}
+              </span>
+            ) : enabled ? (
+              // Configured is not the same claim as working. Saying "Healthy" for
+              // an adapter nobody called would be a guess dressed as a fact.
+              <span className="text-xs text-muted-foreground">
+                {t('agent_orchestrator.settings.webSearch.healthUntested', 'Not tested')}
               </span>
             ) : null}
           </div>

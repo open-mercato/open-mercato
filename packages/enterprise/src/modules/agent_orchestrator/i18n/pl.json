@@ -971,6 +971,7 @@
   "agent_orchestrator.settings.webSearch.hardDeadlineMs": "Twardy limit czasu (ms)",
   "agent_orchestrator.settings.webSearch.healthOk": "Sprawny",
   "agent_orchestrator.settings.webSearch.healthProblem": "Problem",
+  "agent_orchestrator.settings.webSearch.healthUntested": "Nieprzetestowany",
   "agent_orchestrator.settings.webSearch.hideConfig": "Ukryj konfigurację",
   "agent_orchestrator.settings.webSearch.includeContentDefault": "Domyślnie czytaj treść stron",
   "agent_orchestrator.settings.webSearch.includeContentHint": "Zwracaj treść stron razem z wynikami, oszczędzając osobne pobranie.",

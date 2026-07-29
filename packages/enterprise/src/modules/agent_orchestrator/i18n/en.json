@@ -971,6 +971,7 @@
   "agent_orchestrator.settings.webSearch.hardDeadlineMs": "Hard deadline (ms)",
   "agent_orchestrator.settings.webSearch.healthOk": "Healthy",
   "agent_orchestrator.settings.webSearch.healthProblem": "Problem",
+  "agent_orchestrator.settings.webSearch.healthUntested": "Not tested",
   "agent_orchestrator.settings.webSearch.hideConfig": "Hide config",
   "agent_orchestrator.settings.webSearch.includeContentDefault": "Read page content by default",
   "agent_orchestrator.settings.webSearch.includeContentHint": "Return page text with results, sparing a fetch per link.",
