@@ -33,7 +33,35 @@ asks for. The terminal row is read for its `stepType` and otherwise untouched �
 | C.6a | Fix: `DataTable`'s `bulkActions` prop discarded `{ ok, progressJobId }` | done | `4c563843f` |
 | C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | done | `0d6e24a12` |
 | C.7 | Rerun-from-step — new ACL feature, `STEP_RERUN` event, fresh step-instance row | done | `d05905dfd` |
-| C.8 | Studio canvas "Show last run" execution overlay | done | PENDING_SHA |
+| C.8 | Studio canvas "Show last run" execution overlay | done | `629e492a6` |
+
+## Validation
+
+Runner: **local** (no compose `app` container running).
+
+| Command | Result |
+|---|---|
+| `yarn build:packages` · `yarn generate` · `yarn build:packages` | pass |
+| `yarn i18n:check-sync` · `yarn i18n:check-usage` | pass |
+| `yarn typecheck` | pass (22/22) |
+| `yarn workspace @open-mercato/core test` | 1219 suites / 10208 tests pass |
+| `yarn workspace @open-mercato/ui test` | 208 suites / 1699 tests pass |
+| `yarn lint` | 0 errors |
+| `yarn build:app` | pass |
+
+**Pre-existing failures, untouched by this PR:** `yarn test` fails in
+`@open-mercato/enterprise` — `agent_orchestrator/__tests__/{agent-source-files,agent-token-usage,
+webSearchEgress.integration}` (3 suites / 7 tests). `git diff feat/workflows-agent-contract..HEAD
+-- packages/enterprise` is EMPTY, and the same three suites fail identically when run at PR A's
+head, so they are inherited from the base branch.
+
+`yarn agents:check-budget` also fails on the root `AGENTS.md` and the `packages/ui` /
+`packages/ai-assistant` / `packages/core/src/modules/sales` chains — identical output on a clean
+tree, none of those files touched here. The `packages/core/src/modules/workflows` chain stays
+within budget with the new section.
+
+**Release runbook:** two new ACL features (`workflows.instances.rerun_step`,
+`workflows.instances.bulk_ops`). Existing tenants need `yarn mercato auth sync-role-acls`.
 
 ## Binding constraints
 

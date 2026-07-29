@@ -411,6 +411,73 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   `buildVisualEditorHref` / `WORKFLOW_STUDIO_CREATE_HREF` (`lib/visual-editor-navigation.ts`) rather
   than a literal path, so the next move is a one-line change.
 
+## Run Views & Recovery (spec §8.3 · §8.4)
+
+- **`lib/run-execution.ts` (PURE) is the single answer to "what did this run do".** The instance
+  detail page, the run Gantt and the Studio's "Show last run" overlay all derive from it, so they
+  cannot disagree about which steps ran or which routes were taken. Two inputs, deliberately ranked:
+  `StepInstance` rows are AUTHORITATIVE for step state (one row per execution, carrying the status,
+  both timestamps, the measured duration and the attempt count), and `WorkflowEvent` rows are the
+  fallback plus the ONLY source for the taken path — a transition leaves no row of its own. That
+  ranking is a bug fix: the detail page reads the newest 100 events, so on a long run an early
+  step's `STEP_ENTERED` has fallen off the page and an event-only derivation painted a completed
+  step as never-run. `currentStepId`/`instanceStatus` travel ON the `RunExecution` so
+  `resolveNodeRunStatus` can answer the START/END conventions without every caller remembering to
+  pass them.
+- **`StepInstance` finally has a read surface.** `GET api/instances/[id]/steps` (feature
+  `workflows.instances.view`, page size capped at 100) serves the per-step input/output/error/
+  duration/attempts the §8.3 inspector and the Gantt need. Before it, `inputData`, `outputData`,
+  `executionTimeMs` and `retryCount` were written by the engine and read by nothing.
+- **The run detail is Flow / Timeline / Context / Raw.** Selecting a node inspects it (spec §8.3)
+  instead of navigating away; sub-workflow navigation moved INTO the inspector, which lists every
+  child a step spawned. The failure banner stays ABOVE the tabs — it is the reason an operator
+  opened the run, not one altitude of it.
+- **The Gantt axis is PIECEWISE-LINEAR** (`lib/run-gantt.ts`, PURE). A run that executes for 1s and
+  waits three days is 99.999% wait on a linear axis and shows nothing, so slices longer than a
+  derived threshold (4× the median slice, floored at 1s) render at the threshold's width and are
+  flagged. Time stays monotonic and every bar keeps its TRUE duration in `durationMs` — the
+  compression is a rendering decision and MUST NOT reach a label. Lanes follow the engine's
+  `branchInstanceId` so a parallel branch reads as one band.
+- **Live run views** ride the DOM Event Bridge: the six `workflows.instance.*` lifecycle events
+  carry `clientBroadcast: true`, and `components/run/useLiveRunUpdates.ts` REFETCHES rather than
+  patching (the bridge is best-effort and caps a payload at 4KB), throttles the burst every step
+  advance produces, and refreshes on `om:bridge:reconnected`. The broadcast payload is instance
+  identity and state only — the bridge forwards it to every backoffice connection in the tenant +
+  organization WITHOUT evaluating ACL features, which is why the task events stay off it.
+  `workflows.instance.paused`/`resumed` are declared but have never had an emit site.
+- **The failure queue is a UNION**, not a filter: attention-parked plus FAILED. The list route ANDs
+  its `attention` and `status` filters and cannot express it, hence
+  `GET api/instances/failure-queue`. Error grouping (`lib/failure-grouping.ts`, PURE) normalizes
+  each message to its SHAPE — ids, numbers, quoted values and timestamps replaced by placeholders —
+  and groups on that, keeping the first raw message as the label. Normalization is deliberately
+  CONSERVATIVE: over-normalizing merges two genuinely different failures, and an operator who sees a
+  merged group cannot tell that half of it will fail again on replay. Grouping runs in JS, so it is
+  not a SQL `GROUP BY` — the response reports `scannedCount` and `truncated` instead of implying the
+  groups cover everything.
+- **Bulk replay goes through the progress module** (`lib/bulk-replay.ts` + a queue worker), per
+  `progress/AGENTS.md`. The worker re-reads every instance under the caller's tenant + organization,
+  so a foreign id resolves to nothing and is skipped rather than acted on, and one failing instance
+  never aborts the batch — which is the point of a triage surface.
+- **Rerun-from-step does NOT change the step state machine.** The previous attempt's terminal
+  `StepInstance` is read for its recorded `stepType` and otherwise untouched; the replay's row is
+  created by the engine's own `enterStep`, which already does an unconditional
+  `em.create(StepInstance, { … status: 'ACTIVE' … })` on every entry. The cursor move plus
+  `executeStep` is the same shape `enterErrorHandlerStep` uses. Four refusals, each a 409 with a
+  code: a RUNNING instance (moving its cursor races the execution loop), a step the definition no
+  longer declares, a step whose latest attempt is still PENDING/ACTIVE (a queue job and, for an
+  agent step, a pending proposal are still addressed to THAT attempt — lifting this needs §7.4's
+  addressable resume token), and a step whose type changed since the run (a FAILED instance is not
+  "active", so the definition PUT guard permits an in-place structural edit).
+- **Two new ACL features**, both admin/dev: `workflows.instances.rerun_step` (depends on
+  `instances.retry` + `instances.update_context` — replaying with EDITED context is exactly those
+  two powers together) and `workflows.instances.bulk_ops` (depends on `instances.retry` +
+  `instances.cancel`). Existing tenants pick them up only after
+  `yarn mercato auth sync-role-acls`.
+- **The Studio overlay is render-time only.** "Show last run" decorates nodes and edges inside
+  `WorkflowGraphImpl`, the same rule the compensation ghosts follow, so it never enters the
+  document, the undo stack, an autosave or `graphToDefinition` — guarded by
+  `lib/__tests__/last-run-overlay.test.ts`. It fetches nothing until the toggle is on.
+
 ## Code View (stage 1 — read-only)
 
 - `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste
@@ -604,7 +671,7 @@ When adding new injected widgets, follow this pattern — keep the widget self-c
 
 ```
 src/modules/workflows/
-├── acl.ts                    # 24 RBAC features
+├── acl.ts                    # 26 RBAC features
 ├── ce.ts                     # Custom entities (empty)
 ├── cli.ts                    # CLI: seed-demo, start-worker, process-activities
 ├── di.ts                     # DI: workflowExecutor, stepHandler, transitionHandler, activityExecutor, eventLogger
