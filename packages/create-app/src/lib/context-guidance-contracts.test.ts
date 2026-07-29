@@ -373,8 +373,11 @@ test('router distinguishes durable multi-stage state from one-step schedules', (
 test('installed behavior discovery and field-versus-history design bind their exact owners', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   const extensionSkill = readAgentic('shared/ai/skills/om-system-extension/SKILL.md')
+  const uiSkill = readAgentic('shared/ai/skills/om-backend-ui-design/SKILL.md')
   assert.match(root, /current behavior, authorization, dependents/)
   assert.match(root, /safest customization seam/)
+  assert.match(uiSkill, /field, filter, row action, or bulk action added to an existing installed form\/table/)
+  assert.match(uiSkill, /also requires `om-system-extension`/)
   assert.match(extensionSkill, /one installed-host field is sufficient or history\/rules require separate extension records/)
   for (const reference of ['mechanism-selector.md', 'extension-branches.md']) {
     assert.ok(
@@ -385,6 +388,8 @@ test('installed behavior discovery and field-versus-history design bind their ex
   for (const decision of ['extension-mechanism', 'additive-before-replacement', 'extension-entity', 'eject-last']) {
     assert.ok(extensionSkill.includes(`\`${decision}\``), `missing field-versus-history decision ${decision}`)
   }
+  assert.match(extensionSkill, /one backend invariant across UI, API, and direct callers \(`backend-consistency`\)/)
+  assert.match(extensionSkill, /host status transition invariant \(`status-invariant`\)/)
 })
 
 test('workflow skill binds implementation prompts to the progressive contract references', () => {

@@ -20,6 +20,8 @@ Route before reading: choose routes from the request and mechanism selector, the
 
 When deciding whether one installed-host field is sufficient or history/rules require separate extension records, do not stop at this file: directly read the exact paths `.ai/skills/om-system-extension/references/mechanism-selector.md` and `.ai/skills/om-system-extension/references/extension-branches.md`. Apply their `extension-mechanism`, `additive-before-replacement`, `extension-entity`, and `eject-last` decisions before choosing.
 
+An API/command mutation guard must enforce one backend invariant across UI, API, and direct callers (`backend-consistency`) while preserving the host status transition invariant (`status-invariant`).
+
 For a comprehensive mechanism audit, `references/mechanism-selector.md` is the authoritative inventory and `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` is mandatory because the audit evaluates stable public extension contracts. Also read `references/extension-branches.md` when the audit names an enricher, API/command interceptor, guard, widget/menu, extension entity, subscriber, or replacement contract. Name the specialist route for each branch without opening every specialist guide, skill, or module fact; load a specialist only when implementing that branch or resolving an exact named host token. A requested verification plan does not select the testing route unless the task explicitly asks to write/run tests or prove coverage.
 
 ## Rules
