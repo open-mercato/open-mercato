@@ -15,7 +15,7 @@ Route before reading: select affected domain routes from the reproduced symptom 
 2. Route the symptom using `references/diagnosis-map.md`; load only the matching domain guide and module facts.
 3. Invoke `om-framework-context` if the failure depends on exact installed implementation or package exports.
 4. Trace to the first broken invariant: auth/scope, validation, state/transaction, side effects, serialization, generation/bootstrap, UI state, or provider boundary.
-5. Add a regression oracle that fails before the fix. Use `references/regression-oracles.md` for scope, rollback, locking, bootstrap, hydration, cache/search, and provider cases.
+5. Add a regression oracle that fails before the fix. When the request explicitly asks to add a test, select the `testing` route as well. Use `references/regression-oracles.md` for scope, rollback, locking, bootstrap, hydration, cache/search, and provider cases.
 6. Make the smallest complete change through the real call site, then rerun focused, safety, and affected integration gates.
 
 ## Rules

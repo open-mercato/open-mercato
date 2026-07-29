@@ -6,7 +6,7 @@ Diagnose before editing, fix the smallest knowledge/code owner, and prove the re
 
 Name the areas the failure spans before loading anything, from the SYMPTOM and not only from the cause: a value that will not render, a session/locale/hydration mismatch, or a stale form spans `backend-ui`; wrong or lost records, commands, or events span `module-data`; an installed module's own surface spans `umes`; an external provider call spans `integration`.
 
-A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; only a request that asks for tests, coverage, or app-level verification does. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
+A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; a request that explicitly asks for tests, coverage, or app-level verification also selects `testing`. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
 
 Add an area's authoring skill when the fix **introduces or reworks** a contract there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard, or a provider's pagination cursor, bounded retry, idempotency, or reconciliation — because you are then designing that surface, not just repairing it. Provider cursor/retry/idempotency fixes therefore load `om-integration-builder` even when the request is framed as a bug fix. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
 
@@ -50,7 +50,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 - Exercise update and delete with current, stale, and missing versions.
 - Test malformed IDs/filters and ensure invalid input cannot widen a query.
 - Test retry, duplicate delivery, cancellation, and worker restart for external/queued operations.
-- For provider logs/errors, assert secrets and credentials are absent.
+- For provider logs/errors, assert secrets and credentials are absent; provider health/retry tests also verify redacted diagnostics (`health-retry-redaction`).
 
 ## UI Regression Oracles
 

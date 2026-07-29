@@ -12442,7 +12442,7 @@
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","atomic-inbox-claim","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","catch.{0,40}(?:ignore|swallow)","(?:random|timestamp).{0,20}idempotency"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":8,"maxInitialContextBytes":51200,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
+    "maxContextFiles":8,"maxInitialContextBytes":52224,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
   },
   {
     "id":"OMH-174","title":"Fix an ERP synchronization job skipping records after a page failure","family":"bugfix","mode":"bugfix","evaluationKind":"routing","risk":"high",

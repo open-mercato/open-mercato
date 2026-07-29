@@ -330,6 +330,9 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
   const integrationGuide = readAgentic('guides/integrations.md')
   assert.match(reliability, /atomically claim each inbox delivery/)
   assert.match(reliability, /`atomic-inbox-claim`/)
+  assert.match(reliability, /`encrypted-credentials`/)
+  assert.match(reliability, /`oauth-single-flight-refresh`/)
+  assert.match(reliability, /`health-retry-redaction`/)
   assert.match(integrationGuide, /atomically claim each inbox delivery/)
 
   const schema = readAgentic(
@@ -372,6 +375,18 @@ test('workflow skill binds implementation prompts to the progressive contract re
   assert.match(workflowSkill, /Always load `references\/workflow-design\.md`/)
   assert.match(workflowSkill, /custom activity or `UPDATE_ENTITY` command activity/)
   assert.match(workflowSkill, /Load `references\/durability-and-progress\.md` whenever the workflow waits, handles signals, schedules timers/)
+  assert.match(workflowSkill, /`command-state-machine`/)
+  assert.match(workflowSkill, /`subscriber-idempotency`/)
+})
+
+test('integration routing binds installed-record imports and optional carriers at their direct owners', () => {
+  const integrationSkill = readAgentic('shared/ai/skills/om-integration-builder/SKILL.md')
+  const providerFamilies = readAgentic(
+    'shared/ai/skills/om-integration-builder/references/provider-families.md',
+  )
+  assert.match(integrationSkill, /rows write existing installed customer\/catalog\/host records, also select UMES/)
+  assert.match(integrationSkill, /`om-system-extension`/)
+  assert.match(providerFamilies, /safe absent-provider path \(`optional-provider`\)/)
 })
 
 test('debugging stays additive to cross-module domain and extension work', () => {
@@ -383,6 +398,10 @@ test('debugging stays additive to cross-module domain and extension work', () =>
   assert.match(root, /load `om-data-model-design` \+ `om-system-extension`/)
   assert.match(debugging, /`unit-regression-oracle` when that decision vocabulary is requested/)
   assert.match(debugging, /Provider cursor\/retry\/idempotency fixes therefore load `om-integration-builder`/)
+  assert.match(debugging, /explicitly asks for tests, coverage, or app-level verification also selects `testing`/)
+  assert.match(debugging, /`health-retry-redaction`/)
+  const troubleshooter = readAgentic('shared/ai/skills/om-troubleshooter/SKILL.md')
+  assert.match(troubleshooter, /explicitly asks to add a test, select the `testing` route/)
 })
 
 test('API and command fixes load trusted-scope domain contracts', () => {

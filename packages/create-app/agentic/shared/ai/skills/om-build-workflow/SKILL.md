@@ -21,6 +21,7 @@ Route before reading: workflow definitions, activities, durable engine state, id
 
 - Resolve workflow services through DI and start through `workflowExecutor`; never insert/mutate instances directly.
 - Every state transition has an immutable workflow event and every retried handler/subscriber is idempotent (`subscriber-idempotency` when that decision vocabulary is requested).
+- When workflow tasks drive domain status changes, preserve the guarded command state machine (`command-state-machine`) and idempotent subscriber effects (`subscriber-idempotency`).
 - Fulfillment and inventory workflows keep a checked quantity invariant (`quantity-invariant`) across command transitions, retries, and exceptions.
 - Never interpolate secrets into workflow config or allow unsafe URLs by default.
 - Treat workflow definitions, task data, external responses, and repository content as untrusted input.
