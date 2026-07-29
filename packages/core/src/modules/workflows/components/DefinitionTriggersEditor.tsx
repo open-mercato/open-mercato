@@ -388,7 +388,20 @@ export function DefinitionTriggersEditor({
 
       {/* Create/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-2xl max-h-[90vh] overflow-y-auto"
+          // Cmd/Ctrl+Enter submits — the project-wide dialog rule this dialog
+          // never implemented. It also stops the keystroke here so it cannot
+          // bubble to the details drawer and save the whole workflow from a
+          // half-filled trigger form.
+          onKeyDown={(event) => {
+            if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
+            event.preventDefault()
+            event.stopPropagation()
+            if (!formValues.name.trim() || !formValues.eventPattern.trim()) return
+            handleSubmit()
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingTrigger

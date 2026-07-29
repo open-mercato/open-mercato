@@ -24,6 +24,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { Lock } from 'lucide-react'
 import { ContextSchemaEditor } from './ContextSchemaEditor'
 import { DefinitionErrorHandlerField } from './DefinitionErrorHandlerField'
@@ -84,7 +85,7 @@ type FieldProps = {
 /** Uniform label → control → hint rhythm, so no two fields sit at different heights. */
 function MetadataField({ htmlFor, label, required, hint, className, children }: FieldProps) {
   return (
-    <div className={className ? `min-w-0 space-y-1.5 ${className}` : 'min-w-0 space-y-1.5'}>
+    <div className={cn('min-w-0 space-y-1.5', className)}>
       <Label htmlFor={htmlFor} className="text-xs">
         {label}
         {required ? ' *' : ''}
@@ -135,10 +136,19 @@ export function DefinitionMetadataDrawer({
   const isExisting = !!definitionId
   const lockedHint = isExisting ? t('workflows.visualEditor.metadata.lockedAfterCreate') : undefined
 
+  const contentRef = React.useRef<HTMLDivElement | null>(null)
+
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
       if (!onSave || readOnly || isSaving) return
+      // Radix portals a nested dialog (the trigger editor) outside this DOM
+      // subtree but INSIDE the React tree, so its keystrokes bubble here.
+      // Saving the workflow from a half-filled trigger form would be exactly
+      // the wrong thing, so only keystrokes that really happened in the drawer
+      // count.
+      const target = event.target
+      if (!(target instanceof Node) || !contentRef.current?.contains(target)) return
       event.preventDefault()
       onSave()
     },
@@ -148,12 +158,12 @@ export function DefinitionMetadataDrawer({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
+        ref={contentRef}
         // The maintainer sanctioned the width explicitly: these are twelve
         // fields plus three sub-editors, and the DS default 400px panel would
         // reproduce the cramped three-column grid this replaces.
         className="w-full max-w-none sm:w-4/5"
         onKeyDown={handleKeyDown}
-        aria-label={t('workflows.visualEditor.metadata.title')}
         closeAriaLabel={t('workflows.visualEditor.metadata.close')}
       >
         <DrawerHeader>
