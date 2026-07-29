@@ -95,6 +95,8 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Agent orchestration (enterprise): propose-only AI agents, runs/proposals/disposition (auto-approve vs human `USER_TASK`), traces, evals, guardrails, context (TDCR), agent identity/principals, operations cockpit, file-defined OpenCode agents (`agents/<id>/`), the `INVOKE_AGENT` workflow bridge | `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` + `.ai/skills/om-create-opencode-agent/SKILL.md` |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
 | New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
+| Adding a web search source (Brave, Exa, Serper, Kagi, SearXNG, a scraping vendor) as a `@open-mercato/web-research-*` adapter package | `.ai/skills/om-create-web-research-adapter/SKILL.md` + `web-research` |
+| Agent web search/fetch behaviour — adapter racing, fusion, browser escalation, SSRF/DNS pinning, per-tenant policy, live status | `apps/docs/docs/framework/ai-assistant/web-research.mdx` + `web-research` + `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` → Web Egress |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |
 | Structured logging / replacing raw `console.*` with the facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `shared` |

@@ -105,9 +105,19 @@ export const features = [
   // tools are only reachable inside an agent run.
   {
     id: 'agent_orchestrator.web_search',
-    title: 'Use agent web search and fetch tools',
+    title: 'Use agent web search',
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.agents.run'],
+  },
+  // Split from `web_search` so a tenant can be granted discovery without the
+  // ability to retrieve an arbitrary URL, which is the higher-risk half. Additive:
+  // `web_fetch` requires BOTH features, so every existing grant of `web_search`
+  // keeps working for search and only loses fetch until this is granted too.
+  {
+    id: 'agent_orchestrator.web_fetch',
+    title: 'Use agent web fetch (retrieve an arbitrary URL)',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.web_search'],
   },
 ]
 

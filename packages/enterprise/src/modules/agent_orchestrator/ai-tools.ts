@@ -7,7 +7,7 @@ import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
 import { getCurrentRunId, getCurrentRunSource } from './lib/runtime/runContext'
-import { webSearchTool, webFetchTool } from './lib/webSearch/webSearchTools'
+import { webSearchTool, webFetchTool } from './lib/webSearch/tools'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
 export const SUBMIT_OUTCOME_TOOL_ID = 'agent_orchestrator.submit_outcome'

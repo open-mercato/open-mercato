@@ -1,40 +1,106 @@
 import type { AwilixContainer } from 'awilix'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import type { WebSearchRuntimeConfig } from './config'
+import type { AgentRunSessionStore } from '../runtime/agentRunSessionStore'
+import { getCurrentRunId } from '../runtime/runContext'
+import type { WebSearchGuardrails } from './policy'
 
 export type WebSearchRateScope = {
-  runId: string | null
-  tenantId: string | null
+  readonly runId: string | null
+  readonly tenantId: string | null
+  readonly kind: 'search' | 'fetch'
 }
 
 export type RateLimitOutcome = { ok: true } | { ok: false; error: string }
 
 /**
- * Enforces the per-run and per-tenant call ceilings via the canonical
- * `rateLimiterService`. Permissive by design: if no rate limiter is registered
- * (e.g. it is disabled in this process), the call is allowed. The per-run key is
- * a long-window total budget (the run is short-lived so the key expires with it);
- * the per-tenant key is a rolling one-minute window.
+ * Resolves the run this call belongs to.
+ *
+ * `getCurrentRunId()` reads an AsyncLocalStorage that only the in-process runner
+ * populates. File agents - the primary path - reach these tools through the
+ * separate `mcp:serve-http` process, where it is always empty, so the per-run
+ * budget silently never applied. The session store is the cross-process
+ * correlation point and is authoritative here.
  */
+export async function resolveRunId(
+  container: AwilixContainer,
+  sessionToken: string | null | undefined,
+): Promise<string | null> {
+  const inProcess = getCurrentRunId()
+  if (inProcess) return inProcess
+  if (!sessionToken) return null
+  try {
+    const store = container.resolve('agentRunSessionStore') as AgentRunSessionStore
+    return await store.resolveActiveRunId(sessionToken)
+  } catch {
+    return null
+  }
+}
+
+function resolveLimiter(container: AwilixContainer): RateLimiterService | 'absent' | 'broken' {
+  const hasRegistration =
+    typeof container.hasRegistration === 'function' ? container.hasRegistration.bind(container) : null
+  if (hasRegistration && !hasRegistration('rateLimiterService')) return 'absent'
+  try {
+    const limiter = container.resolve('rateLimiterService') as RateLimiterService | null
+    return limiter ?? 'absent'
+  } catch {
+    // Registered but unusable. Treated differently from "not registered": a
+    // deployment that configured a limiter and lost it must not silently drop
+    // its ceilings.
+    return 'broken'
+  }
+}
+
+/**
+ * Enforces per-run and per-tenant call ceilings. Fails **open** only when no
+ * limiter is registered at all, and **closed** when one is registered but
+ * unusable. Search and fetch have separate per-run budgets so a page-reading
+ * loop cannot exhaust the allowance for discovery.
+ */
+/**
+ * Charges pages a search already read against the fetch budget.
+ *
+ * `web_search` costs one search point no matter how many pages `includeContent`
+ * reads, so an agent could pull `maxPages` per call and never touch
+ * `fetchesPerRun` — and the tool description actively steers it there, which made
+ * the separate discovery and reading budgets trivially bypassable. Charged after
+ * the fact because the count is not known until the read is done: a run can
+ * overshoot by one call, and the next one is refused.
+ */
+export async function chargeWebFetchBudget(
+  container: AwilixContainer,
+  runId: string | null,
+  guardrails: WebSearchGuardrails,
+  pages: number,
+): Promise<void> {
+  if (pages <= 0 || !runId) return
+  const limiter = resolveLimiter(container)
+  if (limiter === 'absent' || limiter === 'broken') return
+  try {
+    await limiter.penalty(`agentweb:fetch:run:${runId}`, pages, {
+      points: guardrails.fetchesPerRun,
+      duration: 86_400,
+      keyPrefix: 'agentweb',
+    })
+  } catch {
+    // Accounting must never fail a search the caller already paid for.
+  }
+}
+
 export async function enforceWebSearchRateLimit(
   container: AwilixContainer,
   scope: WebSearchRateScope,
-  config: WebSearchRuntimeConfig,
+  guardrails: WebSearchGuardrails,
 ): Promise<RateLimitOutcome> {
-  let limiter: RateLimiterService | null = null
-  try {
-    const hasRegistration =
-      typeof container.hasRegistration === 'function' ? container.hasRegistration.bind(container) : null
-    if (hasRegistration && !hasRegistration('rateLimiterService')) return { ok: true }
-    limiter = container.resolve('rateLimiterService') as RateLimiterService
-  } catch {
-    return { ok: true }
+  const limiter = resolveLimiter(container)
+  if (limiter === 'absent') return { ok: true }
+  if (limiter === 'broken') {
+    return { ok: false, error: 'web tool rate limiter is unavailable' }
   }
-  if (!limiter) return { ok: true }
 
   if (scope.tenantId) {
     const result = await limiter.consume(`agentweb:tenant:${scope.tenantId}`, {
-      points: config.ratePerTenantPerMinute,
+      points: guardrails.callsPerTenantPerMinute,
       duration: 60,
       keyPrefix: 'agentweb',
     })
@@ -42,12 +108,15 @@ export async function enforceWebSearchRateLimit(
   }
 
   if (scope.runId) {
-    const result = await limiter.consume(`agentweb:run:${scope.runId}`, {
-      points: config.ratePerRun,
+    const points = scope.kind === 'search' ? guardrails.searchesPerRun : guardrails.fetchesPerRun
+    const result = await limiter.consume(`agentweb:${scope.kind}:run:${scope.runId}`, {
+      points,
       duration: 86_400,
       keyPrefix: 'agentweb',
     })
-    if (!result.allowed) return { ok: false, error: 'web tool call budget exceeded for this run' }
+    if (!result.allowed) {
+      return { ok: false, error: `web ${scope.kind} budget exceeded for this run` }
+    }
   }
 
   return { ok: true }

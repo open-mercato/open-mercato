@@ -23,6 +23,7 @@ import { SectionHeader, CollapsibleSection } from '@open-mercato/ui/backend/Sect
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard } from '../../components/ProposalCard'
+import { WebSearchActivity } from '../../components/WebSearchActivity'
 import { mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
@@ -596,6 +597,11 @@ export default function AgentPlaygroundPage() {
             </div>
           </div>
         </div>
+        {/* Its own card below the result: the run POST does not return until the
+            agent finishes, so this is the only live view of what it is doing, and
+            it stays readable afterwards as the record of which sources answered. */}
+        <WebSearchActivity className="mt-4" />
+
         {result && runId ? (
           <div className="mt-4">
             <PlaygroundEvalPanel runId={runId} agentId={agentId} />

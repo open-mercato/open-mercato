@@ -1,121 +1,274 @@
 import type { AwilixContainer } from 'awilix'
-import { hostnameOf, isHostAllowed, resolveWebSearchConfig } from '../config'
-import { enforceWebSearchRateLimit } from '../guardrails'
-import type { WebSearchRuntimeConfig } from '../config'
+import { MODEL_ADAPTER_TIMEOUT_MS, resolvePolicy } from '@open-mercato/web-research'
+import { chargeWebFetchBudget, enforceWebSearchRateLimit, resolveRunId } from '../guardrails'
+import {
+  hostnameOf,
+  isHostAllowed,
+  resolveEnvSettings,
+  withModelAdapterBudget,
+  type WebSearchGuardrails,
+} from '../policy'
 
-const baseConfig: WebSearchRuntimeConfig = {
-  provider: 'model',
-  baseUrl: 'https://searxng.internal',
-  tavilyApiKey: null,
-  maxResults: 10,
-  maxBytes: 64 * 1024,
-  timeoutMs: 10_000,
+const guardrails: WebSearchGuardrails = {
   allowDomains: [],
   denyDomains: [],
-  ratePerRun: 20,
-  ratePerTenantPerMinute: 120,
+  searchesPerRun: 20,
+  fetchesPerRun: 40,
+  callsPerTenantPerMinute: 120,
+  maxFetchBytes: 64 * 1024,
 }
 
-describe('resolveWebSearchConfig', () => {
-  it('falls back to permissive defaults when env is empty', () => {
-    const config = resolveWebSearchConfig({})
-    expect(config.baseUrl).toBeNull()
-    expect(config.maxResults).toBe(10)
-    expect(config.maxBytes).toBe(65536)
-    expect(config.allowDomains).toEqual([])
-    expect(config.denyDomains).toEqual([])
-    expect(config.ratePerRun).toBe(20)
+type ConsumeResult = { allowed: boolean }
+
+function containerWith(overrides: {
+  limiter?: { consume: jest.Mock<Promise<ConsumeResult>, [string, unknown]> } | null
+  limiterThrows?: boolean
+  sessionStore?: { resolveActiveRunId: jest.Mock<Promise<string | null>, [string]> }
+}): AwilixContainer {
+  return {
+    hasRegistration: (key: string) => {
+      if (key === 'rateLimiterService') return overrides.limiter !== undefined || overrides.limiterThrows === true
+      if (key === 'agentRunSessionStore') return overrides.sessionStore !== undefined
+      return false
+    },
+    resolve: (key: string) => {
+      if (key === 'rateLimiterService') {
+        if (overrides.limiterThrows) throw new Error('limiter is misconfigured')
+        return overrides.limiter
+      }
+      if (key === 'agentRunSessionStore') {
+        if (!overrides.sessionStore) throw new Error('not registered')
+        return overrides.sessionStore
+      }
+      throw new Error(`unexpected resolve: ${key}`)
+    },
+  } as unknown as AwilixContainer
+}
+
+const allowingLimiter = () => ({ consume: jest.fn(async () => ({ allowed: true })) })
+
+describe('resolveEnvSettings', () => {
+  it('enables only model-native by default, keeping SERP scraping opt-in', () => {
+    const settings = resolveEnvSettings({})
+    expect(settings.policy.adapters).toEqual([
+      { id: 'model-native', enabled: true, order: 0, weight: 1, timeoutMs: MODEL_ADAPTER_TIMEOUT_MS },
+    ])
   })
 
-  it('reads and normalizes env values', () => {
-    const config = resolveWebSearchConfig({
-      OM_AGENT_WEB_SEARCH_BASE_URL: ' https://searxng.example ',
-      OM_AGENT_WEB_SEARCH_MAX_RESULTS: '5',
-      OM_AGENT_WEB_FETCH_MAX_BYTES: '2048',
-      OM_AGENT_WEB_SEARCH_ALLOW_DOMAINS: 'Example.com, news.example.org',
-      OM_AGENT_WEB_SEARCH_DENY_DOMAINS: 'evil.test',
-      OM_AGENT_WEB_SEARCH_RATE_PER_RUN: '3',
+  it('backfills the model budget on a stored policy that never named one', () => {
+    // A stored adapter list replaces the env-derived one outright, so every
+    // tenant who saved from the settings page has a model-native row with no
+    // timeout, and the shared 8s budget times it out on every single run.
+    const stored = resolvePolicy({
+      adapters: [
+        { id: 'model-native', enabled: true, order: 0, weight: 1 },
+        { id: 'serp-html', enabled: true, order: 1, weight: 1 },
+      ],
+      hardDeadlineMs: 15_000,
+    })
+    expect(stored.adapters.find((entry) => entry.id === 'model-native')?.timeoutMs).toBeUndefined()
+
+    const patched = withModelAdapterBudget(stored)
+
+    expect(patched.adapters.find((entry) => entry.id === 'model-native')?.timeoutMs).toBe(
+      MODEL_ADAPTER_TIMEOUT_MS,
+    )
+    // A budget past the hard deadline can never be reached, so the ceiling moves with it.
+    expect(patched.hardDeadlineMs).toBeGreaterThanOrEqual(MODEL_ADAPTER_TIMEOUT_MS)
+    expect(patched.adapters.find((entry) => entry.id === 'serp-html')?.timeoutMs).toBeUndefined()
+  })
+
+  it('leaves an explicitly chosen model budget alone', () => {
+    const chosen = resolvePolicy({
+      adapters: [{ id: 'model-native', enabled: true, order: 0, weight: 1, timeoutMs: 5_000 }],
+    })
+    expect(withModelAdapterBudget(chosen).adapters[0]?.timeoutMs).toBe(5_000)
+  })
+
+  it('gives the default adapter a budget it can actually finish in', () => {
+    // model-native runs the model's own multi-step web search and measures around
+    // 30s. Under the generic adapter budget it timed out on every run, so the
+    // shipped configuration returned nothing at all.
+    const settings = resolveEnvSettings({})
+    const modelNative = settings.policy.adapters?.find((entry) => entry.id === 'model-native')
+    expect(modelNative?.timeoutMs).toBeGreaterThan(30_000)
+    expect(resolvePolicy(settings.policy).hardDeadlineMs).toBeGreaterThanOrEqual(modelNative?.timeoutMs ?? 0)
+  })
+
+  it('enables the listed adapters in the given order', () => {
+    const settings = resolveEnvSettings({ OM_WEB_SEARCH_ADAPTERS: 'serp-html, model-native' } as NodeJS.ProcessEnv)
+    expect(settings.policy.adapters?.map((entry) => entry.id)).toEqual(['serp-html', 'model-native'])
+    expect(settings.policy.adapters?.map((entry) => entry.order)).toEqual([0, 1])
+  })
+
+  it('refuses every private address unless a host is named', () => {
+    expect(resolveEnvSettings({}).guardrails.allowPrivateHosts).toEqual([])
+  })
+
+  it('reads the private-host allowlist from env, normalized', () => {
+    const settings = resolveEnvSettings({
+      OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS: 'SearXNG, internal.example.com ,',
     } as NodeJS.ProcessEnv)
-    expect(config.baseUrl).toBe('https://searxng.example')
-    expect(config.maxResults).toBe(5)
-    expect(config.maxBytes).toBe(2048)
-    expect(config.allowDomains).toEqual(['example.com', 'news.example.org'])
-    expect(config.denyDomains).toEqual(['evil.test'])
-    expect(config.ratePerRun).toBe(3)
+    expect(settings.guardrails.allowPrivateHosts).toEqual(['searxng', 'internal.example.com'])
   })
 
-  it('ignores non-positive numeric overrides', () => {
-    const config = resolveWebSearchConfig({ OM_AGENT_WEB_SEARCH_MAX_RESULTS: '0', OM_AGENT_WEB_SEARCH_TIMEOUT_MS: 'nope' } as NodeJS.ProcessEnv)
-    expect(config.maxResults).toBe(10)
-    expect(config.timeoutMs).toBe(10_000)
-  })
-})
-
-describe('hostnameOf', () => {
-  it('extracts and lowercases the host', () => {
-    expect(hostnameOf('https://News.Example.com/path')).toBe('news.example.com')
-  })
-  it('returns null for an invalid URL', () => {
-    expect(hostnameOf('not a url')).toBeNull()
+  it('normalizes domain lists and ceilings', () => {
+    const settings = resolveEnvSettings({
+      OM_WEB_SEARCH_ALLOW_DOMAINS: 'Example.com, news.example.org',
+      OM_WEB_SEARCH_DENY_DOMAINS: 'evil.test',
+      OM_WEB_SEARCH_RATE_PER_RUN: '3',
+      OM_WEB_FETCH_RATE_PER_RUN: '7',
+    } as NodeJS.ProcessEnv)
+    expect(settings.guardrails.allowDomains).toEqual(['example.com', 'news.example.org'])
+    expect(settings.guardrails.denyDomains).toEqual(['evil.test'])
+    expect(settings.guardrails.searchesPerRun).toBe(3)
+    expect(settings.guardrails.fetchesPerRun).toBe(7)
   })
 })
 
 describe('isHostAllowed', () => {
-  it('allows everything when no lists are set', () => {
-    expect(isHostAllowed('anything.com', { allowDomains: [], denyDomains: [] })).toBe(true)
+  it('allows everything when neither list is set', () => {
+    expect(isHostAllowed('example.com', guardrails)).toBe(true)
   })
-  it('deny wins over allow', () => {
-    expect(isHostAllowed('evil.com', { allowDomains: ['evil.com'], denyDomains: ['evil.com'] })).toBe(false)
+
+  it('matches on a dot boundary, not a bare suffix', () => {
+    const scoped = { ...guardrails, allowDomains: ['example.com'] }
+    expect(isHostAllowed('news.example.com', scoped)).toBe(true)
+    expect(isHostAllowed('notexample.com', scoped)).toBe(false)
   })
-  it('deny matches subdomains at a dot boundary', () => {
-    expect(isHostAllowed('ads.evil.com', { allowDomains: [], denyDomains: ['evil.com'] })).toBe(false)
-    expect(isHostAllowed('notevil.com', { allowDomains: [], denyDomains: ['evil.com'] })).toBe(true)
-  })
-  it('allowlist restricts to listed domains and subdomains', () => {
-    const cfg = { allowDomains: ['example.com'], denyDomains: [] }
-    expect(isHostAllowed('example.com', cfg)).toBe(true)
-    expect(isHostAllowed('news.example.com', cfg)).toBe(true)
-    expect(isHostAllowed('other.org', cfg)).toBe(false)
+
+  it('lets deny win over allow', () => {
+    const scoped = { ...guardrails, allowDomains: ['example.com'], denyDomains: ['secret.example.com'] }
+    expect(isHostAllowed('secret.example.com', scoped)).toBe(false)
   })
 })
 
-type Registry = Record<string, unknown>
-function makeContainer(registry: Registry): AwilixContainer {
-  return {
-    resolve: (key: string) => {
-      if (key in registry) return registry[key]
-      throw new Error(`not registered: ${key}`)
-    },
-    hasRegistration: (key: string) => key in registry,
-  } as unknown as AwilixContainer
-}
+describe('hostnameOf', () => {
+  it('lowercases the host and returns null for junk', () => {
+    expect(hostnameOf('https://Example.COM/a')).toBe('example.com')
+    expect(hostnameOf('not a url')).toBeNull()
+  })
+})
 
-describe('enforceWebSearchRateLimit', () => {
-  it('allows when no rate limiter is registered (permissive)', async () => {
-    const result = await enforceWebSearchRateLimit(makeContainer({}), { runId: 'r1', tenantId: 't1' }, baseConfig)
-    expect(result.ok).toBe(true)
+describe('resolveRunId', () => {
+  // The whole point of this lookup: in the mcp:serve-http process the
+  // AsyncLocalStorage run context is always empty, so the per-run budget used to
+  // be skipped on the primary file-agent path.
+  it('reads the run id from the session store when there is no in-process context', async () => {
+    const sessionStore = { resolveActiveRunId: jest.fn(async () => 'run-42') }
+    const container = containerWith({ sessionStore })
+
+    await expect(resolveRunId(container, 'session-token')).resolves.toBe('run-42')
+    expect(sessionStore.resolveActiveRunId).toHaveBeenCalledWith('session-token')
   })
 
-  it('allows when the limiter permits both windows', async () => {
-    const consume = jest.fn(async () => ({ allowed: true, remainingPoints: 5, msBeforeNext: 0, consumedPoints: 1 }))
-    const container = makeContainer({ rateLimiterService: { consume } })
-    const result = await enforceWebSearchRateLimit(container, { runId: 'r1', tenantId: 't1' }, baseConfig)
-    expect(result.ok).toBe(true)
-    expect(consume).toHaveBeenCalledTimes(2)
+  it('returns null without a session token', async () => {
+    await expect(resolveRunId(containerWith({}), null)).resolves.toBeNull()
+  })
+
+  it('returns null when the store is unavailable', async () => {
+    await expect(resolveRunId(containerWith({}), 'token')).resolves.toBeNull()
+  })
+})
+
+describe('chargeWebFetchBudget', () => {
+  const limiterWithPenalty = () => ({
+    consume: jest.fn(async () => ({ allowed: true })),
+    penalty: jest.fn(async () => ({ allowed: true })),
+  })
+
+  it('charges the fetch budget for pages a search read', async () => {
+    // Without this, includeContent reads up to maxPages under one search point
+    // and fetchesPerRun never engages on the path the tool description promotes.
+    const limiter = limiterWithPenalty()
+    const container = containerWith({ limiter: limiter as never })
+
+    await chargeWebFetchBudget(container, 'run-1', guardrails, 3)
+
+    expect(limiter.penalty).toHaveBeenCalledWith(
+      'agentweb:fetch:run:run-1',
+      3,
+      expect.objectContaining({ points: guardrails.fetchesPerRun }),
+    )
+  })
+
+  it('charges nothing when no page was read', async () => {
+    const limiter = limiterWithPenalty()
+    await chargeWebFetchBudget(containerWith({ limiter: limiter as never }), 'run-1', guardrails, 0)
+    expect(limiter.penalty).not.toHaveBeenCalled()
+  })
+
+  it('never throws when accounting is unavailable', async () => {
+    const container = containerWith({ limiterThrows: true })
+    await expect(chargeWebFetchBudget(container, 'run-1', guardrails, 2)).resolves.toBeUndefined()
+  })
+})
+
+describe('enforceWebSearchRateLimit', () => {
+  it('allows when no limiter is registered at all', async () => {
+    const container = {
+      hasRegistration: () => false,
+      resolve: () => {
+        throw new Error('nope')
+      },
+    } as unknown as AwilixContainer
+
+    await expect(
+      enforceWebSearchRateLimit(container, { runId: 'r', tenantId: 't', kind: 'search' }, guardrails),
+    ).resolves.toEqual({ ok: true })
+  })
+
+  it('fails closed when a limiter is registered but unusable', async () => {
+    const container = containerWith({ limiterThrows: true })
+
+    const outcome = await enforceWebSearchRateLimit(
+      container,
+      { runId: 'r', tenantId: 't', kind: 'search' },
+      guardrails,
+    )
+
+    expect(outcome).toEqual({ ok: false, error: 'web tool rate limiter is unavailable' })
+  })
+
+  it('charges search and fetch to separate per-run budgets', async () => {
+    const limiter = allowingLimiter()
+    const container = containerWith({ limiter })
+
+    await enforceWebSearchRateLimit(container, { runId: 'r1', tenantId: null, kind: 'search' }, guardrails)
+    await enforceWebSearchRateLimit(container, { runId: 'r1', tenantId: null, kind: 'fetch' }, guardrails)
+
+    const keys = limiter.consume.mock.calls.map((call) => call[0])
+    expect(keys).toEqual(['agentweb:search:run:r1', 'agentweb:fetch:run:r1'])
+    expect(limiter.consume.mock.calls[0][1]).toMatchObject({ points: guardrails.searchesPerRun })
+    expect(limiter.consume.mock.calls[1][1]).toMatchObject({ points: guardrails.fetchesPerRun })
   })
 
   it('rejects when the tenant window is exhausted', async () => {
-    const consume = jest.fn(async () => ({ allowed: false, remainingPoints: 0, msBeforeNext: 1000, consumedPoints: 121 }))
-    const container = makeContainer({ rateLimiterService: { consume } })
-    const result = await enforceWebSearchRateLimit(container, { runId: 'r1', tenantId: 't1' }, baseConfig)
-    expect(result.ok).toBe(false)
-    expect(result.ok === false && result.error).toContain('tenant')
+    const limiter = { consume: jest.fn(async () => ({ allowed: false })) }
+    const container = containerWith({ limiter })
+
+    await expect(
+      enforceWebSearchRateLimit(container, { runId: 'r', tenantId: 't', kind: 'search' }, guardrails),
+    ).resolves.toEqual({ ok: false, error: 'web tool rate limit exceeded for tenant' })
   })
 
-  it('skips the per-run window when there is no run id', async () => {
-    const consume = jest.fn(async () => ({ allowed: true, remainingPoints: 5, msBeforeNext: 0, consumedPoints: 1 }))
-    const container = makeContainer({ rateLimiterService: { consume } })
-    await enforceWebSearchRateLimit(container, { runId: null, tenantId: 't1' }, baseConfig)
-    expect(consume).toHaveBeenCalledTimes(1)
+  it('rejects when the per-run budget is exhausted', async () => {
+    const limiter = {
+      consume: jest.fn(async (key: string) => ({ allowed: !key.startsWith('agentweb:search:run') })),
+    }
+    const container = containerWith({ limiter })
+
+    await expect(
+      enforceWebSearchRateLimit(container, { runId: 'r', tenantId: 't', kind: 'search' }, guardrails),
+    ).resolves.toEqual({ ok: false, error: 'web search budget exceeded for this run' })
+  })
+
+  it('skips the per-run check when the run is unknown', async () => {
+    const limiter = allowingLimiter()
+    const container = containerWith({ limiter })
+
+    await enforceWebSearchRateLimit(container, { runId: null, tenantId: 't', kind: 'search' }, guardrails)
+
+    expect(limiter.consume.mock.calls.map((call) => call[0])).toEqual(['agentweb:tenant:t'])
   })
 })

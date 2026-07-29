@@ -64,6 +64,13 @@ const events = [
   // label }. excludeFromTriggers: it is a transient per-step echo, not a domain
   // fact — like process.updated it must never drive workflow triggers.
   { id: 'agent_orchestrator.run.progress', label: 'Agent Run Progress', entity: 'run', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
+  // Per-adapter web-search narration, one level below run.progress: which source
+  // was queried, whether it answered, was blocked, or was cancelled, and why.
+  // Emitted from the MCP process, which reaches the browser over pg NOTIFY -> SSE.
+  // Payload is summary-only: the SSE route caps a frame at 4KB, so result lists
+  // never travel here. excludeFromTriggers for the same reason as run.progress —
+  // a transient echo must never drive a workflow.
+  { id: 'agent_orchestrator.web_search.progress', label: 'Agent Web Search Progress', entity: 'run', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
   // File plane overlay (spec 2026-06-26). `artifact.captured` fires after a
   // file-enabled OpenCode run's outputs are hashed + stored (clientBroadcast so
   // the run-detail Artifacts panel live-updates). `artifact.promoted` fires when

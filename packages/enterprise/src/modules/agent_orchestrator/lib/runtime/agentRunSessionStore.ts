@@ -22,6 +22,13 @@ export interface AgentRunSessionStore {
   /** The active agent id for a session token, or null when unknown/stale. */
   resolveActiveAgentId(sessionToken: string): Promise<string | null>
   /**
+   * The active run id for a session token. Needed because `getCurrentRunId()`
+   * reads an AsyncLocalStorage the in-process runner sets, which is empty in the
+   * `mcp:serve-http` process — the primary path for file agents. Without this the
+   * per-run call budget silently never applies there.
+   */
+  resolveActiveRunId(sessionToken: string): Promise<string | null>
+  /**
    * Store the validated outcome. Single-shot: `not_found` when no run exists for
    * the token, `already_completed` when an outcome was already captured (never
    * overwritten), `completed` when this call performed the completion.
@@ -79,6 +86,12 @@ export class DbAgentRunSessionStore implements AgentRunSessionStore {
     return row?.agentId ?? null
   }
 
+  async resolveActiveRunId(sessionToken: string): Promise<string | null> {
+    const em = this.em()
+    const row = await em.findOne(AgentRunSession, { sessionToken })
+    return row?.runId ?? null
+  }
+
   async completeOutcome(
     sessionToken: string,
     outcome: unknown,
@@ -108,14 +121,25 @@ export class DbAgentRunSessionStore implements AgentRunSessionStore {
 
 /** In-memory store for unit tests (single process). Mirrors the DB semantics. */
 export class InMemoryAgentRunSessionStore implements AgentRunSessionStore {
-  private readonly rows = new Map<string, { agentId: string; outcome?: unknown; status: 'pending' | 'completed' }>()
+  private readonly rows = new Map<
+    string,
+    { agentId: string; runId: string | null; outcome?: unknown; status: 'pending' | 'completed' }
+  >()
 
-  async open(input: { sessionToken: string; agentId: string }): Promise<void> {
-    this.rows.set(input.sessionToken, { agentId: input.agentId, status: 'pending' })
+  async open(input: { sessionToken: string; agentId: string; runId?: string | null }): Promise<void> {
+    this.rows.set(input.sessionToken, {
+      agentId: input.agentId,
+      runId: input.runId ?? null,
+      status: 'pending',
+    })
   }
 
   async resolveActiveAgentId(sessionToken: string): Promise<string | null> {
     return this.rows.get(sessionToken)?.agentId ?? null
+  }
+
+  async resolveActiveRunId(sessionToken: string): Promise<string | null> {
+    return this.rows.get(sessionToken)?.runId ?? null
   }
 
   async completeOutcome(

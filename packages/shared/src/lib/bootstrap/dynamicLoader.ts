@@ -1,3 +1,4 @@
+import { asValue } from 'awilix'
 import type { BootstrapData } from './types'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
@@ -108,6 +109,21 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
 
 
 /**
+ * Registers an app-owned generated value on the request container.
+ *
+ * The app registers these statically from `src/di.ts`, which `createRequestContainer`
+ * reaches through the `@/` alias — and that alias only exists under the bundler.
+ * A CLI or MCP process runs plain Node, so the import fails, the failure is
+ * swallowed, and the value is simply absent with no diagnostic. Routing it through
+ * a registrar built from the same generated file keeps both processes in step.
+ */
+function appValueRegistrar(key: string, value: unknown): BootstrapData['diRegistrars'][number] {
+  return (container) => {
+    container.register({ [key]: asValue(value) })
+  }
+}
+
+/**
  * Dynamically load bootstrap data from a resolved app directory.
  *
  * IMPORTANT: This only works in unbundled contexts (CLI, tsx).
@@ -155,6 +171,7 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     diModule,
     searchModule,
     commandLoadersModule,
+    webResearchModule,
     commandInterceptorsModule,
     workflowsModule,
   ] = await Promise.all([
@@ -163,6 +180,9 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     compileAndImport(path.join(generatedDir, 'di.generated.ts')),
     compileAndImport(path.join(generatedDir, 'search.generated.ts')).catch(() => ({ searchModuleConfigs: [] })),
     compileAndImport(path.join(generatedDir, 'command-loaders.generated.ts')).catch(() => ({ commandLoaderEntries: [] })),
+    compileAndImport(path.join(generatedDir, 'web-research-adapters.generated.ts')).catch(() => ({
+      webResearchAdapterEntries: [],
+    })),
     compileAndImport(path.join(generatedDir, 'command-interceptors.generated.ts')).catch(() => ({ commandInterceptorEntries: [] })),
     compileAndImport(path.join(generatedDir, 'workflows.generated.ts')).catch(() => ({ allCodeWorkflows: [] })),
   ])
@@ -170,7 +190,10 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
   return {
     modules: modulesModule.modules as BootstrapData['modules'],
     entities: entitiesModule.entities as BootstrapData['entities'],
-    diRegistrars: diModule.diRegistrars as BootstrapData['diRegistrars'],
+    diRegistrars: [
+      ...(diModule.diRegistrars as BootstrapData['diRegistrars']),
+      appValueRegistrar('webResearchAdapterEntries', webResearchModule.webResearchAdapterEntries ?? []),
+    ],
     entityIds: entityIdsModule.E as BootstrapData['entityIds'],
     // Search configs are needed by workers for indexing
     searchModuleConfigs: (searchModule.searchModuleConfigs ?? []) as BootstrapData['searchModuleConfigs'],

@@ -47,7 +47,7 @@ import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow
 import { ContextResolverImpl } from './lib/context/contextResolver'
 import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
 import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
-import { resolveWebSearchProvider } from './lib/webSearch/webSearchProvider'
+import { buildWebSearchEngine } from './lib/webSearch/registry'
 import type { DispositionService } from './lib/disposition/dispositionService'
 import { registerWorkInboxSources } from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
 import {
@@ -164,14 +164,13 @@ export function register(container: AppContainer) {
     // carrying provenance (source attachment id + page/region locator) + confidence,
     // which the ContextResolver folds into the bundle as citable `document` sources.
     agentDocumentOcrProvider: asFunction(() => resolveDefaultOcrProvider(container)).scoped(),
-    // Web egress overlay (spec 2026-07-11-agent-web-search-tool, Phase 5): the
-    // DEFAULT provider is model-native (reuses the agent's own LLM `web_search`);
-    // `OM_AGENT_WEB_SEARCH_PROVIDER` switches to a keyed adapter (Tavily) or the
-    // operator's own SearXNG. Null when the selection lacks required config → the
-    // search tool returns `not_configured`. `web_fetch` is independent of this. The
-    // network call runs in THIS server process (allowed net), never the sandbox. A
-    // deployment can re-register `webSearchProvider` with its own instance.
-    webSearchProvider: asFunction(() => resolveWebSearchProvider(container)).scoped(),
+    // Web egress overlay. Adapters come from the generated registry the app
+    // provides as `webResearchAdapterEntries`; policy (which are enabled, their
+    // order, deadlines, thresholds) is per tenant and therefore resolved inside
+    // the tool handler, where the tenant is known. Egress runs in THIS process
+    // (allowed net), never the sandbox. A deployment can re-register
+    // `webSearchEngineFactory` to wrap or replace the chain.
+    webSearchEngineFactory: asFunction(() => buildWebSearchEngine).scoped(),
     agentDocumentIngestService: asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
     ).scoped(),
