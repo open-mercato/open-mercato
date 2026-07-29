@@ -431,12 +431,21 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     const elapsedMs = now() - startedAt
     report('done', 'completed', undefined, undefined, { latencyMs: elapsedMs, resultCount: results.length })
 
+    // `degraded` means the engine could not do its job properly, not that the web
+    // held few answers. Flagging every run that returned fewer than `minResults`
+    // marked a citation-style adapter's normal 1-3 hits as degraded on every
+    // call, and an agent reading that reports its own findings as unreliable.
+    // `cancelled` is excluded on purpose: race and quorum cancel by design.
+    const lostSource = diagnostics.some(
+      (entry) => entry.status === 'blocked' || entry.status === 'timeout' || entry.status === 'error',
+    )
+
     return {
       results,
       answer,
       diagnostics: {
         adapters: diagnostics,
-        degraded: fused.degraded || results.length < policy.minResults,
+        degraded: fused.degraded || results.length === 0 || lostSource,
         cached: false,
         escalated,
         elapsedMs,
