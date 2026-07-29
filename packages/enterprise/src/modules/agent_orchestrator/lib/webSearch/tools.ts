@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import type { AiToolDefinition, McpToolContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
-import { chargeWebFetchBudget, enforceWebSearchRateLimit, resolveRunId } from './guardrails'
+import {
+  chargeAdapterCalls,
+  chargeWebFetchBudget,
+  enforceWebSearchRateLimit,
+  resolveRunId,
+  resolveSpentAdapterBudgets,
+} from './guardrails'
 import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
 import { buildWebSearchEngine } from './registry'
 import { createStepEmitter } from './steps'
@@ -59,10 +65,18 @@ async function loadContext(ctx: McpToolContext, query: string) {
   const settings = await resolveWebSearchSettings(ctx.container, ctx.tenantId ?? null)
   const runId = await resolveRunId(ctx.container, ctx.sessionId)
   const agentId = await resolveAgentId(ctx)
+  // Checked before the engine is built, because the only way to not pay for an
+  // adapter is to not enable it — the engine has no notion of cost.
+  const spentBudgets = await resolveSpentAdapterBudgets(
+    ctx.container,
+    ctx.tenantId ?? null,
+    settings.policy.adapters,
+  )
   const built = buildWebSearchEngine({
     container: ctx.container,
     settings,
     tenantId: ctx.tenantId ?? null,
+    spentBudgets,
     onStep: createStepEmitter({
       runId,
       agentId,
@@ -137,6 +151,18 @@ export const webSearchTool: AiToolDefinition = {
       // charged here or the fetch budget never engages on the path the tool
       // description recommends.
       await chargeWebFetchBudget(ctx.container, runId, settings.guardrails, result.diagnostics.pagesRead)
+
+      // Charged from what actually ran, not from what was planned: quorum often
+      // settles before the expensive adapter is ever reached, and billing for a
+      // call that never happened would exhaust a ceiling that cost nothing.
+      await chargeAdapterCalls(
+        ctx.container,
+        ctx.tenantId ?? null,
+        settings.policy.adapters,
+        result.diagnostics.adapters
+          .filter((entry) => entry.status !== 'skipped' && entry.status !== 'cancelled')
+          .map((entry) => entry.id),
+      )
 
       const allowed = result.results.filter((hit) => {
         const host = hostnameOf(hit.url)

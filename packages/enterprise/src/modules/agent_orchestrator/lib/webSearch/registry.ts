@@ -87,6 +87,8 @@ export type BuildEngineOptions = {
   readonly settings: WebSearchSettings
   readonly tenantId: string | null
   readonly onStep?: StepSink
+  /** Adapters whose hourly call ceiling is spent; they sit this run out. */
+  readonly spentBudgets?: ReadonlySet<string>
 }
 
 export type BuiltEngine = {
@@ -111,6 +113,7 @@ export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
     problems.push({ id: null, packageName: '(host)', reason: MISSING_REGISTRY_REASON })
   }
 
+  const spent = options.spentBudgets ?? new Set<string>()
   const policyById = new Map(settings.policy.adapters.map((entry) => [entry.id, entry]))
   const adapters: EngineAdapterEntry[] = []
 
@@ -124,9 +127,18 @@ export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
     if (built.error) {
       problems.push({ id, packageName: loaded.packageName, reason: built.error })
     }
+    if (spent.has(id)) {
+      // Reported rather than silent: a search that quietly got worse because a
+      // ceiling was reached looks exactly like the web having less to say.
+      problems.push({
+        id,
+        packageName: loaded.packageName,
+        reason: `hourly call ceiling of ${configured?.maxCallsPerHour} reached for this tenant; the adapter sat this search out`,
+      })
+    }
     adapters.push({
       adapter: built.adapter,
-      enabled: configured?.enabled ?? false,
+      enabled: (configured?.enabled ?? false) && !spent.has(id),
       order: configured?.order ?? Number.MAX_SAFE_INTEGER,
       weight: configured?.weight ?? 1,
       ...(configured?.timeoutMs === undefined ? {} : { timeoutMs: configured.timeoutMs }),
@@ -145,9 +157,16 @@ export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
 
   const cache = resolveCache(container, tenantId)
 
+  // `lastResort` deliberately bypasses `enabled`, which would let a spent ceiling
+  // be charged again on every short run — the exact case the ceiling exists for.
+  const policy =
+    settings.policy.lastResort !== null && spent.has(settings.policy.lastResort)
+      ? { ...settings.policy, lastResort: null }
+      : settings.policy
+
   return {
     engine: createSearchEngine({
-      policy: settings.policy,
+      policy,
       adapters,
       http,
       ...(cache ? { cache } : {}),

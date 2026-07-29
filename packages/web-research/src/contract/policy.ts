@@ -15,6 +15,15 @@ export type AdapterPolicyEntry = {
    * either too tight for the model or too slack for everything else.
    */
   readonly timeoutMs?: number
+  /**
+   * Ceiling on how often this adapter may be called, per tenant, per hour.
+   *
+   * The engine does not enforce this — it is per-request and has no memory. The
+   * host counts calls and simply stops enabling the adapter once the ceiling is
+   * reached, which is why the knob lives on the policy rather than in the engine.
+   * Undefined means no ceiling.
+   */
+  readonly maxCallsPerHour?: number
 }
 
 export type ContentPolicy = {
@@ -79,6 +88,7 @@ export const adapterPolicyEntrySchema = z.object({
   order: z.number().int().min(0).optional(),
   weight: z.number().min(0).max(10).optional(),
   timeoutMs: z.number().int().min(250).max(120_000).optional(),
+  maxCallsPerHour: z.number().int().min(1).max(1_000_000).optional(),
 })
 
 export const searchPolicySchema = z.object({
@@ -141,6 +151,7 @@ export function resolvePolicy(input: SearchPolicyInput | null | undefined): Sear
       // Clamped to the hard deadline for the same reason the shared budget is:
       // a per-adapter timeout past it can never be reached.
       ...(entry.timeoutMs === undefined ? {} : { timeoutMs: Math.min(entry.timeoutMs, hardDeadlineMs) }),
+      ...(entry.maxCallsPerHour === undefined ? {} : { maxCallsPerHour: entry.maxCallsPerHour }),
     })),
   }
 }

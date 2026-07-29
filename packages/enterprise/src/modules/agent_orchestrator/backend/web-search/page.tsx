@@ -46,7 +46,14 @@ import { WebSearchPreview } from './WebSearchPreview'
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
 
-type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number; timeoutMs?: number }
+type AdapterEntry = {
+  id: string
+  enabled: boolean
+  order: number
+  weight: number
+  timeoutMs?: number
+  maxCallsPerHour?: number
+}
 
 type Policy = {
   settleMode: 'race' | 'quorum' | 'exhaustive'
@@ -574,12 +581,14 @@ export default function WebSearchSettingsPage() {
                         enabled={entry.enabled}
                         weight={entry.weight}
                         timeoutMs={entry.timeoutMs}
+                        maxCallsPerHour={entry.maxCallsPerHour}
                         meta={installed.find((adapter) => adapter.id === entry.id)}
                         health={health.find((report) => report.id === entry.id)}
                         options={adapterOptions[entry.id] ?? {}}
                         onToggle={(enabled) => updateAdapter(entry.id, { enabled })}
                         onWeight={(weight) => updateAdapter(entry.id, { weight })}
                         onTimeout={(timeoutMs) => updateAdapter(entry.id, { timeoutMs })}
+                        onMaxCalls={(maxCallsPerHour) => updateAdapter(entry.id, { maxCallsPerHour })}
                         optionsDirty={isDirty(`adapter:${entry.id}`)}
                         optionsSaving={savingSection === `adapter:${entry.id}`}
                         onSaveOptions={() => saveSectionNow(`adapter:${entry.id}`)}

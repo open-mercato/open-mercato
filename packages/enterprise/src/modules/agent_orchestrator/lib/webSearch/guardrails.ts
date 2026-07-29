@@ -87,6 +87,82 @@ export async function chargeWebFetchBudget(
   }
 }
 
+const ADAPTER_BUDGET_WINDOW_SECONDS = 3600
+
+function adapterBudgetKey(tenantId: string | null, adapterId: string): string {
+  return `agentweb:adapter:${tenantId ?? 'global'}:${adapterId}`
+}
+
+/**
+ * Which adapters have spent their hourly call ceiling.
+ *
+ * A model doing its own web search is billed per search, and `lastResort` fires
+ * it on every run that came up short — so without a ceiling a stuck agent loop
+ * is an open tab at the vendor. Counted per adapter rather than per tool call
+ * because the same tool costs nothing on a free SERP and real money on a model.
+ *
+ * Fails open when no limiter is registered, like the other ceilings here: losing
+ * web search entirely is worse than losing the cap.
+ */
+export async function resolveSpentAdapterBudgets(
+  container: AwilixContainer,
+  tenantId: string | null,
+  adapters: ReadonlyArray<{ id: string; maxCallsPerHour?: number }>,
+): Promise<ReadonlySet<string>> {
+  const budgeted = adapters.filter((entry) => (entry.maxCallsPerHour ?? 0) > 0)
+  if (budgeted.length === 0) return new Set()
+  const limiter = resolveLimiter(container)
+  if (limiter === 'absent' || limiter === 'broken') return new Set()
+
+  const spent = new Set<string>()
+  await Promise.all(
+    budgeted.map(async (entry) => {
+      try {
+        const result = await limiter.get(adapterBudgetKey(tenantId, entry.id), {
+          points: entry.maxCallsPerHour as number,
+          duration: ADAPTER_BUDGET_WINDOW_SECONDS,
+          keyPrefix: 'agentweb',
+        })
+        if (result && !result.allowed) spent.add(entry.id)
+      } catch {
+        // Reading a ceiling must never fail the search it was meant to bound.
+      }
+    }),
+  )
+  return spent
+}
+
+/** Records the calls that actually happened, so the next run sees the ceiling. */
+export async function chargeAdapterCalls(
+  container: AwilixContainer,
+  tenantId: string | null,
+  adapters: ReadonlyArray<{ id: string; maxCallsPerHour?: number }>,
+  calledIds: readonly string[],
+): Promise<void> {
+  const budgets = new Map(
+    adapters
+      .filter((entry) => (entry.maxCallsPerHour ?? 0) > 0)
+      .map((entry) => [entry.id, entry.maxCallsPerHour as number]),
+  )
+  const charged = calledIds.filter((id) => budgets.has(id))
+  if (charged.length === 0) return
+  const limiter = resolveLimiter(container)
+  if (limiter === 'absent' || limiter === 'broken') return
+  await Promise.all(
+    charged.map(async (id) => {
+      try {
+        await limiter.consume(adapterBudgetKey(tenantId, id), {
+          points: budgets.get(id) as number,
+          duration: ADAPTER_BUDGET_WINDOW_SECONDS,
+          keyPrefix: 'agentweb',
+        })
+      } catch {
+        // Accounting must never fail a search the caller already paid for.
+      }
+    }),
+  )
+}
+
 export async function enforceWebSearchRateLimit(
   container: AwilixContainer,
   scope: WebSearchRateScope,

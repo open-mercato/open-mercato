@@ -149,6 +149,17 @@ themselves — that would bypass every control below in a single step.
   landing mid-codepoint does not corrupt the tail.
 - **Per-run and per-tenant rate ceilings**, with separate budgets for search and
   fetch so a page-reading loop cannot starve discovery.
+- **A per-adapter hourly call ceiling**, because the same tool costs nothing on a
+  free SERP and real money on a model doing its own web search. Set it per adapter
+  in the settings page. It is charged from what actually ran, not what was
+  planned — quorum usually settles before the expensive adapter is reached — and
+  once spent the adapter sits searches out, **including as `lastResort`**, which
+  otherwise bypasses `enabled` on exactly the short runs the ceiling exists for.
+- **The browser tier keeps Chromium's sandbox.** It renders pages chosen by a
+  search engine or a model, so the renderer parses hostile input by definition. If
+  the sandbox cannot start the adapter refuses to launch and says how to fix the
+  container, rather than quietly falling back; `OM_WEB_RESEARCH_BROWSER_NO_SANDBOX=1`
+  is the explicit, logged opt-out for environments that genuinely cannot.
 
 ## Live status
 

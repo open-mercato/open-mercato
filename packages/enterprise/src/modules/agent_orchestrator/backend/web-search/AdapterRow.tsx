@@ -161,12 +161,15 @@ export type AdapterRowProps = {
   weight: number
   /** Per-adapter budget; falls back to the policy-wide one when unset. */
   timeoutMs?: number
+  /** Hourly call ceiling for this tenant; empty means no ceiling. */
+  maxCallsPerHour?: number
   meta?: InstalledAdapter
   health?: AdapterHealth
   options: Record<string, unknown>
   onToggle: (enabled: boolean) => void
   onWeight: (weight: number) => void
   onTimeout: (timeoutMs: number | undefined) => void
+  onMaxCalls: (maxCallsPerHour: number | undefined) => void
   onOption: (field: string, value: unknown) => void
   /** True when this adapter's options differ from what is stored. */
   optionsDirty?: boolean
@@ -179,12 +182,14 @@ export function AdapterRow({
   enabled,
   weight,
   timeoutMs,
+  maxCallsPerHour,
   meta,
   health,
   options,
   onToggle,
   onWeight,
   onTimeout,
+  onMaxCalls,
   optionsDirty = false,
   optionsSaving = false,
   onSaveOptions,
@@ -291,6 +296,29 @@ export function AdapterRow({
             onChange={(event) => {
               const raw = event.target.value.trim()
               onTimeout(raw === '' ? undefined : Number(raw))
+            }}
+          />
+          {/* A model running its own web search is billed per search, and
+              `lastResort` fires it on every run that came up short — so without a
+              ceiling a stuck agent loop is an open tab at the vendor. */}
+          <Label className="text-xs text-muted-foreground">
+            {t('agent_orchestrator.settings.webSearch.maxCalls', 'Calls/h')}
+          </Label>
+          <Input
+            type="number"
+            min={1}
+            step={10}
+            autoComplete="off"
+            value={maxCallsPerHour ?? ''}
+            placeholder={t('agent_orchestrator.settings.webSearch.maxCallsDefault', 'unlimited')}
+            title={t(
+              'agent_orchestrator.settings.webSearch.maxCallsHint',
+              'Most calls this adapter may make per hour for this tenant. Once reached it sits searches out, including as last resort. Leave empty for no ceiling.',
+            )}
+            className="h-8 w-24"
+            onChange={(event) => {
+              const raw = event.target.value.trim()
+              onMaxCalls(raw === '' ? undefined : Number(raw))
             }}
           />
           {fields.length > 0 ? (
