@@ -289,7 +289,7 @@ test('business one-shot route keys remain binding for installed-module links', (
 test('spec routing binds integration coverage to its decision label', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /integration coverage \(`integration-coverage`\); no domain routes/)
-  assert.match(root, /commit\+ready PR \(MUST add\); keep task routes \(`delivery-route-preserves-task-routes`\).*`om-auto-create-pr`/)
+  assert.match(root, /Commit\+ready PR MUST add `spec-pr`, read `\.ai\/skills\/om-auto-create-pr\/SKILL\.md`, and keep task routes \(`delivery-route-preserves-task-routes`\)/)
 })
 
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
@@ -387,8 +387,11 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(uiSkill, /also requires `om-system-extension`/)
   assert.match(uiSkill, /read `references\/crud-surfaces\.md` and `references\/quality-states\.md`/)
   assert.match(uiSkill, /stable host ID \(`stable-table-host`\)/)
+  assert.match(uiSkill, /Do not load contracts or `om-module-scaffold` unless it adds app-owned persistence\/API\/commands/)
   assert.match(root, /read-only behavior\/auth\/dependents\/customization = `framework-context`/)
   assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
+  const frameworkContext = readAgentic('shared/ai/skills/om-framework-context/SKILL.md')
+  assert.match(frameworkContext, /does not load `\.ai\/guides\/extensions\.md` unless the selected route also includes `umes`/)
   assert.match(extensionSkill, /one installed-host field versus extension records for history\/rules/)
   for (const reference of ['mechanism-selector.md', 'extension-branches.md']) {
     assert.ok(
@@ -402,6 +405,7 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(extensionSkill, /`eject-last`; the last applies even when ejection is rejected/)
   assert.match(extensionSkill, /one backend invariant across UI, API, and direct callers \(`backend-consistency`\)/)
   assert.match(extensionSkill, /host status transition invariant \(`status-invariant`\)/)
+  assert.match(extensionSkill, /installed host guard, do not load contracts or `om-module-scaffold` unless adding app-owned persistence\/API\/commands/)
 })
 
 test('workflow skill binds implementation prompts to the progressive contract references', () => {
@@ -453,6 +457,19 @@ test('debugging stays additive to cross-module domain and extension work', () =>
   assert.match(debugging, /surface every real failure \(`honest-test-result`\)/)
   const troubleshooter = readAgentic('shared/ai/skills/om-troubleshooter/SKILL.md')
   assert.match(troubleshooter, /explicitly asks to add a test, select the `testing` route/)
+})
+
+test('AI attachments, CRM lead capture, and customer renewals bind their exact progressive owners', () => {
+  const aiSkill = readAgentic('shared/ai/skills/om-create-ai-agent/SKILL.md')
+  const blueprints = readAgentic(
+    'shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
+  )
+  for (const decision of ['artifact-authorization', 'encrypted-storage', 'cleanup', 'draft-only-ai-output']) {
+    assert.ok(aiSkill.includes(`\`${decision}\``), `missing AI attachment decision ${decision}`)
+  }
+  assert.match(blueprints, /load `om-data-model-design` for the lead record and scalar CRM link/)
+  assert.match(blueprints, /load both `scheduler` and `customers` facts/)
+  assert.match(blueprints, /trusted host scope \(`host-scope-contract`\)/)
 })
 
 test('API and command fixes load trusted-scope domain contracts', () => {

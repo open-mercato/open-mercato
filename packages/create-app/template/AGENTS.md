@@ -88,13 +88,13 @@ Match every work-unit row; OPEN its skill before selection.
 
 ### Axis 3 — SDLC and Delivery
 
-Delivery skills come from pinned `open-mercato/skills` (`yarn install-skills`; intentionally refresh and re-pin current `main` with `yarn install-skills --update`). Read them at `.agents/skills/<id>/SKILL.md`; MUST also apply any matching `.ai/skills/<id>/SKILL.md` override.
+Pinned delivery skills: `yarn install-skills` (refresh: `--update`). Read BOTH `.agents/skills/<id>/SKILL.md` and a matching `.ai/skills/<id>/SKILL.md` override. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
 | `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) + exact `.ai/agentic.config.json` for its specs-directory setting |
 | `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
-| `spec-pr` | Whole-spec/issue/review/commit+ready PR (MUST add); keep task routes (`delivery-route-preserves-task-routes`) | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
+| `spec-pr` | Whole-spec / commit+ready PR / issue / review | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
 | `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
 | — | No PR/spec workflow requested | Do not load delivery skills |
 
