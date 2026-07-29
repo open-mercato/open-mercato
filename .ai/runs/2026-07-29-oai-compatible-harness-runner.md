@@ -66,15 +66,15 @@ Those baselines predate #4529's remediation, so they measure historically hard r
 
 ## Progress
 
-PR: (pending)
+PR: #4637
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Additive runner contract
 
-- [x] 1.1 Add the OpenAI-compatible runner, evaluator wiring, matrices, schemas, and docs
-- [x] 1.2 Add regression coverage against a real local endpoint — six new evaluator tests; complete create-app suite 350 pass / 5 platform skips / 0 failures
-- [x] 1.3 Prove the deterministic catalog gate on a controller emitted from this branch — 192/192
+- [x] 1.1 Add the OpenAI-compatible runner, evaluator wiring, matrices, schemas, and docs — dda6b8007
+- [x] 1.2 Add regression coverage against a real local endpoint — dda6b8007; six new evaluator tests; complete create-app suite 350 pass / 5 platform skips / 0 failures
+- [x] 1.3 Prove the deterministic catalog gate on a controller emitted from this branch — 192/192 at dda6b8007
 
 ### Phase 2: Screening sweep
 
