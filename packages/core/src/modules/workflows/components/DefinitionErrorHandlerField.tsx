@@ -54,35 +54,35 @@ export function DefinitionErrorHandlerField({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Label htmlFor="error-handler-mode" className="text-xs">
-          {t('workflows.visualEditor.errorHandler.label', 'On unhandled failure')}
-        </Label>
-        <Select value={mode} onValueChange={handleModeChange}>
-          <SelectTrigger
-            id="error-handler-mode"
-            className="w-full sm:w-[280px]"
-            aria-label={t('workflows.visualEditor.errorHandler.label', 'On unhandled failure')}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE_MODE}>
-              {t('workflows.visualEditor.errorHandler.none', 'Fail the instance (default)')}
-            </SelectItem>
-            <SelectItem value={STEP_MODE}>
-              {t('workflows.visualEditor.errorHandler.step', 'Go to a handler step')}
-            </SelectItem>
-            <SelectItem value={WORKFLOW_MODE}>
-              {t('workflows.visualEditor.errorHandler.workflow', 'Run a handler workflow')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1.5">
+          <Label htmlFor="error-handler-mode" className="text-xs">
+            {t('workflows.visualEditor.errorHandler.label', 'On unhandled failure')}
+          </Label>
+          <Select value={mode} onValueChange={handleModeChange}>
+            <SelectTrigger
+              id="error-handler-mode"
+              aria-label={t('workflows.visualEditor.errorHandler.label', 'On unhandled failure')}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE_MODE}>
+                {t('workflows.visualEditor.errorHandler.none', 'Fail the instance (default)')}
+              </SelectItem>
+              <SelectItem value={STEP_MODE}>
+                {t('workflows.visualEditor.errorHandler.step', 'Go to a handler step')}
+              </SelectItem>
+              <SelectItem value={WORKFLOW_MODE}>
+                {t('workflows.visualEditor.errorHandler.workflow', 'Run a handler workflow')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
       </div>
 
       {mode === STEP_MODE ? (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="error-handler-step" className="text-xs">
             {t('workflows.visualEditor.errorHandler.stepLabel', 'Handler step')}
           </Label>
@@ -92,7 +92,6 @@ export function DefinitionErrorHandlerField({
           >
             <SelectTrigger
               id="error-handler-step"
-              className="w-full sm:w-[280px]"
               aria-label={t('workflows.visualEditor.errorHandler.stepLabel', 'Handler step')}
             >
               <SelectValue />
@@ -109,19 +108,19 @@ export function DefinitionErrorHandlerField({
       ) : null}
 
       {mode === WORKFLOW_MODE ? (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="error-handler-workflow" className="text-xs">
             {t('workflows.visualEditor.errorHandler.workflowLabel', 'Handler workflow id')}
           </Label>
           <Input
             id="error-handler-workflow"
-            className="h-8 w-full text-sm sm:w-[280px]"
             value={value?.workflowId ?? ''}
             placeholder={t('workflows.visualEditor.errorHandler.workflowPlaceholder', 'order-failure-handler')}
             onChange={(event) => onChange({ workflowId: event.target.value, version: value?.version })}
           />
         </div>
       ) : null}
+      </div>
 
       <p className="text-xs text-muted-foreground">
         {t(

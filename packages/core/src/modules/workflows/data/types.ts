@@ -1,4 +1,6 @@
-import type { WorkflowDefinitionTrigger } from './entities'
+import type { WorkflowContextSchema, WorkflowDefinitionTrigger } from './entities'
+import type { WorkflowErrorHandlerConfig } from './validators'
+import type { WorkflowInterpolationMode } from '../lib/interpolation-pipeline'
 
 // Re-export from validators (includes ESCALATED)
 export type { UserTaskStatus } from './validators'
@@ -79,7 +81,17 @@ export type UserTaskDecision = {
   style?: 'primary' | 'secondary' | 'destructive'
 }
 
-// Grouped metadata state for MobileVisualEditor / MobileMetadataSheet
+/**
+ * Grouped definition-metadata state shared by every surface that edits it
+ * (the Studio's details drawer and the mobile editor).
+ *
+ * `contextSchema`, `interpolation` and `errorHandler` are OPTIONAL because
+ * they were added after the shape shipped; a caller that omits them keeps the
+ * pre-existing behaviour and the drawer simply hides the sections it cannot
+ * write to. They are not "unused metadata" — omitting them from a save payload
+ * silently drops the author's configuration, which is why the Studio always
+ * carries them.
+ */
 export interface WorkflowMetadataState {
   workflowId: string
   workflowName: string
@@ -92,6 +104,9 @@ export interface WorkflowMetadataState {
   effectiveFrom: string
   effectiveTo: string
   triggers: WorkflowDefinitionTrigger[]
+  contextSchema?: WorkflowContextSchema | undefined
+  interpolation?: WorkflowInterpolationMode | undefined
+  errorHandler?: WorkflowErrorHandlerConfig | undefined
 }
 
 export interface WorkflowMetadataHandlers {
@@ -106,4 +121,7 @@ export interface WorkflowMetadataHandlers {
   setEffectiveFrom: (v: string) => void
   setEffectiveTo: (v: string) => void
   setTriggers: (v: WorkflowDefinitionTrigger[]) => void
+  setContextSchema?: (v: WorkflowContextSchema | undefined) => void
+  setInterpolation?: (v: WorkflowInterpolationMode) => void
+  setErrorHandler?: (v: WorkflowErrorHandlerConfig | undefined) => void
 }

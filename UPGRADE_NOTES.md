@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows: `MobileMetadataSheet` is deprecated
+
+**Who is affected:** anyone importing `MobileMetadataSheet` from
+`@open-mercato/core/modules/workflows/components/mobile/MobileMetadataSheet`.
+
+The Studio's definition metadata moved from an inline band above the canvas into a wide
+right-side drawer, `components/DefinitionMetadataDrawer.tsx`, and the mobile editor now
+renders the same component. `MobileMetadataSheet` was a second, divergent copy of the same
+form that never gained the fields the desktop one did — `contextSchema`, the interpolation
+mode and the definition-level error handler were simply not editable on mobile.
+
+It is still exported and still works; it has no call site left in the module and will be
+removed one minor after this note. Migrate to `DefinitionMetadataDrawer`, which takes
+`{ open, onOpenChange, definitionId, readOnly, metadata, handlers, errorHandlerStepOptions,
+onSave, isSaving }`.
+
+`WorkflowMetadataState` / `WorkflowMetadataHandlers` gained **optional** `contextSchema`,
+`interpolation` and `errorHandler` members. Existing objects keep type-checking; a caller
+that omits them gets a drawer without those sections.
+
 ### Workflows: task visibility is now assignment + entity access (security-semantics change)
 
 **Who is affected:** every tenant with workflow user tasks. **This change is ON by default.**

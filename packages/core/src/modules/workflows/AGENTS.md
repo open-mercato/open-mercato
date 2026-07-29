@@ -688,6 +688,36 @@ Treat a regression here as a broken feature, not a nit.
   pair green + a check, route chips are labelled buttons and the collapsed semantic-zoom dot row is a
   labelled `role="img"`. `components/__tests__/canvasAccessibility.test.tsx` is the guard.
 
+## Definition Metadata Drawer
+
+- **`components/DefinitionMetadataDrawer.tsx` is the ONE definition-metadata form.** The Studio and
+  the mobile editor both render it; `components/mobile/MobileMetadataSheet.tsx` is `@deprecated` with
+  no call site left. It was a second copy of the same form that never gained `contextSchema`, the
+  interpolation mode or the error handler, so mobile authors could not edit them at all — MUST NOT
+  reintroduce a per-viewport copy.
+- **It is a Drawer because the canvas is what the page is for.** The form used to render inline above
+  the canvas in a `max-h-[45svh]` band (`60svh` compact), i.e. it was designed to eat up to half the
+  viewport on the one page whose purpose is the graph, and everything past the second row of fields
+  was reachable only by scrolling inside the band. The drawer takes 4/5 of the width (sanctioned) and
+  costs the canvas nothing.
+- **Five sections, not tabs.** `Identity` (workflow id + version + name + description — the id and
+  version ARE the unique key the engine resolves an instance against, which is why both lock after
+  creation), `Presentation` (icon/category/tags), `Availability` (enabled + effective window),
+  `Inputs and triggers` (`contextSchema` + triggers), `Runtime behaviour` (interpolation +
+  `errorHandler`). Tabs would hide a blank required field behind a navigation step, split the Tab
+  order and break Ctrl+F, on a form filled top-to-bottom before the first save.
+- **It starts CLOSED and is never auto-opened on load.** It is a modal overlay: opening it on mount
+  would leave the author unable to touch the canvas until they dismiss it. `handleSave` opens it when
+  the required id/name are blank, and the toolbar trigger carries a marker (icon + `sr-only` text,
+  never colour alone) meanwhile.
+- **Canvas key bindings are suppressed behind it** (`isOverlayOpen` in the page's keydown handler).
+  Cmd+S is the deliberate exception — the drawer has no submit of its own to protect, saving the
+  workflow IS its primary action. Cmd/Ctrl+Enter saves, Escape closes.
+- The round trip is guarded by `backend/definitions/visual-editor/__tests__/metadataDrawer.test.tsx`:
+  open → edit every field → save, asserting each edited value reaches the PUT body AND that every
+  pass-through key (`contextSchema`, `io`, `interpolation`, `errorHandler`, unknown metadata keys)
+  survives. Fields silently dropped on save are this module's recurring bug class.
+
 ## Definition Icon Picker
 
 - `components/WorkflowIconPicker.tsx` replaces the free-text `metadata.icon` input with a searchable
