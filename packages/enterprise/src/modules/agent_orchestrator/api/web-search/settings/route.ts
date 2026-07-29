@@ -10,6 +10,7 @@ import {
   maskSecrets,
   resolveAdapterModules,
   unmaskSecrets,
+  searchPolicySchema,
   type AdapterRegistryEntry,
 } from '@open-mercato/web-research'
 import {
@@ -46,6 +47,32 @@ type ModuleConfigServiceLike = {
     value: unknown,
     scope?: { tenantId?: string | null },
   ): Promise<unknown>
+  getRecord?(
+    moduleId: string,
+    name: string,
+    scope?: { tenantId?: string | null },
+  ): Promise<{ value: unknown } | null>
+}
+
+/**
+ * The tenant's own stored row, not the env-overlaid view.
+ *
+ * A partial update must preserve what the tenant actually saved; merging over the
+ * resolved settings would silently promote every deployment default into the
+ * tenant row the first time anyone touched one field.
+ */
+async function readStoredValue(
+  service: ModuleConfigServiceLike,
+  tenantId: string,
+): Promise<Record<string, unknown> | null> {
+  if (!service.getRecord) return null
+  try {
+    const record = await service.getRecord(WEB_SEARCH_CONFIG_MODULE, WEB_SEARCH_CONFIG_NAME, { tenantId })
+    const value = record?.value
+    return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
 }
 
 function loadRegistry(container: AwilixContainer) {
@@ -141,7 +168,9 @@ export async function PUT(req: Request) {
   const current = await resolveWebSearchSettings(container, auth.tenantId)
   const registry = loadRegistry(container)
   const incomingOptions = (parsed.data.adapterOptions ?? {}) as Record<string, Record<string, unknown>>
-  const adapterOptions: Record<string, unknown> = { ...incomingOptions }
+  // Merged per adapter, not replaced, so saving one adapter's card cannot drop
+  // the credentials of every other adapter the form did not submit.
+  const adapterOptions: Record<string, unknown> = { ...current.adapterOptions, ...incomingOptions }
   for (const entry of registry.loaded) {
     const incoming = incomingOptions[entry.module.id]
     if (!incoming) continue
@@ -149,16 +178,29 @@ export async function PUT(req: Request) {
     adapterOptions[entry.module.id] = unmaskSecrets(incoming, stored, describeOptionsSchema(entry.module))
   }
 
-  // The write replaces the whole stored value, so a body that omits `guardrails`
-  // used to erase them — and the settings page autosaves without sending them,
-  // which quietly dropped an operator's deny list the first time anyone opened
-  // the screen. Absent means unchanged.
-  const guardrails = parsed.data.guardrails ?? current.guardrails
+  /**
+   * A partial update: every key the body omits keeps its stored value.
+   *
+   * The write replaces the whole stored document, so without this a body that
+   * left out `guardrails` erased them — and the form used to autosave without
+   * sending them, which dropped an operator's deny list the first time anyone
+   * opened the screen. It is also what lets each section of the form own its own
+   * Save button: a section submits its own fields and nothing else moves.
+   */
+  const { guardrails: incomingGuardrails, adapterOptions: _ignored, ...incomingPolicy } = parsed.data
+  const storedPolicy = searchPolicySchema.safeParse(
+    (await readStoredValue(service, auth.tenantId)) ?? {},
+  )
 
   await service.setValue(
     WEB_SEARCH_CONFIG_MODULE,
     WEB_SEARCH_CONFIG_NAME,
-    { ...parsed.data, guardrails, adapterOptions },
+    {
+      ...(storedPolicy.success ? storedPolicy.data : {}),
+      ...incomingPolicy,
+      guardrails: { ...current.guardrails, ...(incomingGuardrails ?? {}) },
+      adapterOptions,
+    },
     { tenantId: auth.tenantId },
   )
 
