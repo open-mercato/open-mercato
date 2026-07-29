@@ -177,11 +177,14 @@ describe('loadFileAgentDir', () => {
     expect(sub.openCodeAgentFile).toContain('task: deny')
     expect(sub.openCodeAgentFile).not.toContain('"task": true')
 
-    // Primary allows the task tool and whitelists ONLY its sub-agent's name.
+    // Primary delegates via the server-side delegate_agent tool, NEVER OpenCode's `task`.
     expect(loaded!.openCodeAgentFile).toContain('mode: primary')
-    expect(loaded!.openCodeAgentFile).toContain('"task": true')
-    expect(loaded!.openCodeAgentFile).toContain('"deals_activity_scan": allow')
+    expect(loaded!.openCodeAgentFile).toContain('task: deny')
+    expect(loaded!.openCodeAgentFile).not.toContain('"task": true')
+    expect(loaded!.openCodeAgentFile).toContain('"open-mercato_agent_orchestrator_delegate_agent": true')
     expect(loaded!.openCodeAgentFile).toContain('## Sub-agents')
+    // The delegation prompt names the sub-agent by its FULL registry id.
+    expect(loaded!.openCodeAgentFile).toContain('deals.activity_scan')
   })
 
   it('rejects an actionable sub-agent (only the primary proposes)', () => {

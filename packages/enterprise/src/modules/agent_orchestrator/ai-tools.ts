@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { defineAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-tool-definition'
-import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
+import type { AiToolDefinition, McpToolContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 import { DELEGATE_TOOL_ID, getAgentEntry, ensureAgentsLoaded } from './lib/sdk/defineAgent'
 import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
@@ -22,6 +22,26 @@ const delegateInput = z.object({
   agentId: z.string().min(1).describe('Id of the sub-agent to run (must be an informative agent).'),
   input: z.unknown().describe('Input payload passed to the sub-agent (shape is sub-agent specific).'),
 })
+
+/**
+ * Resolve the parent run id from the caller's run session when the in-process
+ * run context is absent. On the OpenCode path this tool runs in the separate
+ * `mcp:serve-http` process where `getCurrentRunId()` is always undefined, so the
+ * nested-run `parent_run_id` trace link would be lost. Mirrors how
+ * `submit_outcome` (this file) and `lib/webSearch/guardrails.ts` resolve the run
+ * from the session token via `agentRunSessionStore`. Never throws — a missing
+ * session or an unresolvable store yields `undefined` (a top-level nested run).
+ */
+async function resolveParentRunIdFromSession(ctx: McpToolContext): Promise<string | undefined> {
+  const sessionToken = ctx.sessionId
+  if (!sessionToken) return undefined
+  try {
+    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
+    return (await store.resolveActiveRunId(sessionToken)) ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Sub-agent-as-tool: lets a parent agent run another agent as a read-only
@@ -69,9 +89,12 @@ const delegateAgentTool: AiToolDefinition = {
       const agentRuntime = ctx.container.resolve('agentRuntime') as AgentRuntimeService
       // The parent run is the in-process run currently executing (bound via the
       // run-context AsyncLocalStorage); pass its id so the nested sub-agent run
-      // records `parent_run_id` for traceability (Phase 4). Undefined outside a
-      // run context (the nested run is then a top-level run).
-      const parentRunId = getCurrentRunId()
+      // records `parent_run_id` for traceability (Phase 4). On the OpenCode path
+      // this tool runs in the separate mcp:serve-http process where that async
+      // context is never set — fall back to the cross-process correlation store,
+      // resolving the parent run from THIS run's session token. Undefined when
+      // neither resolves (the nested run is then a top-level run).
+      const parentRunId = getCurrentRunId() ?? (await resolveParentRunIdFromSession(ctx))
       const delegatedSource = getCurrentRunSource()
       const result = await agentRuntime.run(agentId, input, {
         tenantId: ctx.tenantId,

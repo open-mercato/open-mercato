@@ -101,6 +101,84 @@ describe('createAgentFilesExtension', () => {
     expect(dockerContent).toContain('mode: primary')
     expect(dockerContent).toContain('open-mercato_agent_orchestrator_submit_outcome')
     expect(dockerContent).toContain('write: deny')
+    // No sub-agents declared → `task` denied and no delegate tool (unchanged).
+    expect(dockerContent).toContain('task: deny')
+    expect(dockerContent).not.toContain('delegate_agent')
+  })
+
+  it('routes file-agent delegation through delegate_agent instead of the task tool', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+
+    // Declare a sub-agent under sub-agents/<subid>/ (informative + non-delegating).
+    fs.writeFileSync(
+      path.join(agentDir, 'AGENT.md'),
+      [
+        '---',
+        'id: deals.health_check',
+        'label: Deal health check',
+        'description: Assess a deal.',
+        '---',
+        'You assess a deal.',
+      ].join('\n'),
+      'utf8',
+    )
+    const subDir = path.join(agentDir, 'sub-agents', 'company_researcher')
+    fs.mkdirSync(subDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(subDir, 'AGENT.md'),
+      [
+        '---',
+        'id: deals.company_researcher',
+        'label: Company researcher',
+        'description: Research a company.',
+        '---',
+        'You research a company.',
+      ].join('\n'),
+      'utf8',
+    )
+    fs.writeFileSync(
+      path.join(subDir, 'OUTCOME.md'),
+      [
+        '---',
+        'kind: informative',
+        '---',
+        '```json',
+        JSON.stringify({ type: 'object', properties: { summary: { type: 'string' } } }),
+        '```',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    const primary = fs.readFileSync(
+      path.join(repoRoot, 'docker/opencode/agents/deals_health_check.md'),
+      'utf8',
+    )
+    // The orchestrator gains the delegate_agent MCP tool, denies `task`, and
+    // never grants the built-in task tool.
+    expect(primary).toContain('open-mercato_agent_orchestrator_delegate_agent')
+    expect(primary).toContain('task: deny')
+    expect(primary).not.toContain('"task": true')
+    // The prompt delegates through delegate_agent (not `task`) using the FULL
+    // sub-agent id.
+    expect(primary).toContain('## Sub-agents')
+    expect(primary).toContain('delegate_agent')
+    expect(primary).toContain('deals.company_researcher')
+    expect(primary).not.toContain('by calling the `task` tool')
+
+    // The sub-agent file gets neither the delegate tool nor `task` (depth cap = 1).
+    const sub = fs.readFileSync(
+      path.join(repoRoot, 'docker/opencode/agents/deals_company_researcher.md'),
+      'utf8',
+    )
+    expect(sub).toContain('mode: subagent')
+    expect(sub).toContain('task: deny')
+    expect(sub).not.toContain('delegate_agent')
   })
 
   it('emits an agent SAMPLE.json into the manifest as sampleInput', () => {
