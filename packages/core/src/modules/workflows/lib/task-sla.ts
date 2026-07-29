@@ -24,6 +24,13 @@ import { StepInstance, UserTask, WorkflowInstance } from '../data/entities'
 import type { TaskOnBreach, TaskReminder } from '../data/validators'
 import { parseDuration } from './duration'
 import { resolveTaskBreachHandling, type TaskBreachHandling } from './breach-routing'
+import {
+  findAgentReviewConfig,
+  resolveAgentReviewBreachHandling,
+  INVOKE_AGENT_ACTIVITY_TYPE,
+  type AgentReviewBreachHandling,
+  type AgentReviewStepLike,
+} from './agent-review'
 import { findDefinitionForInstance } from './find-definition'
 import { emitWorkflowsEvent } from '../events'
 import type * as stepHandlerModule from './step-handler'
@@ -287,7 +294,13 @@ export async function runTaskSlaJob(
   return 'breached'
 }
 
-type BreachOutcome = 'none' | 'notified' | 'reassigned' | 'routed' | 'route_skipped_branch'
+type BreachOutcome =
+  | 'none'
+  | 'notified'
+  | 'reassigned'
+  | 'routed'
+  | 'route_skipped_branch'
+  | 'attention'
 
 interface AppliedBreachHandling {
   outcome: BreachOutcome
@@ -295,10 +308,34 @@ interface AppliedBreachHandling {
   resumeInstance?: { stepId: string; toStepId: string; transitionId?: string }
 }
 
+type BreachResolution = TaskBreachHandling | AgentReviewBreachHandling
+
+/**
+ * A step whose breached task is an agent DISPOSITION task rather than an
+ * authored USER_TASK. Recognised structurally from the compiled step (an
+ * AUTOMATED step carrying an INVOKE_AGENT activity), which is the same shape
+ * `graph-utils` round-trips the node from.
+ */
+function isInvokeAgentStepDef(step: AgentReviewStepLike | undefined): boolean {
+  return (step?.activities ?? []).some(
+    (activity) => activity?.activityType === INVOKE_AGENT_ACTIVITY_TYPE
+  )
+}
+
 /**
  * Apply the resolver's answer to the task row. Routing itself is deferred to
  * `resumeAfterBreachRoute` so the workflow only advances after the breach has
  * been recorded and announced.
+ *
+ * Which resolver answers depends on WHAT the task is. An authored USER_TASK
+ * keeps the full §6.1 vocabulary, including "follow a route". An agent
+ * disposition task (§7.5) gets the escalate-only one: notify, reassign, or mark
+ * the run for attention. It can reach neither a verdict nor a route, because
+ * both would resolve a pending proposal without a human — routing the run past
+ * a proposal nobody answered silently drops the mutation the agent proposed,
+ * which is a rejection in everything but name. A hand-authored `kind:'slaBreach'`
+ * transition on an agent step therefore cannot fire either: the branch below is
+ * taken from the STEP's shape, not from the config the author supplied.
  */
 async function applyBreachHandling(
   em: EntityManager,
@@ -307,8 +344,9 @@ async function applyBreachHandling(
   options: RunTaskSlaJobOptions,
   now: Date
 ): Promise<AppliedBreachHandling> {
-  let resolution: TaskBreachHandling = { kind: 'none' }
+  let resolution: BreachResolution = { kind: 'none' }
   let stepId: string | null = null
+  let instance: WorkflowInstance | null = null
 
   try {
     const stepInstance = await em.findOne(StepInstance, {
@@ -318,7 +356,7 @@ async function applyBreachHandling(
     })
     stepId = stepInstance?.stepId ?? null
 
-    const instance = await em.findOne(WorkflowInstance, {
+    instance = await em.findOne(WorkflowInstance, {
       id: options.workflowInstanceId,
       tenantId: options.tenantId,
       organizationId: options.organizationId,
@@ -328,13 +366,17 @@ async function applyBreachHandling(
       const definition = await findDefinitionForInstance(em, instance)
       const stepDef = (definition?.definition?.steps ?? []).find(
         (step: { stepId?: string }) => step.stepId === stepId
-      ) as { userTaskConfig?: { onBreach?: TaskOnBreach | null } } | undefined
+      ) as
+        | ({ userTaskConfig?: { onBreach?: TaskOnBreach | null } } & AgentReviewStepLike)
+        | undefined
 
-      resolution = resolveTaskBreachHandling(
-        definition?.definition ?? null,
-        stepId,
-        stepDef?.userTaskConfig?.onBreach ?? null
-      )
+      resolution = isInvokeAgentStepDef(stepDef)
+        ? resolveAgentReviewBreachHandling(findAgentReviewConfig(stepDef)?.onBreach ?? null)
+        : resolveTaskBreachHandling(
+            definition?.definition ?? null,
+            stepId,
+            stepDef?.userTaskConfig?.onBreach ?? null
+          )
     }
   } catch (error) {
     // A definition the engine can no longer read must not strand the breach:
@@ -348,6 +390,12 @@ async function applyBreachHandling(
   }
 
   if (resolution.kind === 'notify') return { outcome: 'notified' }
+
+  if (resolution.kind === 'attention') {
+    if (!instance) return { outcome: 'none' }
+    await markInstanceForAttention(em, instance, stepId, task, now)
+    return { outcome: 'attention', detail: { stepId } }
+  }
 
   if (resolution.kind === 'reassign') {
     task.assignedTo = resolution.assignedTo
@@ -396,6 +444,42 @@ async function applyBreachHandling(
   }
 
   return { outcome: 'none' }
+}
+
+/**
+ * Mark a run for triage without touching its state machine.
+ *
+ * The instance is ALREADY paused — an agent step parks on the proposal-ready
+ * signal — so this writes only the engine-owned `metadata.attention` marker the
+ * failure queue already uses (`GET /api/workflows/instances?attention=true`
+ * lists it). Deliberately no status write, no `errorMessage`: the run is not
+ * failing, it is waiting on a person who is late, and the proposal is still
+ * pending for whoever picks it up.
+ */
+async function markInstanceForAttention(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  stepId: string | null,
+  task: UserTask,
+  now: Date
+): Promise<void> {
+  instance.metadata = {
+    ...(instance.metadata || {}),
+    attention: {
+      reason: 'DISPOSITION_SLA_BREACH',
+      ...(stepId ? { stepId } : {}),
+      at: now.toISOString(),
+    },
+  }
+  instance.updatedAt = now
+  await em.flush()
+
+  logger.warn('Agent disposition deadline passed; run marked for attention', {
+    component: 'task-sla',
+    taskId: task.id,
+    workflowInstanceId: instance.id,
+    stepId,
+  })
 }
 
 /**

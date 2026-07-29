@@ -1000,7 +1000,8 @@ export type AgentProposalSource = 'runtime' | 'eval'
 @Index({ name: 'agent_proposals_org_disposition_created_idx', properties: ['organizationId', 'disposition', 'createdAt'] })
 export class AgentProposal {
   [OptionalProps]?: 'source' | 'disposition' | 'dispositionBy' | 'dispositionReason'
-    | 'processId' | 'stepId' | 'confidence' | 'guardResults' | 'createdAt' | 'updatedAt' | 'deletedAt'
+    | 'processId' | 'stepId' | 'userTaskId' | 'confidence' | 'guardResults' | 'createdAt'
+    | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1022,6 +1023,19 @@ export class AgentProposal {
 
   @Property({ name: 'step_id', type: 'varchar', length: 100, nullable: true })
   stepId?: string | null
+
+  /**
+   * The workflows `UserTask` raised for this proposal's human review, when one
+   * was raised (spec §7.5 / A7).
+   *
+   * An FK-by-id to another module's row, never an ORM relation. It exists so a
+   * disposition can CLOSE the review task it created: without it the task
+   * outlives the decision and sits in the operator's inbox as work that has
+   * already been done. Null on every auto-approved proposal (no task is ever
+   * raised) and on every row written before this column existed.
+   */
+  @Property({ name: 'user_task_id', type: 'uuid', nullable: true })
+  userTaskId?: string | null
 
   @Property({ name: 'payload', type: 'jsonb' })
   payload!: unknown

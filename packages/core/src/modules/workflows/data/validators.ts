@@ -14,6 +14,11 @@ import {
   isValidDurationString,
   isValidIsoDateString,
 } from './activity-config-schemas'
+import {
+  taskDeadlineSchema,
+  taskPrioritySchema,
+  taskReminderSchema,
+} from './task-primitives'
 
 /**
  * Workflows Module - Zod Validators
@@ -51,6 +56,13 @@ export type {
   SetVariableConfig,
   WaitConfig,
 } from './activity-config-schemas'
+
+export {
+  taskPrioritySchema,
+  taskDeadlineSchema,
+  taskReminderSchema,
+} from './task-primitives'
+export type { TaskPriority, TaskDeadline, TaskReminder } from './task-primitives'
 
 const uuid = z.uuid()
 
@@ -172,26 +184,6 @@ export const taskEntityBindingSchema = z.object({
   label: taskLocalizedStringSchema.optional(),
 })
 export type TaskEntityBinding = z.infer<typeof taskEntityBindingSchema>
-
-/** Mirrors the platform's priority labels (root AGENTS.md → PR Workflow). */
-export const taskPrioritySchema = z.enum(['low', 'medium', 'high', 'extreme'])
-export type TaskPriority = z.infer<typeof taskPrioritySchema>
-
-/**
- * Business-word deadline, anchored to task creation. A strict superset of
- * `slaDuration`: an object so the anchor and later qualifiers have somewhere to
- * live, while `slaDuration` keeps working forever as the bare-duration form.
- */
-export const taskDeadlineSchema = z.object({
-  duration: z.string().min(1),
-})
-export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
-
-/** Nudge fired `offset` before the deadline. */
-export const taskReminderSchema = z.object({
-  offset: z.string().min(1),
-})
-export type TaskReminder = z.infer<typeof taskReminderSchema>
 
 /**
  * What happens when the deadline passes: notify, reassign, or follow the

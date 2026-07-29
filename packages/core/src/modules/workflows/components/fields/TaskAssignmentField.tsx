@@ -34,8 +34,33 @@ import { TemplateTextControl } from './TemplateTextControl'
 
 const ASSIGNMENT_MODES: TaskAssignmentMode[] = ['role', 'user', 'dynamic', 'rule']
 
+/**
+ * The sibling form fields the assignment IS. Defaults to the USER_TASK
+ * inspector's ids; the Invoke Agent node's Review section (§7.5) authors the
+ * same three things under its own ids, on its own step config.
+ */
+export interface TaskAssignmentFieldIds {
+  assignedTo: string
+  assignedToRoles: string
+  assignmentRule: string
+}
+
+const DEFAULT_FIELD_IDS: TaskAssignmentFieldIds = {
+  assignedTo: 'assignedTo',
+  assignedToRoles: 'assignedToRoles',
+  assignmentRule: 'assignmentRule',
+}
+
 export interface TaskAssignmentFieldProps extends CrudCustomFieldRenderProps {
   ledgerEntries?: LedgerEntry[]
+  /** Which form fields carry the assignment. Defaults to the USER_TASK ids. */
+  fieldIds?: TaskAssignmentFieldIds
+  /**
+   * Which tabs to offer. Defaults to all four. A caller that narrows this is
+   * saying the omitted modes have no meaning for its step — not that they are
+   * temporarily hidden — so the omitted keys are never written.
+   */
+  modes?: readonly TaskAssignmentMode[]
 }
 
 function readString(values: Record<string, unknown> | undefined, key: string): string {
@@ -43,8 +68,8 @@ function readString(values: Record<string, unknown> | undefined, key: string): s
   return typeof value === 'string' ? value : ''
 }
 
-function readRoles(values: Record<string, unknown> | undefined): string[] {
-  const value = values?.assignedToRoles
+function readRoles(values: Record<string, unknown> | undefined, key: string): string[] {
+  const value = values?.[key]
   if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === 'string')
   if (typeof value === 'string') return value.split(',').map((role) => role.trim()).filter(Boolean)
   return []
@@ -58,33 +83,35 @@ export function TaskAssignmentField({
   values,
   disabled,
   ledgerEntries,
+  fieldIds = DEFAULT_FIELD_IDS,
+  modes = ASSIGNMENT_MODES,
 }: TaskAssignmentFieldProps) {
   const t = useT()
   const [ruleSelectorOpen, setRuleSelectorOpen] = useState(false)
 
-  const mode: TaskAssignmentMode = ASSIGNMENT_MODES.includes(value as TaskAssignmentMode)
+  const mode: TaskAssignmentMode = modes.includes(value as TaskAssignmentMode)
     ? (value as TaskAssignmentMode)
-    : 'role'
-  const roles = readRoles(values)
-  const assignedTo = readString(values, 'assignedTo')
-  const assignmentRule = readString(values, 'assignmentRule')
+    : modes[0] ?? 'role'
+  const roles = readRoles(values, fieldIds.assignedToRoles)
+  const assignedTo = readString(values, fieldIds.assignedTo)
+  const assignmentRule = readString(values, fieldIds.assignmentRule)
 
   const setSibling = (fieldId: string, nextValue: unknown) => setFormValue?.(fieldId, nextValue)
 
   const handleModeChange = (nextMode: string) => {
-    if (!ASSIGNMENT_MODES.includes(nextMode as TaskAssignmentMode)) return
+    if (!modes.includes(nextMode as TaskAssignmentMode)) return
     setValue(nextMode)
-    if (nextMode !== 'rule') setSibling('assignmentRule', '')
-    if (nextMode === 'role') setSibling('assignedTo', '')
-    if (nextMode === 'user') setSibling('assignedToRoles', [])
-    if (nextMode === 'rule') setSibling('assignedTo', '')
+    if (nextMode !== 'rule') setSibling(fieldIds.assignmentRule, '')
+    if (nextMode === 'role') setSibling(fieldIds.assignedTo, '')
+    if (nextMode === 'user') setSibling(fieldIds.assignedToRoles, [])
+    if (nextMode === 'rule') setSibling(fieldIds.assignedTo, '')
   }
 
   return (
     <div className="space-y-2">
       <Tabs value={mode} onValueChange={handleModeChange} variant="underline">
         <TabsList aria-label={t('workflows.tasks.inspector.who.tabsLabel')}>
-          {ASSIGNMENT_MODES.map((candidate) => (
+          {modes.map((candidate) => (
             <TabsTrigger key={candidate} value={candidate} disabled={disabled}>
               {t(`workflows.tasks.inspector.who.modes.${candidate}`)}
             </TabsTrigger>
@@ -99,7 +126,7 @@ export function TaskAssignmentField({
             <RolesMultiSelect
               id={`${id}-roles`}
               value={roles}
-              onChange={(nextRoles) => setSibling('assignedToRoles', nextRoles)}
+              onChange={(nextRoles) => setSibling(fieldIds.assignedToRoles, nextRoles)}
               disabled={disabled}
             />
           </div>
@@ -114,7 +141,7 @@ export function TaskAssignmentField({
               id={`${id}-user`}
               type="text"
               value={assignedTo}
-              onChange={(event) => setSibling('assignedTo', event.target.value)}
+              onChange={(event) => setSibling(fieldIds.assignedTo, event.target.value)}
               placeholder={t('workflows.form.placeholders.userId')}
               disabled={disabled}
             />
@@ -130,7 +157,7 @@ export function TaskAssignmentField({
               <TemplateTextControl
                 id={`${id}-dynamic`}
                 value={assignedTo}
-                onValueChange={(nextValue) => setSibling('assignedTo', nextValue)}
+                onValueChange={(nextValue) => setSibling(fieldIds.assignedTo, nextValue)}
                 ledgerEntries={ledgerEntries}
                 placeholder={t('workflows.tasks.inspector.who.dynamicPlaceholder')}
                 disabled={disabled}
@@ -144,7 +171,7 @@ export function TaskAssignmentField({
               <RolesMultiSelect
                 id={`${id}-fallback-roles`}
                 value={roles}
-                onChange={(nextRoles) => setSibling('assignedToRoles', nextRoles)}
+                onChange={(nextRoles) => setSibling(fieldIds.assignedToRoles, nextRoles)}
                 disabled={disabled}
               />
             </div>
@@ -172,7 +199,7 @@ export function TaskAssignmentField({
                 id={`${id}-rule`}
                 type="text"
                 value={assignmentRule}
-                onChange={(event) => setSibling('assignmentRule', event.target.value)}
+                onChange={(event) => setSibling(fieldIds.assignmentRule, event.target.value)}
                 placeholder={t('workflows.tasks.inspector.who.rulePlaceholder')}
                 disabled={disabled}
                 className="flex-1 font-mono"
@@ -197,7 +224,7 @@ export function TaskAssignmentField({
           isOpen
           onClose={() => setRuleSelectorOpen(false)}
           onSelect={(ruleId) => {
-            setSibling('assignmentRule', ruleId)
+            setSibling(fieldIds.assignmentRule, ruleId)
             setRuleSelectorOpen(false)
           }}
           title={t('workflows.tasks.inspector.who.pickRule')}

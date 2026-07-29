@@ -55,6 +55,8 @@ import { calculateWaitDelayMs, parseDuration } from './duration'
 
 export { calculateWaitDelayMs } from './duration'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
+import { resolveAgentReview, toAgentDispositionReview } from './agent-review'
+import type { AgentDispositionReview } from './agent-disposition-task'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -1201,6 +1203,10 @@ type AgentWorkflowBridgeLike = {
       stepId: string
       // Optional interpolated business-record descriptor (invokeAgentConfigSchema.subject).
       subject?: unknown
+      // Optional already-resolved Review section (spec 7.5) — who reviews the
+      // proposal this step raises, and by when. Absent means the unassigned
+      // task the disposition service raised before the section existed.
+      review?: AgentDispositionReview
     }
   }) => Promise<
     | { kind: 'informative'; data: unknown }
@@ -1231,7 +1237,16 @@ export async function executeInvokeAgent(
       .join('; ')
     throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
   }
-  const { agentId, input, onResult, outputMapping, subject } = parsed.data
+  const { agentId, input, onResult, outputMapping, subject, review } = parsed.data
+
+  // The Review section is resolved HERE, against the context the step ran with,
+  // for the same reason a USER_TASK's assignment is resolved at creation rather
+  // than at read time: a definition edit while the agent is running must not
+  // retro-change who the resulting review task belongs to. `config` reaches this
+  // function already interpolated, so a dynamic assignee is either a resolved id
+  // or an untouched `{{…}}` token — which `resolveTaskAssignment` reads as the
+  // fallback-to-the-role-queue case.
+  const dispositionReview = toAgentDispositionReview(resolveAgentReview(review, (value) => value))
 
   // Fail fast when the optional agent_orchestrator peer is absent — the worker
   // would otherwise enqueue a job that can never run.
@@ -1279,6 +1294,7 @@ export async function executeInvokeAgent(
         processId: context.workflowInstance.id,
         stepId,
         ...(subject ? { subject } : {}),
+        ...(dispositionReview ? { review: dispositionReview } : {}),
       },
     })
     if (outcome.kind === 'informative') {
@@ -1323,6 +1339,7 @@ export async function executeInvokeAgent(
     onResult,
     ...(outputMapping ? { outputMapping } : {}),
     ...(subject ? { subject } : {}),
+    ...(dispositionReview ? { review: dispositionReview } : {}),
     tenantId: context.workflowInstance.tenantId,
     organizationId: context.workflowInstance.organizationId,
     userId: effectiveUserId,

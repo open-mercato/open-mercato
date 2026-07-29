@@ -190,6 +190,38 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Author-time checks live in `validateOutcomeRoutes` (unknown outcome kind, two routes claiming the
   same kind on one step) and surface through the Problems panel.
 
+## Agent Disposition Review & SLAs (spec §7.5)
+
+- **The disposition task is a REAL task, built by this module.** `lib/agent-disposition-task.ts`
+  owns the row `dispositionService` used to assemble inline — because this module owns the entity,
+  the `USER_TASK_CREATED` audit row, the `workflows.task.assigned` event and the SLA scheduler.
+  `agent_orchestrator` reaches it through a dynamic import inside its own try/catch, exactly as
+  `lib/disposition/resume.ts` reaches `sendSignal`; the peer stays optional in both directions.
+  Before this, the row was created unassigned — which under §6.4 is visible only to administrative
+  oversight and ACTABLE BY NOBODY (`currentTaskOwnerId` is null ⇒ `ownsTheRow` false), and never
+  reached the notification subscriber.
+- **`invokeAgentConfigSchema.review` is the authored half** and `lib/agent-review.ts` (PURE)
+  resolves it, delegating assignment to the SAME `resolveTaskAssignment` a USER_TASK uses — so an
+  unresolved dynamic assignee falls back to the authored role queue here too. Resolution happens in
+  the ACTIVITY EXECUTOR, against the context the step ran with, and the resolved descriptor rides
+  the `invoke_agent` queue job; a definition edit while the agent runs cannot retro-change who the
+  review belongs to.
+- **A breached disposition deadline ESCALATES; it never decides.** `resolveAgentReviewBreachHandling`
+  has no `route` arm and no verdict arm, and that absence is the feature (maintainer decision,
+  2026-07-29): notify / reassign / `attention`. `applyBreachHandling` picks the vocabulary from the
+  STEP's shape — an AUTOMATED step carrying an INVOKE_AGENT activity gets the escalate-only one — so
+  a hand-authored `kind:'slaBreach'` transition on an agent step cannot fire either. Routing the run
+  past a proposal nobody answered silently drops the proposed mutation, which is a rejection in
+  everything but name, and only a human may reach a verdict. `attention` writes the engine-owned
+  `metadata.attention` marker and NOTHING else — no status write, no `errorMessage`: the run is
+  already parked on the proposal-ready signal, and a late reviewer is not a failed run.
+- **Closing is not advancing.** `closeAgentDispositionTask` (A7) marks the row COMPLETED with a
+  conditional UPDATE when the proposal is disposed. It MUST NOT go through `completeUserTask` — that
+  advances the run, and the run resumes on `agent_orchestrator.proposal.ready`.
+- **`workflows.task.detail:context`** (`lib/work-inbox/navigation.ts`) is the task-detail injection
+  spot — FROZEN once mounted. It exists because this page can only walk a `formSchema` generically;
+  the module that owns a proposal renders it in its own vocabulary (the §7.6 draft card).
+
 ## Node Outcome Rows (the canvas footer — fidelity gap #4)
 
 - **`lib/node-outcome-rows.ts` (PURE) decides what the rows ARE**; `components/nodes/NodeOutcomeRows.tsx`

@@ -26,8 +26,10 @@ import { TemplateTextControl } from './fields/TemplateTextControl'
 import { TaskEntityBindingsField } from './fields/TaskEntityBindingsField'
 import { TaskAssignmentField } from './fields/TaskAssignmentField'
 import { TaskOnBreachField, TaskRemindersField } from './fields/TaskDeadlineFields'
+import { AgentReviewOnBreachField } from './fields/AgentReviewOnBreachField'
 import { TaskDecisionsField, TaskEditablePrefilledField } from './fields/TaskDecisionsField'
 import { TASK_PRIORITY_VALUES } from '../lib/task-inspector-config'
+import { AGENT_REVIEW_ASSIGNMENT_MODES } from '../lib/agent-review-inspector'
 import type { RouteOrderEntry } from '../lib/route-priority'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
@@ -559,13 +561,25 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           description: t('workflows.form.invokeAgent.sectionDescription'),
           fields: ['agentConfig'],
         },
+        // Review (spec §7.5): who dispositions the proposal this step raises,
+        // and by when. The same Who/When vocabulary the Task inspector authors
+        // (§6.1.3 / §6.1.4) — because the thing being authored IS a task.
         {
-          id: 'advanced',
-          title: 'Advanced Configuration',
+          id: 'agentReviewWho',
+          title: t('workflows.form.invokeAgent.review.whoTitle'),
           column: 1,
-          description: 'Additional JSON configuration',
-          fields: ['advancedConfig'],
+          description: t('workflows.form.invokeAgent.review.whoDescription'),
+          fields: ['reviewAssignmentMode'],
         },
+        {
+          id: 'agentReviewWhen',
+          title: t('workflows.form.invokeAgent.review.whenTitle'),
+          column: 1,
+          description: t('workflows.form.invokeAgent.review.whenDescription'),
+          fields: ['reviewPriority', 'reviewDeadline', 'reviewReminders', 'reviewOnBreach'],
+        },
+        errorHandlingGroup,
+        advancedGroup,
       ]
     }
 
@@ -754,6 +768,55 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       label: t('workflows.tasks.inspector.when.onBreach'),
       type: 'custom',
       component: (props) => <TaskOnBreachField {...props} routeOrder={routeOrder} />,
+    },
+    // Invoke Agent — Review (spec §7.5). The assignment tabs and the reminder
+    // control are the SAME components the Task inspector renders, pointed at
+    // this section's own field ids; only the breach action set differs, because
+    // a disposition deadline escalates and never decides.
+    {
+      id: 'reviewAssignmentMode',
+      label: t('workflows.tasks.inspector.who.label'),
+      type: 'custom',
+      component: (props) => (
+        <TaskAssignmentField
+          {...props}
+          ledgerEntries={ledgerEntries}
+          modes={AGENT_REVIEW_ASSIGNMENT_MODES}
+          fieldIds={{
+            assignedTo: 'reviewAssignedTo',
+            assignedToRoles: 'reviewAssignedToRoles',
+            assignmentRule: 'reviewAssignmentRule',
+          }}
+        />
+      ),
+    },
+    {
+      id: 'reviewPriority',
+      label: t('workflows.tasks.inspector.when.priority'),
+      type: 'select',
+      options: TASK_PRIORITY_VALUES.map((priority) => ({
+        value: priority,
+        label: t(`workflows.tasks.inspector.when.priorities.${priority}`),
+      })),
+    },
+    {
+      id: 'reviewDeadline',
+      label: t('workflows.tasks.inspector.when.deadline'),
+      type: 'custom',
+      description: t('workflows.form.invokeAgent.review.deadlineDescription'),
+      component: (props) => <DurationCrudField {...props} />,
+    },
+    {
+      id: 'reviewReminders',
+      label: t('workflows.tasks.inspector.when.reminders'),
+      type: 'custom',
+      component: (props) => <TaskRemindersField {...props} />,
+    },
+    {
+      id: 'reviewOnBreach',
+      label: t('workflows.tasks.inspector.when.onBreach'),
+      type: 'custom',
+      component: (props) => <AgentReviewOnBreachField {...props} />,
     },
     {
       id: 'taskDecisions',

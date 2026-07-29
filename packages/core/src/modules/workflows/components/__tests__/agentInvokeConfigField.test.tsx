@@ -170,3 +170,47 @@ describe('AgentInvokeConfigField typed I/O', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+/**
+ * The threshold slider (spec §7.6) is a PRESENTATION change over the existing
+ * `onResult.autoApproveThreshold` field. These tests pin the three things that
+ * must not have moved with it: the 0-1 range, the 0.05 step and the 0.8
+ * default — plus the fail-closed sentence the spec asks the control to spell
+ * out. The comparison itself lives in the enterprise disposition service and is
+ * not reachable from here.
+ */
+describe('AgentInvokeConfigField threshold control', () => {
+  it('keeps the range, the step and the number input alongside the slider', async () => {
+    mockAgents([RISK_AGENT])
+    renderField(value())
+
+    const slider = await screen.findByRole('slider')
+    expect(slider).toHaveAttribute('aria-valuemin', '0')
+    expect(slider).toHaveAttribute('aria-valuemax', '1')
+    expect(slider).toHaveAttribute('aria-valuenow', '0.8')
+
+    const numberInput = document.querySelector('input[type="number"]') as HTMLInputElement
+    expect(numberInput).not.toBeNull()
+    expect(numberInput.step).toBe('0.05')
+    expect(numberInput.min).toBe('0')
+    expect(numberInput.max).toBe('1')
+    expect(numberInput.value).toBe('0.8')
+  })
+
+  it('states the fail-closed semantics', async () => {
+    mockAgents([RISK_AGENT])
+    renderField(value())
+
+    expect(
+      await screen.findByText('workflows.form.invokeAgent.thresholdFailClosed'),
+    ).toBeInTheDocument()
+  })
+
+  it('an unparseable authored value shows the default rather than snapping to zero', async () => {
+    mockAgents([RISK_AGENT])
+    renderField(value({ autoApproveThreshold: '' }))
+
+    const slider = await screen.findByRole('slider')
+    expect(slider).toHaveAttribute('aria-valuenow', '0.8')
+  })
+})

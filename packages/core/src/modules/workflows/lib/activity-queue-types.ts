@@ -15,6 +15,8 @@
  *     sub-workflow for a failed instance, outside the failing transaction
  */
 
+import type { AgentDispositionReview } from './agent-disposition-task'
+
 export interface WorkflowActivityJobBase {
   workflowInstanceId: string
   stepInstanceId?: string
@@ -106,6 +108,11 @@ export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase 
   // Optional already-interpolated business-record descriptor (see
   // invokeAgentConfigSchema.subject); forwarded opaquely to the bridge ctx.
   subject?: Record<string, any>
+  // Optional already-RESOLVED Review section (see invokeAgentConfigSchema.review,
+  // spec 7.5). Resolved by the executor against the context the step ran with,
+  // so an in-flight definition edit cannot retro-change who the disposition task
+  // belongs to. Absent on every job enqueued before the section existed.
+  review?: AgentDispositionReview
 }
 
 /**

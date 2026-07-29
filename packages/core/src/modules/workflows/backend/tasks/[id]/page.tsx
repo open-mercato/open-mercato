@@ -36,6 +36,7 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
@@ -45,7 +46,11 @@ import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { UserTaskDecision, UserTaskResponse, UserTaskStatus } from '../../../data/types'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { WORK_INBOX_HREF, buildWorkInboxItemHref } from '../../../lib/work-inbox/navigation'
+import {
+  TASK_DETAIL_INJECTION_SPOT_ID,
+  WORK_INBOX_HREF,
+  buildWorkInboxItemHref,
+} from '../../../lib/work-inbox/navigation'
 import {
   EntityContextPanel,
   bindingsToEntityContextItems,
@@ -122,6 +127,21 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
       retryLastMutation,
     }),
     [params.id, retryLastMutation],
+  )
+
+  // Injection spot for modules that OWN what a task is about (spec §7.6). It
+  // is a CONTRACT SURFACE (BACKWARD_COMPATIBILITY.md §6): the id is frozen once
+  // a third party mounts a widget on it.
+  const taskInjectionContext = React.useMemo(
+    () => ({
+      taskId: params.id,
+      workflowInstanceId: task?.workflowInstanceId ?? null,
+      status: task?.status ?? null,
+      formSchema: task?.formSchema ?? null,
+      formData: task?.formData ?? null,
+      retryLastMutation,
+    }),
+    [params.id, retryLastMutation, task?.formData, task?.formSchema, task?.status, task?.workflowInstanceId],
   )
 
   const refreshTask = React.useCallback(() => {
@@ -415,6 +435,16 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">{task.description}</p>
                 </div>
               ) : null}
+
+              {/*
+                Where a module that OWNS the thing a task is about renders it in
+                its own vocabulary. The agent orchestrator mounts the proposal
+                draft card here (spec §7.6): this page can only walk a task's
+                `formSchema` generically, and a proposal rendered that way is a
+                key/value dump of the mutation an operator is being asked to
+                approve. Additive — no widget, nothing renders.
+              */}
+              <InjectionSpot spotId={TASK_DETAIL_INJECTION_SPOT_ID} context={taskInjectionContext} />
 
               {isClaimable ? (
                 <div className="rounded-lg border border-border bg-muted/50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
