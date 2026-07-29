@@ -47,7 +47,7 @@ Each widget stores the currency from the response metadata and passes it into th
 
 ### Phase 4: Validation
 
-Full `validation.commands` gate.
+Full `validation.commands` gate, then the authoritative review pass.
 
 ## Risks
 
@@ -78,4 +78,5 @@ PR: #4627
 
 ### Phase 4: Validation
 
-- [x] 4.1 Run the full validation gate
+- [x] 4.1 Run the full validation gate — 53239a7c6
+- [x] 4.2 Address the authoritative review pass — 53239a7c6
