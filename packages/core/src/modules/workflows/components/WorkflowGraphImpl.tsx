@@ -36,6 +36,7 @@ import {
   WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE,
 } from '../lib/compensation-ghosts'
 import { buildAgentOutcomeRows } from '../lib/node-outcome-rows'
+import { isRouteTaken, resolveNodeRunStatus, type RunExecution } from '../lib/run-execution'
 import { EDGE_COLORS, STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
@@ -150,6 +151,13 @@ export interface WorkflowGraphImplProps {
    * they can never reach `graphToDefinition`.
    */
   showCompensation?: boolean
+  /**
+   * "Show last run" execution overlay (spec §8.3). Applied at render time — the
+   * same rule the compensation ghosts and the outcome-row footers follow — so
+   * the painted statuses and taken routes never enter the document, the undo
+   * stack, an autosave, or `graphToDefinition`.
+   */
+  runOverlay?: RunExecution | null
 }
 
 export default function WorkflowGraphImpl({
@@ -168,6 +176,7 @@ export default function WorkflowGraphImpl({
   focusTarget = null,
   nodeErrorCounts,
   showCompensation = false,
+  runOverlay = null,
 }: WorkflowGraphImplProps) {
   const t = useT()
   const [nodes, setNodes] = useNodesState(initialNodes)
@@ -393,10 +402,29 @@ export default function WorkflowGraphImpl({
     [compensationNodes, outcomeRowTransitions],
   )
 
-  const displayEdges = useMemo(
-    () => (showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges),
-    [showCompensation, edges],
-  )
+  // "Show last run" (spec §8.3). Derived at render time from the SAME
+  // `RunExecution` the run detail page paints from, so the Studio and the run
+  // view can never disagree about which path executed.
+  const overlaidNodes = useMemo(() => {
+    if (!runOverlay) return decoratedNodes
+    return decoratedNodes.map((node) => {
+      const status = resolveNodeRunStatus(runOverlay, { id: node.id, type: node.type })
+      // `pending` is the editor's own look, so an un-run node is left exactly
+      // as it was rather than being repainted into a third state.
+      if (status === 'pending') return node
+      return { ...node, data: { ...node.data, status } }
+    })
+  }, [decoratedNodes, runOverlay])
+
+  const displayEdges = useMemo(() => {
+    const withGhosts = showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges
+    if (!runOverlay) return withGhosts
+    return withGhosts.map((edge) =>
+      isRouteTaken(runOverlay, { transitionId: edge.id, fromStepId: edge.source, toStepId: edge.target })
+        ? { ...edge, data: { ...edge.data, state: 'completed' } }
+        : edge,
+    )
+  }, [showCompensation, edges, runOverlay])
 
   const nodeTypes = useMemo(
     () => ({
@@ -443,7 +471,7 @@ export default function WorkflowGraphImpl({
       } as React.CSSProperties}
     >
       <ReactFlow
-        nodes={decoratedNodes}
+        nodes={overlaidNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

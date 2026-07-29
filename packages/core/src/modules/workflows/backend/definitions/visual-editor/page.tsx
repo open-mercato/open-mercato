@@ -1,6 +1,7 @@
 'use client'
 
 import { WorkflowGraph } from '../../../components/WorkflowGraph'
+import { useLastRunOverlay } from '../../../components/run/useLastRunOverlay'
 // Conditional imports based on feature flag
 import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
@@ -126,7 +127,7 @@ import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, ShieldMinus, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, History, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, ShieldMinus, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
@@ -311,6 +312,10 @@ export default function VisualEditorPage() {
   // Compensation ghosts (spec §4.4) are OFF by default and remembered per
   // author: they are a read-only overlay, never part of the document.
   const { value: showCompensation, toggle: toggleCompensation } = usePersistedBooleanFlag('om:wf-editor-compensation', false)
+  // "Show last run" (spec §8.3). OFF by default and remembered per author, and
+  // it fetches nothing until it is on — an author editing a definition should
+  // not pay for three requests they never asked for.
+  const { value: showLastRun, toggle: toggleLastRun } = usePersistedBooleanFlag('om:wf-editor-last-run', false)
   const { requestCollapse, releaseRequest } = useSidebarCollapse()
   // Remember the palette/metadata state from before Focus mode took over so we
   // can restore exactly what the author had when they exit.
@@ -398,6 +403,7 @@ export default function VisualEditorPage() {
 
   // Workflow metadata state
   const [workflowId, setWorkflowId] = useState('')
+  const lastRunOverlay = useLastRunOverlay({ workflowId, enabled: showLastRun && !!definitionId })
   const [workflowName, setWorkflowName] = useState('')
   const [description, setDescription] = useState('')
   const [version, setVersion] = useState(1)
@@ -2878,6 +2884,27 @@ export default function VisualEditorPage() {
                 <ShieldMinus className="mr-1.5 h-4 w-4" aria-hidden="true" />
                 {t('workflows.compensation.toggleShort', 'Compensation')}
               </Button>
+              {/* Execution overlay (spec §8.3): "Show last run" paints node
+                  states with DS status tokens and the taken path. Read-only —
+                  derived at render time, never part of the document. */}
+              {definitionId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleLastRun}
+                  aria-pressed={showLastRun}
+                  className="h-8 px-2 text-xs"
+                  aria-label={t('workflows.lastRun.toggle', 'Show the last run on the canvas')}
+                >
+                  <History className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  {t('workflows.lastRun.toggleShort', 'Last run')}
+                  {showLastRun && lastRunOverlay.isUnavailable ? (
+                    <span className="ml-1.5 text-muted-foreground">
+                      {t('workflows.lastRun.never', '(never run)')}
+                    </span>
+                  ) : null}
+                </Button>
+              )}
               {definitionId && (
                 <Button
                   variant="outline"
@@ -3163,6 +3190,7 @@ export default function VisualEditorPage() {
                 focusTarget={focusTarget}
                 nodeErrorCounts={nodeErrorCounts}
                 showCompensation={showCompensation}
+                runOverlay={lastRunOverlay.execution}
               />
             </div>
 
@@ -3390,6 +3418,7 @@ export default function VisualEditorPage() {
                   focusTarget={focusTarget}
                   nodeErrorCounts={nodeErrorCounts}
                   showCompensation={showCompensation}
+                  runOverlay={lastRunOverlay.execution}
                 />
               </div>
 

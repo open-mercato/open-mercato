@@ -80,6 +80,12 @@ export const WorkflowEventTypes = {
   ERROR_HANDLER_STARTED: 'ERROR_HANDLER_STARTED',
   ERROR_HANDLER_SKIPPED: 'ERROR_HANDLER_SKIPPED',
 
+  // Recovery (spec 8.4). `STEP_RERUN` carries `{ stepId, editedContextDiff, by }`
+  // and is the audit record of a rerun — the terminal StepInstance of the
+  // previous attempt is never touched, so the event log is where the two
+  // attempts are linked.
+  STEP_RERUN: 'STEP_RERUN',
+
   // Agent outcome routing (spec 7.2)
   OUTCOME_ROUTED: 'OUTCOME_ROUTED',
   OUTCOME_UNHANDLED: 'OUTCOME_UNHANDLED',

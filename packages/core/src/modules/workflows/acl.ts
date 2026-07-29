@@ -95,6 +95,26 @@ export const features = [
     dependsOn: ['workflows.instances.view'],
   },
   {
+    // Spec 8.4 ACL appendix: `workflows.instances.rerun_step` (admins/devs).
+    // Replaying a step re-executes real side effects with possibly EDITED
+    // context, which `workflows.instances.retry` (replay the run as it stands)
+    // does not authorise — hence its own feature rather than an implication.
+    id: 'workflows.instances.rerun_step',
+    title: 'Rerun a workflow instance from a step',
+    module: moduleId,
+    dependsOn: ['workflows.instances.retry', 'workflows.instances.update_context'],
+  },
+  {
+    // Spec 8.4 ACL appendix: `workflows.instances.bulk_ops` (admins). Retrying
+    // or cancelling a page of instances at once is strictly broader than doing
+    // it one row at a time — a misfire re-executes hundreds of real workflows —
+    // so it is its own feature rather than an implication of `retry`/`cancel`.
+    id: 'workflows.instances.bulk_ops',
+    title: 'Bulk retry or cancel workflow instances',
+    module: moduleId,
+    dependsOn: ['workflows.instances.retry', 'workflows.instances.cancel'],
+  },
+  {
     id: 'workflows.tasks.view',
     title: 'View user tasks',
     module: moduleId,

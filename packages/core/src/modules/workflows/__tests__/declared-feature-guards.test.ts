@@ -84,7 +84,11 @@ describe('workflows requireFeatures guards', () => {
     const instanceGuards = guards.filter((guard) =>
       guard.file.startsWith(path.join('backend', 'instances')),
     )
-    expect(instanceGuards.length).toBe(2)
+    // The list, the detail and the failure-queue triage page. The count is
+    // asserted as a floor rather than an exact number so adding a page cannot
+    // fail this test for the wrong reason — the invariant is the FEATURE ID
+    // every one of them guards on, not how many there are.
+    expect(instanceGuards.length).toBeGreaterThanOrEqual(3)
     for (const guard of instanceGuards) {
       expect(guard.featureId).toBe('workflows.instances.view')
     }

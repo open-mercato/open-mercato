@@ -61,6 +61,18 @@ describe('workflows ACL dependency declarations', () => {
     expect(dependsOnById.get('workflows.instances.retry')).toEqual(['workflows.instances.view'])
     expect(dependsOnById.get('workflows.instances.signal')).toEqual(['workflows.instances.view'])
     expect(dependsOnById.get('workflows.instances.update_context')).toEqual(['workflows.instances.view'])
+    // Spec §8.4 recovery. Both are strictly broader than the single-instance
+    // actions they build on, so neither is an implication of `retry`/`cancel`:
+    // a rerun replays a step with possibly EDITED context, and a bulk op
+    // applies an action to a whole page at once.
+    expect(dependsOnById.get('workflows.instances.rerun_step')).toEqual([
+      'workflows.instances.retry',
+      'workflows.instances.update_context',
+    ])
+    expect(dependsOnById.get('workflows.instances.bulk_ops')).toEqual([
+      'workflows.instances.cancel',
+      'workflows.instances.retry',
+    ])
     expect(dependsOnById.get('workflows.tasks.view')).toEqual(['workflows.view'])
     expect(dependsOnById.get('workflows.tasks.claim')).toEqual(['workflows.tasks.view'])
     expect(dependsOnById.get('workflows.tasks.complete')).toEqual(['workflows.tasks.view'])
@@ -118,6 +130,10 @@ describe('workflows ACL dependency declarations', () => {
   test('employee defaults withhold the context-write feature', () => {
     const employeeGrants = workflowsSetup.defaultRoleFeatures?.employee ?? []
     expect(employeeGrants).not.toContain('workflows.instances.update_context')
+    // Recovery is admin/dev territory (spec §8.4 ACL appendix); an employee
+    // must never inherit it through the plain instance-view grant.
+    expect(employeeGrants).not.toContain('workflows.instances.rerun_step')
+    expect(employeeGrants).not.toContain('workflows.instances.bulk_ops')
     expect(employeeGrants).not.toContain('workflows.*')
   })
 
