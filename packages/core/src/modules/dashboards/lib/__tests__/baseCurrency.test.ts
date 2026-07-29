@@ -30,7 +30,19 @@ describe('resolveBaseCurrencyCode', () => {
     expect(sql).toContain('is_base = true')
     expect(sql).toContain('deleted_at IS NULL')
     expect(sql).toContain('organization_id = ANY(?::uuid[])')
-    expect(params).toEqual(['tenant-1', '{org-1,org-2}'])
+    expect(params).toEqual(['tenant-1', '{org-1,org-2}', '{org-1,org-2}'])
+  })
+
+  test('prefers the first organization in scope order', async () => {
+    const execute = jest.fn(async () => [{ code: 'EUR' }]) as ExecuteMock
+
+    await resolveBaseCurrencyCode(createEm(execute), {
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1', 'org-2'],
+    })
+
+    const [sql] = execute.mock.calls[0]
+    expect(sql).toContain('ORDER BY array_position(?::uuid[], organization_id) ASC')
   })
 
   test('omits the organization filter when the scope has none', async () => {

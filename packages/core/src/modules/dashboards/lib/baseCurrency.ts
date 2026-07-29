@@ -22,13 +22,19 @@ export async function resolveBaseCurrencyCode(
 
   const clauses = ['tenant_id = ?', 'is_base = true', 'deleted_at IS NULL']
   const params: unknown[] = [scope.tenantId]
+  // With several organizations in scope each may declare its own base currency, so
+  // follow the caller's precedence — the selected organization comes first.
+  let order = 'code ASC'
 
   if (scope.organizationIds && scope.organizationIds.length > 0) {
+    const organizationArray = `{${scope.organizationIds.join(',')}}`
     clauses.push('organization_id = ANY(?::uuid[])')
-    params.push(`{${scope.organizationIds.join(',')}}`)
+    params.push(organizationArray)
+    order = 'array_position(?::uuid[], organization_id) ASC, code ASC'
+    params.push(organizationArray)
   }
 
-  const sql = `SELECT code FROM currencies WHERE ${clauses.join(' AND ')} ORDER BY code ASC LIMIT 1`
+  const sql = `SELECT code FROM currencies WHERE ${clauses.join(' AND ')} ORDER BY ${order} LIMIT 1`
 
   try {
     const rows = await em.getConnection().execute<Array<{ code: string | null }>>(sql, params)
