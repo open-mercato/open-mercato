@@ -122,9 +122,9 @@ rule) with the entity-scoped syntax.
 
 ### Phase 1: Entity-aware blocklist in the shared search config
 
-- [ ] 1.1 Parse entity-scoped blocklist entries in resolveSearchConfig
-- [ ] 1.2 Export the shared isSearchFieldBlocklisted matcher
-- [ ] 1.3 Unit tests for the parser and matcher
+- [x] 1.1 Parse entity-scoped blocklist entries in resolveSearchConfig — 3822d340e
+- [x] 1.2 Export the shared isSearchFieldBlocklisted matcher — 3822d340e
+- [x] 1.3 Unit tests for the parser and matcher — 3822d340e
 
 ### Phase 2: Honour the blocklist in the aggregate and unify the per-field path
 
