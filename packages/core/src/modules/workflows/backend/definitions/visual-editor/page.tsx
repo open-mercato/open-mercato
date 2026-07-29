@@ -7,6 +7,7 @@ import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
+import type { InspectorPanelVariant } from '../../../components/InspectorPanel'
 import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
@@ -369,6 +370,17 @@ export default function VisualEditorPage() {
   }, [])
   const [showNodeDialog, setShowNodeDialog] = useState(false)
   const [showEdgeDialog, setShowEdgeDialog] = useState(false)
+
+  const crudFormDialogsEnabled = resolveCrudFormDialogsEnabled(process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED)
+
+  // The step and route inspectors dock beside the canvas when the viewport has
+  // room for a rail (spec §4.1). Below that they stay modal — a 384px rail plus
+  // the palette leaves nothing of the graph, which is the problem the rail
+  // exists to solve, not a smaller version of it. The legacy dialogs keep their
+  // own modal chrome; they are deprecated and are not being redesigned.
+  const inspectorsDocked = crudFormDialogsEnabled && !isMobile && !isCompactViewport
+  const inspectorVariant: InspectorPanelVariant = inspectorsDocked ? 'docked' : 'overlay'
+
   // Sticky notes and groups (spec 4.5) are canvas nodes with their own tiny
   // inspector — they carry no step configuration, so they never open the step
   // dialog.
@@ -1121,6 +1133,10 @@ export default function VisualEditorPage() {
     }
     setSelectedNode(node)
     setSelectedEdge(null)
+    // With a docked rail the canvas stays clickable, so a step click can arrive
+    // while the ROUTE inspector is open. Closing the other one keeps a single
+    // rail; the modal variant could never reach this state.
+    setShowEdgeDialog(false)
     setShowNodeDialog(true)
   }, [isCodeOnly])
 
@@ -1130,6 +1146,7 @@ export default function VisualEditorPage() {
     setSelectedEdge(edge)
     setSelectedNode(null)
     setEdgeDialogFocusFieldId(null)
+    setShowNodeDialog(false)
     setShowEdgeDialog(true)
   }, [isCodeOnly])
 
@@ -2227,7 +2244,14 @@ export default function VisualEditorPage() {
       const active = document.activeElement as HTMLElement | null
       const tag = (active?.tagName || '').toLowerCase()
       const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
-      const isDialogOpen = showNodeDialog || showEdgeDialog || showAnnotationDialog || showClearConfirm || startOpen || showCodeView
+      // Docking is a SPATIAL change, not a keyboard one: an open inspector
+      // still owns the shortcuts, because it holds a form with unsaved values
+      // and every canvas binding here either mutates the document under it
+      // (undo, delete, paste) or would save a graph that omits the edit sitting
+      // in the rail. What docking buys is that the canvas stays visible and
+      // clickable — re-targeting is a click, and Escape closes the rail.
+      const isInspectorOpen = showNodeDialog || showEdgeDialog
+      const isDialogOpen = isInspectorOpen || showAnnotationDialog || showClearConfirm || startOpen || showCodeView
       // The details drawer is a modal overlay, so the canvas bindings must not
       // fire behind it. Cmd+S is the deliberate exception: the drawer has no
       // submit of its own to protect — saving the workflow IS its primary
@@ -2275,6 +2299,15 @@ export default function VisualEditorPage() {
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === 'Escape') {
+        // Escape raised inside the rail is claimed by the rail itself. Reaching
+        // here means focus is on the canvas, where Escape should still close the
+        // inspector before it falls through to leaving Focus mode.
+        if (inspectorsDocked && isInspectorOpen) {
+          event.preventDefault()
+          setShowNodeDialog(false)
+          setShowEdgeDialog(false)
+          return
+        }
         if (focusMode && !isOverlayOpen) {
           event.preventDefault()
           setFocusMode(false)
@@ -2304,7 +2337,7 @@ export default function VisualEditorPage() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
-    isMobile, focusMode, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen,
+    isMobile, focusMode, inspectorsDocked, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen,
     showCodeView, metadataOpen, showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
     handleDuplicateSelection, openSelectedInspector, handleDeleteSelection, handleNudge,
     handleSave, isCodeOnly,
@@ -2710,20 +2743,26 @@ export default function VisualEditorPage() {
   // toolbar has to say when they are still blank.
   const metadataIncomplete = !isCodeOnly && (!workflowId || !workflowName)
 
-  const crudFormDialogsEnabled = resolveCrudFormDialogsEnabled(process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED)
-
-  const sharedDialogs = (
+  const inspectorPanels = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} onConvertType={handleConvertNodeType} />
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} onConvertType={handleConvertNodeType} variant={inspectorVariant} />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
       {crudFormDialogsEnabled ? (
-        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} focusFieldId={edgeDialogFocusFieldId} />
+        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} focusFieldId={edgeDialogFocusFieldId} variant={inspectorVariant} />
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}
+    </>
+  )
+
+  const sharedDialogs = (
+    <>
+      {/* Docked inspectors render inside the editor's layout row instead, so
+          they shrink the canvas rather than covering it. */}
+      {inspectorsDocked ? null : inspectorPanels}
       <WorkflowCommandPalette
         open={showCommandPalette}
         onOpenChange={setShowCommandPalette}
@@ -3369,7 +3408,7 @@ export default function VisualEditorPage() {
           )}
         </div>
       ) : (
-        <div className="flex min-h-0 min-w-0 flex-1 border-t border-border pl-3 md:pl-6">
+        <div data-testid="workflow-editor-row" className="flex min-h-0 min-w-0 flex-1 border-t border-border pl-3 md:pl-6">
           {/* Left Sidebar - Step Palette rail (hidden in read-only mode) */}
           {!isCodeOnly && (
           <div className={`${paletteCollapsed ? 'w-14' : 'w-48'} shrink-0 overflow-y-auto border-r border-border bg-background p-2`}>
@@ -3576,6 +3615,11 @@ export default function VisualEditorPage() {
               )}
             </div>
           </div>
+
+          {/* Docked step / route inspector (spec §4.1). It is a sibling of the
+              canvas, not an overlay on it, so opening it narrows the graph and
+              leaves it visible and clickable. */}
+          {inspectorsDocked ? inspectorPanels : null}
         </div>
       )}
       {problemsPanel}

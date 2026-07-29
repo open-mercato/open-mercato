@@ -1108,7 +1108,13 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         </Alert>
       )}
 
+      {/* Remount when the inspected step changes. A docked rail re-targets on a
+          canvas click, and CrudForm deliberately preserves fields the author has
+          already edited when `initialValues` changes — correct for late-arriving
+          field definitions, wrong here: it would carry an unsaved edit from the
+          previous step onto this one. */}
       <CrudForm
+        key={node.id}
         fields={fields}
         groups={groups}
         initialValues={initialValues}

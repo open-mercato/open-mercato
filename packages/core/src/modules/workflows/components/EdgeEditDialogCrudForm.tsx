@@ -267,7 +267,9 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       }
     >
       <div ref={bodyRef}>
+        {/* Remount on re-target — see the note in NodeEditDialogCrudForm. */}
         <CrudForm
+          key={edge.id}
           fields={fields}
           groups={groups}
           initialValues={initialValues}
