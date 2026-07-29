@@ -12,6 +12,9 @@ import {
   DELETE as deleteDefinition,
 } from '../definitions/[id]/route'
 import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import { registerCodeWorkflows, clearCodeWorkflowRegistry } from '../../lib/code-registry'
+import { codeWorkflowUuid } from '../../lib/find-definition'
+import { workflowsConfig } from '../../workflows'
 
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -307,6 +310,49 @@ describe('Workflow Definitions API', () => {
       expect(mockEm.flush).toHaveBeenCalled()
     })
 
+    test('should default new definitions to strict interpolation', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockReturnValue({ id: 'new-def-id' })
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify(validDefinition),
+      })
+
+      const response = await createDefinition(request)
+
+      expect(response.status).toBe(201)
+      expect(mockEm.create).toHaveBeenCalledWith(
+        WorkflowDefinition,
+        expect.objectContaining({
+          definition: expect.objectContaining({ interpolation: 'strict' }),
+        })
+      )
+    })
+
+    test('should keep an explicitly lenient interpolation mode on create', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockReturnValue({ id: 'new-def-id' })
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...validDefinition,
+          definition: { ...validDefinition.definition, interpolation: 'lenient' },
+        }),
+      })
+
+      const response = await createDefinition(request)
+
+      expect(response.status).toBe(201)
+      expect(mockEm.create).toHaveBeenCalledWith(
+        WorkflowDefinition,
+        expect.objectContaining({
+          definition: expect.objectContaining({ interpolation: 'lenient' }),
+        })
+      )
+    })
+
     test('should prevent duplicate workflowId even with a different version', async () => {
       mockEm.findOne.mockResolvedValue({
         id: 'existing-def',
@@ -383,7 +429,22 @@ describe('Workflow Definitions API', () => {
 
       expect(response.status).toBe(400)
       expect(data.error).toBe('Validation failed')
-      expect(data.details).toBeDefined()
+      expect(Array.isArray(data.details)).toBe(true)
+      expect(data.details.length).toBeGreaterThan(0)
+      for (const detail of data.details) {
+        expect(Array.isArray(detail.path)).toBe(true)
+        expect(typeof detail.code).toBe('string')
+        expect(typeof detail.message).toBe('string')
+      }
+      const definitionIssue = data.details.find(
+        (detail: { path: Array<string | number> }) => detail.path[0] === 'definition'
+      )
+      expect(definitionIssue).toMatchObject({
+        path: ['definition'],
+        code: 'invalid_type',
+        expected: 'object',
+        got: 'undefined',
+      })
     })
 
     test('should prevent duplicate workflowId', async () => {
@@ -504,6 +565,29 @@ describe('Workflow Definitions API', () => {
       expect(response.status).toBe(404)
     })
 
+    test('should resolve the synthetic code-definition UUID stored on instances', async () => {
+      // Instances of unpersisted code workflows carry codeWorkflowUuid(workflowId)
+      // as definitionId; looking that raw UUID up must hit the code registry
+      // instead of returning 404 (issue #4323).
+      mockEm.findOne.mockResolvedValue(null)
+      const codeDef = workflowsConfig.workflows[0]
+      registerCodeWorkflows([codeDef])
+
+      try {
+        const syntheticId = codeWorkflowUuid(codeDef.workflowId)
+        const request = new NextRequest(`http://localhost/api/workflows/definitions/${syntheticId}`)
+        const response = await getDefinition(request, { params: Promise.resolve({ id: syntheticId }) })
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.data.id).toBe(`code:${codeDef.workflowId}`)
+        expect(data.data.workflowId).toBe(codeDef.workflowId)
+        expect(data.data.isCodeBased).toBe(true)
+      } finally {
+        clearCodeWorkflowRegistry()
+      }
+    })
+
     test('should enforce tenant isolation', async () => {
       mockEm.findOne.mockResolvedValue(null) // Simulates finding nothing due to tenant mismatch
 
@@ -592,6 +676,45 @@ describe('Workflow Definitions API', () => {
       expect(mockEm.flush).toHaveBeenCalled()
     })
 
+    test('should leave an absent interpolation mode absent on update', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          definition: {
+            steps: mockDefinition.definition.steps,
+            transitions: mockDefinition.definition.transitions,
+          },
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect(mockDefinition.definition).not.toHaveProperty('interpolation')
+    })
+
+    test('should apply an explicit interpolation mode on update', async () => {
+      mockEm.findOne.mockResolvedValue(mockDefinition)
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({
+          definition: {
+            steps: mockDefinition.definition.steps,
+            transitions: mockDefinition.definition.transitions,
+            interpolation: 'strict',
+          },
+        }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+
+      expect(response.status).toBe(200)
+      expect((mockDefinition.definition as { interpolation?: string }).interpolation).toBe('strict')
+    })
+
     test('should check edit permission', async () => {
       const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
       const localRbacService = {
@@ -648,8 +771,17 @@ describe('Workflow Definitions API', () => {
       })
 
       const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+      const data = await response.json()
 
       expect(response.status).toBe(400)
+      expect(data.error).toBe('Validation failed')
+      expect(data.details[0]).toMatchObject({
+        path: ['definition'],
+        code: 'invalid_type',
+        expected: 'object',
+        got: 'string',
+      })
+      expect(typeof data.details[0].message).toBe('string')
     })
 
     test('should allow partial updates', async () => {

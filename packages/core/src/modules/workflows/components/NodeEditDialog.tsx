@@ -23,9 +23,12 @@ import {sanitizeId} from '../lib/graph-utils'
 import {WorkflowDefinition, WorkflowSelector} from './WorkflowSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {StartPreConditionsEditor, type StartPreCondition} from './fields/StartPreConditionsEditor'
+import {RolesMultiSelect} from './fields/RolesMultiSelect'
+import {useActivityTypeOptions} from './fields/useActivityTypeOptions'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
+import {DurationInput} from '@open-mercato/ui/backend/inputs/DurationInput'
 import {apiCall} from '@open-mercato/ui/backend/utils/apiCall'
 import {flash} from '@open-mercato/ui/backend/FlashMessages'
 import {buildVisualEditorHref, extractFirstDefinitionId} from '../lib/visual-editor-navigation'
@@ -77,8 +80,13 @@ interface FormField {
   defaultValue?: string
 }
 
+function splitRolesText(raw: string): string[] {
+  return raw.split(',').map((role) => role.trim()).filter(Boolean)
+}
+
 export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
   const router = useRouter()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [stepName, setStepName] = useState('')
@@ -771,11 +779,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   <label className="block text-sm font-medium text-foreground mb-1">
                     {t('workflows.form.timeout')}
                   </label>
-                  <Input
-                    type="text"
+                  <DurationInput
                     value={timeout}
-                    onChange={(e) => setTimeout(e.target.value)}
-                    placeholder={t('workflows.form.placeholders.timeout')}
+                    onChange={setTimeout}
+                    aria-label={t('workflows.form.timeout')}
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     {t('workflows.form.descriptions.timeout')}
@@ -811,11 +818,9 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <label className="block text-sm font-medium text-foreground mb-1">
                       {t('workflows.form.assignedToRoles')}
                     </label>
-                    <Input
-                      type="text"
-                      value={assignedToRoles}
-                      onChange={(e) => setAssignedToRoles(e.target.value)}
-                      placeholder={t('workflows.form.placeholders.roles')}
+                    <RolesMultiSelect
+                      value={splitRolesText(assignedToRoles)}
+                      onChange={(next) => setAssignedToRoles(next.join(', '))}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       {t('workflows.form.descriptions.assignedToRoles')}
@@ -1173,13 +1178,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</SelectItem>
-                                      <SelectItem value="CALL_API">{t('workflows.activities.types.CALL_API')}</SelectItem>
-                                      <SelectItem value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</SelectItem>
-                                      <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
-                                      <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
-                                      <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
-                                      <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
+                                      {activityTypeOptions.map((type) => (
+                                        <SelectItem key={type.value} value={type.value}>
+                                          {type.label}
+                                        </SelectItem>
+                                      ))}
                                     </SelectContent>
                                   </Select>
                                 </div>
@@ -1293,16 +1296,14 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       <label className="block text-xs font-medium text-foreground mb-1">
                                         {t('workflows.activities.waitDuration')}
                                       </label>
-                                      <Input
-                                        size="sm"
-                                        type="text"
+                                      <DurationInput
                                         value={activity.config?.duration || ''}
-                                        onChange={(e) => {
+                                        onChange={(value) => {
                                           const updated = [...stepActivities]
-                                          updated[index].config = { ...updated[index].config, duration: e.target.value, until: undefined }
+                                          updated[index].config = { ...updated[index].config, duration: value, until: undefined }
                                           setStepActivities(updated)
                                         }}
-                                        placeholder={t('workflows.activities.waitDurationPlaceholder')}
+                                        aria-label={t('workflows.activities.waitDuration')}
                                       />
                                       <p className="text-xs text-muted-foreground mt-1">{t('workflows.activities.waitDurationDescription')}</p>
                                     </div>
@@ -1607,19 +1608,17 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <label className="block text-sm font-medium text-foreground mb-1">
                       {t('workflows.form.timeout')}
                     </label>
-                    <Input
-                      type="text"
+                    <DurationInput
                       value={signalTimeout}
-                      onChange={(e) => {
-                        setSignalTimeout(e.target.value)
+                      onChange={(value) => {
+                        setSignalTimeout(value)
                         if (fieldErrors.signalTimeout) {
                           const next = { ...fieldErrors }
                           delete next.signalTimeout
                           setFieldErrors(next)
                         }
                       }}
-                      placeholder={t('workflows.form.placeholders.signalTimeout')}
-                      aria-invalid={fieldErrors.signalTimeout ? true : undefined}
+                      aria-label={t('workflows.form.timeout')}
                     />
                     {fieldErrors.signalTimeout ? (
                       <p className="text-xs text-destructive mt-1">
@@ -1647,20 +1646,18 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <label className="block text-sm font-medium text-foreground mb-1">
                       {t('workflows.activities.waitDuration')}
                     </label>
-                    <Input
-                      type="text"
+                    <DurationInput
                       value={timerDuration}
-                      onChange={(e) => {
-                        setTimerDuration(e.target.value)
-                        if (e.target.value) setTimerUntil('')
+                      onChange={(value) => {
+                        setTimerDuration(value)
+                        if (value) setTimerUntil('')
                         if (fieldErrors.timerDuration) {
                           const next = { ...fieldErrors }
                           delete next.timerDuration
                           setFieldErrors(next)
                         }
                       }}
-                      placeholder={t('workflows.activities.waitDurationPlaceholder')}
-                      aria-invalid={fieldErrors.timerDuration ? true : undefined}
+                      aria-label={t('workflows.activities.waitDuration')}
                     />
                     {fieldErrors.timerDuration ? (
                       <p className="text-xs text-destructive mt-1">

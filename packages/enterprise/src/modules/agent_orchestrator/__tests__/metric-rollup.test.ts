@@ -109,16 +109,20 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>) {
     agentRunId: 'run-3',
     createdAt: recent,
   })
-  // 3 proposals: 2 approved (unchanged), 1 edited (changed).
-  for (const disposition of ['approved', 'auto_approved', 'edited']) {
+  // 3 proposals: 2 approved (unchanged), 1 edited (changed). `runId` is NOT
+  // NULL on the entity, and the rollup floors proposals to the same runtime
+  // runs it counts above, so the fixture has to state which run raised each.
+  const proposalRunIds = ['run-1', 'run-2', 'run-3']
+  ;['approved', 'auto_approved', 'edited'].forEach((disposition, index) => {
     storeFor(AgentProposal).push({
       __entity: AgentProposal,
       ...SCOPE,
       agentId: AGENT,
+      runId: proposalRunIds[index],
       createdAt: recent,
       disposition,
     })
-  }
+  })
 }
 
 describe('writeRollupsForOrg', () => {
@@ -152,6 +156,49 @@ describe('writeRollupsForOrg', () => {
     expect(metrics.errorRate).toBeCloseTo(1 / 4)
     expect(metrics.evalPassedRuns).toBe(2)
     expect(metrics.p95LatencyMs).toBe(300)
+  })
+
+  // Regression: the AgentRun counts were floored to `source: 'runtime'` but the
+  // AgentProposal counts beside them were not, so `approveUnchangedRate` was a
+  // ratio over two different populations — every eval replay's proposals (and,
+  // since spec section 8.2, every workflow dry run's) leaked into the KPI.
+  it('excludes proposals raised by non-runtime runs from approveUnchangedRate', async () => {
+    const { em, storeFor } = createFakeEm()
+    seed(storeFor)
+
+    const recent = new Date(Date.now() - 60 * 60 * 1000)
+    storeFor(AgentRun).push({
+      __entity: AgentRun,
+      ...SCOPE,
+      agentId: AGENT,
+      source: 'eval',
+      createdAt: recent,
+      deletedAt: null,
+      id: 'run-eval-1',
+      status: 'ok',
+      evalPassed: true,
+      latencyMs: 1,
+      costMinor: 1,
+    })
+    for (const disposition of ['edited', 'edited', 'rejected', 'rejected']) {
+      storeFor(AgentProposal).push({
+        __entity: AgentProposal,
+        ...SCOPE,
+        agentId: AGENT,
+        runId: 'run-eval-1',
+        createdAt: recent,
+        disposition,
+      })
+    }
+
+    await writeRollupsForOrg(em, SCOPE)
+
+    const row = storeFor(AgentMetricRollup).find((r) => r.agentId === AGENT)!
+    const metrics = row.metrics as AgentMetricRollupMetrics
+    // Still the 2-of-3 from the runtime runs alone; the four eval proposals do
+    // not drag it to 2-of-7.
+    expect(metrics.approveUnchangedRate).toBeCloseTo(2 / 3)
+    expect(metrics.totalRuns).toBe(4)
   })
 
   it('is idempotent: re-running the same interval does not duplicate rows', async () => {

@@ -56,6 +56,20 @@ TODO: Fix that latter to have reference by the package names
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  /* Named chart palette (.ai/ds-rules.md - Data Visualization). The unnamed
+     chart-1..5 scale was registered here but the NAMED tokens never were, so
+     the documented utilities (`bg-chart-blue`, `text-chart-violet`, ...) were
+     silently producing no rule at all. */
+  --color-chart-blue: var(--chart-blue);
+  --color-chart-emerald: var(--chart-emerald);
+  --color-chart-amber: var(--chart-amber);
+  --color-chart-rose: var(--chart-rose);
+  --color-chart-violet: var(--chart-violet);
+  --color-chart-cyan: var(--chart-cyan);
+  --color-chart-indigo: var(--chart-indigo);
+  --color-chart-pink: var(--chart-pink);
+  --color-chart-teal: var(--chart-teal);
+  --color-chart-orange: var(--chart-orange);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -177,7 +191,7 @@ TODO: Fix that latter to have reference by the package names
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
   /* Brand lime — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
-  --brand-lime: #D4F372;
+  --brand-lime: #B4F372;
   /* Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy) */
   --focus-ring-inner: rgba(255, 255, 255, 1);
   --focus-ring-outer: rgba(153, 160, 174, 0.16);
@@ -197,8 +211,8 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --brand-violet: oklch(0.55 0.2 293);
-  --brand-violet-foreground: oklch(0.985 0 0);
+  --brand-violet: #BC9AFF;
+  --brand-violet-foreground: #0C0C0C;
   --primary-hover: oklch(0.145 0 0);
   /* Accent indigo — used for selection controls (checkbox, radio, switch) */
   --accent-indigo: #6366f1;
@@ -322,8 +336,8 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
-  --brand-violet: oklch(0.65 0.2 293);
-  --brand-violet-foreground: oklch(0.985 0 0);
+  --brand-violet: #BC9AFF;
+  --brand-violet-foreground: #0C0C0C;
   --primary-hover: oklch(0.85 0 0);
   /* Accent indigo — slightly lighter in dark mode for contrast */
   --accent-indigo: #818cf8;

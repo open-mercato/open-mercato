@@ -14,6 +14,13 @@ import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
+import { resolveCodeDefinitionForInstance } from './find-definition'
+import {
+  WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
+  buildAgentOutcomeContextEntry,
+  mapDispositionToAgentOutcome,
+  type AgentOutcomeKind,
+} from './outcome-routing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -33,6 +40,12 @@ export interface SendSignalOptions {
    * Optional payload to merge into workflow context
    */
   payload?: Record<string, any>
+
+  /** Engine-owned outcome metadata kept separate from author-visible mappings. */
+  agentOutcome?: AgentOutcomeKind
+
+  /** Proposal identifier associated with `agentOutcome`, when present. */
+  agentProposalId?: string
 
   /**
    * User ID sending the signal
@@ -65,7 +78,16 @@ export async function sendSignal(
   container: AwilixContainer,
   options: SendSignalOptions
 ): Promise<void> {
-  const { instanceId, signalName, payload, userId, tenantId, organizationId } = options
+  const {
+    instanceId,
+    signalName,
+    payload,
+    agentOutcome,
+    agentProposalId,
+    userId,
+    tenantId,
+    organizationId,
+  } = options
 
   const eventLogger = container.resolve<typeof eventLoggerModule>('eventLogger')
   const stepHandler = container.resolve<typeof stepHandlerModule>('stepHandler')
@@ -96,13 +118,13 @@ export async function sendSignal(
   // Branch-scoped signal: a FORKED instance routes the signal to the branch
   // paused at a matching WAIT_FOR_SIGNAL step.
   if (instance.status === 'FORKED') {
-    const branchDefinition = await findOneWithDecryption(
+    const branchDefinition = (await findOneWithDecryption(
       em as PostgreSqlEntityManager,
       WorkflowDefinition,
       { id: instance.definitionId, tenantId: instance.tenantId, organizationId: instance.organizationId, deletedAt: null },
       undefined,
       { tenantId: instance.tenantId, organizationId: instance.organizationId },
-    )
+    )) ?? resolveCodeDefinitionForInstance(instance)
     if (!branchDefinition) {
       throw new SignalError('Workflow definition not found', 'DEFINITION_NOT_FOUND', { definitionId: instance.definitionId })
     }
@@ -174,7 +196,7 @@ export async function sendSignal(
   }
 
   // Load workflow definition with tenant/org scope to check current step
-  const definition = await findOneWithDecryption(
+  const definition = (await findOneWithDecryption(
     em as PostgreSqlEntityManager,
     WorkflowDefinition,
     {
@@ -185,7 +207,7 @@ export async function sendSignal(
     },
     undefined,
     { tenantId: instance.tenantId, organizationId: instance.organizationId },
-  )
+  )) ?? resolveCodeDefinitionForInstance(instance)
   if (!definition) {
     throw new SignalError(
       'Workflow definition not found',
@@ -260,6 +282,31 @@ export async function sendSignal(
     }
   }
 
+  // Outcome routing (spec 7.2). The signal is how EVERY resolved disposition
+  // reaches a parked agent step — the activity worker's auto_approved and
+  // informative resumes and the human dispose path alike — so this is the one
+  // place the disposition has to be translated into the engine-owned outcome
+  // marker the executor routes on. Recorded regardless of who sent the signal;
+  // the author-visible `disposition` key stays untouched and unread by routing.
+  if (isInvokeAgentStep && instance.currentStepId) {
+    const resolvedOutcome = agentOutcome ?? mapDispositionToAgentOutcome(
+      (payload as Record<string, unknown> | undefined)?.disposition,
+    )
+    if (resolvedOutcome) {
+      const proposalId = agentProposalId
+        ?? (payload as Record<string, unknown> | undefined)?.agentProposalId
+        ?? (payload as Record<string, unknown> | undefined)?.proposalId
+      instance.context = {
+        ...instance.context,
+        [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry(
+          instance.currentStepId,
+          resolvedOutcome,
+          typeof proposalId === 'string' ? proposalId : undefined,
+        ),
+      }
+    }
+  }
+
   instance.updatedAt = now
 
   // Log signal received event
@@ -295,6 +342,36 @@ export async function sendSignal(
       signalName,
       payload,
     })
+  }
+
+  // Outcome routing (spec 7.2). A resumed agent step is advanced HERE, not by
+  // the executor loop, so the wired outcome route has to be honoured here too —
+  // routing it in only one of the two places would silently send every
+  // human-dispositioned proposal down the happy path.
+  // Imported lazily rather than read off the DI-resolved executor: the resolved
+  // service is the module, and reaching for a named export on it couples this
+  // path to every test double that stubs only the two methods it needed.
+  const { dispatchAgentOutcomeForCurrentStep } = await import('./workflow-executor')
+  const outcomeDispatch = await dispatchAgentOutcomeForCurrentStep(
+    em,
+    container,
+    instance,
+    definition.definition,
+    { workflowContext: instance.context, userId },
+  )
+  if (outcomeDispatch && outcomeDispatch.kind !== 'default') {
+    if (outcomeDispatch.kind === 'failed') {
+      await workflowExecutor.completeWorkflow(em, container, instance.id, 'FAILED', {
+        error: outcomeDispatch.error,
+      })
+      return
+    }
+    if (outcomeDispatch.kind === 'parked') return
+    if (outcomeDispatch.paused || instance.status === 'PAUSED') return
+    instance.status = 'RUNNING'
+    await em.flush()
+    await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
+    return
   }
 
   // Find automatic transitions from current step
@@ -347,7 +424,7 @@ export async function sendSignal(
     instance,
     instance.currentStepId,
     firstValidTransition.transition.toStepId,
-    transitionContext
+    { ...transitionContext, transitionId: firstValidTransition.transition.transitionId },
   )
 
   if (!transitionResult.success) {

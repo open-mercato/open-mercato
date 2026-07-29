@@ -16,6 +16,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition } from '../../../../data/entities'
 import { serializeWorkflowDefinition } from '../../serialize'
+import { workflowDefinitionMutationResponseSchema, workflowErrorSchema } from '../../../openapi'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -175,6 +176,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition customized successfully',
+          schema: workflowDefinitionMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -188,11 +190,13 @@ export const openApi = {
         {
           status: 400,
           description: 'Not a code-based id',
+          schema: workflowErrorSchema,
           example: { error: 'Customize is only supported for code-based workflow definitions' },
         },
         {
           status: 404,
           description: 'Code workflow not found',
+          schema: workflowErrorSchema,
           example: { error: 'Workflow definition not found' },
         },
       ],

@@ -1,0 +1,1545 @@
+{
+  "workflowId": "oze_residential_install_v1",
+  "workflowName": "OZE Residential Install - 60-node density fixture",
+  "description": "Sixty-step residential photovoltaic installation pipeline with five agent touchpoints, branching, error routes and activity-dense transitions. Navigability fixture for route chips, semantic zoom and canvas density (spec section 4.4, issue #4244).",
+  "version": 1,
+  "enabled": false,
+  "metadata": {
+    "category": "Energy",
+    "tags": [
+      "oze",
+      "density-fixture",
+      "agents"
+    ],
+    "icon": "sun"
+  },
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start OZE pipeline",
+        "stepType": "START",
+        "description": "Entry point for the residential PV installation pipeline"
+      },
+      {
+        "stepId": "lead_captured",
+        "stepName": "Lead captured",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "lead_captured_call",
+            "activityName": "Lead Captured Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/lead_captured",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "lead_scored",
+        "stepName": "Lead scored",
+        "stepType": "AUTOMATED",
+        "description": "Score the inbound lead against the regional install backlog",
+        "activities": [
+          {
+            "activityId": "lead_scored_agent",
+            "activityName": "Lead Scored Agent",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "lead_qualifier",
+              "input": {
+                "installationId": "{{context.installationId}}"
+              },
+              "onResult": {
+                "autoApproveThreshold": 0.8
+              }
+            }
+          }
+        ],
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        }
+      },
+      {
+        "stepId": "contact_attempted",
+        "stepName": "Contact attempted",
+        "stepType": "USER_TASK",
+        "userTaskConfig": {
+          "assignedToRoles": [
+            "installer_coordinator"
+          ],
+          "slaDuration": "PT24H"
+        }
+      },
+      {
+        "stepId": "meeting_booked",
+        "stepName": "Meeting booked",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "meeting_booked_call",
+            "activityName": "Meeting Booked Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/meeting_booked",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "roof_photos_requested",
+        "stepName": "Roof photos requested",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "roof_photos_requested_call",
+            "activityName": "Roof Photos Requested Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/roof_photos_requested",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "roof_photos_received",
+        "stepName": "Roof photos received",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "roof_photos_received_call",
+            "activityName": "Roof Photos Received Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/roof_photos_received",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "shading_analysis",
+        "stepName": "Shading analysis",
+        "stepType": "AUTOMATED",
+        "description": "Estimate shading losses from the uploaded roof photos",
+        "activities": [
+          {
+            "activityId": "shading_analysis_agent",
+            "activityName": "Shading Analysis Agent",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "roof_analyst",
+              "input": {
+                "installationId": "{{context.installationId}}"
+              },
+              "onResult": {
+                "autoApproveThreshold": 0.8
+              }
+            }
+          }
+        ],
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        }
+      },
+      {
+        "stepId": "yield_simulation",
+        "stepName": "Yield simulation",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "yield_simulation_call",
+            "activityName": "Yield Simulation Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/yield_simulation",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "bom_drafted",
+        "stepName": "Bill of materials drafted",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "bom_drafted_call",
+            "activityName": "Bom Drafted Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/bom_drafted",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "pricing_calculated",
+        "stepName": "Pricing calculated",
+        "stepType": "AUTOMATED",
+        "description": "Propose a price band for the drafted bill of materials",
+        "activities": [
+          {
+            "activityId": "pricing_calculated_agent",
+            "activityName": "Pricing Calculated Agent",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "pricing_advisor",
+              "input": {
+                "installationId": "{{context.installationId}}"
+              },
+              "onResult": {
+                "autoApproveThreshold": 0.8
+              }
+            }
+          }
+        ],
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        }
+      },
+      {
+        "stepId": "quote_rendered",
+        "stepName": "Quote rendered",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "quote_rendered_call",
+            "activityName": "Quote Rendered Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/quote_rendered",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "quote_sent",
+        "stepName": "Quote sent",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "quote_sent_call",
+            "activityName": "Quote Sent Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/quote_sent",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "quote_viewed",
+        "stepName": "Quote viewed tracked",
+        "stepType": "WAIT_FOR_TIMER",
+        "config": {
+          "duration": "PT48H"
+        }
+      },
+      {
+        "stepId": "financing_prescreen",
+        "stepName": "Financing pre-screen",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "financing_prescreen_call",
+            "activityName": "Financing Prescreen Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/financing_prescreen",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "subsidy_lookup",
+        "stepName": "Subsidy programme lookup",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "subsidy_lookup_call",
+            "activityName": "Subsidy Lookup Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/subsidy_lookup",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "subsidy_application",
+        "stepName": "Subsidy application filed",
+        "stepType": "SUB_WORKFLOW",
+        "config": {
+          "subWorkflowId": "oze_subsidy_application",
+          "version": 1
+        },
+        "errorDirective": {
+          "mode": "continueWithFallback",
+          "fallbackValue": {
+            "subsidy": null
+          }
+        }
+      },
+      {
+        "stepId": "contract_generated",
+        "stepName": "Contract generated",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "contract_generated_call",
+            "activityName": "Contract Generated Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/contract_generated",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "contract_countersigned",
+        "stepName": "Contract countersigned",
+        "stepType": "USER_TASK",
+        "userTaskConfig": {
+          "assignedToRoles": [
+            "installer_coordinator"
+          ],
+          "slaDuration": "PT24H"
+        }
+      },
+      {
+        "stepId": "deposit_invoiced",
+        "stepName": "Deposit invoiced",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "deposit_invoiced_call",
+            "activityName": "Deposit Invoiced Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/deposit_invoiced",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "deposit_reconciled",
+        "stepName": "Deposit reconciled",
+        "stepType": "WAIT_FOR_TIMER",
+        "config": {
+          "duration": "PT48H"
+        },
+        "errorDirective": {
+          "mode": "failureQueue"
+        }
+      },
+      {
+        "stepId": "grid_operator_notified",
+        "stepName": "Grid operator notified",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "grid_operator_notified_call",
+            "activityName": "Grid Operator Notified Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/grid_operator_notified",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "permit_pack_assembled",
+        "stepName": "Permit pack assembled",
+        "stepType": "AUTOMATED",
+        "description": "Assemble the permit pack for the local grid operator",
+        "activities": [
+          {
+            "activityId": "permit_pack_assembled_agent",
+            "activityName": "Permit Pack Assembled Agent",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "permit_clerk",
+              "input": {
+                "installationId": "{{context.installationId}}"
+              },
+              "onResult": {
+                "autoApproveThreshold": 0.8
+              }
+            }
+          }
+        ],
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        }
+      },
+      {
+        "stepId": "permit_submitted",
+        "stepName": "Permit submitted",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "permit_submitted_call",
+            "activityName": "Permit Submitted Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/permit_submitted",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "permit_granted",
+        "stepName": "Permit granted",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "permit_granted_call",
+            "activityName": "Permit Granted Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/permit_granted",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "procurement_ordered",
+        "stepName": "Procurement ordered",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "procurement_ordered_call",
+            "activityName": "Procurement Ordered Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/procurement_ordered",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "panels_allocated",
+        "stepName": "Panels allocated",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "panels_allocated_call",
+            "activityName": "Panels Allocated Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/panels_allocated",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "inverter_allocated",
+        "stepName": "Inverter allocated",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "inverter_allocated_call",
+            "activityName": "Inverter Allocated Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/inverter_allocated",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "mounting_allocated",
+        "stepName": "Mounting kit allocated",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "mounting_allocated_call",
+            "activityName": "Mounting Allocated Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/mounting_allocated",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "logistics_scheduled",
+        "stepName": "Logistics scheduled",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "logistics_scheduled_call",
+            "activityName": "Logistics Scheduled Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/logistics_scheduled",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "crew_assigned",
+        "stepName": "Crew assigned",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "crew_assigned_call",
+            "activityName": "Crew Assigned Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/crew_assigned",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "install_scheduled",
+        "stepName": "Installation scheduled",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "install_scheduled_call",
+            "activityName": "Install Scheduled Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/install_scheduled",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "install_started",
+        "stepName": "Installation started",
+        "stepType": "USER_TASK",
+        "userTaskConfig": {
+          "assignedToRoles": [
+            "installer_coordinator"
+          ],
+          "slaDuration": "PT24H"
+        }
+      },
+      {
+        "stepId": "mounting_installed",
+        "stepName": "Mounting installed",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "mounting_installed_call",
+            "activityName": "Mounting Installed Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/mounting_installed",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "panels_installed",
+        "stepName": "Panels installed",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "panels_installed_call",
+            "activityName": "Panels Installed Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/panels_installed",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "inverter_installed",
+        "stepName": "Inverter installed",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "inverter_installed_call",
+            "activityName": "Inverter Installed Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/inverter_installed",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "dc_wiring_done",
+        "stepName": "DC wiring completed",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "dc_wiring_done_call",
+            "activityName": "Dc Wiring Done Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/dc_wiring_done",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "ac_wiring_done",
+        "stepName": "AC wiring completed",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "ac_wiring_done_call",
+            "activityName": "Ac Wiring Done Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/ac_wiring_done",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "meter_swapped",
+        "stepName": "Meter swapped",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "meter_swapped_call",
+            "activityName": "Meter Swapped Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/meter_swapped",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "commissioning_test",
+        "stepName": "Commissioning test",
+        "stepType": "AUTOMATED",
+        "description": "Review the commissioning telemetry for anomalies",
+        "activities": [
+          {
+            "activityId": "commissioning_test_agent",
+            "activityName": "Commissioning Test Agent",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "commissioning_reviewer",
+              "input": {
+                "installationId": "{{context.installationId}}"
+              },
+              "onResult": {
+                "autoApproveThreshold": 0.8
+              }
+            }
+          }
+        ],
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        }
+      },
+      {
+        "stepId": "monitoring_registered",
+        "stepName": "Monitoring registered",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "monitoring_registered_call",
+            "activityName": "Monitoring Registered Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/monitoring_registered",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "as_built_docs",
+        "stepName": "As-built documentation",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "as_built_docs_call",
+            "activityName": "As Built Docs Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/as_built_docs",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "grid_connection_filed",
+        "stepName": "Grid connection filed",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "grid_connection_filed_call",
+            "activityName": "Grid Connection Filed Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/grid_connection_filed",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "handover_pack_sent",
+        "stepName": "Handover pack sent",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "handover_pack_sent_call",
+            "activityName": "Handover Pack Sent Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/handover_pack_sent",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "satisfaction_survey",
+        "stepName": "Customer satisfaction survey",
+        "stepType": "USER_TASK",
+        "userTaskConfig": {
+          "assignedToRoles": [
+            "installer_coordinator"
+          ],
+          "slaDuration": "PT24H"
+        }
+      },
+      {
+        "stepId": "final_invoice_issued",
+        "stepName": "Final invoice issued",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "final_invoice_issued_call",
+            "activityName": "Final Invoice Issued Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/final_invoice_issued",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "warranty_registered",
+        "stepName": "Warranty registered",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "warranty_registered_call",
+            "activityName": "Warranty Registered Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/warranty_registered",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "qualify_gate",
+        "stepName": "Qualified?",
+        "stepType": "IF_ELSE",
+        "description": "Route qualified leads into the survey track"
+      },
+      {
+        "stepId": "financing_gate",
+        "stepName": "Financing route",
+        "stepType": "SWITCH",
+        "description": "Route on the chosen financing option"
+      },
+      {
+        "stepId": "permit_gate",
+        "stepName": "Permit outcome",
+        "stepType": "IF_ELSE",
+        "description": "Route on the permit decision"
+      },
+      {
+        "stepId": "await_grid_approval",
+        "stepName": "Await grid approval",
+        "stepType": "WAIT_FOR_CONDITION",
+        "config": {
+          "condition": {
+            "operator": "AND",
+            "rules": [
+              {
+                "field": "gridApproval.status",
+                "operator": "==",
+                "value": "APPROVED"
+              }
+            ]
+          },
+          "timeout": "P30D",
+          "onTimeout": "FAIL",
+          "pollIntervalMs": 3600000
+        }
+      },
+      {
+        "stepId": "nurture_lead",
+        "stepName": "Nurture unqualified lead",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "nurture_lead_email",
+            "activityName": "Nurture Lead Email",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.customerEmail}}",
+              "subject": "Your solar assessment",
+              "template": "oze_nurture"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "cash_financing",
+        "stepName": "Cash purchase",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "cash_financing_set",
+            "activityName": "Cash Financing Set",
+            "activityType": "SET_VARIABLE",
+            "config": {
+              "assignments": [
+                {
+                  "path": "financing.plan",
+                  "value": "CASH"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "loan_financing",
+        "stepName": "Bank loan",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "loan_financing_set",
+            "activityName": "Loan Financing Set",
+            "activityType": "SET_VARIABLE",
+            "config": {
+              "assignments": [
+                {
+                  "path": "financing.plan",
+                  "value": "LOAN"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "lease_financing",
+        "stepName": "Lease",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "lease_financing_set",
+            "activityName": "Lease Financing Set",
+            "activityType": "SET_VARIABLE",
+            "config": {
+              "assignments": [
+                {
+                  "path": "financing.plan",
+                  "value": "LEASE"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "permit_appeal",
+        "stepName": "File permit appeal",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "permit_appeal_call",
+            "activityName": "Permit Appeal Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/permit_appeal",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "install_failure_triage",
+        "stepName": "Installation failure triage",
+        "stepType": "AUTOMATED",
+        "description": "Error handler for the installation leg",
+        "activities": [
+          {
+            "activityId": "install_failure_notify",
+            "activityName": "Install Failure Notify",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "oze.install.failed",
+              "payload": {
+                "installationId": "{{context.installationId}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "customer_apology",
+        "stepName": "Send apology and reschedule",
+        "stepType": "USER_TASK",
+        "userTaskConfig": {
+          "assignedToRoles": [
+            "installer_coordinator"
+          ]
+        }
+      },
+      {
+        "stepId": "archive_installation",
+        "stepName": "Archive installation record",
+        "stepType": "AUTOMATED",
+        "activities": [
+          {
+            "activityId": "archive_installation_call",
+            "activityName": "Archive Installation Call",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/archive",
+              "method": "POST"
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "end",
+        "stepName": "Pipeline complete",
+        "stepType": "END"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "e_start_lead_captured",
+        "fromStepId": "start",
+        "toStepId": "lead_captured",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_lead_captured_lead_scored",
+        "fromStepId": "lead_captured",
+        "toStepId": "lead_scored",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_lead_scored_qualify_gate",
+        "fromStepId": "lead_scored",
+        "toStepId": "qualify_gate",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_qualify_gate_contact_attempted",
+        "fromStepId": "qualify_gate",
+        "toStepId": "contact_attempted",
+        "trigger": "auto",
+        "priority": 100,
+        "transitionName": "Qualified",
+        "condition": {
+          "operator": "AND",
+          "rules": [
+            {
+              "field": "leadScore",
+              "operator": ">",
+              "value": 60
+            }
+          ]
+        }
+      },
+      {
+        "transitionId": "e_qualify_gate_nurture_lead",
+        "fromStepId": "qualify_gate",
+        "toStepId": "nurture_lead",
+        "trigger": "auto",
+        "priority": 0,
+        "transitionName": "Otherwise"
+      },
+      {
+        "transitionId": "e_nurture_lead_archive_installation",
+        "fromStepId": "nurture_lead",
+        "toStepId": "archive_installation",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_archive_installation_end",
+        "fromStepId": "archive_installation",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_contact_attempted_meeting_booked",
+        "fromStepId": "contact_attempted",
+        "toStepId": "meeting_booked",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_meeting_booked_roof_photos_requested",
+        "fromStepId": "meeting_booked",
+        "toStepId": "roof_photos_requested",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_roof_photos_requested_roof_photos_received",
+        "fromStepId": "roof_photos_requested",
+        "toStepId": "roof_photos_received",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_roof_photos_received_shading_analysis",
+        "fromStepId": "roof_photos_received",
+        "toStepId": "shading_analysis",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_shading_analysis_yield_simulation",
+        "fromStepId": "shading_analysis",
+        "toStepId": "yield_simulation",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_yield_simulation_bom_drafted",
+        "fromStepId": "yield_simulation",
+        "toStepId": "bom_drafted",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_bom_drafted_pricing_calculated",
+        "fromStepId": "bom_drafted",
+        "toStepId": "pricing_calculated",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_pricing_calculated_quote_rendered",
+        "fromStepId": "pricing_calculated",
+        "toStepId": "quote_rendered",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_quote_rendered_quote_sent",
+        "fromStepId": "quote_rendered",
+        "toStepId": "quote_sent",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "quote_sent_email",
+            "activityName": "Quote Sent Email",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.customerEmail}}",
+              "subject": "Your quote",
+              "template": "oze_quote"
+            }
+          },
+          {
+            "activityId": "quote_sent_event",
+            "activityName": "Quote Sent Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "oze.quote.sent",
+              "payload": {}
+            }
+          },
+          {
+            "activityId": "quote_sent_crm",
+            "activityName": "Quote Sent Crm",
+            "activityType": "CALL_API",
+            "config": {
+              "endpoint": "/api/oze/crm/quote",
+              "method": "POST"
+            }
+          },
+          {
+            "activityId": "quote_sent_metric",
+            "activityName": "Quote Sent Metric",
+            "activityType": "SET_VARIABLE",
+            "config": {
+              "assignments": [
+                {
+                  "path": "quote.sentAt",
+                  "value": "{{now}}"
+                }
+              ]
+            }
+          },
+          {
+            "activityId": "quote_sent_reminder",
+            "activityName": "Quote Sent Reminder",
+            "activityType": "WAIT",
+            "config": {
+              "duration": "PT1H"
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "e_quote_sent_quote_viewed",
+        "fromStepId": "quote_sent",
+        "toStepId": "quote_viewed",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_quote_viewed_financing_prescreen",
+        "fromStepId": "quote_viewed",
+        "toStepId": "financing_prescreen",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_financing_prescreen_financing_gate",
+        "fromStepId": "financing_prescreen",
+        "toStepId": "financing_gate",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_financing_gate_cash_financing",
+        "fromStepId": "financing_gate",
+        "toStepId": "cash_financing",
+        "trigger": "auto",
+        "priority": 100,
+        "transitionName": "Cash",
+        "condition": {
+          "operator": "AND",
+          "rules": [
+            {
+              "field": "financing.choice",
+              "operator": "==",
+              "value": "CASH"
+            }
+          ]
+        }
+      },
+      {
+        "transitionId": "e_financing_gate_loan_financing",
+        "fromStepId": "financing_gate",
+        "toStepId": "loan_financing",
+        "trigger": "auto",
+        "priority": 90,
+        "transitionName": "Loan",
+        "condition": {
+          "operator": "AND",
+          "rules": [
+            {
+              "field": "financing.choice",
+              "operator": "==",
+              "value": "LOAN"
+            }
+          ]
+        }
+      },
+      {
+        "transitionId": "e_financing_gate_lease_financing",
+        "fromStepId": "financing_gate",
+        "toStepId": "lease_financing",
+        "trigger": "auto",
+        "priority": 80,
+        "transitionName": "Lease",
+        "condition": {
+          "operator": "AND",
+          "rules": [
+            {
+              "field": "financing.choice",
+              "operator": "==",
+              "value": "LEASE"
+            }
+          ]
+        }
+      },
+      {
+        "transitionId": "e_financing_gate_subsidy_lookup",
+        "fromStepId": "financing_gate",
+        "toStepId": "subsidy_lookup",
+        "trigger": "auto",
+        "priority": 0,
+        "transitionName": "Otherwise"
+      },
+      {
+        "transitionId": "e_cash_financing_subsidy_lookup",
+        "fromStepId": "cash_financing",
+        "toStepId": "subsidy_lookup",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_loan_financing_subsidy_lookup",
+        "fromStepId": "loan_financing",
+        "toStepId": "subsidy_lookup",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_lease_financing_subsidy_lookup",
+        "fromStepId": "lease_financing",
+        "toStepId": "subsidy_lookup",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_subsidy_lookup_subsidy_application",
+        "fromStepId": "subsidy_lookup",
+        "toStepId": "subsidy_application",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_subsidy_application_contract_generated",
+        "fromStepId": "subsidy_application",
+        "toStepId": "contract_generated",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_contract_generated_contract_countersigned",
+        "fromStepId": "contract_generated",
+        "toStepId": "contract_countersigned",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_contract_countersigned_deposit_invoiced",
+        "fromStepId": "contract_countersigned",
+        "toStepId": "deposit_invoiced",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_deposit_invoiced_deposit_reconciled",
+        "fromStepId": "deposit_invoiced",
+        "toStepId": "deposit_reconciled",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_deposit_reconciled_grid_operator_notified",
+        "fromStepId": "deposit_reconciled",
+        "toStepId": "grid_operator_notified",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_grid_operator_notified_permit_pack_assembled",
+        "fromStepId": "grid_operator_notified",
+        "toStepId": "permit_pack_assembled",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_permit_pack_assembled_permit_submitted",
+        "fromStepId": "permit_pack_assembled",
+        "toStepId": "permit_submitted",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_permit_submitted_permit_granted",
+        "fromStepId": "permit_submitted",
+        "toStepId": "permit_granted",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_permit_granted_permit_gate",
+        "fromStepId": "permit_granted",
+        "toStepId": "permit_gate",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_permit_gate_procurement_ordered",
+        "fromStepId": "permit_gate",
+        "toStepId": "procurement_ordered",
+        "trigger": "auto",
+        "priority": 100,
+        "transitionName": "Granted",
+        "condition": {
+          "operator": "AND",
+          "rules": [
+            {
+              "field": "permit.status",
+              "operator": "==",
+              "value": "GRANTED"
+            }
+          ]
+        }
+      },
+      {
+        "transitionId": "e_permit_gate_permit_appeal",
+        "fromStepId": "permit_gate",
+        "toStepId": "permit_appeal",
+        "trigger": "auto",
+        "priority": 0,
+        "transitionName": "Otherwise"
+      },
+      {
+        "transitionId": "e_permit_appeal_permit_submitted",
+        "fromStepId": "permit_appeal",
+        "toStepId": "permit_submitted",
+        "trigger": "auto",
+        "priority": 100,
+        "transitionName": "Resubmit"
+      },
+      {
+        "transitionId": "e_procurement_ordered_panels_allocated",
+        "fromStepId": "procurement_ordered",
+        "toStepId": "panels_allocated",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_panels_allocated_inverter_allocated",
+        "fromStepId": "panels_allocated",
+        "toStepId": "inverter_allocated",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_inverter_allocated_mounting_allocated",
+        "fromStepId": "inverter_allocated",
+        "toStepId": "mounting_allocated",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_mounting_allocated_logistics_scheduled",
+        "fromStepId": "mounting_allocated",
+        "toStepId": "logistics_scheduled",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_logistics_scheduled_crew_assigned",
+        "fromStepId": "logistics_scheduled",
+        "toStepId": "crew_assigned",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_crew_assigned_install_scheduled",
+        "fromStepId": "crew_assigned",
+        "toStepId": "install_scheduled",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_install_scheduled_install_started",
+        "fromStepId": "install_scheduled",
+        "toStepId": "install_started",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_install_started_mounting_installed",
+        "fromStepId": "install_started",
+        "toStepId": "mounting_installed",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_mounting_installed_panels_installed",
+        "fromStepId": "mounting_installed",
+        "toStepId": "panels_installed",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_panels_installed_inverter_installed",
+        "fromStepId": "panels_installed",
+        "toStepId": "inverter_installed",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_inverter_installed_dc_wiring_done",
+        "fromStepId": "inverter_installed",
+        "toStepId": "dc_wiring_done",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_dc_wiring_done_ac_wiring_done",
+        "fromStepId": "dc_wiring_done",
+        "toStepId": "ac_wiring_done",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_ac_wiring_done_meter_swapped",
+        "fromStepId": "ac_wiring_done",
+        "toStepId": "meter_swapped",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_meter_swapped_commissioning_test",
+        "fromStepId": "meter_swapped",
+        "toStepId": "commissioning_test",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_commissioning_test_monitoring_registered",
+        "fromStepId": "commissioning_test",
+        "toStepId": "monitoring_registered",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_monitoring_registered_as_built_docs",
+        "fromStepId": "monitoring_registered",
+        "toStepId": "as_built_docs",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_as_built_docs_grid_connection_filed",
+        "fromStepId": "as_built_docs",
+        "toStepId": "grid_connection_filed",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_grid_connection_filed_await_grid_approval",
+        "fromStepId": "grid_connection_filed",
+        "toStepId": "await_grid_approval",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_await_grid_approval_handover_pack_sent",
+        "fromStepId": "await_grid_approval",
+        "toStepId": "handover_pack_sent",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_handover_pack_sent_satisfaction_survey",
+        "fromStepId": "handover_pack_sent",
+        "toStepId": "satisfaction_survey",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_satisfaction_survey_final_invoice_issued",
+        "fromStepId": "satisfaction_survey",
+        "toStepId": "final_invoice_issued",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_final_invoice_issued_warranty_registered",
+        "fromStepId": "final_invoice_issued",
+        "toStepId": "warranty_registered",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_warranty_registered_end",
+        "fromStepId": "warranty_registered",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_install_started_install_failure_triage",
+        "fromStepId": "install_started",
+        "toStepId": "install_failure_triage",
+        "trigger": "auto",
+        "kind": "error",
+        "priority": 100,
+        "transitionName": "On error"
+      },
+      {
+        "transitionId": "e_inverter_installed_install_failure_triage",
+        "fromStepId": "inverter_installed",
+        "toStepId": "install_failure_triage",
+        "trigger": "auto",
+        "kind": "error",
+        "priority": 100,
+        "transitionName": "On error"
+      },
+      {
+        "transitionId": "e_meter_swapped_install_failure_triage",
+        "fromStepId": "meter_swapped",
+        "toStepId": "install_failure_triage",
+        "trigger": "auto",
+        "kind": "error",
+        "priority": 100,
+        "transitionName": "On error"
+      },
+      {
+        "transitionId": "e_install_failure_triage_customer_apology",
+        "fromStepId": "install_failure_triage",
+        "toStepId": "customer_apology",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "e_customer_apology_install_scheduled",
+        "fromStepId": "customer_apology",
+        "toStepId": "install_scheduled",
+        "trigger": "auto",
+        "priority": 100,
+        "transitionName": "Reschedule"
+      }
+    ],
+    "errorHandler": {
+      "stepId": "install_failure_triage"
+    }
+  }
+}

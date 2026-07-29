@@ -3,6 +3,8 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
 
 /**
  * AutomatedNode display data.
@@ -29,6 +31,9 @@ export interface AutomatedNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  hasCompensation?: boolean
+  errorCount?: number
 }
 
 /**
@@ -39,6 +44,7 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
   const nodeData = data as unknown as AutomatedNodeData
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('automated', nodeData as never)
 
   return (
     <div className="automated-node" title={nodeData.tooltip}>
@@ -52,11 +58,15 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={nodeData.description}
         status={workflowStatus}
         nodeType="automated"
         selected={selected}
+        hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />
@@ -69,6 +79,8 @@ export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) 
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

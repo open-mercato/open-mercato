@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
@@ -86,7 +86,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     } catch (err) {
       if (isCrudHttpError(err)) {
         if (err.status === 404) {
-          throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
+          throw notFound(routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found'))
         }
         if (err.status === 409) {
           if ((err.body as Record<string, unknown> | undefined)?.code === 'role_type_in_use') {
@@ -123,7 +123,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       },
     )
     if (!entry) {
-      throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
+      throw notFound(routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found'))
     }
 
     if (result.changed) {
@@ -218,7 +218,7 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
       })) as CommandExecuteResult<{ entryId: string }>
     } catch (err) {
       if (isCrudHttpError(err) && err.status === 404) {
-        throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
+        throw notFound(routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found'))
       }
       if (isCrudHttpError(err) && err.status === 409 && (err.body as Record<string, unknown> | undefined)?.code === 'role_type_in_use') {
         const usageCount = Number((err.body as Record<string, unknown> | undefined)?.usageCount ?? 0)

@@ -124,7 +124,7 @@ agents/<agent_id>/
 | `agentRunSessionStore` | Cross-process run↔session outcome handoff |
 | `agentContextResolver` | Assemble per-run TDCR context bundle |
 | `agentDocumentIngestService` / `agentDocumentOcrProvider` | Document OCR → field extraction |
-| `agentWorkflowBridge` | Bridge the `workflows` `INVOKE_AGENT` activity |
+| `agentWorkflowBridge` | Bridge the `workflows` `INVOKE_AGENT` activity (runs + dispositions proposals; `listAgentOutcomeContracts()` also projects every agent's OUTCOME schema so the workflows context ledger can type `outputMapping` targets — core reads it duck-typed, never imported) |
 | `agentPrincipalService` / `agentTokenService` / `agentDelegationGrantService` / `agentAuthMdService` | Identity overlay (principals, OAuth tokens, delegation grants, ID-JAG) |
 
 ## API Routes (`/api/agent_orchestrator/`)

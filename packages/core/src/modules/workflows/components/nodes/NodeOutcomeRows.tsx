@@ -1,0 +1,121 @@
+'use client'
+
+import { Handle, Position } from '@xyflow/react'
+import { Check, CircleAlert, Info, ShieldMinus, Slash, Dot } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
+import type { NodeOutcomeRow, NodeOutcomeRowGlyph, NodeOutcomeRowTone } from '../../lib/node-outcome-rows'
+
+/**
+ * The node's outcome-row footer (fidelity gap #4, spec §7.2).
+ *
+ * A hairline rule, right-aligned rows, and a dot overhanging the right edge that
+ * IS the connection handle — so wiring a disposition is drawing a line from the
+ * row that names it.
+ *
+ * Accessibility (spec §4.6 acceptance criterion): the LABEL carries the meaning,
+ * never the dot colour. Two of these rows are red, which at 10px and at canvas
+ * zoom is not a distinction anyone can read — so each row also carries its own
+ * glyph, and each handle is named for assistive users. The labels are therefore
+ * not decorative and must never be dropped for a denser rendering.
+ */
+
+const TONE_DOT_CLASSES: Record<NodeOutcomeRowTone, string> = {
+  success: '!bg-status-success-icon',
+  warning: '!bg-status-warning-icon',
+  error: '!bg-status-error-icon',
+  info: '!bg-status-info-icon',
+  neutral: '!bg-muted-foreground',
+}
+
+const TONE_TEXT_CLASSES: Record<NodeOutcomeRowTone, string> = {
+  success: 'text-status-success-icon',
+  warning: 'text-status-warning-icon',
+  error: 'text-status-error-icon',
+  info: 'text-status-info-icon',
+  neutral: 'text-muted-foreground',
+}
+
+const GLYPH_COMPONENTS: Record<NodeOutcomeRowGlyph, typeof Check> = {
+  check: Check,
+  info: Info,
+  slash: Slash,
+  shield: ShieldMinus,
+  alert: CircleAlert,
+  dot: Dot,
+}
+
+export interface NodeOutcomeRowsProps {
+  rows: NodeOutcomeRow[]
+  isConnectable?: boolean
+  /**
+   * Announced when an outcome has no route: §7.2 requires the node face to
+   * state that unwired outcomes inherit the step's error directive.
+   */
+  inheritanceNote?: string
+  revealLabel?: string
+  onReveal?: () => void
+  testId?: string
+}
+
+export function NodeOutcomeRows({
+  rows,
+  isConnectable,
+  inheritanceNote,
+  revealLabel,
+  onReveal,
+  testId,
+}: NodeOutcomeRowsProps) {
+  const t = useT()
+  if (rows.length === 0) return null
+
+  return (
+    <div
+      className="border-t border-border px-2 py-1"
+      data-testid={testId ?? 'workflow-node-outcome-rows'}
+    >
+      <div className="grid gap-0.5">
+        {rows.map((row) => {
+          const label = row.labelKey ? t(row.labelKey, row.labelFallback) : row.labelFallback
+          const Glyph = GLYPH_COMPONENTS[row.glyph]
+          return (
+            <div
+              key={row.handleId}
+              className="relative flex min-h-4 items-center justify-end gap-1 pr-2"
+              data-outcome-handle={row.handleId}
+            >
+              <Glyph className={`h-3 w-3 shrink-0 ${TONE_TEXT_CLASSES[row.tone]}`} aria-hidden="true" />
+              <span className="truncate text-overline text-muted-foreground">{label}</span>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={row.handleId}
+                isConnectable={isConnectable}
+                title={label}
+                aria-label={label}
+                style={{ right: -6, top: '50%' }}
+                className={`!h-2.5 !w-2.5 !border-2 !border-background ${TONE_DOT_CLASSES[row.tone]}`}
+              />
+            </div>
+          )
+        })}
+      </div>
+      {revealLabel && onReveal && (
+        <div className="mt-1 flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="2xs"
+            className="nodrag nopan"
+            onClick={onReveal}
+          >
+            {revealLabel}
+          </Button>
+        </div>
+      )}
+      {inheritanceNote && (
+        <p className="mt-0.5 text-right text-overline text-muted-foreground">{inheritanceNote}</p>
+      )}
+    </div>
+  )
+}

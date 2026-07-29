@@ -13,16 +13,42 @@ import { EntityManager } from '@mikro-orm/core'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
-  WorkflowDefinition,
   StepInstance,
   UserTask,
   WorkflowEvent,
   type StepInstanceStatus,
   type WorkflowStepType,
 } from '../data/entities'
-import { parseDuration } from './duration'
+import { emitWorkflowsEvent } from '../events'
+import { calculateDueDate, parseDuration } from './duration'
+import {
+  CONDITION_STEP_TYPE,
+  conditionReadContext,
+  evaluateConditionExpression,
+  readWaitForConditionConfig,
+} from './condition-handler'
 import { mapAgentResultToContext } from './agent-result-mapping'
+import {
+  WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
+  buildAgentOutcomeContextEntry,
+  mapDispositionToAgentOutcome,
+} from './outcome-routing'
 import { logWorkflowEvent } from './event-logger'
+import { DRY_RUN_EVENT_TYPES, isDryRunInstance } from './dry-run'
+import { findDefinitionForInstance } from './find-definition'
+import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
+import {
+  collectResolvedEntityTypes,
+  flattenTaskText,
+  resolveTaskAssignment,
+  resolveTaskDeadlineDuration,
+  resolveTaskDecisions,
+  resolveTaskEntityBindings,
+  resolveTaskText,
+  type TaskInterpolate,
+} from './task-resolution'
+import { scheduleUserTaskSla } from './task-sla'
+import type { TaskQuickActionInput } from './task-quick-action'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
@@ -38,13 +64,18 @@ export interface StepExecutionContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  // Populated by executeStep from the loaded definition; absent means lenient.
+  interpolationMode?: WorkflowInterpolationMode
+  // Populated by executeStep from the loaded definition so task notifications
+  // can name the workflow the way its author did.
+  workflowName?: string
 }
 
 export interface StepExecutionResult {
   status: 'COMPLETED' | 'WAITING' | 'FAILED'
   outputData?: any
   nextSteps?: string[] // For parallel forks (Phase 7)
-  waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER' | 'FORK'
+  waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER' | 'FORK' | 'CONDITION'
   error?: string
 }
 
@@ -80,9 +111,7 @@ export async function enterStep(
   branch?: WorkflowBranchInstance | null
 ): Promise<StepInstance> {
   // Load workflow definition to get step details
-  const definition = await em.findOne(WorkflowDefinition, {
-    id: instance.definitionId,
-  })
+  const definition = await findDefinitionForInstance(em, instance)
 
   if (!definition) {
     throw new StepExecutionError(
@@ -217,9 +246,7 @@ export async function executeStep(
     const stepInstance = await enterStep(em, instance, stepId, context, branch)
 
     // Load workflow definition to get step configuration
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       throw new StepExecutionError(
@@ -244,7 +271,11 @@ export async function executeStep(
       instance,
       stepInstance,
       stepDef,
-      context,
+      {
+        ...context,
+        interpolationMode: resolveDefinitionInterpolationMode(definition.definition),
+        workflowName: definition.workflowName,
+      },
       container,
       branch
     )
@@ -346,11 +377,18 @@ async function executeStepByType(
       }
       return await handleSubWorkflowStep(em, container, instance, stepInstance, stepDef, context)
 
+    case 'IF_ELSE':
+    case 'SWITCH':
+      return handleBranchingStep(stepType)
+
     case 'WAIT_FOR_SIGNAL':
       return await handleWaitForSignalStep(em, instance, stepInstance, stepDef, context, branch)
 
     case 'WAIT_FOR_TIMER':
       return await handleWaitForTimerStep(em, instance, stepInstance, stepDef, context, branch)
+
+    case 'WAIT_FOR_CONDITION':
+      return await handleWaitForConditionStep(em, instance, stepInstance, stepDef, context, branch)
 
     case 'PARALLEL_FORK': {
       // Entering a fork opens branch tokens and parks the root token in the
@@ -363,7 +401,7 @@ async function executeStepByType(
           { stepType, stepId: stepDef.stepId }
         )
       }
-      const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+      const definition = await findDefinitionForInstance(em, instance)
       if (!definition) {
         throw new StepExecutionError(
           `Workflow definition not found: ${instance.definitionId}`,
@@ -425,6 +463,25 @@ function handleEndStep(
 }
 
 /**
+ * Handle IF_ELSE / SWITCH steps - pure transition sugar.
+ *
+ * Branching nodes carry NO runtime semantics of their own: they behave exactly
+ * like an AUTOMATED step with no activities and complete immediately. Every
+ * routing decision stays in `findValidTransitions`, which already evaluates the
+ * business_rules condition language and orders candidates by priority, so the
+ * unconditioned "otherwise" route wins only when no cased route matches.
+ */
+function handleBranchingStep(stepType: 'IF_ELSE' | 'SWITCH'): StepExecutionResult {
+  return {
+    status: 'COMPLETED',
+    outputData: {
+      stepType,
+      timestamp: new Date().toISOString(),
+    },
+  }
+}
+
+/**
  * Handle AUTOMATED step - execute activities
  *
  * Executes activities defined in step configuration.
@@ -464,6 +521,7 @@ async function handleAutomatedStep(
       stepContext: { stepId: stepDef.stepId, stepName: stepDef.stepName },
       stepInstanceId: stepInstance.id,
       userId: context.userId,
+      interpolationMode: context.interpolationMode,
     })
 
     // Check if there are pending async activities
@@ -578,8 +636,25 @@ async function handleAutomatedStep(
               proposalPayload: out.proposalPayload,
             }
           : null)
-      if (contextPatch && Object.keys(contextPatch).length > 0) {
-        instance.context = { ...instance.context, ...contextPatch }
+      // Outcome routing (spec 7.2): record which of the five fixed disposition
+      // kinds this step resolved to under an ENGINE-OWNED context key. The
+      // executor routes on this marker alone — never on the author-visible
+      // `disposition` key — which is what makes branching on a disposition
+      // wiring rather than context string-matching.
+      const resolvedOutcome = mapDispositionToAgentOutcome(out.kind)
+      const outcomeMarker = resolvedOutcome
+        ? {
+            [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry(
+              stepInstance.stepId,
+              resolvedOutcome,
+              out.proposalId,
+            ),
+          }
+        : null
+
+      const nextContext = { ...instance.context, ...(contextPatch ?? {}), ...(outcomeMarker ?? {}) }
+      if (contextPatch || outcomeMarker) {
+        instance.context = nextContext
         instance.updatedAt = new Date()
         await em.flush()
       }
@@ -611,6 +686,99 @@ async function handleAutomatedStep(
 }
 
 /**
+ * Resolve a user task's deadline from its authored duration.
+ *
+ * An unparseable duration fails the step with an actionable message instead of
+ * quietly resolving to some default the author never asked for.
+ */
+function resolveUserTaskDeadline(stepId: string, slaDuration: string): Date {
+  try {
+    return calculateDueDate(slaDuration)
+  } catch (error) {
+    throw new StepExecutionError(
+      `Invalid user task deadline "${slaDuration}": ${error instanceof Error ? error.message : String(error)}`,
+      'INVALID_USER_TASK_DEADLINE',
+      { stepId, slaDuration }
+    )
+  }
+}
+
+/**
+ * Publish the declared `workflows.task.assigned` domain event for a freshly
+ * created task, alongside (never instead of) the internal `USER_TASK_CREATED`
+ * audit row. It carries both the individual assignee and the role queue so the
+ * notification subscriber can reach role-assigned tasks too.
+ *
+ * Delivery is at-least-once and consumers must be idempotent; a bus failure
+ * must never break workflow execution, so this is strictly best-effort.
+ */
+async function emitTaskAssignedEvent(
+  userTask: UserTask,
+  instance: WorkflowInstance,
+  context: StepExecutionContext,
+  quickAction?: TaskQuickActionInput
+): Promise<void> {
+  try {
+    await emitWorkflowsEvent(
+      'workflows.task.assigned',
+      {
+        // Everything the notification quick-action rule needs, and nothing more.
+        // ABSENT means "unknown", and the subscriber falls back to the deep
+        // link — a quick action must never be offered on a guess.
+        ...(quickAction ? { quickAction } : {}),
+        taskId: userTask.id,
+        taskName: userTask.taskName,
+        workflowInstanceId: instance.id,
+        workflowId: instance.workflowId,
+        workflowName: context.workflowName ?? instance.workflowId,
+        assignedUserId: userTask.assignedTo ?? null,
+        assignedToRoles: userTask.assignedToRoles ?? null,
+        dueDate: userTask.dueDate ? userTask.dueDate.toISOString() : null,
+        // Additive: the records the task is about. Modules that own those
+        // records subscribe and surface the task on their own turf — the
+        // customers module writes a `CustomerTodoLink` from this. Workflows
+        // never reaches into another module's tables to do it itself.
+        entityBindings: userTask.entityBindings ?? null,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId ?? null,
+      },
+      { persistent: true }
+    )
+  } catch (error) {
+    logger.error('Failed to emit workflows.task.assigned', {
+      component: 'step-handler',
+      taskId: userTask.id,
+      err: error,
+    })
+  }
+
+  if (userTask.assigneeKind !== 'customer' || !userTask.assignedTo) return
+
+  try {
+    // Addressed to ONE portal principal (`recipientUserId` is what narrows the
+    // SSE audience) and carrying an id and nothing else. The receiver asks the
+    // authorized portal API what the task is; the bridge never carries the
+    // answer, so a mis-scoped connection learns nothing from it.
+    await emitWorkflowsEvent(
+      'workflows.task.portal_assigned',
+      {
+        taskId: userTask.id,
+        recipientUserId: userTask.assignedTo,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId ?? null,
+      },
+      { persistent: false }
+    )
+  } catch (error) {
+    logger.error('Failed to emit workflows.task.portal_assigned', {
+      component: 'step-handler',
+      taskId: userTask.id,
+      err: error,
+    })
+  }
+}
+
+/**
  * Handle USER_TASK step - create user task and enter waiting state
  *
  * Creates a UserTask entity and returns WAITING status.
@@ -626,29 +794,124 @@ async function handleUserTaskStep(
 ): Promise<StepExecutionResult> {
   const userTaskConfig = stepDef.userTaskConfig || {}
 
-  // Handle assignedTo - if it's an array, treat it as roles
-  let assignedTo = userTaskConfig.assignedTo || null
-  let assignedToRoles = userTaskConfig.assignedToRoles || null
+  // Everything an author can write on a task — its title, its instructions, its
+  // decision labels, its dynamic assignee and its entity bindings — is resolved
+  // HERE, once, against the context the run has at creation time. Resolving
+  // later would let a definition edit retro-change what a running task says.
+  // Lenient on purpose: an unresolved dynamic assignee is what the fallback role
+  // queue exists for, not a reason to fail the step.
+  //
+  // Imported dynamically like every other activity-executor use in this file, so
+  // the module graph stays acyclic.
+  const { interpolateVariables } = await import('./activity-executor')
+  const interpolate: TaskInterpolate = (value) =>
+    interpolateVariables(value, context.workflowContext, instance)
 
-  if (Array.isArray(assignedTo)) {
-    assignedToRoles = assignedTo
-    assignedTo = null
+  const assignment = resolveTaskAssignment(userTaskConfig, interpolate)
+  if (assignment.fellBackToRoles) {
+    logger.warn('Dynamic task assignee resolved to nothing; falling back to the role queue', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+      assignedToRoles: assignment.assignedToRoles,
+    })
   }
+  if (assignment.fellBackFromCustomer) {
+    // The author addressed this to a portal principal and no id resolved, so it
+    // landed in the backoffice namespace instead. The work is still reachable,
+    // but by a different audience than intended — that is worth saying out loud.
+    logger.warn('Portal task assignee resolved to nothing; task created for the backoffice instead', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+    })
+  }
+
+  const { bindings, unresolved } = resolveTaskEntityBindings(userTaskConfig.entityBindings, interpolate)
+  if (unresolved.length) {
+    logger.warn('Task entity bindings skipped because their ids did not resolve', {
+      component: 'step-handler',
+      stepId: stepDef.stepId,
+      workflowInstanceId: instance.id,
+      unresolved,
+    })
+  }
+
+  const taskName = String(interpolate(stepDef.stepName) ?? stepDef.stepName)
+  const instructions = resolveTaskText(userTaskConfig.instructions, interpolate)
+  const decisions = resolveTaskDecisions(userTaskConfig.decisions, interpolate)
+  const deadlineDuration = resolveTaskDeadlineDuration(userTaskConfig)
 
   // Create user task
   const now = new Date()
+
+  // Dry run (spec section 8.2): a simulation raises NO real task. The row is
+  // what everything else hangs off — the `workflows.task.assigned` event and
+  // therefore the notification subscriber, the SLA reminder/breach queue jobs,
+  // and every Work Inbox and task-list query — so suppressing the row is what
+  // suppresses all of them, rather than a filter at each read site that a new
+  // reader could forget. Everything above still runs, so the report says
+  // exactly who the task WOULD have gone to. The step still WAITS: the author
+  // simulates the decision through step-through or the advance action.
+  if (isDryRunInstance(instance)) {
+    await logStepEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: stepInstance.id,
+      ...(branch ? { branchInstanceId: branch.id } : {}),
+      eventType: DRY_RUN_EVENT_TYPES.userTaskSimulated,
+      eventData: {
+        taskName,
+        assignedTo: assignment.assignedTo,
+        assignedToRoles: assignment.assignedToRoles,
+        assigneeKind: assignment.assigneeKind,
+        ...(bindings.length ? { entityBindings: bindings } : {}),
+        ...(decisions.length ? { decisions } : {}),
+        ...(deadlineDuration ? { deadlineDuration } : {}),
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    if (branch) {
+      branch.status = 'PAUSED'
+      branch.updatedAt = now
+    } else {
+      instance.status = 'PAUSED'
+      instance.updatedAt = now
+    }
+    await em.flush()
+
+    return {
+      status: 'WAITING',
+      waitReason: 'USER_TASK',
+      outputData: { simulated: true, wouldRaiseTask: taskName },
+    }
+  }
+
   const userTask = em.create(UserTask, {
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,
     branchInstanceId: branch ? branch.id : null,
-    taskName: stepDef.stepName,
-    description: stepDef.description || null,
+    taskName,
+    description: flattenTaskText(instructions) ?? stepDef.description ?? null,
     status: 'PENDING',
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
-    assignedTo: assignedTo,
-    assignedToRoles: assignedToRoles,
-    dueDate: userTaskConfig.slaDuration ? calculateDueDate(userTaskConfig.slaDuration) : null,
+    assignedTo: assignment.assignedTo,
+    // Decided by `resolveTaskAssignment` from the authored `assigneeKind`, and
+    // `'customer'` only when an individual assignee actually resolved. Written
+    // explicitly rather than left to the column default so the discriminator is
+    // a decision at every creation site, not an accident.
+    assigneeKind: assignment.assigneeKind,
+    assignedToRoles: assignment.assignedToRoles,
+    entityBindings: bindings.length ? bindings : null,
+    // Denormalized from the SAME resolved bindings, so the two can never drift.
+    // Null for a task about nothing, which is what the vacuous-pass rule reads.
+    entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
+    priority: userTaskConfig.priority ?? null,
+    dueDate: deadlineDuration
+      ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
+      : null,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
     createdAt: now,
@@ -668,9 +931,35 @@ async function handleUserTaskStep(
       taskName: userTask.taskName,
       assignedTo: userTask.assignedTo,
       assignedToRoles: userTask.assignedToRoles,
+      ...(bindings.length ? { entityBindings: bindings } : {}),
+      ...(userTask.priority ? { priority: userTask.priority } : {}),
+      ...(decisions.length ? { decisions } : {}),
+      ...(assignment.fellBackToRoles ? { assignmentFallback: 'roles' } : {}),
     },
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
+  })
+
+  await emitTaskAssignedEvent(userTask, instance, context, {
+    decisions: decisions.map((decision) => ({ id: decision.id })),
+    formSchema: userTask.formSchema ?? null,
+    editablePrefilled: userTaskConfig.editablePrefilled ?? null,
+  })
+
+  // Reminders and the deadline breach are scheduled HERE, once, with the
+  // deadline already absolute on each job payload — see `lib/task-sla.ts`. A
+  // task with no deadline schedules nothing at all.
+  await scheduleUserTaskSla({
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    branchInstanceId: branch ? branch.id : null,
+    userTaskId: userTask.id,
+    dueDate: userTask.dueDate ?? null,
+    reminders: userTaskConfig.reminders ?? null,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+    userId: context.userId,
+    now,
   })
 
   // Pause execution - waits for user task completion. For a branch, only the
@@ -1076,6 +1365,120 @@ async function handleWaitForTimerStep(
   }
 }
 
+/**
+ * Handle WAIT_FOR_CONDITION step - pause until a context predicate holds.
+ *
+ * Evaluates the step's ConditionExpression against the token read context. A
+ * predicate that already holds completes the step inline with no queue job at
+ * all. Otherwise the token parks and a delayed `kind: 'condition'` poll job is
+ * enqueued carrying an ABSOLUTE `deadlineAt`, so neither a slow queue nor a
+ * re-enqueue can extend the configured timeout. The event-driven wake
+ * (`conditionHandler.wakeConditionWaiters`) is the fast path on top of it.
+ */
+async function handleWaitForConditionStep(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  stepInstance: StepInstance,
+  stepDef: any,
+  context: StepExecutionContext,
+  branch?: WorkflowBranchInstance | null
+): Promise<StepExecutionResult> {
+  const config = readWaitForConditionConfig(stepDef)
+
+  const data = {
+    ...conditionReadContext(instance, branch ?? null),
+    ...(context.workflowContext || {}),
+  }
+
+  const met = await evaluateConditionExpression({
+    condition: config.condition,
+    data,
+    instanceId: instance.id,
+    userId: context.userId,
+  })
+
+  const now = new Date()
+
+  if (met) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: stepInstance.id,
+      ...(branch ? { branchInstanceId: branch.id } : {}),
+      eventType: 'CONDITION_MET',
+      eventData: { stepId: stepDef.stepId, attempts: 1, waitedMs: 0, wokenBy: 'immediate' },
+      userId: context.userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    return {
+      status: 'COMPLETED',
+      outputData: {
+        stepType: CONDITION_STEP_TYPE,
+        conditionMet: true,
+        attempts: 1,
+        waitedMs: 0,
+        wokenBy: 'immediate',
+      },
+    }
+  }
+
+  const deadlineAt = new Date(now.getTime() + config.timeoutMs)
+
+  const { enqueueConditionCheckJob } = await import('./activity-executor')
+  const jobId = await enqueueConditionCheckJob({
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    branchInstanceId: branch ? branch.id : undefined,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+    userId: context.userId,
+    deadlineAt: deadlineAt.toISOString(),
+    attempt: 1,
+    delayMs: Math.min(config.pollIntervalMs, config.timeoutMs),
+  })
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    ...(branch ? { branchInstanceId: branch.id } : {}),
+    eventType: 'CONDITION_AWAITING',
+    eventData: {
+      stepId: stepDef.stepId,
+      condition: config.condition,
+      deadlineAt: deadlineAt.toISOString(),
+      pollIntervalMs: config.pollIntervalMs,
+      onTimeout: config.onTimeout,
+      jobId,
+    },
+    userId: context.userId,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  if (branch) {
+    branch.status = 'PAUSED'
+    branch.updatedAt = now
+  } else {
+    instance.status = 'PAUSED'
+    instance.pausedAt = now
+    instance.updatedAt = now
+  }
+  await em.flush()
+
+  return {
+    status: 'WAITING',
+    waitReason: 'CONDITION',
+    outputData: {
+      stepType: CONDITION_STEP_TYPE,
+      deadlineAt: deadlineAt.toISOString(),
+      pollIntervalMs: config.pollIntervalMs,
+      onTimeout: config.onTimeout,
+      jobId,
+    },
+  }
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -1105,39 +1508,6 @@ async function logStepEvent(
 
   await em.persist(workflowEvent).flush()
   return workflowEvent
-}
-
-/**
- * Calculate due date from ISO 8601 duration string
- *
- * @param duration - ISO 8601 duration (e.g., "P1D" for 1 day)
- * @returns Due date
- */
-function calculateDueDate(duration: string): Date {
-  // Simple implementation for MVP
-  // Supports: P1D (1 day), P1H (1 hour), P1W (1 week)
-  const now = new Date()
-
-  const daysMatch = duration.match(/P(\d+)D/)
-  if (daysMatch) {
-    const days = parseInt(daysMatch[1], 10)
-    return new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
-  }
-
-  const hoursMatch = duration.match(/PT(\d+)H/)
-  if (hoursMatch) {
-    const hours = parseInt(hoursMatch[1], 10)
-    return new Date(now.getTime() + hours * 60 * 60 * 1000)
-  }
-
-  const weeksMatch = duration.match(/P(\d+)W/)
-  if (weeksMatch) {
-    const weeks = parseInt(weeksMatch[1], 10)
-    return new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000)
-  }
-
-  // Default: 1 day
-  return new Date(now.getTime() + 24 * 60 * 60 * 1000)
 }
 
 /**

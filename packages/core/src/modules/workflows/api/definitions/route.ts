@@ -20,7 +20,13 @@ import {
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
+import {
+  workflowDefinitionListResponseSchema,
+  workflowDefinitionMutationResponseSchema,
+  workflowErrorSchema,
+} from '../openapi'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
+import { normalizeDefinitionValidationIssues } from '../../lib/definition-error-body'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -242,13 +248,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: validation.error.issues,
+          details: normalizeDefinitionValidationIssues(validation.error),
         },
         { status: 400 }
       )
     }
 
     const input: CreateWorkflowDefinitionApiInput = validation.data
+
+    // New definitions default to strict interpolation (spec §3.6). The default
+    // lives on the create path only — a schema-level default would flip
+    // existing lenient definitions on their next full-body update.
+    const definitionData = input.definition.interpolation
+      ? input.definition
+      : { ...input.definition, interpolation: 'strict' as const }
 
     // Create always mints version 1. A workflowId that already exists (any
     // version) is a conflict — new versions are produced via the publish flow,
@@ -274,7 +287,7 @@ export async function POST(request: NextRequest) {
       workflowName: input.workflowName,
       description: input.description,
       version: input.version,
-      definition: input.definition,
+      definition: definitionData,
       metadata: input.metadata,
       enabled: input.enabled ?? true,
       tenantId,
@@ -329,6 +342,7 @@ export const openApi = {
         {
           status: 200,
           description: 'List of workflow definitions with pagination',
+          schema: workflowDefinitionListResponseSchema,
           example: {
             data: [
               {
@@ -466,6 +480,7 @@ export const openApi = {
         {
           status: 201,
           description: 'Workflow definition created successfully',
+          schema: workflowDefinitionMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -521,13 +536,14 @@ export const openApi = {
         {
           status: 400,
           description: 'Validation error - invalid workflow structure',
+          schema: workflowErrorSchema,
           example: {
             error: 'Validation failed',
             details: [
               {
-                code: 'invalid_type',
-                message: 'Workflow must have at least START and END steps',
                 path: ['definition', 'steps'],
+                code: 'custom',
+                message: 'Workflow must have at least START and END steps',
               },
             ],
           },
@@ -535,6 +551,7 @@ export const openApi = {
         {
           status: 409,
           description: 'Conflict - workflow with same ID and version already exists',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition with ID "checkout-flow" and version 1 already exists',
           },
@@ -544,105 +561,3 @@ export const openApi = {
   },
 }
 
-// Full OpenAPI documentation (kept for reference but not used by type system)
-export const _openApiDetailedDocs = {
-  get: {
-    summary: 'List workflow definitions',
-    description: 'Get a list of workflow definitions with optional filters',
-    tags: ['Workflows'],
-    parameters: [
-      {
-        name: 'enabled',
-        in: 'query',
-        description: 'Filter by enabled status',
-        schema: { type: 'boolean' },
-      },
-      {
-        name: 'workflowId',
-        in: 'query',
-        description: 'Filter by workflow ID',
-        schema: { type: 'string' },
-      },
-      {
-        name: 'search',
-        in: 'query',
-        description: 'Search in workflow ID and name',
-        schema: { type: 'string' },
-      },
-      {
-        name: 'limit',
-        in: 'query',
-        description: 'Number of results to return',
-        schema: { type: 'integer', default: 50 },
-      },
-      {
-        name: 'offset',
-        in: 'query',
-        description: 'Offset for pagination',
-        schema: { type: 'integer', default: 0 },
-      },
-    ],
-    responses: {
-      200: {
-        description: 'List of workflow definitions',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                data: {
-                  type: 'array',
-                  items: { $ref: '#/components/schemas/WorkflowDefinition' },
-                },
-                pagination: {
-                  type: 'object',
-                  properties: {
-                    total: { type: 'integer' },
-                    limit: { type: 'integer' },
-                    offset: { type: 'integer' },
-                    hasMore: { type: 'boolean' },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-  post: {
-    summary: 'Create workflow definition',
-    description: 'Create a new workflow definition',
-    tags: ['Workflows'],
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: { $ref: '#/components/schemas/CreateWorkflowDefinition' },
-        },
-      },
-    },
-    responses: {
-      201: {
-        description: 'Workflow definition created',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                data: { $ref: '#/components/schemas/WorkflowDefinition' },
-                message: { type: 'string' },
-              },
-            },
-          },
-        },
-      },
-      400: {
-        description: 'Validation error',
-      },
-      409: {
-        description: 'Workflow definition already exists',
-      },
-    },
-  },
-}

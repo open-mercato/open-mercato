@@ -11,9 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConfigJsonTextarea } from './ConfigJsonTextarea'
+import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
 
 interface Activity {
   activityId: string
@@ -23,8 +24,9 @@ interface Activity {
   async?: boolean
   retryPolicy?: {
     maxAttempts?: number
-    retryDelay?: number
-    backoffMultiplier?: number
+    initialIntervalMs?: number
+    backoffCoefficient?: number
+    maxIntervalMs?: number
   }
   timeout?: number
   compensation?: Record<string, any>
@@ -33,22 +35,49 @@ interface Activity {
 interface ActivitiesEditorProps {
   value: Activity[]
   onChange: (activities: Activity[]) => void
+  onInvalidActivityConfigsChange?: (activityLabels: string[]) => void
   error?: string
 }
 
-const ACTIVITY_TYPES = [
-  { value: 'SEND_EMAIL', label: 'Send Email' },
-  { value: 'CALL_API', label: 'Call API' },
-  { value: 'UPDATE_ENTITY', label: 'Update Entity' },
-  { value: 'EMIT_EVENT', label: 'Emit Event' },
-  { value: 'CALL_WEBHOOK', label: 'Call Webhook' },
-  { value: 'EXECUTE_FUNCTION', label: 'Execute Function' },
-  { value: 'WAIT', label: 'Wait' },
-  { value: 'INVOKE_AGENT', label: 'Invoke Agent' },
-]
+function resolveActivityLabel(activity: { activityName?: string; activityId?: string } | undefined, index: number): string {
+  return activity?.activityName || activity?.activityId || String(index + 1)
+}
 
-export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEditorProps) {
+export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfigsChange, error }: ActivitiesEditorProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
+  const [invalidConfigIndexes, setInvalidConfigIndexes] = React.useState<ReadonlySet<number>>(() => new Set())
+  const lastReportedLabelsRef = React.useRef<string>('')
+
+  const handleConfigValidityChange = React.useCallback((index: number, valid: boolean) => {
+    setInvalidConfigIndexes((prev) => {
+      if (prev.has(index) === !valid) return prev
+      const next = new Set(prev)
+      if (valid) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    setInvalidConfigIndexes((prev) => {
+      const next = new Set(
+        [...prev].filter((index) => index < value.length && value[index]?.activityType !== 'WAIT'),
+      )
+      return next.size === prev.size ? prev : next
+    })
+  }, [value])
+
+  React.useEffect(() => {
+    if (!onInvalidActivityConfigsChange) return
+    const labels = [...invalidConfigIndexes]
+      .sort((left, right) => left - right)
+      .map((index) => resolveActivityLabel(value[index], index))
+    const serializedLabels = JSON.stringify(labels)
+    if (serializedLabels === lastReportedLabelsRef.current) return
+    lastReportedLabelsRef.current = serializedLabels
+    onInvalidActivityConfigsChange(labels)
+  }, [invalidConfigIndexes, value, onInvalidActivityConfigsChange])
 
   const addActivity = () => {
     const newActivity: Activity = {
@@ -59,8 +88,9 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
       async: false,
       retryPolicy: {
         maxAttempts: 3,
-        retryDelay: 1000,
-        backoffMultiplier: 2,
+        initialIntervalMs: 1000,
+        backoffCoefficient: 2,
+        maxIntervalMs: 10000,
       },
     }
     onChange([...value, newActivity])
@@ -197,9 +227,9 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {ACTIVITY_TYPES.map((type) => (
+                      {activityTypeOptions.map((type) => (
                         <SelectItem key={type.value} value={type.value}>
-                          {t(`workflows.activities.types.${type.value}`)}
+                          {type.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -234,7 +264,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor={`activity-${index}-retry-attempts`} className="text-xs">
                     {t('workflows.form.maxRetryAttempts')}
@@ -242,33 +272,51 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                   <Input
                     id={`activity-${index}-retry-attempts`}
                     type="number"
+                    min="1"
+                    max="10"
                     value={activity.retryPolicy?.maxAttempts || 3}
                     onChange={(e) => updateRetryPolicy(index, 'maxAttempts', parseInt(e.target.value))}
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor={`activity-${index}-retry-delay`} className="text-xs">
-                    {t('workflows.form.retryDelay')} (ms)
+                  <Label htmlFor={`activity-${index}-initial-interval`} className="text-xs">
+                    {t('workflows.fieldEditors.activities.initialInterval')}
                   </Label>
                   <Input
-                    id={`activity-${index}-retry-delay`}
+                    id={`activity-${index}-initial-interval`}
                     type="number"
-                    value={activity.retryPolicy?.retryDelay || 1000}
-                    onChange={(e) => updateRetryPolicy(index, 'retryDelay', parseInt(e.target.value))}
+                    min="0"
+                    value={activity.retryPolicy?.initialIntervalMs || 1000}
+                    onChange={(e) => updateRetryPolicy(index, 'initialIntervalMs', parseInt(e.target.value))}
                     className="mt-1"
                   />
                 </div>
                 <div>
                   <Label htmlFor={`activity-${index}-backoff`} className="text-xs">
-                    {t('workflows.form.backoffMultiplier')}
+                    {t('workflows.fieldEditors.activities.backoffCoefficient')}
                   </Label>
                   <Input
                     id={`activity-${index}-backoff`}
                     type="number"
                     step="0.1"
-                    value={activity.retryPolicy?.backoffMultiplier || 2}
-                    onChange={(e) => updateRetryPolicy(index, 'backoffMultiplier', parseFloat(e.target.value))}
+                    min="1"
+                    max="10"
+                    value={activity.retryPolicy?.backoffCoefficient || 2}
+                    onChange={(e) => updateRetryPolicy(index, 'backoffCoefficient', parseFloat(e.target.value))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor={`activity-${index}-max-interval`} className="text-xs">
+                    {t('workflows.fieldEditors.activities.maxInterval')}
+                  </Label>
+                  <Input
+                    id={`activity-${index}-max-interval`}
+                    type="number"
+                    min="0"
+                    value={activity.retryPolicy?.maxIntervalMs || 10000}
+                    onChange={(e) => updateRetryPolicy(index, 'maxIntervalMs', parseInt(e.target.value))}
                     className="mt-1"
                   />
                 </div>
@@ -312,23 +360,22 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               )}
 
+              {activity.activityType === 'SEND_EMAIL' && (
+                <p className="text-xs text-muted-foreground">
+                  {t('workflows.activities.sendEmailSimulatedHint')}
+                </p>
+              )}
+
               {activity.activityType !== 'WAIT' && (
               <div>
                 <Label htmlFor={`activity-${index}-config`} className="text-xs">
                   {t('workflows.activities.config')} (JSON)
                 </Label>
-                <Textarea
+                <ConfigJsonTextarea
                   id={`activity-${index}-config`}
-                  value={JSON.stringify(activity.config || {}, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const parsed = JSON.parse(e.target.value)
-                      updateActivity(index, 'config', parsed)
-                    } catch {
-                      // Invalid JSON, don't update
-                    }
-                  }}
-                  placeholder='{"key": "value"}'
+                  value={activity.config}
+                  onChange={(config) => updateActivity(index, 'config', config)}
+                  onValidityChange={(valid) => handleConfigValidityChange(index, valid)}
                   rows={3}
                   className="mt-1 font-mono text-xs"
                 />

@@ -29,6 +29,7 @@ import * as workflowExecutor from '../../lib/workflow-executor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from '../../lib/find-definition'
 import { isComponentKind } from '../../lib/component-guard'
+import { buildStartedAtRange } from '../../lib/instance-date-filter'
 
 const logger = createLogger('workflows')
 
@@ -71,8 +72,21 @@ export async function GET(request: NextRequest) {
     const entityId = searchParams.get('entityId')
     const parentInstanceId = searchParams.get('parentInstanceId')
     const hasParent = parseBooleanToken(searchParams.get('hasParent'))
+    const attention = parseBooleanToken(searchParams.get('attention'))
+    const dryRun = parseBooleanToken(searchParams.get('dryRun'))
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
+
+    // Spec 8.3 run-list date filter. An unparseable bound is a 400, never a
+    // dropped predicate — a query built from an Invalid Date answers nothing
+    // while looking like it answered something.
+    const startedAtRange = buildStartedAtRange(
+      searchParams.get('startedFrom'),
+      searchParams.get('startedTo')
+    )
+    if (!startedAtRange.ok) {
+      return NextResponse.json({ error: startedAtRange.error }, { status: 400 })
+    }
 
     // Build where clause with tenant scoping
     const where: any = {
@@ -96,6 +110,15 @@ export async function GET(request: NextRequest) {
 
     if (correlationKey) {
       where.correlationKey = correlationKey
+    }
+
+    // Simulations are excluded from the run list by DEFAULT (spec section 8.2:
+    // "excludes the instance from KPIs"). A caller that wants them asks for
+    // them with `dryRun=true`; `dryRun=false` is the same as omitting it.
+    where.isDryRun = dryRun === true
+
+    if (startedAtRange.range) {
+      where.startedAt = startedAtRange.range
     }
 
     // For JSONB metadata filtering, use $contains with explicit key-value pairs
@@ -132,6 +155,14 @@ export async function GET(request: NextRequest) {
       // query is single-table (tenant/org scope adds predicates, not joins).
       const parentIdPath = raw(`(metadata #>> '{labels,parentInstanceId}')`)
       where.$and.push({ [parentIdPath]: hasParent ? { $ne: null } : null })
+    }
+
+    // Failure-queue park filter (spec 5.9): instances parked by a `failureQueue`
+    // error directive carry an engine-owned metadata.attention marker.
+    if (attention !== null) {
+      where.$and = where.$and || []
+      const attentionPath = raw(`(metadata #>> '{attention,reason}')`)
+      where.$and.push({ [attentionPath]: attention ? { $ne: null } : null })
     }
 
     const [instances, total] = await em.findAndCount(
@@ -222,6 +253,23 @@ export async function POST(request: NextRequest) {
 
     const input: StartWorkflowApiInput = validation.data
 
+    // Dry run (spec section 8.2) is the definition-author's test loop, not a
+    // way to start instances, so it carries its own grant on top of
+    // `instances.create` — the same feature the per-node Test step uses.
+    if (input.dryRun || input.stepThrough) {
+      const canTestRun = await rbacService.userHasAllFeatures(
+        auth.sub,
+        ['workflows.definitions.test_run'],
+        { tenantId, organizationId }
+      )
+      if (!canTestRun) {
+        return NextResponse.json(
+          { error: 'Insufficient permissions' },
+          { status: 403 }
+        )
+      }
+    }
+
     // Reject standalone start of a reusable component. Components have no
     // trigger and may only be invoked as a SUB_WORKFLOW; this guard lives on
     // the manual-start path only, so sub-workflow invocation is unaffected.
@@ -238,10 +286,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // User-started instances must always record the authenticated caller.
+    // Server-authoritative actor; do not trust client-supplied metadata.initiatedBy.
+    // The step-through marker is engine-owned for the same reason: it is set
+    // ONLY from the feature-gated flag above, never from client metadata.
     const metadata = {
       ...input.metadata,
       initiatedBy: auth.sub,
+      ...(input.stepThrough ? { stepThrough: { enabled: true as const, releaseStepId: null } } : {}),
     }
 
     // Start workflow
@@ -251,6 +302,7 @@ export async function POST(request: NextRequest) {
       initialContext: input.initialContext || {},
       correlationKey: input.correlationKey,
       metadata,
+      isDryRun: input.dryRun === true,
       tenantId,
       organizationId,
     })
@@ -265,7 +317,9 @@ export async function POST(request: NextRequest) {
         // Create new container and EM for background execution
         const bgContainer = await createRequestContainer()
         const bgEm = bgContainer.resolve('em')
-        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id)
+        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id, {
+          userId: auth.sub,
+        })
       } catch (error) {
         logger.error('Background workflow execution error', { err: error })
       }
@@ -341,6 +395,9 @@ export const openApi = {
         entityId: z.string().optional(),
         parentInstanceId: z.string().optional().describe('Return only direct sub-workflow children of this parent instance.'),
         hasParent: z.boolean().optional().describe('false = only top-level/standalone instances; true = only sub-workflow children. Ignored when parentInstanceId is set.'),
+        attention: z.boolean().optional().describe('true = only instances parked by a failure-queue error directive; false = only instances without an attention marker.'),
+        startedFrom: z.string().optional().describe('Lower bound on startedAt. A calendar day (YYYY-MM-DD) is taken from 00:00:00.000Z; a full ISO timestamp is taken verbatim.'),
+        startedTo: z.string().optional().describe('Upper bound on startedAt, inclusive. A calendar day (YYYY-MM-DD) covers the whole day up to 23:59:59.999Z.'),
         limit: z.number().int().positive().default(50).optional(),
         offset: z.number().int().min(0).default(0).optional(),
       }),
@@ -352,6 +409,11 @@ export const openApi = {
             data: z.array(workflowInstanceResponseSchema),
             pagination: paginationSchema,
           }),
+        },
+        {
+          status: 400,
+          description: 'Invalid date range',
+          schema: z.object({ error: z.string() }),
         },
         {
           status: 401,

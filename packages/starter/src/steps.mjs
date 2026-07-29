@@ -109,7 +109,7 @@ function walkMigrationModules(repoRoot) {
 }
 
 function listMigrationFiles(repoRoot) {
-  return [...walkMigrationModules(repoRoot).values()].flat().sort()
+  return [...walkMigrationModules(repoRoot).values()].flat().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 export function listMigrationModules(repoRoot) {

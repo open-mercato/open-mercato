@@ -22,8 +22,193 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.6.6 → 0.6.7 (unreleased)
+
+### Workflows: task visibility is now assignment + entity access (security-semantics change)
+
+**Who is affected:** every tenant with workflow user tasks. **This change is ON by default.**
+
+Until this release, any user holding `workflows.tasks.view` could list and read **every** user task in their organization — including other people's work and agent-disposition rows carrying proposal payloads — and any user holding `workflows.tasks.complete` could complete **anyone's** task. As of this release (spec `.ai/specs/2026-07-26-workflows-ux-redesign.md` §6.4), a task is visible and actionable only to a principal who
+
+1. is the assignee, holds the task's claim, or holds one of its assigned roles — **and**
+2. passes an access check on every entity the task is bound to (entity-**type** view feature plus tenant/organization scope; there is no record-level ACL in the platform and this change does not add one).
+
+**This is a security-semantics change to an already-shipped, STABLE API surface, and `BACKWARD_COMPATIBILITY.md` has no rule covering that case.** It is not claimed to be covered by one. It ships as an intentional, documented behavior change with the full package: a spec section, this entry, an opt-out bridge that satisfies the deprecation protocol's "keep the old behavior alongside the new one for at least one minor version", and a dedicated security review (`.ai/runs/2026-07-28-workflows-task-visibility/SECURITY-REVIEW.md`) that was a release precondition. Proposing a 14th contract-surface category for route authorization semantics is itself a contract change and is raised separately, not merged here.
+
+**What a deploying tenant will observe change**
+
+| Population | Before | After |
+|---|---|---|
+| `admin` (`workflows.*`) and superadmins | see all tasks | **unchanged** — the wildcard matches the three new features |
+| An employee who is an assignee or role-queue member | saw every task in the organization | **sees only their own work and their role queues.** This is the headline change and the one your support inbox will hear about. |
+| An employee assigned nothing | saw every task in the organization | **sees an empty inbox** |
+| Anyone completing someone else's task | possible | **refused** (`409 TASK_ASSIGNED_TO_ANOTHER_USER`) |
+| Anyone claiming a role queue they do not belong to | possible | **refused** |
+| A task with no assignee, no claim and no role queue | anyone with `workflows.tasks.complete` could finish it | **nobody can finish it** — `403 TASK_NOT_ACTIONABLE`; reassign it first |
+| A cross-tenant task id on claim | mutated the foreign row, then failed | **404, with no write** |
+| Agent-disposition tasks | visible to `workflows.tasks.view` holders | visible to `agent_orchestrator.proposals.view` holders (seeded on `admin`/`employee`/`operator`/`engineer`) |
+| A notification deep link to your own task | worked | **works** — single-task read is relationship-based |
+| Rows written before entity bindings existed (zero bindings) | — | the entity gate is a **no-op** for them; only the assignment gate applies |
+
+**What you need to do**
+
+- **Nothing, if you use the seeded roles.** `admin` holds `workflows.*`, which matches the three new administration features automatically; `employee` keeps its own work.
+- **Grant `workflows.tasks.view_all`** to any role whose members must see other people's tasks (supervisors, support).
+- **Grant `workflows.tasks.reassign`** to roles that move work between people. This is now the only supported way to act on someone else's task: an administrator with `view_all` can *see* a task but not complete it — they reassign it to themselves first, with a reason, and the move is audited (`reassigned_by` / `reassigned_at` / `reassign_reason` plus a `USER_TASK_REASSIGNED` workflow event).
+- **Grant `workflows.tasks.manage`** for force-unclaim, cancel, bulk operations and the tenant setting below.
+- **Then run `yarn mercato auth sync-role-acls`.** New tenants get the grants from `setup.ts`; **existing tenants receive nothing until this command runs.** Treat it as a required deploy step for this release.
+- **Check any custom role that receives task assignments** still holds `workflows.view_tasks` (the pages) and `workflows.tasks.view` (the API). Both are in the seeded `employee` grant; a hand-built role may be missing them.
+
+**New ACL features (additive):** `workflows.tasks.view_all`, `workflows.tasks.reassign`, `workflows.tasks.manage`. **No feature id was renamed or removed.** `workflows.tasks.view` is now the dependency root of all three — it admits you to the task API, and the visibility rule decides which rows you get. `workflows.tasks.claim` / `.complete` stay on their routes (a deliberate deviation from the spec's ACL-appendix sentence, which proposed dropping them: removing them would strand two FROZEN ids that no route consults, and the sentence's purpose — portal parity — is served by the new `portal.tasks.*` features instead). Holding `.complete` no longer completes anyone else's task, which is the narrowing §6.4 actually asks for.
+
+**Escape hatch (temporary).** Set the tenant setting `task_permissions_business_context` to `false` (module `workflows`; `PUT /api/workflows/task-settings`, requires `workflows.tasks.manage`) to restore the **read** filter you had before. It restores reads only: completing someone else's task, claiming a queue you do not belong to, and cross-tenant access remain refused, and the portal task routes ignore the setting entirely. A settings read that fails defaults to the **new** model, never the permissive one. **The flag is a migration aid and is removed one minor release from now.**
+
+**New API routes, none removed, no response field dropped.** `POST /api/workflows/tasks/[id]/reassign`, `GET`/`PUT /api/workflows/task-settings`, and the portal trio `GET /api/workflows/portal/tasks`, `GET …/[id]`, `POST …/[id]/complete`. `serializeUserTask` gains `assigneeKind` and `entityTypes` and remains a strict superset.
+
+**New portal surface.** Portal principals can now be task assignees and act on their own bound tasks, through the new customer features `portal.tasks.view` / `portal.tasks.complete`. Two caveats:
+
+- **Existing tenants must grant them by hand** from the customer-role editor. `setup.ts` `defaultCustomerRoleFeatures` is merged into seeded customer roles during *tenant setup* only, and there is no `sync-customer-role-acls` counterpart to `sync-role-acls`. Adding one is filed as a follow-up.
+- `CustomerRbacService` caches ACLs for **five minutes**, so a fresh grant is not immediately visible to a signed-in portal user.
+
+The backoffice task routes were **not** loosened for portal principals — a portal session still gets 401/403 there — and a portal task with **no** entity binding is visible to nobody by design (on the portal the binding to your own record *is* the authorization; on the backoffice an absent binding passes vacuously, which is what keeps the pre-existing task corpus readable). Authoring a portal task currently means setting `userTaskConfig.assigneeKind: "customer"` in the Studio's **Code view** — there is no inspector picker yet.
+
+**New event id (additive):** `workflows.task.portal_assigned`, `portalBroadcast: true`, carrying `{ taskId, recipientUserId, tenantId, organizationId }` and nothing else. It is deliberately a separate event rather than `portalBroadcast` on `workflows.task.assigned`: the portal SSE bridge narrows to one recipient only when the payload carries `recipientUserId`, which `workflows.task.assigned` does not — broadcasting it would have leaked task names and entity bindings across customers.
+
+**Schema (additive) — migration `Migration20260728163001_workflows`.** `user_tasks.assignee_kind varchar(20) NOT NULL DEFAULT 'user'` discriminates a backoffice user id from a portal principal id in `assigned_to` (existing rows backfill to `'user'`), and `user_tasks.entity_types text[]` (nullable, **GIN**-indexed) denormalizes the bound entity types so the visibility rule is a `WHERE` rather than a post-filter that would make `pagination.total` lie. No column was renamed or removed. *(The generator emitted a btree for `entity_types`; the migration writes the GIN index by hand, as `workflow_definitions_definition_gin_idx` already does.)*
+
+**Bugs fixed in the same release, previously exploitable:** claiming a task belonging to another tenant wrote to that tenant's row before failing; completing did not check the assignee; claiming did not check that the caller held one of the task's assigned roles.
+
+**Known limits, stated rather than implied.** Role queues still match on role **names**, not ids — names are server-derived so they are not client-spoofable, but they are tenant-mutable, and renaming a role silently orphans assignments authored against the old name. Entity access is entity-**type** access plus scope: there is no per-record check. The backoffice task page still renders the Complete button for a `view_all` administrator (the detail response carries no `canComplete`) and has no reassign control — the refusal is enforced server-side, but the UI currently offers an action it cannot perform. All four are recorded in the security review with follow-ups.
+
+Full model, including the fail-closed rules and the 404-vs-403 policy: [`apps/docs/docs/framework/workflows/task-visibility.mdx`](apps/docs/docs/framework/workflows/task-visibility.mdx).
+
+### Workflows UX Phase 4a: task inspector, Work Inbox, deadlines and task notifications
+
+Phase 4a makes workflow user tasks workable end to end (`.ai/specs/2026-07-26-workflows-ux-redesign.md` §6.1–§6.3, §2.3): a real task inspector, a Work Inbox assembled from registered sources rather than a single-table list, entity context where the work is, deadlines that actually fire, and notifications that are actually sent. The inbox is a **projection** over the existing `user_tasks` rows — no new table, no data migration.
+
+**Four behavior changes to read before upgrading.** Each is a bug fix, and each changes what a definition you already authored does:
+
+1. **Role assignment now persists.** `userTaskConfigSchema` did not declare `assignedToRoles`, `formKey` or `allowedActions`. The editor wrote them and the engine read them, but zod strips undeclared keys and the definitions POST/PUT persist the *parsed* value — so role assignment authored in the Studio was **silently discarded on every save**, and the task came out queued to nobody. It is now declared and survives the round trip. *Action:* definitions saved before this release may have lost their role queue. Re-open any USER_TASK step that should be role-queued, re-pick the roles, and save.
+2. **`PT30M` now means thirty minutes.** The task deadline used a naive duration parser that turned any `PT…`-style value into roughly a day. Durations now go through the module's shared ISO 8601 duration utility. *Action:* review `slaDuration` / `deadline` values on existing definitions — tasks that appeared to have a day now have the deadline that was actually written.
+3. **Task assignment notifications now fire at all.** `workflows.task.assigned` was declared and subscribed but never emitted, its deep link pointed at a route that did not exist, and role-assigned tasks notified nobody. Assignees — including everyone in a role queue — now receive an in-app notification per created task. *Action:* expect notification volume where there was none. Two more notification types ship alongside it (below).
+4. **A variable pill in a task title or instructions now interpolates.** A step name containing a resolvable `{{context.*}}` value is filled in at task creation where it previously persisted verbatim. Pill-free configs are byte-identical.
+
+What else changed, and what you need to do:
+
+- **`/backend/tasks` is now a bridge route, not a deletion.** It forwards to `/backend/work-inbox`, keeps its `page.meta.ts` RBAC guard (`workflows.view_tasks`), and only gains `navHidden` so the sidebar lists the inbox once. It stays in place for **at least one minor release**. **Task detail urls are untouched** — `/backend/tasks/<id>` still resolves and is still where a task is completed.
+- **The DataTable id is unchanged: `workflows.tasks.list`.** Every `data-table:workflows.tasks.list:*` widget you inject — columns, row actions, bulk actions, filters — keeps firing on the new page, and a work-inbox row is a strict superset of the row the task list emitted, so a row action reading `proposalId`, `taskName`, `dueDate` or any other task field keeps working with no change.
+- **New API routes, none removed.** `GET /api/workflows/work-inbox` (merged, filtered by kind/module/entityType/role/priority/status/overdue/myWork, ordered by priority → due date → age, `limit` capped at 100), `POST /api/workflows/work-inbox/next` (claim-next) and `POST /api/workflows/tasks/[id]/unclaim` (release a claim). **`GET /api/workflows/tasks` is unchanged** and keeps its full response shape.
+- **New extension point: `WorkInboxSourceProvider`.** A module contributes work items to the inbox by calling `registerWorkInboxSources([{ moduleId, sources }])` from its own `di.ts` (`@open-mercato/core/modules/workflows/lib/work-inbox/provider`). Registration merges by module id, so order between modules does not matter, and a module that registers nothing simply contributes nothing — the inbox degrades to workflow tasks with no error. A provider whose `list()` throws is reported in the response's `meta.degradedKinds` instead of failing the whole page.
+- **New DI key `workInboxService`** (`listWorkInbox`, `listClaimableWorkInbox`). Additive; nothing resolves it implicitly.
+- **`claimUserTask` is now a compare-and-set.** It previously read the row with `status: 'PENDING'` and then flushed the entity, so two concurrent callers could both read `PENDING` and both write. It now takes the row with a conditional `UPDATE … WHERE status = 'PENDING' AND claimed_by IS NULL` and raises the same `TASK_NOT_FOUND` (`'Task not found or already claimed'`) when it affects zero rows. Every error code, message and scoping guarantee is unchanged; the only behavior difference is that a losing racer now reliably loses instead of overwriting the winner.
+- **`claimUserTask` now verifies queue membership, and takes the caller's role names.** Holding `workflows.tasks.claim` admitted a caller to the endpoint and, until now, to *any* role queue — a user could claim a task queued to a role they do not hold. The handler now compares the task's `assignedToRoles` against the caller's server-derived `auth.roles` and refuses a non-member with the existing `TASK_NOT_FOUND` (`'Task not found or already claimed'`), byte-identical to the refusal a nonexistent id produces, so a queue you do not belong to is indistinguishable from a task that is not there. **Signature change:** `claimUserTask(em, taskId, userId, scope, callerRoleNames)` gains a required fifth parameter (`TaskHandlerService.claimUserTask` likewise). It is required rather than optional on purpose — a caller that cannot supply role names fails to compile instead of silently claiming any queue. *Action:* a third-party module calling `claimUserTask` directly must pass `auth.roles ?? []`. Both sides are role **names**, not ids (the Studio picker writes names and the engine copies them onto the task), so renaming a tenant role orphans existing role assignments; migrating the comparison to immutable role ids is separate, coordinated work.
+- **New `user_tasks` columns + migration `Migration20260728104038_workflows`.** All nullable and additive: `entity_bindings` (jsonb — the records a task is about, resolved at creation), `priority` (varchar(20) — authored `low|medium|high|extreme`), and the reassignment audit trio `reassigned_by` / `reassigned_at` / `reassign_reason`. **No `UserTaskStatus` value was added**: reassignment is audit columns plus a workflow event, and a routed deadline breach reuses the existing `ESCALATED` status. Ship the migration as usual; nothing backfills, and rows written before it read exactly as they did.
+- **New event ids (additive; §5 of `BACKWARD_COMPATIBILITY.md` allows adding, never renaming).** `workflows.task.reminder_due` and `workflows.task.deadline_breached` join the already-declared `workflows.task.assigned`, which is now actually emitted. All three are `persistent: true` with at-least-once delivery — **subscribers must be idempotent**. `workflows.task.assigned` additionally carries `entityBindings`, which is how a module that owns those records surfaces the task on its own turf: the customers module subscribes to it and writes its own `CustomerTodoLink` with `todoSource: 'workflows'`. Workflows never writes another module's table.
+- **New notification type ids** (FROZEN surface, add-only): `workflows.task.reminder_due` and `workflows.task.deadline_breached`, beside the existing `workflows.task.assigned`.
+- **New `userTaskConfig` keys, all optional.** `instructions`, `entityBindings`, `priority`, `deadline`, `reminders`, `onBreach`, `decisions`, `editablePrefilled` — plus the three that were being stripped (`assignedToRoles`, `formKey`, `allowedActions`). A config declaring none of them parses to exactly what it parsed to before. `deadline: { duration }` is a superset of `slaDuration`, which keeps working forever; newly authored deadlines write `deadline`, existing configs keep their own key untouched with no migration.
+- **`escalationRules` is still dead config.** It is accepted, carried through the editor and round-tripped, but nothing executes it — it never did. Use `deadline` + `reminders` + `onBreach` instead.
+- **New extension point: task form renderers.** `registerTaskFormRenderer({ formKey, Renderer, … })` from `@open-mercato/core/modules/workflows/lib/task-form-registry` binds a component to a step's authored `userTaskConfig.formKey`. Duplicate registration throws (like `registerActivityType`); an *unknown* key never throws — the surface falls back to the built-in form and says so.
+- **Notification quick actions are constrained on purpose.** A task notification offers a one-click **Complete** button only when the completion is unambiguous: at most one decision button, no form fields and no editable-prefilled fields. The platform's notification-action contract passes only the notification's `sourceEntityId` into the command and drops the `actionId`, so *which* button was pressed cannot reach the completion — with two decisions a quick action would be guessing. Everything else gets the deep link, which is always present regardless.
+- **The pending-work record-page panel is enumerated coverage, not universal.** There is no generic record-detail spot id in the platform, so it is wired one line at a time: `detail:customers.person:footer`, `detail:customers.company:footer`, `detail:customers.deal:footer` and `sales.document.detail.order:tabs`. Adding another host page means adding a line to the workflows injection table — the widget itself reads `resourceKind` + `resourceId` from the host's injection context and needs no change. The order page keeps its existing inline `order-approval` widget in the `:details` column; the panel goes on `:tabs` beside it.
+- **A task in a parallel branch does not follow its SLA-breach route.** A branch advances on its own token, and overriding that is a parallel-execution change rather than a task-surface one. The breach is still recorded and the skip is logged as `route_skipped_branch`.
+- **No ACL change.** The new routes reuse `workflows.tasks.view` and `workflows.tasks.claim`; the page keeps `workflows.view_tasks`.
+
+### Workflows UX Phase 3b: the form editor is retired behind redirects to the Studio
+
+The workflow definition **form editor is retired** (`.ai/specs/2026-07-26-workflows-ux-redesign.md` §10). The visual editor ("Studio") at `/backend/definitions/visual-editor` is now the only workflow authoring surface — it reached the retirement precondition when the Code view (read-only definition JSON + subgraph copy/paste + schema-validation display) shipped in the same release.
+
+What changed, and what you need to do:
+
+- **The two form routes are now bridge routes, not deletions.** `/backend/definitions/create` forwards to `/backend/definitions/visual-editor`, and `/backend/definitions/<id>` forwards to `/backend/definitions/visual-editor?id=<id>`. Both route files and both `page.meta.ts` guards stay in place for **at least one minor release**, so bookmarks, deep links and any third-party navigation keep working with the same RBAC as before. Update your links at your convenience; nothing breaks today.
+- **The definitions list has one create entry and one edit row action.** "Create Workflow" opens the template gallery (whose *Blank* card lands on the empty Studio) and the row action `edit` now points at the Studio. The separate `edit-visual` row action was removed because it became a duplicate destination — if you keyed automation or tests off that row-action id, switch to `edit`.
+- **The form components are `@deprecated`, not removed.** `components/formConfig.tsx` (every export), `components/StepsEditor.tsx`, `components/TransitionsEditor.tsx` and `components/mobile/MobileDefinitionDetail.tsx` still compile and still behave identically, so a downstream page that embeds the definition form keeps working. They are scheduled for removal **one minor release after this note**; migrate such pages to the Studio (or to the definitions API directly) before then.
+- **No API, schema, event or ACL change.** The definitions REST contract, the definition JSONB shape and `workflows.*` features are untouched — this is a UI-surface retirement only.
+
+### Workflows UX Phase 2a: context schema, ledger, pinned samples, mock-first test step
+
+Phase 2a of the workflows UX redesign (`.ai/specs/2026-07-26-workflows-ux-redesign.md`) is additive, but four items deserve downstream attention:
+
+- **New ACL feature `workflows.definitions.test_run`** gates the new mock-first `POST /api/workflows/definitions/[id]/test-step` endpoint (`dependsOn: workflows.definitions.edit`). The default `admin` grant (`workflows.*`) already covers it via wildcard matching; if you grant workflow editing to other roles and want them to test steps, add the feature to those roles and run `yarn mercato auth sync-role-acls` so existing tenants receive it.
+- **`metadata.editor.samples` stores pinned per-step sample context UNREDACTED.** Pins live inside the definition's metadata, capped at 64 KB total (`WORKFLOW_EDITOR_SAMPLES_MAX_CHARS`), with no redaction or encryption — anything a user pins (including real customer data) is stored verbatim and visible to anyone who can read the definition. The editor warns at pin time; establish a team policy (fake/representative values only) before using pins on definitions that process sensitive data.
+- **Definition 400 bodies now carry enriched `details` entries.** Schema failures on the definitions POST/PUT keep `{ error: 'Validation failed', details: [...] }` with `path` + `message` intact, and each entry additionally carries `code` and, where derivable, `expected`/`got`. Additive — existing parsers keep working.
+- **New optional `contextSchema` field on the definition payload** declares typed workflow inputs (same field vocabulary as user-task form schemas) and feeds the editor's context ledger and variable picker. Additive — definitions without it behave exactly as before.
+
+### Workflows UX Phase 1: activity registry, per-type config warnings, SET_VARIABLE, drafts table
+
+Phase 1 of the workflows UX redesign (`.ai/specs/2026-07-26-workflows-ux-redesign.md`) lands several changes downstream authors should know about:
+
+- **Per-type activity-config validation now runs on save and surfaces as editor/API WARNINGS.** Each activity's `config` is checked against its registered zod schema; failures are returned as non-blocking warnings, never schema errors, so legacy definitions that predate per-type validation keep saving unchanged. Strict (blocking) mode arrives later as an opt-in.
+- **New `SET_VARIABLE` activity type.** Writes `{ path, value }` assignments at dot paths into top-level workflow context (not namespaced under the activity name). Additive — no action required.
+- **`CALL_API` marked `async: true` is now refused at enqueue time** with a clear error (`Activity type CALL_API cannot run asynchronously`). Previously the job enqueued and failed opaquely in the background worker because the activity mints a per-request auth key that cannot cross the queue boundary. Definitions that relied on this never worked — remove the `async` flag from `CALL_API` activities.
+- **New `workflow_definition_drafts` table** backs per-user editor autosave (unique per definition+user+tenant). Run the migrations (`yarn db:migrate`) when upgrading — the workflows module ships `Migration20260727074335_workflows.ts`.
+
+Activity types themselves are now registry-driven (`registerActivityType` in `packages/core/src/modules/workflows/lib/activity-registry.ts`); see `apps/docs/docs/framework/workflows/extending.mdx` for the new extension recipe. Existing STABLE executor exports are unchanged.
+
+### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
+
+The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:
+
+```ts
+{ ...targetPayload, tenantId, organizationId, _idempotencyKey }
+```
+
+Scheduler-owned `tenantId`/`organizationId`/`_idempotencyKey` are applied after the spread, so they always win over conflicting `targetPayload` fields. Scheduler execution metadata (`scheduleId`, `scheduleName`, `scopeType`, `triggeredAt`) is no longer injected into the application payload. The async worker's idempotency key is now derived from the retry-stable execute-schedule job id instead of `Date.now()`, so BullMQ retries of one logical firing reuse the same `_idempotencyKey`.
+
+**Action for downstream:** workers written to the documented flat contract need no change and now also work under the local scheduler. A worker that relied on the undocumented local envelope (reading `job.payload.payload.*` or `scheduleId`/`scheduleName`/`triggeredAt` from the payload) must switch to the flat fields; include any identifiers it needs in `targetPayload` when registering the schedule.
+
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Standalone apps: optimistic-lock guard restored; `src/di.ts` now requires explicit bootstrap wiring (#4201)
+
+Two related DI defects affected standalone (npm) apps:
+
+1. **The default OSS optimistic-lock guard was silently disabled.** The request container is built in Awilix CLASSIC injection mode, and the guard's factory destructured a renamed parameter (`({ em: scopedEm })`), which CLASSIC cannot resolve. The resolution error was swallowed, so every `makeCrudRoute` PUT/DELETE ignored the `x-om-ext-optimistic-lock-expected-updated-at` header and stale writes returned `200` instead of `409`. *Action for downstream:* none — upgrading `@open-mercato/shared` restores the guard. A failed guard resolution now logs a warning (once per process) instead of failing silently.
+
+2. **`src/di.ts` `register()` never ran in standalone apps.** The `@/di` dynamic import inside the published package does not resolve to the app's `src/di.ts`, so the documented app-level DI override hook was dead. Apps now wire it explicitly from `src/bootstrap.ts`. *Action for downstream:* apps scaffolded before 0.6.6 that want `src/di.ts` to work must add the wiring to their `src/bootstrap.ts` (new scaffolds include it):
+
+```ts
+import { register as registerAppDi } from '@/di'
+
+export const bootstrap = createBootstrap(
+  { /* existing generated data */ },
+  { appDiRegistrar: registerAppDi },
+)
+```
+
+Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
+
+### Opt-in per-entity ACL for custom-entity records (#3857)
+
+Follow-up to the #2612 records-API hardening, which deliberately left custom/EAV entities on the coarse `entities.records.view` / `entities.records.manage` path. Those two features were **entity-agnostic**: any holder could read/modify/delete records of *every* custom entity in their tenant, so sensitive custom entities (salaries, board minutes) could not be compartmentalized from ordinary ones (intra-tenant horizontal privilege; cross-tenant was already blocked).
+
+Custom entities can now be flagged **`access_restricted`**. The change is **additive and default-off**, so existing entities and grants behave exactly as before — no migration, no lockout:
+
+- **Unrestricted (default):** unchanged — the coarse route feature is the whole authorization.
+- **Restricted:** `assertEntityAclForRequest` additionally requires a **synthesized per-entity feature** `entities.records.<entityId>.view` / `entities.records.<entityId>.manage` (e.g. `entities.records.hr:salaries.view`). The coarse feature alone no longer grants it; `entities.records.*`, `entities.*`, and super-admin still do (normal wildcard semantics).
+
+Grant the per-entity features in the Role/User ACL editor — `GET /api/auth/features` now appends them for the calling tenant's restricted entities. New DB column `custom_entities.access_restricted` (`boolean not null default false`, migration `Migration20260716120000`). Toggle it per entity on the custom-entity create/edit page, or declare `accessRestricted: true` in a module's `ce.ts` `CustomEntitySpec`. An optional tenant policy `entities.newEntitiesRestrictedByDefault` (module config, default off; read/set via `GET/PUT /api/entities/entity-settings`) makes new entities restricted-by-default for tenants that want deny-by-default.
+
+*Action for downstream:* none to keep current behavior. **If you flag an in-use entity as restricted, existing coarse-feature holders lose access to it** until granted the per-entity feature — this is the intended compartmentalization. If you ship a sensitive custom entity via `ce.ts`, set `accessRestricted: true` and grant the per-entity features to the roles that should see it. See [`.ai/specs/2026-07-16-custom-entity-record-acl-per-entity.md`](.ai/specs/2026-07-16-custom-entity-record-acl-per-entity.md).
+
+### Skills install into the canonical `.agents/skills/` directory (#4155)
+
+`yarn install-skills` (monorepo) and `mercato agentic:init` / `yarn install-skills` (standalone apps) used to write every skill into each agent's own folder — local tier skills were symlinked into both `.claude/skills/` and `.codex/skills/`, and external skills landed in `.agents/skills/` **plus** `.claude/skills/` **plus** a hand-made `.codex/skills/` mirror: three copies of the same skill.
+
+Skills now install **once**, into the canonical cross-agent directory `.agents/skills/`. An agent only gets its own per-skill symlinks when it cannot read that directory: Claude Code does (automatic, unchanged for its users), while Codex and Cursor read `.agents/skills/` natively and no longer get a `.codex/skills/` or `.cursor/skills/` directory at all. Scaffolded apps no longer seed `.codex/skills` / `.cursor/skills` symlinks either.
+
+All existing flags and exit behavior of `yarn install-skills` are unchanged; the new flags are additive. Only gitignored dev-tooling directories are affected — no application code, no committed files.
+
+Contributor action:
+
+- Re-run the installer once so stale `.codex/skills/` (and any `.cursor/skills/`) links from the old layout are swept away:
+
+  ```bash
+  yarn install-skills --clean && yarn install-skills
+  ```
+
+  A plain `yarn install-skills` also self-heals (it sweeps the legacy per-agent links); the `--clean` form just makes it explicit.
+- If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
+- To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
 ### Dev-environment starters moved to `starters/`; hybrid mode is the new default
 
 The dev-environment startup surface was consolidated into a top-level [`starters/`](starters/README.md) directory, and the default dev mode changed to **hybrid**: the app and the MCP server run natively on your machine (`yarn dev` now starts both), while OpenCode + postgres/redis/meilisearch run in containers. The fully containerized stack remains as the enterprise path. See `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`.
@@ -55,6 +240,12 @@ Contributor action:
 - Re-run `yarn install-skills` (network required for the npx step; pass `--no-external` or set `OM_SKIP_EXTERNAL_SKILLS=1` when offline — local tier skills still install).
 - Repo-specific behavior for the external skills is configured in [`.ai/agentic.config.json`](.ai/agentic.config.json) (validation gate, labels, base branch), the tracker descriptor [`.ai/trackers/github.md`](.ai/trackers/github.md), the review checklist [`.ai/review-checklist.md`](.ai/review-checklist.md), and repo-local override skills under `.ai/skills/<external-name>/SKILL.md`.
 - The local `om-auto-fix-github` skill has been removed and replaced by the external `om-auto-fix-issue` (installed under `.agents/skills/` from the shared open-mercato/skills collection). Update any `/om-auto-fix-github` callers to `/om-auto-fix-issue`.
+
+### Rate-limit proxy trust now defaults to safe direct mode (#4041)
+
+`RATE_LIMIT_TRUST_PROXY_DEPTH` now defaults to `0` instead of `1`. Direct deployments therefore ignore client-supplied forwarding headers and use endpoint-scoped `global` fallback buckets, so missing trusted IP data no longer disables auth, metadata-driven, or checkout throttles. Invalid, negative, and fractional depth values emit a warning and also fall back to `0`; forwarded chains shorter than an explicitly configured positive depth use the same bounded fallback.
+
+**Action for proxied deployments:** set `RATE_LIMIT_TRUST_PROXY_DEPTH` to the exact number of trusted reverse proxies between the client and the app (for example, `1` for a single nginx/ALB hop). Without that explicit setting, all traffic shares each endpoint's configured fallback bucket, which is secure against header spoofing but can reduce availability under load. Direct deployments should leave the value unset or set it to `0`.
 
 
 ### Tenant-scoped search settings + verified provider availability (#3092)

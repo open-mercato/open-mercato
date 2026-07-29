@@ -174,6 +174,75 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    // Dry-run isolation (spec section 8.2): simulations are excluded from the
+    // run list — and from anything counting off it — unless asked for by name.
+    test('excludes dry runs from the list by default', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances'))
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({ isDryRun: false }),
+        expect.any(Object)
+      )
+    })
+
+    test('returns dry runs only when dryRun=true is asked for explicitly', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances?dryRun=true'))
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({ isDryRun: true }),
+        expect.any(Object)
+      )
+    })
+
+    test('filters by a started-at date range, widening the calendar day to cover it', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?startedFrom=2026-07-01&startedTo=2026-07-29'
+      )
+      await listInstances(request)
+
+      const where = mockEm.findAndCount.mock.calls[0][1]
+      expect(where.startedAt.$gte.toISOString()).toBe('2026-07-01T00:00:00.000Z')
+      expect(where.startedAt.$lte.toISOString()).toBe('2026-07-29T23:59:59.999Z')
+    })
+
+    test('rejects an unparseable date bound with a 400 instead of querying on an Invalid Date', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?startedFrom=garbage')
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+    })
+
+    test('rejects an inverted date range', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?startedFrom=2026-07-29&startedTo=2026-07-01'
+      )
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+    })
+
+    test('adds no startedAt predicate when no date bound is given', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances'))
+
+      expect(mockEm.findAndCount.mock.calls[0][1].startedAt).toBeUndefined()
+    })
+
     test('should filter instances by status', async () => {
       mockEm.findAndCount.mockResolvedValue([[], 0])
 
@@ -395,6 +464,56 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    test('a plain start is never a dry run — the flag is opt-in only', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
+
+      await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout' }),
+      }))
+
+      expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({ isDryRun: false })
+      )
+    })
+
+    test('starts a dry run when the caller holds the test-run feature', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
+
+      const response = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', dryRun: true }),
+      }))
+
+      expect(response.status).toBe(201)
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'test-user-id',
+        ['workflows.definitions.test_run'],
+        expect.any(Object)
+      )
+      expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({ isDryRun: true })
+      )
+    })
+
+    test('refuses a dry run without the test-run feature, and starts nothing', async () => {
+      mockRbacService.userHasAllFeatures.mockImplementation(async (_user: string, features: string[]) =>
+        !features.includes('workflows.definitions.test_run')
+      )
+
+      const response = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', dryRun: true }),
+      }))
+
+      expect(response.status).toBe(403)
+      expect(workflowExecutor.startWorkflow).not.toHaveBeenCalled()
+    })
+
     test('should inject initiatedBy from auth context', async () => {
       (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
       (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
@@ -419,7 +538,7 @@ describe('Workflow Instances API', () => {
       )
     })
 
-    test('should not trust caller supplied initiatedBy metadata', async () => {
+    test('should ignore client-supplied initiatedBy metadata', async () => {
       (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
       (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
 
@@ -430,21 +549,30 @@ describe('Workflow Instances API', () => {
           initialContext: {},
           metadata: {
             entityType: 'order',
+            entityId: 'order-123',
             initiatedBy: 'admin-user-id',
           },
         }),
       })
 
       await startInstance(request)
+      await flushBackgroundWorkflowExecution()
 
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
         mockEm,
         expect.objectContaining({
           metadata: expect.objectContaining({
             entityType: 'order',
+            entityId: 'order-123',
             initiatedBy: testUserId,
           }),
         })
+      )
+      expect(workflowExecutor.executeWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        mockContainer,
+        testInstanceId,
+        { userId: testUserId }
       )
     })
 

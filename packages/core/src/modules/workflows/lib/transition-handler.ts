@@ -15,7 +15,6 @@ import type { AwilixContainer } from 'awilix'
 import type { EventBus } from '@open-mercato/events'
 import {
   WorkflowInstance,
-  WorkflowDefinition,
   WorkflowEvent,
 } from '../data/entities'
 import * as ruleEvaluator from '../../business_rules/lib/rule-evaluator'
@@ -23,6 +22,15 @@ import * as ruleEngine from '../../business_rules/lib/rule-engine'
 import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
+import { findDefinitionForInstance } from './find-definition'
+import { resolveDefinitionInterpolationMode } from './interpolation-pipeline'
+import { buildSetVariableContextPatch, isSetVariableOutput } from './set-variable'
+import {
+  resolveStepFailureHandling,
+  type StepFailureHandling,
+} from './error-routing'
+import { DRY_RUN_EVENT_TYPES, isDryRunInstance } from './dry-run'
+import { excludeNonNormalTransitions } from './route-kinds'
 import {
   type ExecutionToken,
   rootToken,
@@ -39,6 +47,56 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
 
+/**
+ * Translate a resolved failure handling into the fields the executor acts on.
+ * `fail` (the absent-config default) adds nothing, so untouched definitions
+ * return the exact failure shape they returned before error routing existed.
+ */
+function buildFailureRouting(
+  handling: StepFailureHandling,
+  failedStepId: string
+): Pick<
+  TransitionExecutionResult,
+  'failedStepId' | 'errorRoute' | 'parkForAttention' | 'errorHandlerStepId'
+> {
+  if (handling.kind === 'route' && typeof handling.transition.toStepId === 'string') {
+    return {
+      failedStepId,
+      errorRoute: {
+        transitionId: handling.transition.transitionId,
+        toStepId: handling.transition.toStepId,
+      },
+    }
+  }
+  if (handling.kind === 'park') {
+    return { failedStepId, parkForAttention: true }
+  }
+  if (handling.kind === 'handlerStep') {
+    return { failedStepId, errorHandlerStepId: handling.stepId }
+  }
+  return {}
+}
+
+/**
+ * Record that a dry run evaluated a transition's business rule but withheld its
+ * ACTION arm, so the "Would do" report can say which side effect was skipped
+ * rather than leaving the author to assume the rule did nothing.
+ */
+async function logSuppressedRuleActions(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  ruleId: string,
+  phase: 'pre_transition' | 'post_transition'
+): Promise<void> {
+  await logTransitionEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: DRY_RUN_EVENT_TYPES.businessRuleActionsSuppressed,
+    eventData: { ruleId, phase },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+}
+
 // ============================================================================
 // Types and Interfaces
 // ============================================================================
@@ -47,6 +105,7 @@ export interface TransitionEvaluationContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  transitionId?: string
 }
 
 export interface TransitionEvaluationResult {
@@ -61,6 +120,7 @@ export interface TransitionExecutionContext {
   workflowContext: Record<string, any>
   userId?: string
   triggerData?: any
+  transitionId?: string
 }
 
 export interface TransitionExecutionResult {
@@ -78,6 +138,15 @@ export interface TransitionExecutionResult {
   }
   activitiesExecuted?: activityExecutor.ActivityExecutionResult[]
   error?: string
+  // Error routing (spec 5.9). Set only when the failure carries error handling
+  // the executor must apply: `errorRoute` names the wired error transition to
+  // follow, `parkForAttention` asks for a failure-queue park instead of a fail.
+  // Absent on every legacy failure, which therefore keeps failing identically.
+  failedStepId?: string
+  errorRoute?: { transitionId?: string; toStepId: string }
+  parkForAttention?: boolean
+  // Definition-level handler step to jump to before failing (spec 5.9).
+  errorHandlerStepId?: string
 }
 
 export class TransitionError extends Error {
@@ -121,9 +190,7 @@ export async function evaluateTransition(
 
   try {
     // Load workflow definition
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -140,7 +207,10 @@ export async function evaluateTransition(
     if (toStepId) {
       // Find specific transition
       transition = transitions.find(
-        (t: any) => t.fromStepId === fromStepId && t.toStepId === toStepId
+        (candidate: { fromStepId?: unknown; toStepId?: unknown; transitionId?: unknown }) =>
+          candidate.fromStepId === fromStepId
+          && candidate.toStepId === toStepId
+          && (context.transitionId === undefined || candidate.transitionId === context.transitionId)
       )
 
       if (!transition) {
@@ -151,8 +221,9 @@ export async function evaluateTransition(
         }
       }
     } else {
-      // Auto-select first valid transition
-      const availableTransitions = transitions.filter(
+      // Auto-select first valid transition (never a kinded route: error,
+      // SLA-breach or agent-outcome)
+      const availableTransitions = excludeNonNormalTransitions(transitions).filter(
         (t: any) => t.fromStepId === fromStepId
       )
 
@@ -232,16 +303,17 @@ export async function findValidTransitions(
 ): Promise<TransitionEvaluationResult[]> {
   try {
     // Load workflow definition
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return []
     }
 
-    // Find all transitions from current step, sorted by priority (highest first)
-    const transitions = (definition.definition.transitions || [])
+    // Find all transitions from current step, sorted by priority (highest first).
+    // Every kinded route is excluded — each is reachable only from its own
+    // trigger (a step failure, a task's deadline passing, a resolved agent
+    // disposition), never from normal routing.
+    const transitions = excludeNonNormalTransitions(definition.definition.transitions || [])
       .filter((t: any) => t.fromStepId === fromStepId)
       .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
 
@@ -255,7 +327,7 @@ export async function findValidTransitions(
         instance,
         fromStepId,
         transition.toStepId,
-        context
+        { ...context, transitionId: transition.transitionId },
       )
 
       if (!conditionResult.isValid) {
@@ -433,6 +505,7 @@ export async function executeTransitionForToken(
     const activityResults: activityExecutor.ActivityExecutionResult[] = []
 
     if (transition.activities && transition.activities.length > 0) {
+      const definitionForInterpolation = await findDefinitionForInstance(em, instance)
       const activityContext: activityExecutor.ActivityContext = {
         workflowInstance: instance,
         workflowContext: {
@@ -441,6 +514,7 @@ export async function executeTransitionForToken(
         },
         branchInstanceId,
         userId: context.userId,
+        interpolationMode: resolveDefinitionInterpolationMode(definitionForInterpolation?.definition),
       }
 
       // Execute all activities
@@ -457,6 +531,20 @@ export async function executeTransitionForToken(
       const failedActivities = results.filter(r => !r.success)
 
       if (failedActivities.length > 0) {
+        // A dry-run refusal stops the run AT that node (spec section 8.2). It is
+        // not an activity failure — nothing was attempted — so neither
+        // `continueOnActivityFailure` nor the step's error route/directive may
+        // absorb it. Answering it before either is consulted is what keeps the
+        // marker explicit instead of silently routed.
+        const refusal = failedActivities.find((result) => result.dryRunRefused)
+        if (refusal) {
+          return {
+            success: false,
+            error: refusal.error ?? 'Dry run stopped',
+            conditionsEvaluated: { preConditions: true, postConditions: false },
+          }
+        }
+
         const continueOnFailure = transition.continueOnActivityFailure ?? false
 
         // Log activity failures
@@ -481,22 +569,68 @@ export async function executeTransitionForToken(
         })
 
         if (!continueOnFailure) {
-          return {
-            success: false,
-            error: `Activities failed: ${failedActivities.map(f => f.error).join(', ')}`,
-            conditionsEvaluated: {
-              preConditions: true,
-              postConditions: false,
-            },
+          // Error routing (spec 5.9). The failing node here is the step the
+          // route leaves, because the token cursor has not advanced yet.
+          const failureHandling = resolveStepFailureHandling(
+            definitionForInterpolation?.definition,
+            fromStepId
+          )
+
+          if (failureHandling.kind === 'continue') {
+            // `continueWithFallback` is the directive form of the legacy
+            // `continueOnActivityFailure` flag: identical continue semantics,
+            // plus the authored fallback value landing under the step id.
+            await logTransitionEvent(em, {
+              workflowInstanceId: instance.id,
+              branchInstanceId,
+              eventType: 'ERROR_DIRECTIVE_APPLIED',
+              eventData: {
+                stepId: fromStepId,
+                directive: 'continueWithFallback',
+                transitionId: transition.transitionId || `${fromStepId}->${toStepId}`,
+                hasFallbackValue: failureHandling.fallbackValue !== undefined,
+              },
+              userId: context.userId,
+              tenantId: instance.tenantId,
+              organizationId: instance.organizationId,
+            })
+            if (failureHandling.fallbackValue !== undefined) {
+              activityOutputs[fromStepId] = failureHandling.fallbackValue
+            }
+          } else {
+            return {
+              success: false,
+              error: `Activities failed: ${failedActivities.map(f => f.error).join(', ')}`,
+              conditionsEvaluated: {
+                preConditions: true,
+                postConditions: false,
+              },
+              ...buildFailureRouting(failureHandling, fromStepId),
+            }
           }
         }
       }
 
-      // Collect activity outputs for context update
+      // Collect activity outputs for context update. SET_VARIABLE outputs are
+      // applied at their assignment paths in top-level context (preserving
+      // sibling keys of any nested target); other outputs merge under the
+      // activity name/type key.
       results.forEach(result => {
         if (result.success && result.output) {
-          const key = result.activityName || result.activityType
-          activityOutputs[key] = result.output
+          if (result.activityType === 'SET_VARIABLE' && isSetVariableOutput(result.output)) {
+            const assignmentBase = {
+              ...tokenReadContext(token),
+              ...context.workflowContext,
+              ...activityOutputs,
+            }
+            Object.assign(
+              activityOutputs,
+              buildSetVariableContextPatch(assignmentBase, result.output.assignments)
+            )
+          } else {
+            const key = result.activityName || result.activityType
+            activityOutputs[key] = result.output
+          }
         }
       })
     }
@@ -580,11 +714,41 @@ export async function executeTransitionForToken(
     // Flush to database after step execution completes to make state visible to UI
     await em.flush()
 
-    // Handle step execution failure
+    // Handle step execution failure. Error routing (spec 5.9) keys on the step
+    // that failed — the cursor already advanced, so that is `toStepId`.
     if (stepExecutionResult.status === 'FAILED') {
-      return {
-        success: false,
-        error: stepExecutionResult.error || 'Step execution failed',
+      const definitionForFailure = await findDefinitionForInstance(em, instance)
+      const failureHandling = resolveStepFailureHandling(definitionForFailure?.definition, toStepId)
+
+      if (failureHandling.kind === 'continue') {
+        // The step instance stays FAILED — its state machine is untouched. The
+        // instance advances with the authored fallback value in context, and
+        // the executor re-evaluates the failed step's outgoing routes.
+        await logTransitionEvent(em, {
+          workflowInstanceId: instance.id,
+          branchInstanceId,
+          eventType: 'ERROR_DIRECTIVE_APPLIED',
+          eventData: {
+            stepId: toStepId,
+            directive: 'continueWithFallback',
+            transitionId: transition.transitionId || `${fromStepId}->${toStepId}`,
+            error: stepExecutionResult.error,
+            hasFallbackValue: failureHandling.fallbackValue !== undefined,
+          },
+          userId: context.userId,
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+        })
+        if (failureHandling.fallbackValue !== undefined) {
+          mergeTokenContext(token, { [toStepId]: failureHandling.fallbackValue })
+          await em.flush()
+        }
+      } else {
+        return {
+          success: false,
+          error: stepExecutionResult.error || 'Step execution failed',
+          ...buildFailureRouting(failureHandling, toStepId),
+        }
       }
     }
 
@@ -764,9 +928,7 @@ async function evaluatePreConditions(
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -789,6 +951,7 @@ async function evaluatePreConditions(
     }
 
     // Execute each pre-condition rule directly by ruleId
+    const dryRun = isDryRunInstance(instance)
     const startTime = Date.now()
     const executedRules: ruleEngine.RuleExecutionResult[] = []
     const errors: string[] = []
@@ -815,7 +978,16 @@ async function evaluatePreConditions(
         entityType: `workflow:${definition.workflowId}:transition`,
         entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
         eventType: 'pre_transition',
+        // Dry run (spec section 8.2): the rule engine's own `dryRun` only
+        // suppresses its execution LOG — a rule's success/failure ACTIONS run
+        // regardless — so a side-effect-free run has to ask for `skipActions`.
+        // The conditions still evaluate, so the run takes the routes it really
+        // would; only the ACTION arm is withheld, and it is reported.
+        skipActions: dryRun,
       })
+      if (dryRun && result.actionsExecuted === null) {
+        await logSuppressedRuleActions(em, instance, condition.ruleId, 'pre_transition')
+      }
 
       // Create a compatible RuleExecutionResult for tracking
       // We don't have the full BusinessRule entity, but we can create a partial result
@@ -893,9 +1065,7 @@ async function evaluatePostConditions(
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -918,6 +1088,7 @@ async function evaluatePostConditions(
     }
 
     // Execute each post-condition rule directly by ruleId
+    const dryRun = isDryRunInstance(instance)
     const startTime = Date.now()
     const executedRules: ruleEngine.RuleExecutionResult[] = []
     const errors: string[] = []
@@ -944,7 +1115,16 @@ async function evaluatePostConditions(
         entityType: `workflow:${definition.workflowId}:transition`,
         entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
         eventType: 'post_transition',
+        // Dry run (spec section 8.2): the rule engine's own `dryRun` only
+        // suppresses its execution LOG — a rule's success/failure ACTIONS run
+        // regardless — so a side-effect-free run has to ask for `skipActions`.
+        // The conditions still evaluate, so the run takes the routes it really
+        // would; only the ACTION arm is withheld, and it is reported.
+        skipActions: dryRun,
       })
+      if (dryRun && result.actionsExecuted === null) {
+        await logSuppressedRuleActions(em, instance, condition.ruleId, 'post_transition')
+      }
 
       // Create a compatible RuleExecutionResult for tracking
       const ruleResult: ruleEngine.RuleExecutionResult = {

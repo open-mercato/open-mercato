@@ -1,5 +1,9 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandBus, CommandHandler } from '@open-mercato/shared/lib/commands'
+import type {
+  CommandBus,
+  CommandHandler,
+  CommandRuntimeContext,
+} from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -58,6 +62,38 @@ function isHumanVerdict(
   disposition: DisposeProposalCommandInput['disposition'],
 ): disposition is z.infer<typeof disposeProposalSchema>['disposition'] {
   return disposition === 'approved' || disposition === 'edited' || disposition === 'rejected'
+}
+
+/**
+ * Close the workflows review task a disposed proposal no longer needs.
+ *
+ * `workflows` is an OPTIONAL peer, so the module is reached through a dynamic
+ * import inside the try — an installation without it simply has no task to
+ * close. Never throws: the verdict is already committed, and a close failure
+ * must not turn a completed disposition into a failed request.
+ */
+async function closeReviewTask(
+  container: CommandRuntimeContext['container'],
+  em: EntityManager,
+  options: {
+    userTaskId: string
+    disposition: AgentProposalDisposition
+    closedBy: string | null
+    tenantId: string
+    organizationId: string
+  },
+): Promise<void> {
+  try {
+    const dispositionTask = (await import(
+      '@open-mercato/core/modules/workflows/lib/agent-disposition-task'
+    )) as typeof import('@open-mercato/core/modules/workflows/lib/agent-disposition-task')
+    await dispositionTask.closeAgentDispositionTask(em, container, options)
+  } catch (error) {
+    console.warn('[internal] agent_orchestrator: review task not closed for a disposed proposal', {
+      userTaskId: options.userTaskId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, DisposeProposalCommandResult> = {
@@ -236,6 +272,25 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
       } catch (error) {
         console.warn('[internal] agent_orchestrator: failed to record correction for disposed proposal', error)
       }
+    }
+
+    // 8c. Close the review task this proposal raised, if it raised one (A7).
+    // Runs on EVERY disposition path — including auto-approve, which sets
+    // `skipResume` and therefore never reaches step 9 — because the question
+    // "is this decision still outstanding?" is answered by the verdict, not by
+    // how the run resumes. Best-effort and after the commit: the verdict is
+    // already durable, and a stale open task is a worse outcome than a failed
+    // close only if the close can also fail the disposition, which it cannot.
+    // It does NOT complete the task through the engine (that would advance the
+    // run); resuming is step 9's job and nothing else's.
+    if (proposal.userTaskId) {
+      await closeReviewTask(container, em, {
+        userTaskId: proposal.userTaskId,
+        disposition: proposal.disposition,
+        closedBy: nextDispositionBy,
+        tenantId: proposal.tenantId,
+        organizationId: proposal.organizationId,
+      })
     }
 
     // 9. Resume (human path only). The auto path set `skipResume` because the

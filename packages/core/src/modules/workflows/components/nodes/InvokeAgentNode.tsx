@@ -1,9 +1,14 @@
 'use client'
 
+import { useState } from 'react'
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
+import { NodeOutcomeRows } from './NodeOutcomeRows'
+import { buildAllAgentOutcomeRows, type NodeOutcomeRow } from '../../lib/node-outcome-rows'
 
 export interface InvokeAgentNodeData {
   label: string
@@ -15,6 +20,14 @@ export interface InvokeAgentNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  hasCompensation?: boolean
+  errorCount?: number
+  /**
+   * Disposition outcome rows (spec §7.2), derived from the committed edges by
+   * `WorkflowGraphImpl` at RENDER time — never part of the saved definition.
+   */
+  outcomeRows?: NodeOutcomeRow[]
 }
 
 /**
@@ -29,8 +42,15 @@ export interface InvokeAgentNodeData {
 export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps) {
   const t = useT()
   const nodeData = data as unknown as InvokeAgentNodeData
+  const [showAllOutcomes, setShowAllOutcomes] = useState(false)
+  const availableOutcomeRows = buildAllAgentOutcomeRows()
+  const outcomeRows = showAllOutcomes ? availableOutcomeRows : (nodeData.outcomeRows ?? [])
+  const canRevealOutcomes = Boolean(
+    isConnectable && !showAllOutcomes && outcomeRows.length < availableOutcomeRows.length,
+  )
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('invokeAgent', nodeData as never)
 
   const agentId =
     nodeData.agentId ||
@@ -77,13 +97,34 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
 
       <div className="relative">
         <WorkflowNodeCard
+          summary={summary}
           title={nodeData.label}
           description={description}
           status={workflowStatus}
           nodeType="invokeAgent"
           selected={selected}
+          hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
+          errorCount={nodeData.errorCount}
           nodeId={id}
           editable={isConnectable}
+          footer={
+            <NodeOutcomeRows
+              rows={outcomeRows}
+              isConnectable={isConnectable}
+              inheritanceNote={t(
+                'workflows.outcomes.inheritsErrorDirective',
+                'unhandled → error directive',
+              )}
+              revealLabel={
+                canRevealOutcomes
+                  ? t('workflows.outcomes.add', '+ outcome')
+                  : undefined
+              }
+              onReveal={canRevealOutcomes ? () => setShowAllOutcomes(true) : undefined}
+              testId="workflow-agent-outcome-rows"
+            />
+          }
         />
         {chip && (
           <span
@@ -101,6 +142,8 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-brand-violet !border-2 !border-background"
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

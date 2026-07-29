@@ -36,6 +36,7 @@ export type CreateSessionPayload = z.infer<typeof createSessionSchema>
 export const captureSchema = z.object({
   transactionId: z.string().uuid(),
   amount: z.number().positive().optional(),
+  operationId: z.string().trim().min(1).max(200).optional(),
 })
 
 export type CapturePayload = z.infer<typeof captureSchema>
@@ -44,6 +45,7 @@ export const refundSchema = z.object({
   transactionId: z.string().uuid(),
   amount: z.number().positive().optional(),
   reason: z.string().max(200).optional(),
+  operationId: z.string().trim().min(1).max(200).optional(),
 })
 
 export type RefundPayload = z.infer<typeof refundSchema>
@@ -51,6 +53,7 @@ export type RefundPayload = z.infer<typeof refundSchema>
 export const cancelSchema = z.object({
   transactionId: z.string().uuid(),
   reason: z.string().max(200).optional(),
+  operationId: z.string().trim().min(1).max(200).optional(),
 })
 
 export type CancelPayload = z.infer<typeof cancelSchema>

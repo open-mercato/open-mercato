@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -40,7 +41,7 @@ import {
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -48,6 +49,8 @@ import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable 
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+const dealCommandOutputSchema = z.object({ dealId: z.string().uuid() })
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -411,6 +414,7 @@ async function syncDealCompanies(
 
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
+  outputSchema: dealCommandOutputSchema,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -614,6 +618,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
 
 const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   id: 'customers.deals.update',
+  outputSchema: dealCommandOutputSchema,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -625,7 +630,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null })
     const record = deal ?? null
-    if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
+    if (!record) throw notFound('Deal not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 
@@ -936,7 +941,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
       const record = deal ?? null
-      if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
+      if (!record) throw notFound('Deal not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
       await deleteDealStageTransitions(em, record)

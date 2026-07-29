@@ -2,7 +2,24 @@ import type { Node, Edge } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
 import type { WorkflowDefinition } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
+import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
+import { isAnnotationNode } from './editor-annotations'
+import {
+  findRouteKindDescriptor,
+  resolveEdgeRouteKind,
+  type RouteKindTransitionLike,
+} from './route-kinds'
+import {
+  NODE_DESCRIPTION_HEIGHT,
+  NODE_HEIGHT,
+  NODE_OUTCOME_FOOTER_CHROME_HEIGHT,
+  NODE_OUTCOME_ROW_HEIGHT,
+  NODE_MAX_WIDTH,
+  NODE_MIN_WIDTH,
+  TERMINAL_NODE_HEIGHT,
+  TERMINAL_NODE_MIN_WIDTH,
+} from './node-geometry'
 
 /**
  * Graph Utilities for Visual Workflow Editor
@@ -10,19 +27,29 @@ import { isDataMappingEdge } from './data-edge-mapping'
  * Converts between ReactFlow graph representation and workflow definition JSON
  */
 
-/**
- * Node footprint used by the dagre layout engine. `NODE_WIDTH` must match the
- * `NODE_WIDTH` exported from `../components/WorkflowNodeCard`; it is mirrored as
- * a local constant here so this pure data-transform module stays free of the
- * React/`lucide-react` import chain (it runs in node + jest contexts).
- */
-const NODE_WIDTH = 180
-const NODE_MAX_WIDTH = 280
-const NODE_HEIGHT = 84
-
 export interface GraphToDefinitionOptions {
   includePositions?: boolean
 }
+
+/**
+ * Task inspector keys (spec §6.1) that round-trip verbatim between the node and
+ * the definition's `userTaskConfig`.
+ *
+ * They are listed rather than spread so an editor-only key on `node.data` can
+ * never leak into a persisted definition, and so the set is one obvious place
+ * to extend. The engine reads them through `userTaskConfig`; the inspector
+ * reads them off `node.data`, which is why both directions copy.
+ */
+const USER_TASK_INSPECTOR_KEYS = [
+  'instructions',
+  'entityBindings',
+  'priority',
+  'deadline',
+  'reminders',
+  'onBreach',
+  'decisions',
+  'editablePrefilled',
+] as const
 
 export interface DefinitionToGraphOptions {
   autoLayout?: boolean
@@ -46,10 +73,17 @@ export interface LayoutWithDagreOptions {
  * Convert ReactFlow graph (nodes + edges) to workflow definition JSON
  */
 export function graphToDefinition(
-  nodes: Node[],
+  allNodes: Node[],
   edges: Edge[],
   options: GraphToDefinitionOptions = {}
 ): WorkflowDefinition['definition'] {
+  // Sticky notes and groups are editor annotations (spec 4.5): they live only in
+  // `metadata.editor.annotations` and MUST NOT reach `steps` or `transitions`,
+  // so a definition carrying them serializes byte-identically to one that does
+  // not and the engine can never see them.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
+  const annotationIds = new Set(allNodes.filter(isAnnotationNode).map((node) => node.id))
+
   // Extract steps from nodes
   const steps = nodes.map((node) => {
     const step: any = {
@@ -104,6 +138,11 @@ export function graphToDefinition(
       if ((node.data as any).escalationRules || (node.data as any).userTaskConfig?.escalationRules) {
         step.userTaskConfig.escalationRules = (node.data as any).escalationRules || (node.data as any).userTaskConfig.escalationRules
       }
+
+      for (const key of USER_TASK_INSPECTOR_KEYS) {
+        const authored = (node.data as any)[key] ?? (node.data as any).userTaskConfig?.[key]
+        if (authored !== undefined) step.userTaskConfig[key] = authored
+      }
     }
 
     // Wait for signal configuration
@@ -133,6 +172,30 @@ export function graphToDefinition(
       step.preConditions = (node.data as any).preConditions
     }
 
+    // Error directive (spec 5.9). Absent stays absent so definitions that never
+    // opened the picker save byte-identically.
+    if ((node.data as any).errorDirective) {
+      step.errorDirective = (node.data as any).errorDirective
+    }
+
+    // Editor-owned step metadata. `unmappedConfig` is config a step-type
+    // conversion could not map onto the new type (spec 4.5) — it is carried
+    // through save/load verbatim so nothing an author configured is ever lost.
+    const stepMetadata: Record<string, unknown> = {
+      ...((node.data as any).stepMetadata && typeof (node.data as any).stepMetadata === 'object'
+        ? (node.data as any).stepMetadata as Record<string, unknown>
+        : {}),
+    }
+    const unmappedConfig = (node.data as any).unmappedConfig
+    if (unmappedConfig && typeof unmappedConfig === 'object' && Object.keys(unmappedConfig).length > 0) {
+      stepMetadata.unmappedConfig = unmappedConfig
+    } else {
+      delete stepMetadata.unmappedConfig
+    }
+    if (Object.keys(stepMetadata).length > 0) {
+      step.metadata = stepMetadata
+    }
+
     // Store position for visual editor
     if (options.includePositions && node.position) {
       step._editorPosition = {
@@ -146,8 +209,14 @@ export function graphToDefinition(
 
   // Extract transitions from edges. Drag-authored data-mapping edges are NOT
   // transitions — their binding lives in the target step's config.inputMapping —
-  // so they are excluded here.
-  const transitions = edges.filter((edge) => !isDataMappingEdge(edge)).map((edge) => {
+  // and compensation ghosts (spec 4.4) are a rendering of existing routes, not
+  // routes of their own, so both are excluded here.
+  const transitions = edges
+    .filter((edge) => !isDataMappingEdge(edge)
+      && !isCompensationGhostEdge(edge)
+      && !annotationIds.has(edge.source)
+      && !annotationIds.has(edge.target))
+    .map((edge) => {
     const edgeData = edge.data as any
     const transition: any = {
       transitionId: edge.id,
@@ -166,6 +235,15 @@ export function graphToDefinition(
       transition.priority = edgeData.priority
     }
 
+    // Route kind marker (spec 5.9 error routes, and every kind registered
+    // beside them in lib/route-kinds.ts). Only non-normal kinds are persisted;
+    // normal routes stay exactly as they were serialized before.
+    const routeKind = resolveEdgeRouteKind(edgeData?.kind, edge.sourceHandle)
+    if (routeKind) {
+      transition.kind = routeKind.kind
+      Object.assign(transition, routeKind.discriminatorFields(edge))
+    }
+
     // Add continueOnActivityFailure if present (default false)
     if (edgeData?.continueOnActivityFailure !== undefined) {
       transition.continueOnActivityFailure = edgeData.continueOnActivityFailure
@@ -180,6 +258,12 @@ export function graphToDefinition(
       transition.postConditions = edgeData.postConditions
     }
 
+    // Inline condition expression (business_rules language). Branching routes
+    // authored on IF_ELSE / SWITCH nodes are plain conditioned transitions.
+    if (edgeData?.condition !== undefined && edgeData.condition !== null) {
+      transition.condition = edgeData.condition
+    }
+
     // Add activities if present in edge data
     if (edgeData?.activities && edgeData.activities.length > 0) {
       transition.activities = edgeData.activities.map((activity: any) => ({
@@ -192,10 +276,17 @@ export function graphToDefinition(
         ...(activity.timeout && { timeout: activity.timeout }),
         ...(activity.retryPolicy && { retryPolicy: activity.retryPolicy }),
         ...(activity.compensate !== undefined && { compensate: activity.compensate }),
+      // Saga compensation (`compensation.activityId`) is what the canvas'
+      // compensation ghosts render and what `lib/compensation-handler.ts`
+      // executes on failure — it MUST survive the editor round trip.
+      ...(activity.compensation && { compensation: activity.compensation }),
       }))
-    } else {
+    } else if (!transition.kind) {
       // Check if source node is automated and has activity data
-      // If so, place the activity in this transition
+      // If so, place the activity in this transition. A non-normal route never
+      // inherits the source step's activity — it is the recovery path, and
+      // re-running the activity that just failed (or that the run never got
+      // past) is exactly wrong.
       const sourceNode = nodes.find(n => n.id === edge.source)
       if (sourceNode && sourceNode.type === 'automated' && sourceNode.data) {
         if (sourceNode.data.activityType || sourceNode.data.activityId) {
@@ -268,7 +359,7 @@ export function definitionToGraph(
   const dagrePositions = needsDagre
     ? layoutWithDagre(definition.steps, definition.transitions, {
         direction: 'LR',
-        nodeWidth: NODE_WIDTH,
+        nodeWidth: NODE_MIN_WIDTH,
         nodeHeight: NODE_HEIGHT,
       })
     : null
@@ -314,6 +405,17 @@ export function definitionToGraph(
       nodeData.config = (step as any).config
     }
 
+    // Editor-owned step metadata round-trips as-is; the quarantined config a
+    // step-type conversion produced is lifted out so the inspector can show it.
+    const stepMetadata = (step as any).metadata
+    if (stepMetadata && typeof stepMetadata === 'object') {
+      nodeData.stepMetadata = stepMetadata
+      const unmappedConfig = (stepMetadata as Record<string, unknown>).unmappedConfig
+      if (unmappedConfig && typeof unmappedConfig === 'object') {
+        nodeData.unmappedConfig = unmappedConfig
+      }
+    }
+
     // Add user task data
     if (step.stepType === 'USER_TASK' && step.userTaskConfig) {
       nodeData.assignedTo = step.userTaskConfig.assignedTo
@@ -340,6 +442,11 @@ export function definitionToGraph(
 
       if (step.userTaskConfig.escalationRules) {
         nodeData.escalationRules = step.userTaskConfig.escalationRules
+      }
+
+      for (const key of USER_TASK_INSPECTOR_KEYS) {
+        const persisted = (step.userTaskConfig as Record<string, unknown>)[key]
+        if (persisted !== undefined) nodeData[key] = persisted
       }
     }
 
@@ -385,6 +492,11 @@ export function definitionToGraph(
       nodeData.preConditions = (step as any).preConditions
     }
 
+    // Error directive (spec 5.9)
+    if ((step as any).errorDirective) {
+      nodeData.errorDirective = (step as any).errorDirective
+    }
+
     // Set badge based on type
     nodeData.badge = getBadgeForNodeType(nodeType)
 
@@ -399,15 +511,45 @@ export function definitionToGraph(
     }
   })
 
+  const decisionTransitionIdsByStep = new Map<string, Set<string>>()
+  for (const step of definition.steps) {
+    if (step.stepType !== 'USER_TASK') continue
+    const transitionIds = (step.userTaskConfig?.decisions ?? [])
+      .map((decision: { transitionId?: unknown }) => decision.transitionId)
+      .filter(
+        (transitionId: unknown): transitionId is string =>
+          typeof transitionId === 'string',
+      )
+    if (transitionIds.length > 0) {
+      decisionTransitionIdsByStep.set(step.stepId, new Set(transitionIds))
+    }
+  }
+
   // Convert transitions to edges
   const edges: Edge[] = definition.transitions.map((transition) => {
+    const routeTransition: RouteKindTransitionLike = transition
+    const routeKind = findRouteKindDescriptor(routeTransition.kind)
+    const decisionSourceHandle = decisionTransitionIdsByStep
+      .get(transition.fromStepId)
+      ?.has(transition.transitionId)
+      ? transition.transitionId
+      : undefined
     return {
       id: transition.transitionId,
       source: transition.fromStepId,
       target: transition.toStepId,
       type: 'workflowTransition',
+      // A kinded route re-attaches to its own output handle so the canvas
+      // renders it leaving the same port the author drew it from.
+      ...(routeKind
+        ? { sourceHandle: routeKind.resolveSourceHandle(routeTransition) }
+        : decisionSourceHandle
+          ? { sourceHandle: decisionSourceHandle }
+          : {}),
       data: {
         trigger: transition.trigger,
+        ...(routeKind ? { kind: routeKind.kind } : {}),
+        ...(routeTransition.outcomeKind ? { outcomeKind: routeTransition.outcomeKind } : {}),
         transitionName: (transition as any).transitionName,
         priority: (transition as any).priority !== undefined ? (transition as any).priority : 0,
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined
@@ -415,6 +557,7 @@ export function definitionToGraph(
           : false,
         preConditions: transition.preConditions || [],
         postConditions: transition.postConditions || [],
+        condition: (transition as any).condition,
         activities: transition.activities || [],
         label: (transition as any).transitionName || (transition as any).label, // Backward compat
         state: (transition as any).state || 'pending', // Default edge state
@@ -439,7 +582,7 @@ export function definitionToGraph(
 /**
  * Approximate a node card's rendered footprint when its true measured size is
  * not yet known (initial open, before React Flow measures the DOM). Cards are
- * `w-fit` between `NODE_WIDTH` and `NODE_MAX_WIDTH` (see WorkflowNodeCard); their
+ * `w-fit` between `NODE_MIN_WIDTH` and `NODE_MAX_WIDTH` (see lib/node-geometry); their
  * width is driven mostly by the two-line `line-clamp-2` description, which pushes
  * almost any described node to the max width. So a node WITH a description is
  * estimated at the cap (and taller for the extra line); a bare-title node sizes
@@ -447,28 +590,128 @@ export function definitionToGraph(
  * toward the real (larger) footprint. The Auto-arrange path uses exact measured
  * sizes instead and does not rely on this.
  */
-function estimateNodeSize(label: unknown, hasDescription: boolean): { width: number; height: number } {
+function estimateNodeSize(
+  label: unknown,
+  hasDescription: boolean,
+  isTerminal: boolean,
+  outcomeRowCount = 0,
+): { width: number; height: number } {
   const text = typeof label === 'string' ? label.trim() : ''
   const titleWidth = Math.round(text.length * 7) + 64
+  // Terminals are auto-width pills carrying only an icon and a name: no
+  // description row, no minimum card width.
+  if (isTerminal) {
+    return {
+      width: Math.min(Math.max(TERMINAL_NODE_MIN_WIDTH, titleWidth), NODE_MAX_WIDTH),
+      height: TERMINAL_NODE_HEIGHT,
+    }
+  }
   const width = hasDescription
     ? NODE_MAX_WIDTH
-    : Math.min(Math.max(NODE_WIDTH, titleWidth), NODE_MAX_WIDTH)
-  const height = hasDescription ? NODE_HEIGHT + 24 : NODE_HEIGHT
-  return { width, height }
+    : Math.min(Math.max(NODE_MIN_WIDTH, titleWidth), NODE_MAX_WIDTH)
+  const bodyHeight = hasDescription ? NODE_HEIGHT + NODE_DESCRIPTION_HEIGHT : NODE_HEIGHT
+  const footerHeight =
+    outcomeRowCount > 0
+      ? NODE_OUTCOME_FOOTER_CHROME_HEIGHT + outcomeRowCount * NODE_OUTCOME_ROW_HEIGHT
+      : 0
+  return { width, height: bodyHeight + footerHeight }
+}
+
+/**
+ * START / END, in either vocabulary: `definitionToGraph` lays out definition
+ * steps (which carry `stepType`), `applyAutoLayout` lays out React Flow nodes
+ * (which carry the editor `nodeType`).
+ */
+interface NodeFootprintLike {
+  width?: unknown
+  height?: unknown
+  description?: unknown
+  stepName?: unknown
+  label?: unknown
+  stepType?: unknown
+  nodeType?: unknown
+  stepId?: unknown
+  userTaskConfig?: { decisions?: unknown }
+  decisions?: unknown
+  activities?: unknown
+}
+
+interface OutcomeLayoutTransitionLike {
+  fromStepId?: unknown
+  kind?: unknown
+  outcomeKind?: unknown
+}
+
+function isTerminalStep(step: NodeFootprintLike): boolean {
+  return step.stepType === 'START'
+    || step.stepType === 'END'
+    || step.nodeType === 'start'
+    || step.nodeType === 'end'
 }
 
 /**
  * Footprint dagre reserves for a node: its exact measured size when React Flow
  * has already laid it out (the Auto-arrange path passes `node.measured`),
- * otherwise the description-aware estimate above.
+ * otherwise the description-aware estimate above. Exported so a layout test can
+ * assert that the boxes dagre reserved actually do not overlap.
  */
-function nodeFootprint(step: any): { width: number; height: number } {
+export function nodeFootprint(
+  step: NodeFootprintLike,
+  outcomeRowCount = 0,
+): { width: number; height: number } {
   if (typeof step.width === 'number' && typeof step.height === 'number') {
     return { width: step.width, height: step.height }
   }
   const description = step.description
   const hasDescription = typeof description === 'string' && description.trim().length > 0
-  return estimateNodeSize(step.stepName ?? step.label, hasDescription)
+  return estimateNodeSize(
+    step.stepName ?? step.label,
+    hasDescription,
+    isTerminalStep(step),
+    outcomeRowCount,
+  )
+}
+
+/**
+ * How many outcome rows a step's footer renders (fidelity gap #4). An agent step
+ * shows its WIRED outcomes plus `approved`; a user task shows one row per
+ * authored decision. Both are derived here rather than measured, because dagre
+ * runs before React Flow has laid a single card out.
+ */
+function countOutcomeRows(
+  step: NodeFootprintLike,
+  transitions: OutcomeLayoutTransitionLike[],
+): number {
+  const decisions = step?.userTaskConfig?.decisions ?? step?.decisions
+  if (Array.isArray(decisions)) {
+    return decisions.filter(
+      (decision) =>
+        typeof decision === 'object'
+        && decision !== null
+        && typeof (decision as { transitionId?: unknown }).transitionId === 'string',
+    ).length
+  }
+  if (!isInvokeAgentStep(step)) return 0
+  const wired = new Set<string>()
+  for (const transition of transitions) {
+    if (transition?.fromStepId !== step.stepId) continue
+    if (transition?.kind !== 'outcome') continue
+    if (typeof transition.outcomeKind === 'string') wired.add(transition.outcomeKind)
+  }
+  wired.add('approved')
+  return wired.size
+}
+
+function isInvokeAgentStep(step: NodeFootprintLike): boolean {
+  if (step?.nodeType === 'invokeAgent') return true
+  const activities = step?.activities
+  return Array.isArray(activities)
+    && activities.some(
+      (activity) =>
+        typeof activity === 'object'
+        && activity !== null
+        && (activity as { activityType?: unknown }).activityType === 'INVOKE_AGENT',
+    )
 }
 
 function layoutWithDagre(
@@ -490,7 +733,7 @@ function layoutWithDagre(
   // description-aware estimate). `ranksep`/`nodesep` then become the actual
   // visible gap between cards, so the spacing is neither cramped nor blown apart.
   for (const step of steps) {
-    graph.setNode(step.stepId, nodeFootprint(step))
+    graph.setNode(step.stepId, nodeFootprint(step, countOutcomeRows(step, transitions)))
   }
 
   // Transition labels are hover-only (WorkflowTransitionEdge), so they occupy no
@@ -533,13 +776,19 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   // Use each node's exact measured footprint so dagre reserves the real on-screen
   // size; React Flow has already measured the cards by the time the user clicks
   // Auto-arrange. Fall back to the estimate only for any not-yet-measured node.
-  const steps = nodes.map((node) => ({
-    stepId: node.id,
-    stepName: (node.data as any)?.label,
-    description: (node.data as any)?.description,
-    width: node.measured?.width,
-    height: node.measured?.height,
-  }))
+  // Annotations are not ranked: dagre only knows about the control-flow graph,
+  // so a note or group placed deliberately beside a step keeps the position its
+  // author gave it while Tidy re-lays the steps around it.
+  const steps = nodes
+    .filter((node) => !isAnnotationNode(node))
+    .map((node) => ({
+      stepId: node.id,
+      stepName: (node.data as any)?.label,
+      nodeType: node.type,
+      description: (node.data as any)?.description,
+      width: node.measured?.width,
+      height: node.measured?.height,
+    }))
   const transitions = edges
     .filter((edge) => !isDataMappingEdge(edge))
     .map((edge) => ({
@@ -549,7 +798,7 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
 
   const positions = layoutWithDagre(steps, transitions, {
     direction: 'LR',
-    nodeWidth: NODE_WIDTH,
+    nodeWidth: NODE_MIN_WIDTH,
     nodeHeight: NODE_HEIGHT,
   })
 
@@ -572,10 +821,13 @@ function mapNodeTypeToStepType(nodeType: string): string {
     decision: 'DECISION',
     waitForSignal: 'WAIT_FOR_SIGNAL',
     waitForTimer: 'WAIT_FOR_TIMER',
+    waitForCondition: 'WAIT_FOR_CONDITION',
     parallelFork: 'PARALLEL_FORK',
     parallelJoin: 'PARALLEL_JOIN',
     // The invoke-agent node is a specialization of an AUTOMATED step.
     invokeAgent: 'AUTOMATED',
+    ifElse: 'IF_ELSE',
+    switch: 'SWITCH',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -593,8 +845,11 @@ function mapStepTypeToNodeType(stepType: string): string {
     DECISION: 'decision',
     WAIT_FOR_SIGNAL: 'waitForSignal',
     WAIT_FOR_TIMER: 'waitForTimer',
+    WAIT_FOR_CONDITION: 'waitForCondition',
     PARALLEL_FORK: 'parallelFork',
     PARALLEL_JOIN: 'parallelJoin',
+    IF_ELSE: 'ifElse',
+    SWITCH: 'switch',
   }
   return mapping[stepType] || 'automated'
 }
@@ -602,7 +857,7 @@ function mapStepTypeToNodeType(stepType: string): string {
 /**
  * Get badge text for node type
  */
-function getBadgeForNodeType(nodeType: string): string {
+export function getBadgeForNodeType(nodeType: string): string {
   const badges: Record<string, string> = {
     start: 'Start',
     end: 'End',
@@ -612,9 +867,12 @@ function getBadgeForNodeType(nodeType: string): string {
     subWorkflow: 'Sub-Workflow',
     waitForSignal: 'Wait for Signal',
     waitForTimer: 'Wait for Timer',
+    waitForCondition: 'Wait for Condition',
     parallelFork: 'Parallel Fork',
     parallelJoin: 'Parallel Join',
     invokeAgent: 'Invoke Agent',
+    ifElse: 'If / Else',
+    switch: 'Switch',
   }
   return badges[nodeType] || 'Task'
 }
@@ -629,8 +887,12 @@ export interface ValidationError {
   edgeId?: string
 }
 
-export function validateWorkflowGraph(nodes: Node[], edges: Edge[]): ValidationError[] {
+export function validateWorkflowGraph(allNodes: Node[], edges: Edge[]): ValidationError[] {
   const errors: ValidationError[] = []
+
+  // Annotations are documentation, not steps: a sticky note has no routes by
+  // design and must never be reported as a disconnected node.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
 
   // Check for at least one start node
   const startNodes = nodes.filter((n) => n.type === 'start')
@@ -782,12 +1044,36 @@ export function generateStepId(prefix: string = 'step'): string {
   return sanitizeId(id)
 }
 
+/** Prefix marking a durable, opaque transition id. */
+export const DURABLE_TRANSITION_ID_PREFIX = 't_'
+
+const LEGACY_TRANSITION_ID_PATTERN = /^e_/
+
 /**
- * Generate unique transition ID
+ * Generate a durable, opaque transition ID.
+ *
+ * Endpoint-derived ids (`e_<from>_<to>`) tie a route's identity to the pair of
+ * steps it happens to connect today, so re-pointing an edge would silently
+ * change the id that mid-flight state resolves against
+ * (`instance.pendingTransition`, `WorkflowBranchInstance.branchKey`). Opaque ids
+ * keep route identity stable across reattachment and let two routes share the
+ * same endpoints (a normal route and an error route, for example).
+ *
+ * Legacy endpoint-derived ids stay fully valid: stored definitions, seeded
+ * examples and gallery templates keep their ids on load and save, and the
+ * engine treats every transition id as an opaque string.
+ *
+ * The endpoint parameters are accepted for signature compatibility with callers
+ * written against the endpoint-derived form; they no longer affect the result.
  */
-export function generateTransitionId(fromStepId: string, toStepId: string): string {
-  const id = `e_${fromStepId}_${toStepId}`
+export function generateTransitionId(_fromStepId?: string, _toStepId?: string): string {
+  const id = `${DURABLE_TRANSITION_ID_PREFIX}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`
   return sanitizeId(id)
+}
+
+/** True when the id uses the legacy endpoint-derived (`e_<from>_<to>`) shape. */
+export function isLegacyTransitionId(transitionId: string): boolean {
+  return LEGACY_TRANSITION_ID_PATTERN.test(transitionId)
 }
 
 /**

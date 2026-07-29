@@ -8,7 +8,7 @@
 
 import { describe, test, expect } from '@jest/globals'
 import type { Node, Edge } from '@xyflow/react'
-import { definitionToGraph, applyAutoLayout } from '../graph-utils'
+import { definitionToGraph, applyAutoLayout, graphToDefinition } from '../graph-utils'
 
 const baseDefinition = {
   steps: [
@@ -73,6 +73,48 @@ describe('definitionToGraph — stored positions', () => {
     // Left→right: each downstream step sits further right than its predecessor.
     expect(taskX).toBeGreaterThan(startX)
     expect(endX).toBeGreaterThan(taskX)
+  })
+})
+
+describe('manual arrangement round trip (#4248)', () => {
+  const draggedNodes: Node[] = [
+    { id: 'start', type: 'start', position: { x: 12, y: 340 }, data: { label: 'Start' } },
+    { id: 'task', type: 'automated', position: { x: 480, y: 96 }, data: { label: 'Task' } },
+    { id: 'end', type: 'end', position: { x: 940, y: 512 }, data: { label: 'End' } },
+  ]
+  const draggedEdges: Edge[] = [
+    { id: 't_1', source: 'start', target: 'task', type: 'workflowTransition', data: { trigger: 'auto' } },
+    { id: 't_2', source: 'task', target: 'end', type: 'workflowTransition', data: { trigger: 'auto' } },
+  ]
+
+  test('dragged positions survive a save/draft round trip unchanged', () => {
+    const saved = graphToDefinition(draggedNodes, draggedEdges, { includePositions: true })
+    const reopened = definitionToGraph(saved as never)
+
+    for (const node of draggedNodes) {
+      expect(reopened.nodes.find((candidate) => candidate.id === node.id)?.position).toEqual(node.position)
+    }
+  })
+
+  test('a payload built without positions re-arranges instead of inventing stale ones', () => {
+    const saved = graphToDefinition(draggedNodes, draggedEdges)
+    expect(saved.steps.every((step) => (step as { _editorPosition?: unknown })._editorPosition === undefined)).toBe(true)
+
+    const reopened = definitionToGraph(saved as never)
+    const startX = reopened.nodes.find((node) => node.id === 'start')!.position.x
+    const endX = reopened.nodes.find((node) => node.id === 'end')!.position.x
+    expect(endX).toBeGreaterThan(startX)
+  })
+
+  test('Tidy is the only thing that overrides a manual arrangement', () => {
+    const tidied = applyAutoLayout(draggedNodes, draggedEdges)
+    expect(tidied.find((node) => node.id === 'end')!.position).not.toEqual({ x: 940, y: 512 })
+
+    const saved = graphToDefinition(tidied, draggedEdges, { includePositions: true })
+    const reopened = definitionToGraph(saved as never)
+    for (const node of tidied) {
+      expect(reopened.nodes.find((candidate) => candidate.id === node.id)?.position).toEqual(node.position)
+    }
   })
 })
 
@@ -170,12 +212,14 @@ describe('applyAutoLayout', () => {
     const edges: Edge[] = [
       { id: 'a-b', source: 'a', target: 'b', type: 'workflowTransition' },
     ]
+    // Both upstream nodes are steps: a terminal is a fixed-size pill and
+    // deliberately ignores its description (see the next case).
     const described: Node[] = [
-      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
+      { id: 'a', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
       { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B', description: 'Some explanatory copy' } },
     ]
     const bare: Node[] = [
-      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A' } },
+      { id: 'a', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'A' } },
       { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' } },
     ]
 
@@ -185,5 +229,26 @@ describe('applyAutoLayout', () => {
     // With no measured size, a described card is estimated at the max width, so
     // its downstream neighbour is pushed further right than the bare-title case.
     expect(downstreamX(described)).toBeGreaterThan(downstreamX(bare))
+  })
+
+  test('a terminal reserves a compact pill footprint, not a step-sized card', () => {
+    const edges: Edge[] = [
+      { id: 'a-b', source: 'a', target: 'b', type: 'workflowTransition' },
+    ]
+    const withTerminal: Node[] = [
+      { id: 'a', type: 'start', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' } },
+    ]
+    const withStep: Node[] = [
+      { id: 'a', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'A', description: 'Some explanatory copy' } },
+      { id: 'b', type: 'automated', position: { x: 0, y: 0 }, data: { label: 'B' } },
+    ]
+
+    const downstreamX = (input: Node[]) =>
+      applyAutoLayout(input, edges).find((node) => node.id === 'b')!.position.x
+
+    // START/END render as auto-width pills, so they take less horizontal room
+    // than the described step card they used to be indistinguishable from.
+    expect(downstreamX(withTerminal)).toBeLessThan(downstreamX(withStep))
   })
 })

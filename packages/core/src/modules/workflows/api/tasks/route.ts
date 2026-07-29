@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import type { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -19,8 +20,21 @@ import {
   workflowErrorSchema,
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
+import { serializeUserTask } from './serialize'
+import {
+  buildTaskVisibilityRequestConditions,
+  collectScopedTaskEntityTypes,
+  partitionTaskPage,
+  resolveTaskVisibilityForRequest,
+} from '../../lib/task-visibility-request'
 
 const logger = createLogger('workflows')
+
+const DEFAULT_TASK_LIST_LIMIT = 50
+// The OpenAPI query schema documents `max(100)` and the project rule caps page
+// sizes at 100, but the handler used to `parseInt` whatever arrived.
+const MAX_TASK_LIST_LIMIT = 100
 
 export const metadata = {
   requireAuth: true,
@@ -68,8 +82,11 @@ export async function GET(request: NextRequest) {
     const workflowInstanceId = searchParams.get('workflowInstanceId')
     const overdue = searchParams.get('overdue') === 'true'
     const myTasks = searchParams.get('myTasks') === 'true'
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
+    const limit = Math.min(
+      parseNumberWithDefault(searchParams.get('limit'), DEFAULT_TASK_LIST_LIMIT, { min: 1, integer: true }),
+      MAX_TASK_LIST_LIMIT,
+    )
+    const offset = parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true })
 
     // Build where clause with tenant scoping
     const where: any = {
@@ -108,6 +125,26 @@ export async function GET(request: NextRequest) {
       ]
     }
 
+    // §6.4: `workflows.tasks.view` admits the caller to this endpoint, the
+    // visibility rule decides which rows they get. Resolved ONCE — one ACL load,
+    // one classification pass, one tenant-setting read for the whole page.
+    const visibility = await resolveTaskVisibilityForRequest({
+      container,
+      em,
+      auth: { userId: auth.sub, tenantId, roleNames: auth.roles ?? [] },
+      organizationIds: orgFilter.organizationIds ?? null,
+      aclOrganizationId: orgFilter.rbacOrganizationId,
+      entityTypes: await collectScopedTaskEntityTypes(em, {
+        tenantId,
+        organizationIds: orgFilter.organizationIds ?? null,
+      }),
+    })
+
+    const visibilityConditions = buildTaskVisibilityRequestConditions(visibility)
+    if (visibilityConditions.length > 0) {
+      where.$and = [...(Array.isArray(where.$and) ? where.$and : []), ...visibilityConditions]
+    }
+
     const [tasks, total] = await em.findAndCount(
       UserTask,
       where,
@@ -118,15 +155,33 @@ export async function GET(request: NextRequest) {
       }
     )
 
-    return NextResponse.json({
-      data: tasks,
+    // The `WHERE` above IS the predicate, so for an ordinary caller this drops
+    // nothing and `total` stays the count of what they may see. It runs because
+    // the predicate is the single decision point and because a divergence must
+    // lose a row rather than leak one.
+    //
+    // For a principal entitled to a diagnosis the `WHERE` deliberately omits the
+    // entity gate, so the refused rows arrive here and become MARKERS rather
+    // than an unexplained gap in the page (design §3.6). `hasMore` is computed
+    // from the rows the query returned, not from the ones that survived, so
+    // paging still walks the whole set instead of stopping early on a page whose
+    // every row was hidden.
+    const { visible: visibleTasks, entityHidden } = partitionTaskPage(visibility, tasks)
+
+    const body: z.infer<typeof userTaskListResponseSchema> = {
+      data: visibleTasks.map(serializeUserTask),
       pagination: {
         total,
         limit,
         offset,
         hasMore: offset + tasks.length < total,
       },
-    })
+      ...(entityHidden.length > 0
+        ? { diagnostics: { entityHidden, entityHiddenCount: entityHidden.length } }
+        : {}),
+    }
+
+    return NextResponse.json(body)
   } catch (error) {
     logger.error('Error listing user tasks', { err: error })
     return NextResponse.json(

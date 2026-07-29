@@ -192,6 +192,8 @@ export type S3DriverConfig = {
 | `delete()` | `DeleteObjectCommand` best-effort |
 | `toLocalPath()` | Download to `os.tmpdir()`, return cleanup that removes temp dir |
 
+When constructed with an active `organizationId` + `tenantId` scope, `S3StorageDriver` enforces the canonical key shape `{pathPrefix}{namespace}/org_<organizationId>/tenant_<tenantId>/...` before issuing read, delete, direct put, and signed-url operations. Scoped list operations reject prefixes that target a different tenant and filter S3 responses back to the active tenant before returning them to callers. Unscoped construction remains available for low-level/background compatibility, but request-driven code should resolve scoped drivers through DI or `StorageService`.
+
 Credential resolution:
 1. If `credentialsEnvPrefix` is set, read `{PREFIX}_ACCESS_KEY_ID` and `{PREFIX}_SECRET_ACCESS_KEY` from env.
 2. Otherwise, fall back to the default AWS SDK credential chain (IAM roles, instance profiles, `~/.aws/credentials`).
@@ -737,3 +739,4 @@ The `S3StorageDriver` class lives in `@open-mercato/storage-s3` (at `src/modules
 | 2026-03-10 | Claude | Initial draft — merged from SPEC-045e storage section and SPEC-058 (PR #875) |
 | 2026-03-11 | Claude | Removed database storage driver (PostgreSQL bytea); kept local (BC default) + S3 only. Added standalone S3 usage API and documentation (§10) for direct file operations without attachments module. |
 | 2026-04-28 | Claude | Post-CR fixes: moved S3StorageDriver + AWS SDK out of core into storage-s3; renamed s3Driver.ts → s3-driver.ts (kebab-case); added StorageDriverFactory.registerDriver() for external driver registration; gated storage_s3 behind OM_ENABLE_STORAGE_S3 env var; moved LocalStack behind docker compose profiles:storage-s3; added tenant-key scoping to standalone S3 API endpoints; fixed storage-service.ts to use driver.listObjects(); reverted accidental data/cache.db bump; added §16 Migration & Backward Compatibility section. |
+| 2026-07-07 | Codex | Security hardening for #3915: scoped S3 driver and StorageService instances validate org/tenant key ownership before raw S3 operations and filter list responses to the active tenant. |

@@ -27,6 +27,10 @@ export interface AgentListItem {
   description: string
   runtime?: string
   resultKind?: string
+  /** Example agent input, when the agent ships one (Insert sample). */
+  sampleInput?: unknown
+  /** Declared OUTCOME JSON-Schema, when the agent declares one (typed mapping pickers). */
+  outcomeSchema?: unknown
 }
 
 type AgentsResponse = { items?: AgentListItem[] }

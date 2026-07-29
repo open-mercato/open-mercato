@@ -45,6 +45,12 @@ export const features = [
     dependsOn: ['workflows.definitions.view'],
   },
   {
+    id: 'workflows.definitions.test_run',
+    title: 'Test workflow definition steps',
+    module: moduleId,
+    dependsOn: ['workflows.definitions.edit'],
+  },
+  {
     id: 'workflows.definitions.publish',
     title: 'Publish workflow definition versions',
     module: moduleId,
@@ -81,6 +87,34 @@ export const features = [
     dependsOn: ['workflows.instances.view'],
   },
   {
+    // Writing arbitrary run context is strictly broader than sending a named
+    // signal, so it is deliberately NOT folded into workflows.instances.signal.
+    id: 'workflows.instances.update_context',
+    title: 'Update workflow instance context',
+    module: moduleId,
+    dependsOn: ['workflows.instances.view'],
+  },
+  {
+    // Spec 8.4 ACL appendix: `workflows.instances.rerun_step` (admins/devs).
+    // Replaying a step re-executes real side effects with possibly EDITED
+    // context, which `workflows.instances.retry` (replay the run as it stands)
+    // does not authorise — hence its own feature rather than an implication.
+    id: 'workflows.instances.rerun_step',
+    title: 'Rerun a workflow instance from a step',
+    module: moduleId,
+    dependsOn: ['workflows.instances.retry', 'workflows.instances.update_context'],
+  },
+  {
+    // Spec 8.4 ACL appendix: `workflows.instances.bulk_ops` (admins). Retrying
+    // or cancelling a page of instances at once is strictly broader than doing
+    // it one row at a time — a misfire re-executes hundreds of real workflows —
+    // so it is its own feature rather than an implication of `retry`/`cancel`.
+    id: 'workflows.instances.bulk_ops',
+    title: 'Bulk retry or cancel workflow instances',
+    module: moduleId,
+    dependsOn: ['workflows.instances.retry', 'workflows.instances.cancel'],
+  },
+  {
     id: 'workflows.tasks.view',
     title: 'View user tasks',
     module: moduleId,
@@ -97,6 +131,38 @@ export const features = [
     title: 'Complete workflow tasks',
     module: moduleId,
     dependsOn: ['workflows.tasks.view'],
+  },
+  {
+    // Administration, per spec §6.4: `workflows.tasks.*` gates viewing OTHER
+    // people's work, never one's own. Reading a task you have no relationship
+    // to still passes the same entity gate — this widens WHOSE rows you see,
+    // not WHICH entities you may see them about. It deliberately grants no act:
+    // an administrator reassigns a task to themselves (audited) before they can
+    // complete it, which is what keeps "who approved this?" answerable.
+    //
+    // `dependsOn: ['workflows.tasks.view']` keeps the older id load-bearing
+    // rather than leaving it a stored-but-unconsulted grant: it still admits a
+    // caller to the task API, and this feature decides which rows come back.
+    id: 'workflows.tasks.view_all',
+    title: 'View all workflow tasks',
+    module: moduleId,
+    dependsOn: ['workflows.tasks.view'],
+  },
+  {
+    // The ONLY supported route from "I can see this task" to "I can act on it".
+    // Writes the reassignment audit columns plus a WorkflowEvent.
+    id: 'workflows.tasks.reassign',
+    title: 'Reassign workflow tasks',
+    module: moduleId,
+    dependsOn: ['workflows.tasks.view_all'],
+  },
+  {
+    // Administrative mutations that are not reassignment: force-unclaim, cancel,
+    // bulk operations, and writing the tenant task-permission setting.
+    id: 'workflows.tasks.manage',
+    title: 'Administer workflow tasks',
+    module: moduleId,
+    dependsOn: ['workflows.tasks.view_all'],
   },
   {
     id: 'workflows.signals.send',

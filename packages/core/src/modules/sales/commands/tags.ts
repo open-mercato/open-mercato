@@ -3,7 +3,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { SalesDocumentTag, SalesDocumentTagAssignment } from '../data/entities'
 import { ensureTenantScope } from './shared'
 import {
@@ -44,7 +44,7 @@ const updateTagCommand: CommandHandler<SalesTagUpdateInput, { tagId: string }> =
     const parsed = salesTagUpdateSchema.parse(rawInput ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(SalesDocumentTag, { id: parsed.id })
-    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    if (!tag) throw notFound('Tag not found')
     ensureTenantScope(ctx, parsed.tenantId ?? tag.tenantId)
     if (parsed.slug && parsed.slug !== tag.slug) {
       const conflict = await em.findOne(SalesDocumentTag, {
@@ -74,7 +74,7 @@ const deleteTagCommand: CommandHandler<{ id?: string }, { tagId: string }> = {
     if (!id) throw new CrudHttpError(400, { error: 'Tag id is required' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(SalesDocumentTag, { id })
-    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    if (!tag) throw notFound('Tag not found')
     ensureTenantScope(ctx, tag.tenantId)
     await em.nativeDelete(SalesDocumentTagAssignment, { tag: tag.id })
     em.remove(tag)

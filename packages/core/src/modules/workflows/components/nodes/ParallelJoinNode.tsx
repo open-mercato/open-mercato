@@ -20,6 +20,9 @@ export interface ParallelJoinNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  hasCompensation?: boolean
+  errorCount?: number
 }
 
 /**
@@ -45,6 +48,9 @@ export function ParallelJoinNode({ id, data, isConnectable, selected }: NodeProp
         status={toWorkflowStatus(nodeData.status)}
         nodeType="parallelJoin"
         selected={selected}
+        hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
       />

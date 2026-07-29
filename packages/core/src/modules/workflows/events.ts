@@ -19,13 +19,46 @@ const events = [
   { id: 'workflows.instance.updated', label: 'Workflow Instance Updated', entity: 'instance', category: 'crud' },
   { id: 'workflows.instance.deleted', label: 'Workflow Instance Deleted', entity: 'instance', category: 'crud' },
 
-  // Workflow Lifecycle Events
-  { id: 'workflows.instance.started', label: 'Workflow Started', category: 'lifecycle' },
-  { id: 'workflows.instance.completed', label: 'Workflow Completed', category: 'lifecycle' },
-  { id: 'workflows.instance.failed', label: 'Workflow Failed', category: 'lifecycle' },
-  { id: 'workflows.instance.cancelled', label: 'Workflow Cancelled', category: 'lifecycle' },
-  { id: 'workflows.instance.paused', label: 'Workflow Paused', category: 'lifecycle' },
-  { id: 'workflows.instance.resumed', label: 'Workflow Resumed', category: 'lifecycle' },
+  /**
+   * Workflow lifecycle. All six carry `clientBroadcast: true` so the run views
+   * update live through the DOM Event Bridge (spec §8.3).
+   *
+   * Safe to broadcast: the payload `emitInstanceLifecycleEvent` publishes is
+   * instance identity and state — id, tenant, organization, workflowId,
+   * version, status, current stepId — and carries no authored content, no task
+   * name and no run context. It is also already tenant + organization scoped by
+   * the bridge, which refuses to deliver a payload with no `tenantId` at all.
+   *
+   * `paused` and `resumed` are declared but have never had an emit site (see
+   * `InstanceLifecycleEventId` in `lib/workflow-executor.ts`); the flag is
+   * declared on them anyway so that whoever wires the emit does not have to
+   * revisit the contract.
+   */
+  { id: 'workflows.instance.started', label: 'Workflow Started', category: 'lifecycle', clientBroadcast: true },
+  { id: 'workflows.instance.completed', label: 'Workflow Completed', category: 'lifecycle', clientBroadcast: true },
+  { id: 'workflows.instance.failed', label: 'Workflow Failed', category: 'lifecycle', clientBroadcast: true },
+  { id: 'workflows.instance.cancelled', label: 'Workflow Cancelled', category: 'lifecycle', clientBroadcast: true },
+  { id: 'workflows.instance.paused', label: 'Workflow Paused', category: 'lifecycle', clientBroadcast: true },
+  { id: 'workflows.instance.resumed', label: 'Workflow Resumed', category: 'lifecycle', clientBroadcast: true },
+
+  // User Task Events
+  { id: 'workflows.task.assigned', label: 'Task Assigned', entity: 'task', category: 'lifecycle' },
+  { id: 'workflows.task.reminder_due', label: 'Task Reminder Due', entity: 'task', category: 'lifecycle' },
+  { id: 'workflows.task.deadline_breached', label: 'Task Deadline Breached', entity: 'task', category: 'lifecycle' },
+  /**
+   * A task addressed to a PORTAL principal, bridged to that principal's browser
+   * so it appears without a reload.
+   *
+   * A separate event rather than `portalBroadcast` on `workflows.task.assigned`,
+   * and the difference is a leak. The portal SSE bridge scopes a payload by
+   * tenant + organization and narrows to one user ONLY when the payload carries
+   * `recipientUserId`; `workflows.task.assigned` carries none, plus the task
+   * name and its entity bindings — broadcasting it would hand every portal user
+   * in the organization the name of every other customer's task. This one is
+   * addressed to exactly one principal and carries an ID and nothing else, so
+   * the receiver has to ask the (authorized) API what it is.
+   */
+  { id: 'workflows.task.portal_assigned', label: 'Portal Task Assigned', entity: 'task', category: 'lifecycle', portalBroadcast: true, excludeFromTriggers: true },
 
   // Activity Events
   { id: 'workflows.activity.started', label: 'Activity Started', category: 'lifecycle' },

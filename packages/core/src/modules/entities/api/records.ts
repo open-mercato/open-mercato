@@ -6,7 +6,7 @@ import type { QueryEngine, QueryOptions, Where, Sort } from '@open-mercato/share
 import { normalizeExportFormat, serializeExport, defaultExportFilename, ensureColumns } from '@open-mercato/shared/lib/crud/exporters'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE } from '@open-mercato/shared/lib/data/engine'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { setRecordCustomFields } from '../lib/helpers'
@@ -14,55 +14,28 @@ import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { assertEntityAclForRequest } from '../lib/entityAcl'
+import { classifyRecordsEntity } from '../lib/entityClassification'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+
+// Kept exported from this path: the classifier used to be private to this file
+// and the workflows task-visibility resolver reuses it, so both callers share
+// one precedence chain instead of growing a second, drifting copy.
+export {
+  classifyRecordsEntity,
+  isDeclaredCustomEntity,
+  loadDeclaredCustomEntities,
+  findScopedCustomEntity,
+} from '../lib/entityClassification'
+export type {
+  RecordsEntityScope,
+  RecordsEntityKind,
+  RecordsEntityClassification,
+} from '../lib/entityClassification'
 
 const logger = createLogger('entities').child({ component: 'records' })
 
-let declaredCustomEntityIds: Set<string> | null = null
-function isDeclaredCustomEntity(entityId: string): boolean {
-  if (declaredCustomEntityIds === null) {
-    try {
-      const mods = getModules() as Array<{ customEntities?: Array<{ id?: string }> }>
-      if (Array.isArray(mods) && mods.length) {
-        const ids = new Set<string>()
-        for (const mod of mods) {
-          for (const spec of mod?.customEntities ?? []) {
-            if (spec?.id) ids.add(spec.id)
-          }
-        }
-        declaredCustomEntityIds = ids
-      }
-    } catch {}
-  }
-  return declaredCustomEntityIds?.has(entityId) ?? false
-}
-
 const CUSTOM_ENTITY_RECORD_RESOURCE_KIND = 'entities.record'
-
-type RecordsEntityKind = 'system' | 'custom' | 'unknown'
-
-// This surface manages doc-storage records, which exist for CUSTOM entities only.
-// Module-declared ids backed by a registered ORM table are system entities — their
-// records live in their own module tables/APIs, and stray doc rows for them poisoned
-// read-path classification platform-wide (#2939) — so they are rejected outright. The
-// previous fallback that classified an entity by the mere presence of
-// `custom_entities_storage` rows is gone: within the allowed set, declaration (ce.ts)
-// or an active `custom_entities` registration is authoritative.
-async function classifyRecordsEntity(em: any, entityId: string): Promise<RecordsEntityKind> {
-  if (isOrmBackedSystemEntityId(em, entityId)) return 'system'
-  if (isDeclaredCustomEntity(entityId)) return 'custom'
-  try {
-    const { CustomEntity } = await import('../data/entities')
-    // Any registration row — active or soft-deleted — proves the id is a custom
-    // entity. Records persist beyond the definition's soft delete (TC-ENTITIES-006)
-    // and must stay readable/deletable, e.g. for the restore flow and cleanup.
-    const found = await em.findOne(CustomEntity as any, { entityId })
-    if (found) return 'custom'
-  } catch {}
-  return 'unknown'
-}
 
 function systemEntityRecordsRejection(entityId: string) {
   return NextResponse.json(
@@ -171,10 +144,10 @@ export async function GET(req: Request) {
     // registered in `custom_entities`, so classification checks the declared registry plus
     // active registrations. System (table-backed) ids are rejected above; for the allowed
     // set `isCustomEntity` drives mapRow's cf_ stripping so the edit form reads back values.
-    const entityKind = await classifyRecordsEntity(em, entityId)
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
-    await assertEntityAclForRequest({ auth, entityId, action: 'view', isCustomEntity, rbac })
+    await assertEntityAclForRequest({ auth, entityId, action: 'view', isCustomEntity, isRestricted, rbac })
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
     }
@@ -395,10 +368,10 @@ export async function POST(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const entityKind = await classifyRecordsEntity(em, entityId)
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
-    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
+    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, isRestricted, rbac })
     // Strip reserved record/system columns the edit form echoes back from the loaded record
     // (`id`, plus `updated_at`/`updatedAt` used for optimistic locking). They are not custom
     // fields; without this they validate as cf_id / cf_updated_at / cf_updatedAt and are
@@ -469,10 +442,10 @@ export async function PUT(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const entityKind = await classifyRecordsEntity(em, entityId)
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
-    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
+    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, isRestricted, rbac })
     // Strip reserved record/system columns the edit form echoes back from the loaded record
     // (`id`, plus `updated_at`/`updatedAt` used for optimistic locking). They are not custom
     // fields; without this they validate as cf_id / cf_updated_at / cf_updatedAt and are
@@ -568,10 +541,10 @@ export async function DELETE(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const entityKind = await classifyRecordsEntity(em, entityId)
+    const { kind: entityKind, restricted: isRestricted } = await classifyRecordsEntity(em, entityId, { tenantId: auth.tenantId ?? null, organizationId: scope.selectedId ?? auth.orgId ?? null })
     if (entityKind === 'system') return systemEntityRecordsRejection(entityId)
     const isCustomEntity = entityKind === 'custom'
-    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, rbac })
+    await assertEntityAclForRequest({ auth, entityId, action: 'manage', isCustomEntity, isRestricted, rbac })
 
     try {
       const currentUpdatedAt = await readCustomEntityRecordUpdatedAt(em, {

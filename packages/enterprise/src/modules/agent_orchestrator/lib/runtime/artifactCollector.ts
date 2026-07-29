@@ -78,7 +78,7 @@ async function listFiles(outDir: string): Promise<string[]> {
     }
   }
   await walk(outDir, '')
-  return found.sort()
+  return found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 /**

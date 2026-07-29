@@ -6,6 +6,7 @@ import type * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
+  AlarmClock,
   AlertCircle,
   AlertOctagon,
   AlertTriangle,
@@ -59,6 +60,7 @@ import {
   Flag,
   Flame,
   FolderTree,
+  FunctionSquare,
   Gauge,
   GitBranch,
   GitCompareArrows,
@@ -98,6 +100,7 @@ import {
   PhoneCall,
   PieChart,
   PlusSquare,
+  Radio,
   Receipt,
   ReceiptText,
   RefreshCcw,
@@ -141,6 +144,7 @@ import {
   UserRound,
   Users,
   UserX,
+  Variable,
   Wallet,
   Webhook,
   Workflow,
@@ -151,6 +155,7 @@ import {
 
 export const LUCIDE_ICON_REGISTRY: Record<string, LucideIcon> = {
   'activity': Activity,
+  'alarm-clock': AlarmClock,
   'alert-circle': AlertCircle,
   'alert-octagon': AlertOctagon,
   'alert-triangle': AlertTriangle,
@@ -204,6 +209,7 @@ export const LUCIDE_ICON_REGISTRY: Record<string, LucideIcon> = {
   'flag': Flag,
   'flame': Flame,
   'folder-tree': FolderTree,
+  'function-square': FunctionSquare,
   'gauge': Gauge,
   'git-branch': GitBranch,
   'git-compare-arrows': GitCompareArrows,
@@ -243,6 +249,7 @@ export const LUCIDE_ICON_REGISTRY: Record<string, LucideIcon> = {
   'phone-call': PhoneCall,
   'pie-chart': PieChart,
   'plus-square': PlusSquare,
+  'radio': Radio,
   'receipt': Receipt,
   'receipt-text': ReceiptText,
   'refresh-ccw': RefreshCcw,
@@ -286,6 +293,7 @@ export const LUCIDE_ICON_REGISTRY: Record<string, LucideIcon> = {
   'user-round': UserRound,
   'user-x': UserX,
   'users': Users,
+  'variable': Variable,
   'wallet': Wallet,
   'webhook': Webhook,
   'workflow': Workflow,

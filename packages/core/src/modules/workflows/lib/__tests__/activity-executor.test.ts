@@ -20,6 +20,10 @@ import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../../data/entities'
 import * as activityExecutor from '../activity-executor'
 import type { ActivityDefinition, ActivityContext } from '../activity-executor'
+import {
+  clearWorkflowSafeCommandsForTests,
+  registerWorkflowSafeCommands,
+} from '../workflow-safe-commands'
 
 // Mock global fetch
 global.fetch = jest.fn()
@@ -35,6 +39,8 @@ describe('Activity Executor (Unit Tests)', () => {
   const testOrgId = 'test-org-id'
 
   beforeEach(() => {
+    clearWorkflowSafeCommandsForTests()
+
     // Create mock EntityManager
     mockEm = {
       findOne: jest.fn(),
@@ -88,7 +94,7 @@ describe('Activity Executor (Unit Tests)', () => {
   // ============================================================================
 
   describe('SEND_EMAIL activity', () => {
-    test('should execute SEND_EMAIL activity successfully (console mode)', async () => {
+    test('should report sent:false with simulated:true and reason when no email service is registered', async () => {
       const activity: ActivityDefinition = {
         activityId: 'activity-1',
         activityName: 'Welcome Email',
@@ -106,6 +112,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       mockLoggerInstance.info.mockClear()
+      mockLoggerInstance.warn.mockClear()
 
       const result = await activityExecutor.executeActivity(
         mockEm,
@@ -115,11 +122,17 @@ describe('Activity Executor (Unit Tests)', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.output.sent).toBe(true)
+      expect(result.output.sent).toBe(false)
+      expect(result.output.simulated).toBe(true)
+      expect(result.output.reason).toBe('no-email-service')
       expect(result.output.to).toBe('user@example.com')
       expect(result.output.via).toBe('console')
       expect(mockLoggerInstance.info).toHaveBeenCalledWith(
         'Send email activity invoked',
+        expect.objectContaining({ subject: 'Welcome!' }),
+      )
+      expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+        expect.stringContaining('no registered email service'),
         expect.objectContaining({ subject: 'Welcome!' }),
       )
     })
@@ -152,6 +165,8 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(true)
       expect(result.output.via).toBe('emailService')
+      expect(result.output.sent).toBe(true)
+      expect(result.output.simulated).toBeUndefined()
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: 'user@example.com',
         subject: 'Welcome!',
@@ -159,6 +174,57 @@ describe('Activity Executor (Unit Tests)', () => {
         templateData: { name: 'John' },
         body: undefined,
       })
+    })
+
+    test('should propagate a real send failure instead of reporting sent:true', async () => {
+      const mockEmailService = {
+        send: jest.fn().mockRejectedValue(new Error('SMTP connection refused')),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEmailService)
+
+      await expect(
+        activityExecutor.executeSendEmail(
+          { to: 'user@example.com', subject: 'Welcome!' },
+          mockContext,
+          mockContainer
+        )
+      ).rejects.toThrow('SMTP connection refused')
+    })
+
+    test('should surface send failures through the activity retry loop', async () => {
+      const mockEmailService = {
+        send: jest.fn().mockRejectedValue(new Error('SMTP connection refused')),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEmailService)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-2b',
+        activityName: 'Failing Email',
+        activityType: 'SEND_EMAIL',
+        config: {
+          to: 'user@example.com',
+          subject: 'Welcome!',
+        },
+        retryPolicy: {
+          maxAttempts: 2,
+          initialIntervalMs: 1,
+          backoffCoefficient: 1,
+          maxIntervalMs: 10,
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('SMTP connection refused')
+      expect(mockEmailService.send).toHaveBeenCalledTimes(2)
     })
 
     test('should fail SEND_EMAIL if missing required fields', async () => {
@@ -393,8 +459,19 @@ describe('Activity Executor (Unit Tests)', () => {
           logEntry: { id: 'log-123' },
         }),
       }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
 
-      mockContainer.resolve.mockReturnValue(mockCommandBus)
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
 
       const activity: ActivityDefinition = {
         activityId: 'activity-8',
@@ -419,6 +496,10 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.executed).toBe(true)
       expect(result.output.commandId).toBe('sales.orders.update')
+      expect(mockRbacService.getGrantedFeatures).toHaveBeenCalledWith('user-123', {
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
         'sales.orders.update',
         expect.objectContaining({
@@ -426,12 +507,126 @@ describe('Activity Executor (Unit Tests)', () => {
             id: 'order-123',
             statusEntryId: 'status-confirmed-id',
           }),
+          ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-123',
+              isSuperAdmin: false,
+            }),
+          }),
         })
       )
     })
 
+    test('should fail UPDATE_ENTITY if command is not workflow-safe', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8b',
+        activityName: 'Delete User',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'auth.users.delete',
+          input: { id: 'user-456' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('command is not allowed')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should fail UPDATE_ENTITY if workflow has no real user context', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8c',
+        activityName: 'Update Order Status',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: 'order-123' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        { ...mockContext, userId: undefined }
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('authenticated workflow user')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should fail UPDATE_ENTITY if actor lacks the required command feature', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {} }),
+      }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.view']),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8d',
+        activityName: 'Update Order Status',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: 'order-123' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('command is not authorized')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
-      mockContainer.resolve.mockImplementation(() => {
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
         throw new Error('commandBus not registered')
       })
 
@@ -461,7 +656,7 @@ describe('Activity Executor (Unit Tests)', () => {
         execute: jest.fn().mockResolvedValue({ result: {} }),
       }
 
-      mockContainer.resolve.mockReturnValue(mockCommandBus)
+      mockContainer.resolve.mockReturnValue(mockCommandBus as any)
 
       const activity: ActivityDefinition = {
         activityId: 'activity-10',
@@ -512,6 +707,16 @@ describe('Activity Executor (Unit Tests)', () => {
       ['http://[fe80::1%25eth0]/'],   // link-local with zone ID (URL-encoded %)
       ['http://[fc00::1]/'],          // unique local fc00::/7
       ['http://[fd12:3456:789a::1]/'],// unique local fd::/7
+      ['http://[100::1]/'],           // discard-only 100::/64
+      ['http://[64:ff9b:1::1]/'],     // local-use IPv4 translation 64:ff9b:1::/48
+      ['http://[100:0:0:1::1]/'],     // dummy IPv6 prefix 100:0:0:1::/64
+      ['http://[2001:2::1]/'],        // benchmarking 2001:2::/48
+      ['http://[2001:1::4]/'],        // unassigned within 2001::/23
+      ['http://[2001:2:1::1]/'],      // outside the 2001:2::/48 benchmark block
+      ['http://[2001:db8::1]/'],      // documentation 2001:db8::/32
+      ['http://[2001:10::1]/'],       // ORCHID 2001:10::/28
+      ['http://[3fff::1]/'],           // documentation 3fff::/20
+      ['http://[5f00::1]/'],           // SRv6 SIDs 5f00::/16
     ])('blocks IPv6 private address %s', (url) => {
       expect(activityExecutor.isPrivateUrl(url)).toBe(true)
     })
@@ -560,7 +765,12 @@ describe('Activity Executor (Unit Tests)', () => {
       ['https://hooks.slack.com/services/T00/B00/abc'],
       ['http://172.15.255.255/'],   // just outside 172.16/12
       ['http://172.32.0.1/'],       // just outside 172.16/12 upper bound
-      ['http://[2001:db8::1]/'],    // documentation range (public)
+      ['http://[64:ff9b::5db8:d822]/'], // NAT64 representation of 93.184.216.34
+      ['http://[2001:1::1]/'],      // PCP anycast
+      ['http://[2001:3::1]/'],      // AMT
+      ['http://[2001:4:112::1]/'],  // AS112-v6
+      ['http://[2001:20::1]/'],     // ORCHIDv2
+      ['http://[2001:30::1]/'],     // Drone Remote ID protocol
       ['http://[2606:4700:4700::1111]/'], // Cloudflare DNS (public)
     ])('allows public address %s', (url) => {
       expect(activityExecutor.isPrivateUrl(url)).toBe(false)
@@ -1820,6 +2030,262 @@ describe('Activity Executor (Unit Tests)', () => {
     })
   })
 
+  describe('interpolateVariables transform pipeline', () => {
+    const pipelineContext = {
+      orderId: 'order-123',
+      orderTotal: 120.5,
+      customer: { name: 'ada lovelace', email: 'ada@example.com' },
+      items: [{ name: 'first' }, { name: 'second' }],
+      closeDate: '2026-07-27T13:05:09.000Z',
+    }
+
+    test('pipe-free tokens behave exactly as before', () => {
+      expect(activityExecutor.interpolateVariables('{{orderId}}', pipelineContext, mockInstance)).toBe('order-123')
+      expect(activityExecutor.interpolateVariables('{{customer}}', pipelineContext, mockInstance)).toEqual(
+        pipelineContext.customer
+      )
+      expect(activityExecutor.interpolateVariables('{{missing.path}}', pipelineContext, mockInstance)).toBe(
+        '{{missing.path}}'
+      )
+    })
+
+    test('single-token transforms preserve the transformed value type', () => {
+      expect(activityExecutor.interpolateVariables('{{items | pick(0)}}', pipelineContext, mockInstance)).toEqual({
+        name: 'first',
+      })
+      expect(
+        activityExecutor.interpolateVariables('{{orderTotal | number(2)}}', pipelineContext, mockInstance)
+      ).toBe('120.50')
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{items | pick(1) | pick('name') | upper}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('SECOND')
+    })
+
+    test('mixed text folds transforms and stringifies', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "Deal closes {{closeDate | date('yyyy-MM-dd')}} for {{customer.name | title}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('Deal closes 2026-07-27 for Ada Lovelace')
+    })
+
+    test('unknown transform passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{orderId | nonsense}}', pipelineContext, mockInstance)
+      ).toBe('{{orderId | nonsense}}')
+      expect(
+        activityExecutor.interpolateVariables('Ref {{orderId | nonsense}}!', pipelineContext, mockInstance)
+      ).toBe('Ref {{orderId | nonsense}}!')
+    })
+
+    test('failed transform passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{customer | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{customer | upper}}')
+    })
+
+    test('unparseable pipeline passes the original token through unchanged', () => {
+      expect(
+        activityExecutor.interpolateVariables("{{orderId | concat('open}}", pipelineContext, mockInstance)
+      ).toBe("{{orderId | concat('open}}")
+    })
+
+    test('default rescues an unresolved context path', () => {
+      expect(
+        activityExecutor.interpolateVariables("{{missing.path | default('n/a')}}", pipelineContext, mockInstance)
+      ).toBe('n/a')
+      expect(
+        activityExecutor.interpolateVariables(
+          "Value: {{missing.path | default('n/a')}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('Value: n/a')
+    })
+
+    test('unresolved path without a rescuing default passes through', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{missing.path | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{missing.path | upper}}')
+    })
+
+    test('transforms apply to workflow.* and now base values', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{workflow.instanceId | upper}}', pipelineContext, mockInstance)
+      ).toBe('TEST-INSTANCE-ID')
+      expect(
+        activityExecutor.interpolateVariables("{{now | date('yyyy')}}", pipelineContext, mockInstance)
+      ).toBe(String(new Date().getUTCFullYear()))
+    })
+
+    test('unknown workflow key stays a pass-through even with transforms', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{workflow.bogus | upper}}', pipelineContext, mockInstance)
+      ).toBe('{{workflow.bogus | upper}}')
+    })
+
+    test('non-allowlisted env resolves empty so default applies', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{env.OM_WORKFLOWS_TEST_TYPE_SECRET | default('hidden')}}",
+          pipelineContext,
+          mockInstance
+        )
+      ).toBe('hidden')
+    })
+  })
+
+  describe('strict interpolation mode', () => {
+    const strictContext = {
+      orderId: 'order-123',
+      customer: { name: 'ada lovelace' },
+    }
+    const strictOptions = { mode: 'strict' as const }
+
+    test('resolvable tokens behave exactly like lenient mode', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{orderId}}', strictContext, mockInstance, strictOptions)
+      ).toBe('order-123')
+      expect(
+        activityExecutor.interpolateVariables(
+          'Order {{orderId}} for {{customer.name | title}}',
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toBe('Order order-123 for Ada Lovelace')
+    })
+
+    test('unresolved context path throws naming the token', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{missing.path}}', strictContext, mockInstance, strictOptions)
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+      expect(() =>
+        activityExecutor.interpolateVariables('Ref {{missing.path}}!', strictContext, mockInstance, strictOptions)
+      ).toThrow('Cannot interpolate {{missing.path}}')
+    })
+
+    test('unknown workflow key throws', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{workflow.bogus}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('unknown workflow key "bogus"')
+    })
+
+    test('non-allowlisted env key throws even with a default', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          '{{env.OM_WORKFLOWS_TEST_TYPE_SECRET}}',
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow('is not allowlisted')
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          "{{env.OM_WORKFLOWS_TEST_TYPE_SECRET | default('hidden')}}",
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow('is not allowlisted')
+    })
+
+    test('unknown transform and failed transform throw', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables('{{orderId | nonsense}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('unknown transform "nonsense"')
+      expect(() =>
+        activityExecutor.interpolateVariables('{{customer | upper}}', strictContext, mockInstance, strictOptions)
+      ).toThrow('Cannot interpolate {{customer | upper}}')
+    })
+
+    test('unparseable pipeline throws', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables("{{orderId | concat('open}}", strictContext, mockInstance, strictOptions)
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+    })
+
+    test('default rescues an unresolved context path in strict mode', () => {
+      expect(
+        activityExecutor.interpolateVariables(
+          "{{missing.path | default('n/a')}}",
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toBe('n/a')
+    })
+
+    test('nested config objects surface strict failures', () => {
+      expect(() =>
+        activityExecutor.interpolateVariables(
+          { args: { to: '{{missing.path}}' } },
+          strictContext,
+          mockInstance,
+          strictOptions
+        )
+      ).toThrow(activityExecutor.WorkflowInterpolationError)
+    })
+
+    test('absent mode stays lenient', () => {
+      expect(
+        activityExecutor.interpolateVariables('{{missing.path}}', strictContext, mockInstance, {})
+      ).toBe('{{missing.path}}')
+    })
+
+    test('sync execution under strict mode fails the activity with the offending token', async () => {
+      const mockFunction = jest.fn()
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-strict-sync',
+        activityName: 'Strict Sync',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: { value: '{{missing.path}}' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(mockEm, mockContainer, activity, {
+        ...mockContext,
+        interpolationMode: 'strict',
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Cannot interpolate {{missing.path}}')
+      expect(mockFunction).not.toHaveBeenCalled()
+    })
+
+    test('async enqueue under strict mode refuses at enqueue-time', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'activity-strict-async',
+        activityName: 'Strict Async',
+        activityType: 'SEND_EMAIL',
+        config: { to: '{{missing.path}}', subject: 'Hi' },
+      }
+
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, {
+          ...mockContext,
+          interpolationMode: 'strict',
+        })
+      ).rejects.toThrow(activityExecutor.ActivityExecutionError)
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, {
+          ...mockContext,
+          interpolationMode: 'strict',
+        })
+      ).rejects.toThrow('Cannot interpolate {{missing.path}}')
+    })
+  })
+
   // ============================================================================
   // Multiple Activities Tests
   // ============================================================================
@@ -1836,10 +2302,17 @@ describe('Activity Executor (Unit Tests)', () => {
           logEntry: { id: 'log-123' },
         }),
       }
+      const mockRbacService = {
+        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+      }
 
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
       mockContainer.resolve
         .mockReturnValueOnce(mockEventBus) // First activity
-        .mockReturnValueOnce(mockCommandBus) // Second activity
+        .mockReturnValueOnce(mockRbacService) // Second activity authz
+        .mockReturnValueOnce(mockCommandBus) // Second activity command dispatch
 
       const activities: ActivityDefinition[] = [
         {
@@ -2172,6 +2645,40 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.waited).toBe(true)
       expect(result.output.durationMs).toBe(10000)
+    })
+  })
+
+  describe('enqueueActivity capability gate', () => {
+    test('refuses to enqueue CALL_API async with the registry reason', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'call-api-async-1',
+        activityName: 'Async Call API',
+        activityType: 'CALL_API',
+        config: { endpoint: '/api/example' },
+        async: true,
+      }
+
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, mockContext)
+      ).rejects.toThrow(
+        'Activity type CALL_API cannot run asynchronously (mintsPerRequestKey)'
+      )
+    })
+
+    test('refuses to enqueue SET_VARIABLE async with the registry reason', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'set-variable-async-1',
+        activityName: 'Async Set Variable',
+        activityType: 'SET_VARIABLE',
+        config: { assignments: [{ path: 'customer.priority', value: 'high' }] },
+        async: true,
+      }
+
+      await expect(
+        activityExecutor.enqueueActivity(mockEm, activity, mockContext)
+      ).rejects.toThrow(
+        'Activity type SET_VARIABLE cannot run asynchronously (asyncResumeMergeDoesNotApplyAssignments)'
+      )
     })
   })
 })

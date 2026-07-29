@@ -267,6 +267,52 @@ test('auto-* override SKILL.md routes tracker-facing behavior through the tracke
   )
 })
 
+// Skills install once, into the canonical cross-agent directory .agents/skills/.
+// Codex and Cursor read it natively, so their generators must NOT seed a skills
+// directory of their own — that is the per-agent duplication this layout removes.
+// Claude Code cannot read it, so it keeps its own directory (populated with links
+// back to the canonical copy by scripts/install-skills.sh). Both copy pipelines —
+// the create-app wizard and the CLI's agentic:init — must agree.
+test('only harnesses that cannot read .agents/skills/ seed a skills directory', () => {
+  const generators = [
+    ['create-app: claude-code', '../setup/tools/claude-code.ts', ['.claude']],
+    ['create-app: codex', '../setup/tools/codex.ts', []],
+    ['create-app: cursor', '../setup/tools/cursor.ts', []],
+  ] as const
+
+  const offenders: string[] = []
+  for (const [label, relativePath, expectedDirs] of generators) {
+    const source = fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+    for (const harness of ['.claude', '.codex', '.cursor']) {
+      const seedsDir = source.includes(`join(targetDir, '${harness}', 'skills')`)
+      const shouldSeed = (expectedDirs as readonly string[]).includes(harness)
+      if (seedsDir !== shouldSeed) {
+        offenders.push(`${label}: ${seedsDir ? 'seeds' : 'does not seed'} ${harness}/skills (expected ${shouldSeed ? 'seeded' : 'none'})`)
+      }
+    }
+  }
+
+  // packages/cli/src/lib/agentic-setup.ts mirrors the generators 1:1.
+  const cliMirror = fs.readFileSync(
+    new URL('../../../cli/src/lib/agentic-setup.ts', import.meta.url),
+    'utf8',
+  )
+  for (const harness of ['.codex', '.cursor']) {
+    if (cliMirror.includes(`join(targetDir, '${harness}', 'skills')`)) {
+      offenders.push(`cli agentic-setup.ts: seeds ${harness}/skills (expected none)`)
+    }
+  }
+  if (!cliMirror.includes("join(targetDir, '.claude', 'skills')")) {
+    offenders.push('cli agentic-setup.ts: does not seed .claude/skills (expected seeded)')
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `Skills belong in .agents/skills/; only agents that cannot read it get their own directory: ${offenders.join(', ')}`,
+  )
+})
+
 // The agent harness is user-selectable at scaffold time (--agents
 // claude-code,codex,cursor). generateShared() writes the same AGENTS.md.template
 // for every harness and only substitutes {{PROJECT_NAME}}, so routing an

@@ -3,19 +3,50 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import type { Node, Edge, Connection } from '@xyflow/react'
+import type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import type { RunExecution } from '../lib/run-execution'
+
+export type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
+
+export interface WorkflowGraphFocusTarget {
+  nodeId?: string
+  edgeId?: string
+  requestId: number
+}
 
 export interface WorkflowGraphProps {
   initialNodes?: Node[]
   initialEdges?: Edge[]
-  onNodesChange?: (nodes: Node[]) => void
+  onNodesChange?: (nodes: Node[], meta: WorkflowGraphNodesChangeMeta) => void
   onEdgesChange?: (edges: Edge[]) => void
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
   onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
   onConnect?: (connection: Connection) => void
+  /**
+   * Route reattachment (#4233): fired when an existing edge endpoint is dropped
+   * on another node. Leaving the edge list unchanged snaps the endpoint back.
+   */
+  onReconnect?: (oldEdge: Edge, connection: Connection) => void
+  /**
+   * Drag-from-palette (spec section 4.2): fired when something is dropped on the
+   * canvas, carrying the flow-space cursor position and the route under it.
+   */
+  onCanvasDrop?: (event: WorkflowGraphDropEvent) => void
   editable?: boolean
   className?: string
   height?: string
+  focusTarget?: WorkflowGraphFocusTarget | null
+  nodeErrorCounts?: Record<string, number>
+  /** Render the dashed reverse compensation ghosts (spec section 4.4). */
+  showCompensation?: boolean
+  /**
+   * "Show last run" execution overlay (spec §8.3). Display-only: node statuses
+   * and taken routes are applied at render time and never enter the editor's
+   * node/edge state, so they cannot reach `graphToDefinition`, the undo stack or
+   * an autosave.
+   */
+  runOverlay?: RunExecution | null
 }
 
 const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {

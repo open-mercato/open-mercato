@@ -3,6 +3,11 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
 import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
+import { NodeOutcomeRows } from './NodeOutcomeRows'
+import { buildDecisionOutcomeRows, type DecisionRowLike } from '../../lib/node-outcome-rows'
+import { useLocale } from '@open-mercato/shared/lib/i18n/context'
 
 export interface UserTaskNodeData {
   label: string
@@ -15,6 +20,15 @@ export interface UserTaskNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  hasCompensation?: boolean
+  errorCount?: number
+  /**
+   * Authored decision buttons (spec §6.1). Each already binds to a durable
+   * `transitionId`, so the footer row's dot IS the route the button takes — no
+   * engine work was needed for this half of the footer.
+   */
+  decisions?: DecisionRowLike[]
 }
 
 /**
@@ -23,8 +37,11 @@ export interface UserTaskNodeData {
  */
 export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as UserTaskNodeData
+  const locale = useLocale()
 
   const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('userTask', nodeData as never)
+  const decisionRows = buildDecisionOutcomeRows(nodeData.decisions, locale)
 
   return (
     <div className="user-task-node" title={nodeData.tooltip}>
@@ -38,13 +55,18 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={nodeData.description}
         status={workflowStatus}
         nodeType="userTask"
         selected={selected}
+        hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
+        errorCount={nodeData.errorCount}
         nodeId={id}
         editable={isConnectable}
+        footer={<NodeOutcomeRows rows={decisionRows} isConnectable={isConnectable} testId="workflow-task-decision-rows" />}
       />
 
       {/* Source Handle */}
@@ -55,6 +77,8 @@ export function UserTaskNode({ id, data, isConnectable, selected }: NodeProps) {
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

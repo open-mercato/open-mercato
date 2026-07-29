@@ -172,6 +172,8 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     searchModule,
     commandLoadersModule,
     webResearchModule,
+    commandInterceptorsModule,
+    workflowsModule,
   ] = await Promise.all([
     compileAndImport(path.join(generatedDir, 'modules.cli.generated.ts')),
     compileAndImport(path.join(generatedDir, 'entities.generated.ts')),
@@ -181,6 +183,8 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     compileAndImport(path.join(generatedDir, 'web-research-adapters.generated.ts')).catch(() => ({
       webResearchAdapterEntries: [],
     })),
+    compileAndImport(path.join(generatedDir, 'command-interceptors.generated.ts')).catch(() => ({ commandInterceptorEntries: [] })),
+    compileAndImport(path.join(generatedDir, 'workflows.generated.ts')).catch(() => ({ allCodeWorkflows: [] })),
   ])
 
   return {
@@ -194,6 +198,14 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     // Search configs are needed by workers for indexing
     searchModuleConfigs: (searchModule.searchModuleConfigs ?? []) as BootstrapData['searchModuleConfigs'],
     commandLoaderEntries: (commandLoadersModule.commandLoaderEntries ?? []) as BootstrapData['commandLoaderEntries'],
+    // Command interceptors must apply in worker/CLI processes too — the
+    // interceptor registry is per-process, so relying on the Next.js runtime's
+    // registration silently no-ops every interceptor for queued/CLI commands
+    // (#4327).
+    commandInterceptorEntries: (commandInterceptorsModule.commandInterceptorEntries ??
+      []) as BootstrapData['commandInterceptorEntries'],
+    // Code workflow definitions are needed by workers to resume code-defined instances
+    codeWorkflows: (workflowsModule.allCodeWorkflows ?? []) as BootstrapData['codeWorkflows'],
     // Empty UI-related data - not needed for CLI
     dashboardWidgetEntries: [],
     injectionWidgetEntries: [],
