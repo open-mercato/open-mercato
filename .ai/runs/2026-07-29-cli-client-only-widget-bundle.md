@@ -45,11 +45,11 @@ Package-provided widgets are unaffected because their sources stay external and 
 
 ### Phase 1: Cut the browser-only subgraph
 
-- [ ] 1.1 Add the client-only stub helper
-- [ ] 1.2 Register the plugin in `compileAndImport`
+- [x] 1.1 Add the client-only stub helper — 98416658e
+- [x] 1.2 Register the plugin in `compileAndImport` — 98416658e
 
 ### Phase 2: Prove and document
 
-- [ ] 2.1 Unit tests with an esbuild control case
-- [ ] 2.2 Module-development documentation
+- [x] 2.1 Unit tests with an esbuild control case — 98416658e
+- [x] 2.2 Module-development documentation — cdf7374fb
 - [ ] 2.3 Full validation gate
