@@ -13,8 +13,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Save, MoreVertical, FileText, Trash2, CircleQuestionMark, Play } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_LABELS } from '../../lib/node-type-icons'
 import { WorkflowGraph, type WorkflowGraphNodesChangeMeta } from '../WorkflowGraph'
-import { MobileMetadataSheet } from './MobileMetadataSheet'
-import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../data/types'
+import type { WorkflowMetadataState } from '../../data/types'
 
 export interface MobileVisualEditorProps {
   definitionId: string | null
@@ -34,7 +33,13 @@ export interface MobileVisualEditorProps {
   onLoadExample: () => void
   onClear: () => void
   metadata: WorkflowMetadataState
-  metadataHandlers: WorkflowMetadataHandlers
+  /**
+   * The definition metadata lives in the shared `DefinitionMetadataDrawer`,
+   * owned by the page so mobile and desktop cannot drift apart again — the
+   * mobile-only sheet never grew the context schema, interpolation mode or
+   * error handler the desktop form gained.
+   */
+  onMetadataOpenChange: (open: boolean) => void
 }
 
 const NODE_TYPES = ['start', 'userTask', 'automated', 'invokeAgent', 'waitForSignal', 'subWorkflow', 'end'] as const
@@ -57,10 +62,9 @@ export function MobileVisualEditor({
   onLoadExample,
   onClear,
   metadata,
-  metadataHandlers,
+  onMetadataOpenChange,
 }: MobileVisualEditorProps) {
   const t = useT()
-  const [showMetadata, setShowMetadata] = useState(false)
   const [showMoreActions, setShowMoreActions] = useState(false)
 
   const { workflowName } = metadata
@@ -75,7 +79,7 @@ export function MobileVisualEditor({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowMetadata(true)}
+            onClick={() => onMetadataOpenChange(true)}
             className="h-8 px-2"
             aria-label={t('workflows.mobile.metadata', 'Metadata')}
           >
@@ -195,13 +199,6 @@ export function MobileVisualEditor({
         </DialogContent>
       </Dialog>
 
-      <MobileMetadataSheet
-        open={showMetadata}
-        onOpenChange={setShowMetadata}
-        definitionId={definitionId}
-        metadata={metadata}
-        metadataHandlers={metadataHandlers}
-      />
     </div>
   )
 }

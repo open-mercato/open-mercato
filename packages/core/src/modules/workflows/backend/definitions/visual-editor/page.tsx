@@ -2729,6 +2729,17 @@ export default function VisualEditorPage() {
         onOpenChange={setShowCommandPalette}
         commands={commandPaletteCommands}
       />
+      <DefinitionMetadataDrawer
+        open={metadataOpen}
+        onOpenChange={setMetadataOpen}
+        definitionId={definitionId}
+        readOnly={isCodeOnly}
+        metadata={metadata}
+        handlers={metadataHandlers}
+        errorHandlerStepOptions={errorHandlerStepOptions}
+        onSave={() => { void handleSave() }}
+        isSaving={isSaving}
+      />
       <WorkflowCodeView
         isOpen={showCodeView}
         onClose={handleCloseCodeView}
@@ -3018,7 +3029,7 @@ export default function VisualEditorPage() {
           onLoadExample={handleOpenTemplateGallery}
           onClear={handleClear}
           metadata={metadata}
-          metadataHandlers={metadataHandlers}
+          onMetadataOpenChange={setMetadataOpen}
         />
         {sharedDialogs}
         {ConfirmDialogElement}
@@ -3569,17 +3580,6 @@ export default function VisualEditorPage() {
       )}
       {problemsPanel}
       {sharedDialogs}
-      <DefinitionMetadataDrawer
-        open={metadataOpen}
-        onOpenChange={setMetadataOpen}
-        definitionId={definitionId}
-        readOnly={isCodeOnly}
-        metadata={metadata}
-        handlers={metadataHandlers}
-        errorHandlerStepOptions={errorHandlerStepOptions}
-        onSave={() => { void handleSave() }}
-        isSaving={isSaving}
-      />
       {ConfirmDialogElement}
     </Page>
   )
