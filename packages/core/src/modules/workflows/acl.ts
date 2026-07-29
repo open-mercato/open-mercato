@@ -176,6 +176,18 @@ export const features = [
     module: moduleId,
     dependsOn: ['workflows.view'],
   },
+  {
+    // Spec §8.5 operations KPIs. Its own feature rather than an implication of
+    // `definitions.view`: a rollup states how often a process fails and how
+    // long it takes across every run in the organization, which is an
+    // aggregate over runs the caller may not be entitled to open one by one.
+    // `dependsOn: ['workflows.definitions.view']` because a KPI without the
+    // definition it belongs to names nothing the reader can act on.
+    id: 'workflows.metrics.view',
+    title: 'View workflow operational metrics',
+    module: moduleId,
+    dependsOn: ['workflows.definitions.view'],
+  },
   // Note: Event triggers are now embedded in workflow definitions.
   // Trigger management permissions are covered by workflows.definitions.edit
 ]
