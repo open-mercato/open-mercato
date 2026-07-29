@@ -3,7 +3,14 @@ import { type Kysely, sql } from 'kysely'
 import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
-import { upsertIndexBatch, type AnyRow } from './batch'
+import {
+  upsertIndexBatch,
+  assertIndexBatchWritesLanded,
+  createEmptyUpsertIndexBatchResult,
+  mergeUpsertIndexBatchResults,
+  QueryIndexBatchWriteError,
+  type AnyRow,
+} from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 import { purgeOrphans } from './stale'
@@ -39,6 +46,12 @@ export type ReindexJobResult = {
 
 export const DEFAULT_REINDEX_PARTITIONS = 5
 const DEFAULT_BATCH_SIZE = 500
+/**
+ * Above this many failed records the purge exclusion list stops being a sane query, so
+ * the purge is skipped entirely instead. Failing closed keeps stale rows; the alternative
+ * deletes index entries the run failed to rebuild.
+ */
+const MAX_PURGE_EXCLUSIONS = 1000
 const deriveOrgFromId = new Set<string>(['directory:organization'])
 const COVERAGE_REFRESH_THROTTLE_MS = 5 * 60 * 1000
 const lastCoverageReset = new Map<string, number>()
@@ -305,6 +318,8 @@ export async function reindexEntity(
 
   let processed = 0
   let lastId: string | null = null
+  let jobFailed = false
+  const writeTotals = createEmptyUpsertIndexBatchResult()
 
   options?.onProgress?.({ processed, total, chunkSize: 0 })
 
@@ -422,10 +437,20 @@ export async function reindexEntity(
         return result
       }
 
-      await upsertIndexBatch(db, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, encryptDoc, decryptDoc })
+      const batchResult = await upsertIndexBatch(db, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, encryptDoc, decryptDoc })
+      mergeUpsertIndexBatchResults(writeTotals, batchResult)
+
+      // A whole batch failing is infrastructural (pool exhausted, disk full, KMS down),
+      // not a poison record. Abort now instead of grinding through the rest of the table.
+      if (batchResult.written === 0 && batchResult.attempted > 0) {
+        throw new QueryIndexBatchWriteError(entityType, writeTotals)
+      }
+
+      const failedInBatch = new Set(batchResult.failedRecordIds)
+      const writtenRows = failedInBatch.size ? rows.filter((row) => !failedInBatch.has(String(row.id))) : rows
 
       const coverageDeltas = new Map<string, { tenantId: string | null; organizationId: string | null; delta: number }>()
-      for (const row of rows) {
+      for (const row of writtenRows) {
         const scopeTenant = tenantId !== undefined
           ? tenantId ?? null
           : (hasTenantCol ? ((row as AnyRow).tenant_id ?? null) : null)
@@ -457,7 +482,7 @@ export async function reindexEntity(
 
       if (emitVectorize && eventBus) {
         await Promise.all(
-          rows.map((row) => {
+          writtenRows.map((row) => {
             const scopeOrg = organizationId !== undefined
               ? organizationId ?? null
               : hasOrgCol
@@ -478,20 +503,32 @@ export async function reindexEntity(
         )
       }
 
-      processed += rows.length
+      processed += batchResult.written
       lastId = String(rows[rows.length - 1]!.id)
-      options?.onProgress?.({ processed, total, chunkSize: rows.length })
-      await updateJobProgress(db, jobScope, rows.length)
+      options?.onProgress?.({ processed, total, chunkSize: batchResult.written })
+      await updateJobProgress(db, jobScope, batchResult.written)
     }
 
-    await purgeOrphans(db, {
-      entityType,
-      tenantId,
-      organizationId,
-      partitionIndex: usingPartitions ? partitionIndex : null,
-      partitionCount: usingPartitions ? partitionCountRaw : null,
-      startedAt: jobStartedAt,
-    })
+    // Records this run failed to write still look untouched to the purge predicate, so
+    // without the exclusion the purge would delete the index rows it just failed to
+    // rebuild — turning a stale entry into a missing one.
+    const purgeExclusions = writeTotals.failedRecordIds
+    if (purgeExclusions.length > MAX_PURGE_EXCLUSIONS) {
+      logger.warn('Skipping orphan purge after widespread write failures', {
+        entityType,
+        failedRecords: purgeExclusions.length,
+      })
+    } else {
+      await purgeOrphans(db, {
+        entityType,
+        tenantId,
+        organizationId,
+        partitionIndex: usingPartitions ? partitionIndex : null,
+        partitionCount: usingPartitions ? partitionCountRaw : null,
+        startedAt: jobStartedAt,
+        excludeRecordIds: purgeExclusions,
+      })
+    }
 
     if (force && vectorService && (!usingPartitions || partitionIndex === null)) {
       try {
@@ -522,8 +559,24 @@ export async function reindexEntity(
         },
       )
     }
+
+    // Deliberately after the coverage refresh: the authoritative recount is what keeps
+    // indexed_count truthful, and it is most worth having when a run has just failed.
+    // Throwing here fails the queue job so the loss is visible instead of silent.
+    if (writeTotals.searchTokenFailures > 0) {
+      logger.warn('Search token writes failed during reindex', {
+        entityType,
+        batches: writeTotals.searchTokenFailures,
+      })
+    }
+    assertIndexBatchWritesLanded(entityType, writeTotals)
+  } catch (error) {
+    jobFailed = true
+    throw error
   } finally {
-    await finalizeJob(db, jobScope)
+    // Still finalized on failure: the scope stays wedged behind the active-job guard
+    // while finished_at is null. The status carries the outcome instead.
+    await finalizeJob(db, jobScope, jobFailed ? { status: 'failed' } : {})
   }
 
   return {

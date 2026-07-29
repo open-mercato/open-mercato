@@ -24,6 +24,20 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Query index reindex now fails when a batch loses records
+
+`upsertIndexBatch` used to swallow every write error: the bulk `INSERT … ON CONFLICT` had a bare `catch`, and the per-row fallback ran inside a transaction whose per-row `catch` could not actually recover — in Postgres a failed statement aborts the transaction, and `COMMIT` on an aborted transaction returns a `ROLLBACK` tag without raising. A single bad record therefore discarded its entire batch (up to 500 rows) while the reindex job still credited the coverage counters and finished green, and the subsequent orphan purge then deleted the pre-existing index rows for those records.
+
+Three behavior changes follow:
+
+- `upsertIndexBatch` returns `UpsertIndexBatchResult` (`{ attempted, written, failedRecordIds, searchTokenFailures }`) instead of `void`, and the per-row fallback no longer runs in a transaction, so one bad row can no longer discard its siblings. It still never throws on a partial write — callers reconcile via the result (`assertIndexBatchWritesLanded`).
+- A reindex that loses records now **throws** `QueryIndexBatchWriteError` after finishing its batches and refreshing the coverage snapshot. The queue job fails, `indexer_error_logs` gets a row per failed record (capped at 50 per batch), and the CLI exits non-zero.
+- A failed document encryption is treated as a failed row rather than being indexed in plaintext, and the orphan purge excludes records the run failed to write so their existing index rows survive.
+
+`isUniqueViolation` now lives at `@open-mercato/shared/lib/db/pg-errors`. The previous `@open-mercato/core/modules/communication_channels/lib/pg-errors` import remains available as a deprecated re-export for this release; downstream modules should move to the shared path.
+
+**Action for downstream:** none required for callers that ignore the return value — `Promise<void>` → `Promise<UpsertIndexBatchResult>` is assignment-compatible. Expect previously-green reindex jobs to start failing where they were silently dropping records; the failures are pre-existing data loss becoming visible, not new breakage. Custom `encryptDoc`/`decryptDoc` callbacks passed to `upsertIndexBatch` should no longer swallow their own errors, or the new accounting cannot see them.
+
 ### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
 
 The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:
