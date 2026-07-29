@@ -41,6 +41,8 @@ Package-provided widgets are unaffected because their sources stay external and 
 
 ## Progress
 
+PR: #4628
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Cut the browser-only subgraph
@@ -52,4 +54,15 @@ Package-provided widgets are unaffected because their sources stay external and 
 
 - [x] 2.1 Unit tests with an esbuild control case — 98416658e
 - [x] 2.2 Module-development documentation — cdf7374fb
-- [ ] 2.3 Full validation gate
+- [x] 2.3 Full validation gate — d2cc5d305
+
+## Verification
+
+Runner: local. All eight `validation.commands` passed in order: `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `test`, `build:app`.
+
+End-to-end reproduction against `apps/mercato`, using the existing `@app` module `example`. Adding `import { BarChart } from '@open-mercato/ui/backend/charts'` to `widgets/dashboard/welcome/widget.client.tsx` and clearing the compiled `.mjs` bundles:
+
+- with the plugin, `yarn mercato dashboards` boots and lists its commands; `modules.cli.generated.mjs` contains zero references to `backend/charts` and zero to `next/dynamic`, and two client-only stubs;
+- with the plugin removed, the same command dies with the exact error from the issue — `Cannot find module '.../node_modules/next/dynamic' imported from .../packages/ui/dist/backend/charts/BarChart.js`.
+
+The probe import and the temporary plugin removal were both reverted; the working tree is clean.
