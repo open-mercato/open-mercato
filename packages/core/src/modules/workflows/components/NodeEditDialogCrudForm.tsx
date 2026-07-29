@@ -1115,6 +1115,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           previous step onto this one. */}
       <CrudForm
         key={node.id}
+        density="compact"
         fields={fields}
         groups={groups}
         initialValues={initialValues}
