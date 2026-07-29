@@ -362,6 +362,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.46 Bind residual attachment, delivery, CRM, renewal, and bounded installed-context routing to their exact owners — `972547781`
 - [x] 3.47 Separate AI-file, lead-validation, read-only context, injected-table, and host-status guard owners — `f14910224`
 - [x] 3.48 Strengthen selected attachment, testing, and installed-guard context obligations — `aa101f99c`
+- [x] 3.49 Keep AI consumption of existing files out of transport/storage routing — `58fb0f50d`
 
 ### Phase 4: Compatibility baseline
 
