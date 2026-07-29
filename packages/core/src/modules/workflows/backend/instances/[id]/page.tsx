@@ -19,6 +19,7 @@ import { WorkflowGraphReadOnly } from '../../../components/WorkflowGraph'
 import { WorkflowLegend } from '../../../components/WorkflowLegend'
 import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
 import { RunStepInspector } from '../../../components/run/RunStepInspector'
+import { RunGantt } from '../../../components/run/RunGantt'
 import { RunEventBadge, runEventBadgeClass } from '../../../components/run/RunEventBadge'
 import { InstanceStatusBadge, instanceStatusBadgeClass } from '../../../components/run/RunStatusBadge'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
@@ -603,39 +604,67 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             </TabsContent>
 
             <TabsContent value="timeline">
-              <div className="mt-4 rounded-lg border bg-card p-6">
-                {eventsLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Spinner className="h-4 w-4" />
-                    <span className="text-sm">{t('common.loading')}</span>
-                  </div>
-                ) : milestoneEvents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t('workflows.instances.noExecutionHistory')}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {[...milestoneEvents].reverse().map((event, index) => (
-                      <div key={event.id} className="flex items-start gap-3 rounded-lg border bg-muted p-3">
-                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 border-border bg-background text-xs font-medium">
-                          {index + 1}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <RunEventBadge eventType={event.eventType} />
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(event.occurredAt).toLocaleTimeString()}
-                            </span>
+              <div className="mt-4 space-y-4">
+                <div className="rounded-lg border bg-card p-4 md:p-6">
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('workflows.instances.run.gantt.title', 'Step durations')}
+                  </h3>
+                  {stepsLoading ? (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Spinner className="h-4 w-4" />
+                      <span className="text-sm">{t('common.loading')}</span>
+                    </div>
+                  ) : (
+                    <RunGantt
+                      stepInstances={stepInstances}
+                      instanceStartedAt={instance.startedAt}
+                      instanceCompletedAt={instance.completedAt}
+                      selectedStepId={selectedStepId}
+                      onSelectStep={(stepId) => {
+                        setSelectedStepId(stepId)
+                        setActiveTab('flow')
+                      }}
+                    />
+                  )}
+                </div>
+
+                <div className="rounded-lg border bg-card p-6">
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('workflows.instances.sections.executionTimeline', 'Execution Timeline')}
+                  </h3>
+                  {eventsLoading ? (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Spinner className="h-4 w-4" />
+                      <span className="text-sm">{t('common.loading')}</span>
+                    </div>
+                  ) : milestoneEvents.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t('workflows.instances.noExecutionHistory')}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {[...milestoneEvents].reverse().map((event, index) => (
+                        <div key={event.id} className="flex items-start gap-3 rounded-lg border bg-muted p-3">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 border-border bg-background text-xs font-medium">
+                            {index + 1}
                           </div>
-                          {event.eventData?.toStepId && (
-                            <p className="mt-1 font-mono text-xs text-muted-foreground">
-                              {event.eventData.fromStepId ? `${event.eventData.fromStepId} → ` : '→ '}
-                              {event.eventData.toStepId}
-                            </p>
-                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <RunEventBadge eventType={event.eventType} />
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(event.occurredAt).toLocaleTimeString()}
+                              </span>
+                            </div>
+                            {event.eventData?.toStepId && (
+                              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                                {event.eventData.fromStepId ? `${event.eventData.fromStepId} → ` : '→ '}
+                                {event.eventData.toStepId}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </TabsContent>
 

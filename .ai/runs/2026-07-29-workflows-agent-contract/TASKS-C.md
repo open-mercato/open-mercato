@@ -14,9 +14,9 @@ hold, STOP and escalate rather than widening the state machine.
 
 | Step | Title | Status | Commit |
 |------|-------|--------|--------|
-| C.1 | `GET /api/workflows/instances/[id]/steps` — the `StepInstance` read surface §8.3 needs | done | `7eb5e5e7a` |
-| C.2 | Run detail restructured into Flow / Timeline / Context / Raw tabs + per-step I/O inspector | done | PENDING_SHA |
-| C.3 | Gantt run timeline with collapsed waits | pending | — |
+| C.1 | `GET /api/workflows/instances/[id]/steps` — the `StepInstance` read surface §8.3 needs | done | `6c8bafe6c` |
+| C.2 | Run detail restructured into Flow / Timeline / Context / Raw tabs + per-step I/O inspector | done | `ee5f9f648` |
+| C.3 | Gantt run timeline with collapsed waits | done | PENDING_SHA |
 | C.4 | Live SSE — `clientBroadcast` on `workflows.instance.*` + run views subscribe | pending | — |
 | C.5 | Run-list filters — date range + failure-queue attention | pending | — |
 | C.6 | Failure-queue triage + error grouping + bulk replay through the progress module | pending | — |

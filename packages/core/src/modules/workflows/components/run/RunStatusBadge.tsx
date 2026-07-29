@@ -40,6 +40,12 @@ const INSTANCE_STATUS_BADGES: Record<string, BadgeDescriptor> = {
 
 const UNKNOWN_BADGE: BadgeDescriptor = { tone: 'not_started', Icon: Circle, fallbackLabel: 'Unknown' }
 
+/** The i18n key + English fallback for one step status, shared with the Gantt. */
+export function stepStatusLabelKey(status: StepRunStatus): { key: string; fallback: string } {
+  const descriptor = STEP_STATUS_BADGES[status] ?? UNKNOWN_BADGE
+  return { key: `workflows.instances.run.stepStatus.${status}`, fallback: descriptor.fallbackLabel }
+}
+
 /**
  * Class-only form, for the mobile overview which takes a class callback rather
  * than a component. Reads the same descriptor table, so the two surfaces can
