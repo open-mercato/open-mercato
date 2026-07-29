@@ -111,6 +111,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Customer Interaction Completion Event Reliability](2026-07-20-customer-interaction-completion-event-reliability.md) | 2026-07-20 | Customer Interaction Completion Event Reliability | Reliable scoped persistent publication with retry-safe per-interaction delivery state |
 | [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
 | [Backend Route Collision Guard](2026-07-23-backend-route-collision-guard.md) | 2026-07-23 | Backend Route Collision Guard | Build-time `mercato generate` guard that fails loud when two modules emit the same backend page URL (folder-derived), mirroring the duplicate-command-id guard; route overrides unaffected |
+| [List Views at Scale](2026-07-29-list-views-at-scale.md) | 2026-07-29 | List Views at Scale — filter, search, count, and pagination architecture | Measured at 1.4M rows: declarative index contract making `filterable`/`indexed` load-bearing (expression indexes on `entity_indexes.doc` + index-driven join order), operator correctness (silently dropped ops), coverage-as-metric, search ≠ filter split, capped counts + keyset pagination |
 
 ### Implemented Specifications
 
