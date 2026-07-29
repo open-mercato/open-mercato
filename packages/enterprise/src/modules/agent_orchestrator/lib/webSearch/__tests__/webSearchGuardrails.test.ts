@@ -1,6 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { MODEL_ADAPTER_TIMEOUT_MS, resolvePolicy } from '@open-mercato/web-research'
-import { enforceWebSearchRateLimit, resolveRunId } from '../guardrails'
+import { chargeWebFetchBudget, enforceWebSearchRateLimit, resolveRunId } from '../guardrails'
 import {
   hostnameOf,
   isHostAllowed,
@@ -157,6 +157,39 @@ describe('resolveRunId', () => {
 
   it('returns null when the store is unavailable', async () => {
     await expect(resolveRunId(containerWith({}), 'token')).resolves.toBeNull()
+  })
+})
+
+describe('chargeWebFetchBudget', () => {
+  const limiterWithPenalty = () => ({
+    consume: jest.fn(async () => ({ allowed: true })),
+    penalty: jest.fn(async () => ({ allowed: true })),
+  })
+
+  it('charges the fetch budget for pages a search read', async () => {
+    // Without this, includeContent reads up to maxPages under one search point
+    // and fetchesPerRun never engages on the path the tool description promotes.
+    const limiter = limiterWithPenalty()
+    const container = containerWith({ limiter: limiter as never })
+
+    await chargeWebFetchBudget(container, 'run-1', guardrails, 3)
+
+    expect(limiter.penalty).toHaveBeenCalledWith(
+      'agentweb:fetch:run:run-1',
+      3,
+      expect.objectContaining({ points: guardrails.fetchesPerRun }),
+    )
+  })
+
+  it('charges nothing when no page was read', async () => {
+    const limiter = limiterWithPenalty()
+    await chargeWebFetchBudget(containerWith({ limiter: limiter as never }), 'run-1', guardrails, 0)
+    expect(limiter.penalty).not.toHaveBeenCalled()
+  })
+
+  it('never throws when accounting is unavailable', async () => {
+    const container = containerWith({ limiterThrows: true })
+    await expect(chargeWebFetchBudget(container, 'run-1', guardrails, 2)).resolves.toBeUndefined()
   })
 })
 

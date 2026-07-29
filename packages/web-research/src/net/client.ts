@@ -14,6 +14,15 @@ const DEFAULT_TIMEOUT_MS = 10_000
 const MAX_REDIRECTS = 5
 const MAX_RETRIES = 2
 const MAX_BACKOFF_MS = 5_000
+/**
+ * Ceiling on one `request()` call, redirects and retries included.
+ *
+ * `timeoutMs` bounds a single attempt, so without this a call could legitimately
+ * run for redirects x retries x timeout plus backoff — minutes, inside an adapter
+ * budget of seconds. The adapter's signal would eventually cut it, but only after
+ * the work was already spent.
+ */
+const DEFAULT_TOTAL_TIMEOUT_MS = 30_000
 
 export type HttpClientOptions = {
   readonly userAgent?: string
@@ -22,6 +31,8 @@ export type HttpClientOptions = {
   readonly timeoutMs?: number
   readonly maxRedirects?: number
   readonly maxRetries?: number
+  /** Ceiling on one call including every redirect hop and retry. */
+  readonly maxTotalMs?: number
   /** Minimum gap between requests to the same host. */
   readonly politenessMs?: number
   readonly lookup?: LookupFn
@@ -275,6 +286,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   const defaultTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxRedirects = options.maxRedirects ?? MAX_REDIRECTS
   const maxRetries = options.maxRetries ?? MAX_RETRIES
+  const maxTotalMs = options.maxTotalMs ?? DEFAULT_TOTAL_TIMEOUT_MS
   const politenessMs = options.politenessMs ?? 0
   const sleep = options.sleep ?? defaultSleep
   const now = options.now ?? Date.now
@@ -314,6 +326,8 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
 
   async function request(rawUrl: string, init: HttpRequestInit = {}): Promise<HttpResponse> {
     const maxBytes = init.maxBytes ?? defaultMaxBytes
+    const expiresAt = now() + maxTotalMs
+    const outOfTime = (): boolean => now() >= expiresAt
     let currentUrl = rawUrl
     // Caller headers carry vendor credentials (`authorization`, an API-key header).
     // A redirect to another origin must not replay them, or a compromised or
@@ -321,6 +335,9 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     let sameOrigin = true
 
     for (let hop = 0; hop <= maxRedirects; hop += 1) {
+      if (outOfTime()) {
+        throw new WebResearchError('timeout', `Request to ${rawUrl} exceeded its ${maxTotalMs}ms budget`)
+      }
       const vetted = await assertPublicUrl(currentUrl, 'web research fetch', {
         ...(options.lookup ? { lookup: options.lookup } : {}),
         ...(options.allowPrivateHosts ? { allowPrivateHosts: options.allowPrivateHosts } : {}),
@@ -349,6 +366,8 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
             : new WebResearchError('network', errorMessage(error), { cause: error })
           lastError = typed
           if (typed.code === 'aborted' || retry === maxRetries || !isRetriable(typed)) throw typed
+          // Retrying past the budget only delays the failure the caller already earned.
+          if (outOfTime()) throw typed
           const backoff = Math.min(typed.retryAfterMs ?? 250 * 2 ** retry, MAX_BACKOFF_MS)
           await sleep(backoff, init.signal)
         }

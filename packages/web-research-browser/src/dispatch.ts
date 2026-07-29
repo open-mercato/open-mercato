@@ -12,13 +12,24 @@ import {
 } from './playwright'
 import { SidecarError, type SidecarReply, type SidecarRequest } from './protocol'
 
-export type Lease = { context: ContextHandle; page: PageHandle }
+export type Lease = { context: ContextHandle; page: PageHandle; touchedAt: number }
+
+/**
+ * How long an untouched lease may live.
+ *
+ * `release` normally closes a context, but the caller can die between `render`
+ * and `release` — a killed parent, a dropped socket — and every orphan is a live
+ * BrowserContext holding memory for as long as the sidecar runs.
+ */
+export const LEASE_IDLE_TIMEOUT_MS = 5 * 60_000
 
 export type SidecarState = {
   browser: BrowserHandle | null
   leases: Map<string, Lease>
   filterSubresources: boolean
   warn: (message: string) => void
+  /** Injectable so a lease-expiry test does not have to wait five minutes. */
+  now: () => number
   /** Injectable so tests never shell out to `npx playwright install`. */
   installRunner?: InstallRunner
 }
@@ -32,6 +43,7 @@ export function createState(overrides: Partial<SidecarState> = {}): SidecarState
     leases: new Map(),
     filterSubresources: process.env.OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES === '1',
     warn: (message) => process.stderr.write(`om-web-research-sidecar: ${message}\n`),
+    now: () => Date.now(),
     ...overrides,
   }
 }
@@ -53,15 +65,29 @@ async function ensureBrowser(state: SidecarState): Promise<BrowserHandle> {
  * a cookie jar the way a single shared page would.
  */
 async function openLease(state: SidecarState, leaseId: string, userAgent: string): Promise<Lease> {
+  await reapIdleLeases(state)
   const existing = state.leases.get(leaseId)
-  if (existing) return existing
+  if (existing) {
+    existing.touchedAt = state.now()
+    return existing
+  }
   const browser = await ensureBrowser(state)
   const context = await browser.newContext({ userAgent, locale: 'en-US' })
   await installNavigationGuard(context, { filterSubresources: state.filterSubresources, warn: state.warn })
   const page = (await context.newPage()) as unknown as PageHandle
-  const lease: Lease = { context, page }
+  const lease: Lease = { context, page, touchedAt: state.now() }
   state.leases.set(leaseId, lease)
   return lease
+}
+
+/** Closes leases nobody released. Swept on open, so an idle sidecar stays idle. */
+export async function reapIdleLeases(state: SidecarState): Promise<void> {
+  const cutoff = state.now() - LEASE_IDLE_TIMEOUT_MS
+  for (const [leaseId, lease] of [...state.leases]) {
+    if (lease.touchedAt > cutoff) continue
+    state.warn(`reaping lease ${leaseId} idle for over ${LEASE_IDLE_TIMEOUT_MS}ms`)
+    await closeLease(state, leaseId)
+  }
 }
 
 async function closeLease(state: SidecarState, leaseId: string): Promise<void> {

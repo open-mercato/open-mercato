@@ -30,6 +30,8 @@ export type SearchDiagnostics = {
   readonly cached: boolean
   readonly escalated: boolean
   readonly elapsedMs: number
+  /** Pages fetched for inline content; what the host charges a fetch budget for. */
+  readonly pagesRead: number
 }
 
 /**

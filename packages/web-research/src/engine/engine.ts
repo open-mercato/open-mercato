@@ -97,12 +97,16 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     signal: AbortSignal,
     deadlineAt: number,
     report: (event: SearchStepEvent, detail?: string, metrics?: SearchStepMetrics) => void,
-  ): Promise<readonly SearchResult[]> {
+  ): Promise<{ results: readonly SearchResult[]; pagesRead: number }> {
     const targets = results.filter((result) => result.content === null).slice(0, policy.content.maxPages)
-    if (targets.length === 0) return results
+    if (targets.length === 0) return { results, pagesRead: 0 }
     report('started', `reading ${targets.length} page(s) for inline content`)
 
     const contentByUrl = new Map<string, string>()
+    // Counts pages we actually went to the network for, not pages that yielded
+    // usable text: the budget this feeds is about egress, and a fetch that came
+    // back empty still cost a request to somebody else's server.
+    let pagesRead = 0
     const queue = [...targets]
     // Bounded by the same knob as the search wave: reading N pages at once is the
     // same egress burst as running N adapters, and it lands on third-party hosts.
@@ -111,6 +115,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
         // The run deadline binds here too — otherwise a search bounded to
         // `hardDeadlineMs` could spend minutes reading pages after fusion.
         if (signal.aborted || now() >= deadlineAt) return
+        pagesRead += 1
         const outcome = await fetchPage(
           { url: next.url, maxBytes: policy.content.maxBytesPerPage },
           { signal },
@@ -126,10 +131,13 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
       resultCount: contentByUrl.size,
     })
 
-    return results.map((result) => {
-      const content = contentByUrl.get(result.url)
-      return content === undefined ? result : { ...result, content }
-    })
+    return {
+      results: results.map((result) => {
+        const content = contentByUrl.get(result.url)
+        return content === undefined ? result : { ...result, content }
+      }),
+      pagesRead,
+    }
   }
 
   async function fetchPage(request: FetchRequest, runOptions: RunOptions = {}): Promise<FetchOutcome> {
@@ -417,15 +425,18 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     })
 
     let results = fused.results
+    let pagesRead = 0
     if (includeContent && results.length > 0) {
       const expiry = new AbortController()
       const timer = setTimeout(() => expiry.abort(), Math.max(0, deadlineAt - now()))
       timer.unref?.()
       const enrichment = linkSignals([runOptions.signal, expiry.signal])
       try {
-        results = await enrichContent(results, enrichment.signal, deadlineAt, (event, detail, metrics) =>
+        const enriched = await enrichContent(results, enrichment.signal, deadlineAt, (event, detail, metrics) =>
           report('fetch', event, undefined, detail, metrics),
         )
+        results = enriched.results
+        pagesRead = enriched.pagesRead
       } finally {
         clearTimeout(timer)
         enrichment.dispose()
@@ -453,6 +464,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
         cached: false,
         escalated,
         elapsedMs,
+        pagesRead,
       },
       ...(runOptions.includeAdapterResults
         ? {
@@ -484,7 +496,8 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
       const cached = await options.cache!.get(cacheKey).catch(() => null)
       if (cached) {
         report('done', 'cached', undefined, 'served from cache', { resultCount: cached.results.length })
-        return { ...cached, diagnostics: { ...cached.diagnostics, cached: true } }
+        // A cache hit read nothing, so it owes nothing to the fetch budget.
+        return { ...cached, diagnostics: { ...cached.diagnostics, cached: true, pagesRead: 0 } }
       }
     }
 

@@ -57,6 +57,36 @@ function resolveLimiter(container: AwilixContainer): RateLimiterService | 'absen
  * unusable. Search and fetch have separate per-run budgets so a page-reading
  * loop cannot exhaust the allowance for discovery.
  */
+/**
+ * Charges pages a search already read against the fetch budget.
+ *
+ * `web_search` costs one search point no matter how many pages `includeContent`
+ * reads, so an agent could pull `maxPages` per call and never touch
+ * `fetchesPerRun` — and the tool description actively steers it there, which made
+ * the separate discovery and reading budgets trivially bypassable. Charged after
+ * the fact because the count is not known until the read is done: a run can
+ * overshoot by one call, and the next one is refused.
+ */
+export async function chargeWebFetchBudget(
+  container: AwilixContainer,
+  runId: string | null,
+  guardrails: WebSearchGuardrails,
+  pages: number,
+): Promise<void> {
+  if (pages <= 0 || !runId) return
+  const limiter = resolveLimiter(container)
+  if (limiter === 'absent' || limiter === 'broken') return
+  try {
+    await limiter.penalty(`agentweb:fetch:run:${runId}`, pages, {
+      points: guardrails.fetchesPerRun,
+      duration: 86_400,
+      keyPrefix: 'agentweb',
+    })
+  } catch {
+    // Accounting must never fail a search the caller already paid for.
+  }
+}
+
 export async function enforceWebSearchRateLimit(
   container: AwilixContainer,
   scope: WebSearchRateScope,

@@ -2,7 +2,7 @@ import type { AdapterModule, SearchAdapter } from '../contract/adapter'
 import { notReady } from '../contract/adapter'
 import { errorMessage } from '../contract/errors'
 import { unavailable } from '../contract/outcomes'
-import { CONTRACT_VERSION } from '../contract/version'
+import { CONTRACT_VERSION, MIN_SUPPORTED_CONTRACT_VERSION, isSupportedContractVersion } from '../contract/version'
 
 export type AdapterRegistryEntry = {
   readonly packageName: string
@@ -80,8 +80,8 @@ function describeModule(candidate: unknown): AdapterModule<unknown> | string {
   ) {
     return `adapter "${module.id}" does not expose a zod optionsSchema`
   }
-  if (module.contractVersion !== CONTRACT_VERSION) {
-    return `adapter "${module.id}" targets contract version ${String(module.contractVersion)}, this engine speaks ${CONTRACT_VERSION}`
+  if (!isSupportedContractVersion(module.contractVersion)) {
+    return `adapter "${module.id}" targets contract version ${String(module.contractVersion)}, this engine speaks ${MIN_SUPPORTED_CONTRACT_VERSION}..${CONTRACT_VERSION}`
   }
   return module as AdapterModule<unknown>
 }

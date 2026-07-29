@@ -216,6 +216,26 @@ describe('http client against a real server', () => {
     expect(attempts).toBe(1)
   })
 
+  it('gives up once one call has used its whole budget', async () => {
+    let hops = 0
+    const { origin } = track(
+      await listen((_req, res) => {
+        hops += 1
+        res.writeHead(302, { location: '/again' })
+        res.end()
+      }),
+    )
+
+    // Each hop is fast, but the budget is what bounds the call — a chain of
+    // redirects and retries could otherwise run for minutes inside an adapter
+    // budget of seconds.
+    let clock = 0
+    await expect(
+      client({ maxRedirects: 50, maxTotalMs: 100, now: () => (clock += 60) }).request(`${origin}/start`),
+    ).rejects.toMatchObject({ code: 'timeout' })
+    expect(hops).toBeLessThan(50)
+  })
+
   it('times out a body that never finishes', async () => {
     const { origin } = track(
       await listen((_req, res) => {
