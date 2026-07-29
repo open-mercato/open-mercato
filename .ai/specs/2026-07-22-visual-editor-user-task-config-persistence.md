@@ -31,6 +31,20 @@ Every boundary must preserve the same logical configuration. A successful node o
 
 This specification covers one independently deployable capability: lossless visual-editor round-tripping of user-task configuration. It is independent of personal task inboxes, task claim/complete authorization, workflow continuation, task notifications, and contextual business-record actions.
 
+## Current Baseline and Concurrent Work
+
+Baseline reviewed: `open-mercato/open-mercato` `develop` at `40b669666bb510f55bcb1ef841e8a181f3ccd429` on 2026-07-29.
+
+Three open pull requests overlap this delivery surface and must be reconciled before implementation:
+
+| Pull request | Overlap | Required integration decision |
+| --- | --- | --- |
+| [#4019](https://github.com/open-mercato/open-mercato/pull/4019) | Implements an earlier, narrower version of this persistence fix across validators, editor transforms, page state, tests, and Playwright coverage | This specification supersedes `.ai/specs/2026-07-08-workflow-user-task-config-persistence.md` from #4019. Continue by rebasing and updating #4019 or by explicitly carrying its commits forward; do not start a parallel implementation. Its now-colliding `TC-WF-030` allocation is replaced by the currently available `TC-WF-033`. |
+| [#4085](https://github.com/open-mercato/open-mercato/pull/4085) | Owns runtime normalization and rendering of user-task form schemas | If merged first, consume its canonical `user-task-form-schema` helpers instead of introducing a second runtime normalizer. If still open, keep this change limited to editor/definition round-trip and rebase after #4085 before final review. |
+| [#4291](https://github.com/open-mercato/open-mercato/pull/4291) | Changes role assignment controls plus the same dialogs, validator, page, and form transforms | If merged first, retain its `RoleSelect` UI and adapt the persistence helper to its values. If still open, do not absorb the role-selector feature into this fix; resolve shared-file conflicts and rerun both editor-variant suites. |
+
+Implementation review must refresh these states and the `develop` baseline. Only one implementation PR may own the persistence fix; superseded branches must be closed or clearly redirected after the carry-forward exists.
+
 ## Goals
 
 - Preserve direct assignment, role assignment, form key, allowed actions, form schema, and supported form-field metadata after workflow save and reload.
@@ -110,8 +124,9 @@ For a `userTask` node, the merge algorithm must:
 4. If `assignedTo` is an existing array, hydrate those values into the roles control, preserve its runtime meaning, and normalize the next explicit save to `assignedToRoles` with `assignedTo` omitted. If both legacy array assignment and `assignedToRoles` exist, the legacy array wins during hydration because that matches `step-handler.ts`.
 5. Retain the original form schema and a form-editor dirty flag. Preserve an untouched JSON Schema document exactly as JSON data; replace it with `{ "fields": [...] }` only after an explicit simplified-field edit or remove it only after the last field is explicitly deleted.
 6. Build the structured projection using the exact clear representations in the table above, then combine it with advanced-owned keys without allowing the stale advanced copies of structured-owned keys to win.
-7. Synchronize advanced `allowedActions`, assignment, form, SLA, and escalation values to the existing top-level aliases consumed by `graphToDefinition()`, and remove an alias when its authoritative source is explicitly cleared.
-8. Produce a final `userTaskConfig` and top-level node aliases that cannot restore stale configuration during `graphToDefinition()`.
+7. Reject the node update when the resulting `assignedTo` is empty and `assignedToRoles` is empty. The second clear attempt leaves node state unchanged and uses the existing dialog validation surface with a workflows locale key; retaining the other assignment channel keeps the clear valid.
+8. Synchronize advanced `allowedActions`, assignment, form, SLA, and escalation values to the existing top-level aliases consumed by `graphToDefinition()`, and remove an alias when its authoritative source is explicitly cleared.
+9. Produce a final `userTaskConfig` and top-level node aliases that cannot restore stale configuration during `graphToDefinition()`.
 
 The same pure helper or equivalent shared contract must be used by both node-editor variants. Its inputs distinguish structured values, advanced JSON, original form-schema format, and form-editor dirtiness instead of pretending advanced-only values are structured fields. A small module-local helper is justified because it removes duplicated collision logic and enables deterministic tests; it must not become a general-purpose recursive merge abstraction.
 
@@ -128,7 +143,9 @@ Introduce one page-local state update boundary that synchronously updates both:
 
 All page-owned node mutations must go through that boundary: initial definition load, add, dialog save, delete, clear, example load, and React Flow change handling.
 
-The page owns a monotonically increasing graph-source epoch across responsive mobile, compact, and desktop graph remounts. It advances the epoch whenever the active graph render branch changes, passes that epoch to the keyed replacement graph, and accepts its events only after an `onGraphReady(epoch)` handshake. `WorkflowGraphImpl` owns only a per-epoch revision counter and emits a narrow change envelope containing `{ sourceEpoch, revision, resolvedNodes, changes }`, where `changes` is the original React Flow `NodeChange[]`. The page resets the accepted revision only when the new epoch is acknowledged, rejects callbacks from retired epochs plus older or duplicate revisions in the active epoch, applies explicit `add` and `remove` changes to membership, accepts graph-mechanics fields for existing IDs, and always retains the latest page-owned `data`. A resolved array entry without `add` provenance cannot resurrect a node that the page has deleted. This envelope and handshake are module-local callback contracts, not new public APIs.
+The page owns a monotonically increasing graph-source epoch across responsive mobile, compact, and desktop graph remounts. It advances the epoch whenever the active graph render branch changes, passes that epoch to the keyed replacement graph, and accepts its events only after an `onGraphReady(epoch)` handshake. `WorkflowGraphImpl` owns only a per-epoch revision counter and emits a narrow change envelope containing `{ sourceEpoch, revision, resolvedNodes, changes }`, where `changes` is the original React Flow `NodeChange[]`. The page resets the accepted revision only when the new epoch is acknowledged, rejects callbacks from retired epochs plus older or duplicate revisions in the active epoch, applies explicit `add` and `remove` changes to membership, accepts graph-mechanics fields for existing IDs, and always retains the latest page-owned `data`. A resolved array entry without `add` provenance cannot resurrect a node that the page has deleted. The envelope and handshake are narrow graph-component contracts; because their prop interfaces are exported, they extend the public type surface additively.
+
+The package nevertheless exports `WorkflowGraphProps`, `WorkflowGraphImplProps`, and `MobileVisualEditorProps` through `@open-mercato/core` wildcard paths. Their existing `onNodesChange(nodes: Node[])` callback name, argument shape, and behavior remain supported. Add optional `onNodeChangeEnvelope(envelope)` and `onGraphReady(sourceEpoch)` props instead of replacing the legacy callback; the graph may invoke both when both are supplied. The visual-editor page uses the new envelope callback, while existing consumers continue receiving resolved node arrays unchanged. Making the mobile legacy callback optional is allowed, but narrowing or repurposing it is not. Compatibility tests import all three exported prop interfaces and prove a legacy callback still receives `Node[]` while the additive callback receives provenance.
 
 `handleValidate` and `handleSave` must serialize the synchronous current-node reference, not a potentially older render closure. `handleTest` must validate that same current reference only; test execution remains the existing TODO and this capability does not add serialization or execution behavior. Saving a node must also refresh the selected-node snapshot so reopening or retaining the dialog never displays pre-save data.
 
@@ -214,7 +231,7 @@ Representative persisted shape:
 
 The example uses generic identifiers only. It introduces no new required property.
 
-This capability does not relax the workflows module invariant that a runnable user task has `assignedTo` or `assignedToRoles`. Clear-state tests exercise the two assignment fields independently while retaining the other assignment channel.
+This capability does not relax the workflows module invariant that a runnable user task has `assignedTo` or a non-empty `assignedToRoles`. Both dialogs and `validateWorkflowGraph()` reject an explicit visual-editor state with neither channel, without narrowing the existing definition API schema for legacy documents. Clear-state tests exercise the two assignment fields independently while retaining the other assignment channel, then prove that clearing the final channel is rejected and leaves the prior node state intact.
 
 ## API Contracts
 
@@ -231,6 +248,7 @@ No URL, method, metadata, OpenAPI operation, authentication, feature guard, tena
 ### Validation and errors
 
 - Invalid advanced JSON fails before node state is updated and keeps the dialog open with the existing error surface.
+- Clearing the final assignment channel fails before node state is updated, keeps the dialog open, and uses a localized workflows validation message.
 - Schema-invalid workflow definitions continue to return the existing validation error response.
 - Missing or inaccessible definitions continue to use existing `404` and authorization behavior.
 - Concurrent edits continue to use the existing optimistic-lock header and structured `409` conflict flow.
@@ -245,6 +263,8 @@ No URL, method, metadata, OpenAPI operation, authentication, feature guard, tena
 - Existing `assignedTo: string[]` definitions retain their runtime role-assignment meaning and normalize deterministically to `assignedToRoles` only on explicit node save.
 - Existing advanced `userTaskConfig` extension keys remain preserved.
 - Existing API routes, import paths, event IDs, DI keys, ACL IDs, widget spot IDs, and generated registries are unchanged.
+- Existing exported graph/mobile callback props keep accepting resolved `Node[]`; the provenance envelope and source-ready handshake are additive optional props.
+- The definition API schema remains readable for legacy unassigned documents; the new both-empty assignment rejection is scoped to explicit visual-editor node save/graph validation so this fix does not silently narrow the wire contract.
 - No migration or backfill is required.
 - Previously stripped data cannot be inferred and is not reconstructed automatically.
 - Rolling back the code does not invalidate untouched stored JSON, but it makes subsequent edits unsafe because the old validator/editor can strip the repaired fields again. Operational rollback must either roll forward promptly or temporarily disable affected visual-editor saves until save/read-back verification passes.
@@ -307,7 +327,7 @@ The existing visual-editor page is already a large client surface. This change m
 - No layout, visual hierarchy, visible label, status color, icon, or interaction redesign is proposed.
 - Existing shared dialogs, inputs, buttons, flash/conflict handling, keyboard submit/cancel, and i18n remain in use.
 - Any touched UI line must continue to comply with semantic design tokens, shared primitives, Lucide icon rules, and icon-button accessibility requirements.
-- No new user-facing string is expected. If implementation introduces one, it must use the workflows locale dictionaries in all supported locales.
+- One assignment-required validation key is expected in the workflows locale dictionaries for all supported locales. Any other new user-facing string must follow the same localization path.
 
 ## Implementation Plan
 
@@ -316,9 +336,10 @@ The existing visual-editor page is already a large client surface. This change m
 1. Add validator regression tests that demonstrate current stripping of roles, form key, allowed actions, field metadata, and extension keys.
 2. Extend the user-task and form-field schemas additively.
 3. Add a small pure user-task configuration merge helper with tests for actual structured/advanced ownership, legacy array assignment, untouched JSON Schema preservation, explicit simplified conversion, invalid input, and clearing.
-4. Apply the same helper to the legacy and CrudForm transformation paths, removing the unused pseudo-structured SLA, assignment-rule, and escalation projections rather than adding new controls.
-5. Keep `graphToDefinition()` and `definitionToGraph()` symmetric for advanced-owned aliases and both form-schema formats.
-6. Keep both node editor variants working with no visible UI change.
+4. Reject an explicit visual-editor save or graph validation that clears the final assignment channel, surface the localized error in both dialogs, and leave the definition API schema readable for legacy unassigned documents.
+5. Apply the same helper to the legacy and CrudForm transformation paths, removing the unused pseudo-structured SLA, assignment-rule, and escalation projections rather than adding new controls.
+6. Keep `graphToDefinition()` and `definitionToGraph()` symmetric for advanced-owned aliases and both form-schema formats.
+7. Keep both node editor variants working with no visible UI change except the final-assignment validation error.
 
 Working result: both editor transforms produce the same complete node update and schema parsing preserves it.
 
@@ -326,7 +347,7 @@ Working result: both editor transforms produce the same complete node update and
 
 1. Add a pure node-change-envelope merge helper that encodes page-owned membership/data, React Flow mechanics, explicit add/remove provenance, page-owned source epochs, and per-epoch revision rejection.
 2. Add a synchronous current-node reference and one page update boundary.
-3. Extend the module-local graph callback to handshake a page-issued source epoch and forward resolved nodes, original `NodeChange[]`, source epoch, and per-epoch revision; route initial load, add, dialog save, delete, clear, example load, graph remount, and accepted React Flow changes through the page boundary.
+3. Add optional source-ready and node-change-envelope callbacks that handshake a page-issued source epoch and forward resolved nodes, original `NodeChange[]`, source epoch, and per-epoch revision. Preserve the exported legacy `onNodesChange(nodes: Node[])` contract, and route initial load, add, dialog save, delete, clear, example load, graph remount, and accepted React Flow changes through the page boundary.
 4. Make validate and save serialize the current-node reference, and make Test validate the same reference without adding execution or serialization behavior.
 5. Refresh the selected-node snapshot after node save.
 
@@ -336,9 +357,10 @@ Working result: an immediate workflow action or later graph snapshot cannot roll
 
 1. Add focused component coverage for both dialog variants, including actual structured clears, advanced-owned edits/removals, legacy assignment normalization, and untouched/explicitly converted schemas.
 2. Add page coverage that captures pre-edit save/validate/Test callbacks and proves save/validate serialize the later node edit while Test validates it without serializing.
-3. Add self-contained integration test `TC-WF-033` for create, read-back, update, second read-back, and cleanup.
-4. Run headed UI round-trip coverage for both editor variants on the final implementation head.
-5. Capture save, reload, reopened-dialog, and canonical API evidence before QA approval.
+3. Add focused prop-contract coverage proving all exported graph/mobile interfaces still accept the legacy `Node[]` callback while the new envelope callback is additive.
+4. Add self-contained integration test `TC-WF-033` for create, read-back, update, second read-back, and cleanup.
+5. Run headed UI round-trip coverage for both editor variants on the final implementation head.
+6. Capture save, reload, reopened-dialog, and canonical API evidence before QA approval.
 
 Working result: the exact user-visible failure is proven fixed through the complete persistence boundary.
 
@@ -356,9 +378,10 @@ Working result: the exact user-visible failure is proven fixed through the compl
 | `packages/core/src/modules/workflows/components/__tests__/NodeEditDialog.test.tsx` | Create | Cover legacy dialog persistence and clearing |
 | `packages/core/src/modules/workflows/lib/graph-utils.ts` | Modify | Keep advanced aliases, legacy assignment normalization, and both schema formats symmetric |
 | `packages/core/src/modules/workflows/lib/__tests__/graph-utils.test.ts` | Create or modify | Cover definition/node round-trip compatibility |
-| `packages/core/src/modules/workflows/components/WorkflowGraph.tsx` | Modify | Type the module-local source-ready handshake and node-change envelope callback |
-| `packages/core/src/modules/workflows/components/WorkflowGraphImpl.tsx` | Modify | Acknowledge the page epoch and emit resolved nodes with `NodeChange[]` provenance plus per-epoch revision |
-| `packages/core/src/modules/workflows/components/mobile/MobileVisualEditor.tsx` | Modify | Forward the enriched callback contract without a second ownership path |
+| `packages/core/src/modules/workflows/components/WorkflowGraph.tsx` | Modify | Add optional source-ready and envelope callbacks while preserving the exported legacy resolved-node callback |
+| `packages/core/src/modules/workflows/components/WorkflowGraphImpl.tsx` | Modify | Preserve the legacy callback, acknowledge the page epoch, and emit resolved nodes with `NodeChange[]` provenance plus per-epoch revision |
+| `packages/core/src/modules/workflows/components/mobile/MobileVisualEditor.tsx` | Modify | Forward the additive callbacks without narrowing the exported legacy prop or adding a second ownership path |
+| `packages/core/src/modules/workflows/components/__tests__/WorkflowGraph.callbacks.test.tsx` | Create | Prove legacy callback compatibility and additive envelope/source-ready typing across exported graph/mobile props |
 | `packages/core/src/modules/workflows/lib/visual-editor-node-state.ts` | Create | Encode page/React Flow ownership and revision handling |
 | `packages/core/src/modules/workflows/lib/__tests__/visual-editor-node-state.test.ts` | Create | Cover positions, selection, explicit add/remove, source replacement, stale epochs/revisions, and latest data |
 | `packages/core/src/modules/workflows/backend/definitions/visual-editor/page.tsx` | Modify | Use the synchronous current-node source for graph actions |
@@ -375,10 +398,10 @@ File names may follow the closest existing naming convention at implementation t
 | Boundary | Required cases |
 | --- | --- |
 | Validator | Custom `fields[]`; JSON Schema `properties`; direct string and legacy array assignment; roles; form key; allowed actions; assignment rule; SLA duration; escalation rules; placeholder; default value; extension keys; malformed known fields rejected |
-| Configuration merge | Empty stale config; collisions for the four actual structured surfaces; advanced-owned actions/rule/SLA/escalations/extensions; invalid/non-object JSON; legacy array normalization; exact clear representations |
-| CrudForm transform | Structured collision precedence; advanced-owned edits/removals; top-level alias synchronization; legacy array assignment; untouched JSON Schema; deliberate simplified conversion; exact clears |
-| Legacy dialog | The same ownership and compatibility cases as CrudForm; add/edit/remove simplified fields; save payload; keyboard behavior unchanged; no new pseudo-structured controls |
-| Node change envelope | Position/selection accepted; page-owned data retained; explicit additions/removals accepted; replacement source handshake; revision restart in a new epoch; out-of-order snapshots plus retired-epoch and stale/duplicate active-revision rejection; no array-only deleted-node resurrection; deterministic ordering |
+| Configuration merge | Empty stale config; collisions for the four actual structured surfaces; advanced-owned actions/rule/SLA/escalations/extensions; invalid/non-object JSON; legacy array normalization; exact clear representations; final assignment clear rejected without mutation |
+| CrudForm transform | Structured collision precedence; advanced-owned edits/removals; top-level alias synchronization; legacy array assignment; untouched JSON Schema; deliberate simplified conversion; exact clears; localized both-empty assignment rejection |
+| Legacy dialog | The same ownership and compatibility cases as CrudForm; add/edit/remove simplified fields; save payload; localized both-empty assignment rejection; keyboard behavior unchanged; no new pseudo-structured controls |
+| Node change envelope | Position/selection accepted; page-owned data retained; explicit additions/removals accepted; replacement source handshake; revision restart in a new epoch; out-of-order snapshots plus retired-epoch and stale/duplicate active-revision rejection; no array-only deleted-node resurrection; deterministic ordering; legacy `onNodesChange` still receives resolved `Node[]` |
 | Visual-editor page | Immediate validate/save after dialog edit serializes current data; immediate Test validates current data without serialization; selected node reflects save; delayed callbacks from retired graph sources cannot roll back current data |
 | Graph conversion | Definition-to-graph-to-definition preserves untouched JSON Schema, custom fields, extension keys, advanced aliases, and legacy assignment semantics |
 | Runtime/task consumers | `step-handler` assignment/form behavior; task completion validation; backend, mobile, and checkout known-field rendering; unknown keys inert |
@@ -394,8 +417,9 @@ File names may follow the closest existing naming convention at implementation t
 5. Read each definition through the API and assert exact logical persistence: custom metadata, advanced-only keys, legacy assignment normalized without changing role meaning, and untouched JSON Schema including unsupported keywords.
 6. Explicitly edit the simplified fields derived from the JSON Schema fixture, acknowledge the existing warning, and assert the documented converted representation and dropped-key set after API read-back.
 7. Exercise structured clears through controls and advanced-owned removals through advanced JSON, save and reload again, then assert the exact canonical representation from the table above in both UI and API read-back. Test direct assignment and role clearing in separate edits so every runnable fixture keeps at least one valid assignment channel.
-8. Exercise graph add/remove and drag/select through the visible controls, remount through mobile, compact, and desktop viewport transitions, edit again, immediately save, read the canonical API response, reload, and reopen the node. Prove the visible replacement graph accepts the edit and a removed node remains absent. Out-of-order snapshots, stale or duplicate revisions, retired epochs/sources, and delayed callbacks remain deterministic pure node-state and page component test responsibilities rather than Playwright inputs.
-9. Delete every fixture in `finally`, without relying on seeded/demo data.
+8. Attempt to clear the remaining assignment channel, assert the localized validation error, and prove through the dialog plus API read-back that the node retains its prior valid assignment.
+9. Exercise graph add/remove and drag/select through the visible controls, remount through mobile, compact, and desktop viewport transitions, edit again, immediately save, read the canonical API response, reload, and reopen the node. Prove the visible replacement graph accepts the edit and a removed node remains absent. Out-of-order snapshots, stale or duplicate revisions, retired epochs/sources, and delayed callbacks remain deterministic pure node-state and page component test responsibilities rather than Playwright inputs.
+10. Delete every fixture in `finally`, without relying on seeded/demo data.
 
 The same test must be executable in both build configurations: default legacy dialog and `NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED=true`. Before the implementation PR is ready, evidence must show both executions on its final head. The test belongs under the workflows module `__integration__` directory and must use the current shared helper import paths.
 
@@ -412,7 +436,8 @@ Use headed execution of `TC-WF-033` on the final implementation head for the def
 7. Open a legacy array-assignment fixture, save it, and confirm its role meaning is retained through normalization to `assignedToRoles`.
 8. Save an untouched JSON Schema fixture after assignment and graph-mechanics changes and confirm the complete schema is unchanged; then explicitly edit a derived field and confirm the warned simplified conversion exactly matches the documented mapping.
 9. Clear direct assignment and roles in separate edits while keeping the other assignment channel populated; clear form key and the final simplified field through controls, and remove rule/SLA/escalation/action/extension keys through advanced JSON. Save, reload, and confirm the exact persisted representations.
-10. Confirm canonical API read-back matches the reopened dialog and clean up all fixtures.
+10. Attempt to clear the remaining assignment channel and confirm the localized rejection leaves the node and canonical API representation unchanged.
+11. Confirm canonical API read-back matches the reopened dialog and clean up all fixtures.
 
 Required evidence: route and final commit, editor variant, before-save state, workflow-save result, reloaded dialog, cleared-state reload, API read-back, and cleanup result.
 
@@ -446,6 +471,13 @@ Run `corepack yarn generate` only if implementation changes an auto-discovered m
 - **Affected area**: Visual-editor workflow definition persistence
 - **Mitigation**: Synchronize all page-owned node updates into a current reference; Validate and Save serialize it, while Test validates it without introducing nonexistent execution/serialization behavior.
 - **Residual risk**: A future node mutation that bypasses the central update boundary could reintroduce the race; page tests and code review must check all node setters.
+
+#### Clearing both assignment channels creates an unclaimable task
+- **Scenario**: A visual-editor user removes the final direct or role assignment, leaving a runnable user task that no actor can claim.
+- **Severity**: High
+- **Affected area**: Workflow authoring, graph validation, and future task execution
+- **Mitigation**: Reject the final clear before mutating node state in both dialogs and reject the same both-empty state during visual graph validation, with component and real-route regression coverage.
+- **Residual risk**: Legacy API-authored documents may already be unassigned; this capability deliberately keeps those documents readable and does not narrow the established definition wire schema.
 
 #### Legacy array assignment changes meaning during edit
 - **Scenario**: An existing `assignedTo: string[]` definition is loaded into a string-only control and is stringified, cleared, or combined differently from runtime behavior.
@@ -540,12 +572,12 @@ The change is deployable without downtime and requires no migration. Rollback le
 | Root `AGENTS.md` | Check existing specs and keep the change minimal | Compliant | One workflows capability; related merged specs do not cover this round-trip |
 | Root `AGENTS.md` | Preserve behavior unless explicitly changed | Compliant | Only data-loss behavior changes; runtime and public contracts remain stable |
 | Root `AGENTS.md` | New feature specs include API and key UI integration coverage | Compliant | Real-route Playwright coverage is required in both editor configurations, including save/reload/reopen and cleanup |
-| `BACKWARD_COMPATIBILITY.md` | API routes, types, event IDs, DI keys, ACL IDs, and schema are stable | Compliant | Additive optional validator fields; legacy array assignment keeps runtime meaning; untouched JSON Schema stays unchanged; no frozen identifier changes |
+| `BACKWARD_COMPATIBILITY.md` | API routes, exported types, event IDs, DI keys, ACL IDs, and schema are stable | Compliant | Additive optional validator fields and graph callbacks; exported legacy `Node[]` callbacks remain supported; legacy array assignment keeps runtime meaning; untouched JSON Schema stays unchanged; no frozen identifier changes |
 | `.ai/specs/AGENTS.md` | Include required sections, concrete risks, and changelog | Compliant | All required sections are present |
 | `.ai/qa/AGENTS.md` | Integration tests are module-local, deterministic, fixture-owned, and cleaned up | Compliant | `TC-WF-033` covers only user-executable real-route behavior and cleans up its definitions; internal epoch, revision, snapshot-order, and retired-source cases remain deterministic unit/component coverage |
 | `packages/core/AGENTS.md` | Preserve API metadata, guards, tenant scope, and optimistic locking | Compliant | Existing routes and mutation flow are unchanged |
 | Workflows `AGENTS.md` | Do not change state machines; keep workflow data tenant scoped | Compliant | Definition-authoring-only change; no new query or state transition |
-| `packages/ui/AGENTS.md` and DS rules | Reuse existing primitives, i18n, dialog keyboard, and semantic tokens | Compliant | No visible UI redesign or new string is planned |
+| `packages/ui/AGENTS.md` and DS rules | Reuse existing primitives, i18n, dialog keyboard, and semantic tokens | Compliant | No visible UI redesign; the assignment-required error uses workflows locale dictionaries |
 | Frontend architecture contract | Declare boundaries, client ledger, budgets, and interaction evidence | Compliant | Existing client surface is bounded; no new heavy dependency/provider/client root |
 | Spec checklist | Define undo, security, compatibility, risks, and deployment behavior | Compliant | Explicitly covered; irrelevant cache/event/worker concerns are N/A |
 
@@ -556,6 +588,8 @@ The change is deployable without downtime and requires no migration. Rollback le
 | Data model matches API contract | Pass | Existing workflow JSON document and routes are unchanged |
 | API contract matches UI path | Pass | Both dialogs distinguish actual structured controls, advanced-owned values, and deliberate schema conversion before graph serialization and API validation |
 | Clearing semantics match read-back criteria | Pass | Structured clears and advanced-owned removals are separately specified and tested through reload |
+| Assignment invariant matches compatibility boundary | Pass | Visual node save and graph validation reject a final clear without narrowing the legacy definition API schema |
+| Exported callback compatibility | Pass | Legacy `Node[]` callbacks remain supported and the provenance envelope is additive |
 | Risks cover all writes | Pass | One existing atomic definition mutation with optimistic locking |
 | Commands/events/cache strategy | N/A | No new domain command, event, cache, worker, or side effect |
 | Frontend ownership and hydration plan | Pass | Page/React Flow ownership, budgets, and headed interaction proof are explicit |
@@ -570,6 +604,12 @@ None in the specification content. Lifecycle approval remains separate: this dra
 - **Lifecycle**: Blocked for implementation until the specification contribution and admission sequence complete.
 
 ## Changelog
+
+### 2026-07-29
+
+- Reconciled the specification with overlapping open work in #4019, #4085, and #4291, including one-owner and test-ID guidance.
+- Preserved the exported `onNodesChange(nodes: Node[])` contract and made graph provenance/ready callbacks additive, with explicit compatibility coverage.
+- Enforced the runnable user-task assignment invariant at visual node save and graph validation while retaining legacy API readability.
 
 ### 2026-07-22
 
@@ -588,3 +628,12 @@ None in the specification content. Lifecycle approval remains separate: this dra
 - **Commands**: N/A; no new domain mutation or side effect
 - **Risks**: Passed after exact clear-state, rollback, and durable route-level regression requirements were added
 - **Verdict**: Ready for targeted draft review; implementation remains lifecycle-blocked
+
+### Review fix-forward - 2026-07-29
+
+- **Reviewer**: Automated PR review with an independent fresh-context scope pass
+- **Scope cohesion**: Passed; the spec remains one independently deployable round-trip capability
+- **Backward compatibility**: Passed after preserving exported legacy graph/mobile callbacks and making provenance additive
+- **Concurrent work**: Passed after documenting ownership and integration decisions for #4019, #4085, and #4291
+- **Data integrity**: Passed after rejecting the final assignment clear without narrowing the legacy definition wire schema
+- **Verdict**: Ready for re-review; implementation remains lifecycle-blocked
