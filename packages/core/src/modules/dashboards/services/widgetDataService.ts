@@ -18,6 +18,7 @@ import {
   type DateGranularity,
   buildAggregationQuery,
 } from '../lib/aggregations'
+import { resolveBaseCurrencyCode } from '../lib/baseCurrency'
 import type { AnalyticsRegistry } from './analyticsRegistry'
 
 const WIDGET_DATA_CACHE_TTL = 120_000
@@ -82,6 +83,11 @@ export type WidgetDataResponse = {
   metadata: {
     fetchedAt: string
     recordCount: number
+    /**
+     * Base currency of the requesting scope, or `null` when none is configured.
+     * Money-rendering widgets format with it instead of assuming USD (#4620).
+     */
+    currency: string | null
   }
 }
 
@@ -102,6 +108,7 @@ export class WidgetDataService {
   private scope: WidgetDataScope
   private registry: AnalyticsRegistry
   private cache?: CacheStrategy
+  private baseCurrencyPromise?: Promise<string | null>
 
   constructor(options: WidgetDataServiceOptions) {
     this.em = options.em
@@ -118,6 +125,14 @@ export class WidgetDataService {
 
   private getCacheTags(entityType: string): string[] {
     return ['widget-data', `widget-data:${entityType}`]
+  }
+
+  /** One lookup per service instance, so a batched dashboard render pays for it once. */
+  private resolveBaseCurrency(): Promise<string | null> {
+    if (!this.baseCurrencyPromise) {
+      this.baseCurrencyPromise = resolveBaseCurrencyCode(this.em, this.scope)
+    }
+    return this.baseCurrencyPromise
   }
 
   async fetchWidgetData(request: WidgetDataRequest): Promise<WidgetDataResponse> {
@@ -147,11 +162,12 @@ export class WidgetDataService {
 
     const shouldFetchComparison = Boolean(comparisonRange && request.dateRange)
 
-    const [mainResult, comparisonResult] = await Promise.all([
+    const [mainResult, comparisonResult, currency] = await Promise.all([
       this.executeQuery(request, dateRangeResolved),
       shouldFetchComparison && comparisonRange
         ? this.executeQuery(request, comparisonRange)
         : Promise.resolve<{ value: number | null; data: WidgetDataItem[] } | undefined>(undefined),
+      this.resolveBaseCurrency(),
     ])
 
     const response: WidgetDataResponse = {
@@ -160,6 +176,7 @@ export class WidgetDataService {
       metadata: {
         fetchedAt: now.toISOString(),
         recordCount: mainResult.data.length || (mainResult.value !== null ? 1 : 0),
+        currency,
       },
     }
 
