@@ -25,6 +25,20 @@
     "status": { "enum": ["pass", "fail", "error"] },
     "sanitizedError": { "type": "string", "maxLength": 4096 },
     "refusedContextReads": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["promptTokens", "completionTokens", "cost"],
+      "properties": {
+        "servedBy": { "type": "string", "maxLength": 200 },
+        "structuredOutput": { "type": "string", "maxLength": 40 },
+        "steps": { "type": "integer", "minimum": 0 },
+        "toolCalls": { "type": "integer", "minimum": 0 },
+        "promptTokens": { "type": "integer", "minimum": 0 },
+        "completionTokens": { "type": "integer", "minimum": 0 },
+        "cost": { "type": "number", "minimum": 0 }
+      }
+    },
     "actualContext": {
       "type": "object",
       "additionalProperties": false,

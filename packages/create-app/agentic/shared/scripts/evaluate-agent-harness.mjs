@@ -1690,6 +1690,32 @@ function routingCorrectionDiagnostics(violations) {
   return [...diagnostics]
 }
 
+// A gateway may serve one model from several hosts, precisions, and decoding defaults, so a
+// pinned sweep is only evidence if each case records which host actually answered it and
+// whether the schema was enforced. Absent or malformed metadata simply stays out.
+function providerMetadata(stdout) {
+  const lines = String(stdout ?? '').trim().split(/\r?\n/).filter(Boolean)
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    let event
+    try { event = JSON.parse(lines[index]) } catch { continue }
+    if (!isPlainObject(event) || event.type !== 'provider_metadata') continue
+    const usage = isPlainObject(event.usage) ? event.usage : {}
+    const numeric = (value) => (Number.isFinite(value) ? value : 0)
+    return {
+      provider: {
+        ...(typeof event.provider === 'string' && event.provider ? { servedBy: event.provider.slice(0, 200) } : {}),
+        ...(typeof event.structuredOutput === 'string' ? { structuredOutput: event.structuredOutput.slice(0, 40) } : {}),
+        ...(Number.isInteger(event.steps) ? { steps: event.steps } : {}),
+        ...(Number.isInteger(event.toolCalls) ? { toolCalls: event.toolCalls } : {}),
+        promptTokens: numeric(usage.prompt_tokens),
+        completionTokens: numeric(usage.completion_tokens),
+        cost: numeric(usage.cost),
+      },
+    }
+  }
+  return undefined
+}
+
 function runnerVersion(runner, root) {
   // The OpenAI-compatible lane is harness-owned, so its identity is the interpreter plus
   // the endpoint host it was pointed at, never a vendor CLI version probe.
@@ -2782,6 +2808,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         actualContext: stats,
         declaredContext: declaredStats,
         ...(trace.refusedPaths?.length ? { refusedContextReads: recursivelySanitize(trace.refusedPaths, runRoot) } : {}),
+        ...(providerMetadata(execution.stdout) ?? {}),
         ...(writableResult ? { writable: writableResult } : {}),
       }
       const resultPath = writeResult(root, result, resultSchema)

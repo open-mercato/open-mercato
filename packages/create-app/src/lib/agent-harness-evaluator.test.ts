@@ -52,6 +52,7 @@ type StoredResult = {
   corrections: number
   sanitizedError?: string
   refusedContextReads?: string[]
+  provider?: { servedBy?: string; structuredOutput?: string; steps?: number; toolCalls?: number; promptTokens: number; completionTokens: number; cost: number }
   actualContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   declaredContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   writable?: { changedPaths: string[]; targetFingerprint: string }
@@ -1182,6 +1183,12 @@ test('the OpenAI-compatible lane reaches app content only through the harness to
     const [stored] = storedResults(root)
     assert.deepEqual(stored.violations, [])
     assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+    // Which host answered, and whether it enforced the schema, is the evidence that makes a
+    // pinned sweep attributable, so it belongs in the artifact rather than in a console line.
+    assert.equal(stored.provider?.servedBy, 'MockProvider')
+    assert.equal(stored.provider?.structuredOutput, 'json_schema')
+    assert.equal(stored.provider?.toolCalls, 2)
+    assert.ok((stored.provider?.promptTokens ?? 0) > 0)
   } finally {
     provider.stop()
     fs.rmSync(root, { recursive: true, force: true })
