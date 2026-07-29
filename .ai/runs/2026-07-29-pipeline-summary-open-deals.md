@@ -118,3 +118,7 @@ one that covers the keys this change adds.
 ### Phase 4: Validation
 
 - [x] 4.1 Run the full validation gate — 7/8 green; `i18n:check-usage` blocked by a pre-existing failure (see Validation blocker)
+
+### Phase 5: Review pass (om-auto-review-pr)
+
+- [x] 5.1 Fix the review blocker: `dehydrateSettings` dropped `statusScope` — 021fd35e8
