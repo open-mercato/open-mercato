@@ -108,6 +108,31 @@ export function resolveEnvSettings(env: NodeJS.ProcessEnv = process.env): {
   }
 }
 
+/**
+ * Backfills the model adapter's budget on a policy that did not name one.
+ *
+ * A stored adapter list replaces the env-derived one outright, so every tenant
+ * who ever saved from the settings page has a `model-native` row with no
+ * `timeoutMs` — and the shared 8s budget times it out on every run, which is the
+ * whole failure this default exists to prevent. An explicit value is left alone:
+ * an operator who chose one owns it.
+ */
+export function withModelAdapterBudget(policy: SearchPolicy): SearchPolicy {
+  const needsBudget = policy.adapters.some(
+    (entry) => entry.id === MODEL_ADAPTER_ID && entry.timeoutMs === undefined,
+  )
+  if (!needsBudget) return policy
+  return {
+    ...policy,
+    hardDeadlineMs: Math.max(policy.hardDeadlineMs, MODEL_ADAPTER_TIMEOUT_MS),
+    adapters: policy.adapters.map((entry) =>
+      entry.id === MODEL_ADAPTER_ID && entry.timeoutMs === undefined
+        ? { ...entry, timeoutMs: MODEL_ADAPTER_TIMEOUT_MS }
+        : entry,
+    ),
+  }
+}
+
 export const guardrailsSchema = z.object({
   allowDomains: z.array(z.string()).optional(),
   denyDomains: z.array(z.string()).optional(),
@@ -169,10 +194,11 @@ export async function resolveWebSearchSettings(
   }
 
   const storedPolicy = stored ? searchPolicySchema.safeParse(stored) : null
-  const policy = resolvePolicy({
+  const merged = resolvePolicy({
     ...base.policy,
     ...(storedPolicy?.success ? storedPolicy.data : {}),
   })
+  const policy = withModelAdapterBudget(merged)
 
   const storedGuardrails = (stored?.guardrails ?? {}) as Partial<WebSearchGuardrails>
   const adapterOptions = (stored?.adapterOptions ?? {}) as Record<string, unknown>

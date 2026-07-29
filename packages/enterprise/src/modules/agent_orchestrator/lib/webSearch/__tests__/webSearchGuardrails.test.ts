@@ -1,7 +1,13 @@
 import type { AwilixContainer } from 'awilix'
 import { MODEL_ADAPTER_TIMEOUT_MS, resolvePolicy } from '@open-mercato/web-research'
 import { enforceWebSearchRateLimit, resolveRunId } from '../guardrails'
-import { hostnameOf, isHostAllowed, resolveEnvSettings, type WebSearchGuardrails } from '../policy'
+import {
+  hostnameOf,
+  isHostAllowed,
+  resolveEnvSettings,
+  withModelAdapterBudget,
+  type WebSearchGuardrails,
+} from '../policy'
 
 const guardrails: WebSearchGuardrails = {
   allowDomains: [],
@@ -47,6 +53,36 @@ describe('resolveEnvSettings', () => {
     expect(settings.policy.adapters).toEqual([
       { id: 'model-native', enabled: true, order: 0, weight: 1, timeoutMs: MODEL_ADAPTER_TIMEOUT_MS },
     ])
+  })
+
+  it('backfills the model budget on a stored policy that never named one', () => {
+    // A stored adapter list replaces the env-derived one outright, so every
+    // tenant who saved from the settings page has a model-native row with no
+    // timeout, and the shared 8s budget times it out on every single run.
+    const stored = resolvePolicy({
+      adapters: [
+        { id: 'model-native', enabled: true, order: 0, weight: 1 },
+        { id: 'serp-html', enabled: true, order: 1, weight: 1 },
+      ],
+      hardDeadlineMs: 15_000,
+    })
+    expect(stored.adapters.find((entry) => entry.id === 'model-native')?.timeoutMs).toBeUndefined()
+
+    const patched = withModelAdapterBudget(stored)
+
+    expect(patched.adapters.find((entry) => entry.id === 'model-native')?.timeoutMs).toBe(
+      MODEL_ADAPTER_TIMEOUT_MS,
+    )
+    // A budget past the hard deadline can never be reached, so the ceiling moves with it.
+    expect(patched.hardDeadlineMs).toBeGreaterThanOrEqual(MODEL_ADAPTER_TIMEOUT_MS)
+    expect(patched.adapters.find((entry) => entry.id === 'serp-html')?.timeoutMs).toBeUndefined()
+  })
+
+  it('leaves an explicitly chosen model budget alone', () => {
+    const chosen = resolvePolicy({
+      adapters: [{ id: 'model-native', enabled: true, order: 0, weight: 1, timeoutMs: 5_000 }],
+    })
+    expect(withModelAdapterBudget(chosen).adapters[0]?.timeoutMs).toBe(5_000)
   })
 
   it('gives the default adapter a budget it can actually finish in', () => {
