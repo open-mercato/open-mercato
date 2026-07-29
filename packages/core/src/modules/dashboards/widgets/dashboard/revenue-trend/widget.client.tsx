@@ -114,6 +114,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
   const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<LineChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -134,6 +135,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load revenue trend data', { err })
       setError(t('dashboards.analytics.widgets.revenueTrend.error', 'Failed to load data'))
@@ -146,6 +148,11 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
   React.useEffect(() => {
     refresh().catch(() => {})
   }, [refresh, refreshToken])
+
+  const valueFormatter = React.useCallback(
+    (amount: number) => formatCurrencyCompact(amount, { currency }),
+    [currency],
+  )
 
   if (mode === 'settings') {
     return (
@@ -212,7 +219,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         loading={loading}
         error={error}
         showArea={hydrated.showArea}
-        valueFormatter={formatCurrencyCompact}
+        valueFormatter={valueFormatter}
         colors={['blue']}
         emptyMessage={t('dashboards.analytics.widgets.revenueTrend.empty', 'No revenue data for this period')}
       />

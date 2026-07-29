@@ -70,6 +70,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<BarChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const fetchingRef = React.useRef(false)
@@ -88,6 +89,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load top products data', { err })
       setError(t('dashboards.analytics.widgets.topProducts.error', 'Failed to load data'))
@@ -101,6 +103,11 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
   React.useEffect(() => {
     refresh().catch(() => {})
   }, [refresh, refreshToken])
+
+  const valueFormatter = React.useCallback(
+    (amount: number) => formatCurrencyCompact(amount, { currency }),
+    [currency],
+  )
 
   if (mode === 'settings') {
     return (
@@ -172,7 +179,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           loading={loading}
           error={error}
           layout={hydrated.layout}
-          valueFormatter={formatCurrencyCompact}
+          valueFormatter={valueFormatter}
           colors={['emerald']}
           showLegend={false}
           emptyMessage={t('dashboards.analytics.widgets.topProducts.empty', 'No product sales data for this period')}

@@ -58,6 +58,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<BarChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -75,6 +76,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           Value: item.value ?? 0,
         }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load pipeline data', { err })
       setError(t('dashboards.analytics.widgets.pipelineSummary.error', 'Failed to load data'))
@@ -87,6 +89,11 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
   React.useEffect(() => {
     refresh().catch(() => {})
   }, [refresh, refreshToken])
+
+  const valueFormatter = React.useCallback(
+    (amount: number) => formatCurrencyCompact(amount, { currency }),
+    [currency],
+  )
 
   if (mode === 'settings') {
     return (
@@ -117,7 +124,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           categoryLabels={{ Value: t('dashboards.analytics.labels.value', 'Value') }}
           loading={loading}
           error={error}
-          valueFormatter={formatCurrencyCompact}
+          valueFormatter={valueFormatter}
           colors={['violet']}
           showLegend={false}
           emptyMessage={t('dashboards.analytics.widgets.pipelineSummary.empty', 'No deal data for this period')}

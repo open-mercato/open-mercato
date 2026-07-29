@@ -45,6 +45,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [value, setValue] = React.useState<number | null>(null)
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [trend, setTrend] = React.useState<KpiTrend | undefined>(undefined)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -57,6 +58,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
     try {
       const data = await fetchRevenueData(hydrated, fetchWidgetData)
       setValue(data.value)
+      setCurrency(data.metadata?.currency ?? null)
       if (data.comparison) {
         setTrend({
           value: data.comparison.change,
@@ -77,6 +79,11 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
   React.useEffect(() => {
     refresh().catch(() => {})
   }, [refresh, refreshToken])
+
+  const formatValue = React.useCallback(
+    (amount: number) => formatCurrency(amount, { currency }),
+    [currency],
+  )
 
   if (mode === 'settings') {
     return (
@@ -114,7 +121,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
       comparisonLabel={comparisonLabel}
       loading={loading}
       error={error}
-      formatValue={formatCurrency}
+      formatValue={formatValue}
       headerAction={
         <InlineDateRangeSelect
           value={hydrated.dateRange}

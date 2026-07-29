@@ -56,6 +56,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
   const t = useT()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<CustomerRow[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -76,10 +77,10 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
         key: 'revenue',
         header: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue'),
         align: 'right',
-        formatter: (value: unknown) => formatCurrencySafe(value),
+        formatter: (value: unknown) => formatCurrencySafe(value, '--', { currency }),
       },
     ],
-    [t, unknownLabel],
+    [currency, t, unknownLabel],
   )
 
   const fetchWidgetData = useWidgetData()
@@ -95,6 +96,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
         revenue: item.value ?? 0,
       }))
       setData(tableData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load top customers data', { err })
       setError(t('dashboards.analytics.widgets.topCustomers.error', 'Failed to load data'))
