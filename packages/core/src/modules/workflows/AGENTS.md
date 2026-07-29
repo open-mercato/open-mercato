@@ -555,6 +555,46 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   document, the undo stack, an autosave or `graphToDefinition` — guarded by
   `lib/__tests__/last-run-overlay.test.ts`. It fetches nothing until the toggle is on.
 
+## Per-Definition KPI Rollup (spec §8.5)
+
+- **`lib/metrics/definition-metrics.ts` (PURE) owns what the numbers MEAN**;
+  `lib/metrics/rollup-service.ts` owns the queries and the upsert. The shape MIRRORS
+  `agent_orchestrator`'s `AgentMetricRollup` (tenant/org + logical id + window bounds +
+  `computed_at` + a zod-validated `metrics` jsonb) and never imports it — `enterprise` is an
+  optional peer. Two deliberate divergences fix latent flaws in the mirror: `window_key` is its
+  own column and part of the key (otherwise a 7d and a 30d window can collide on `window_start`
+  and overwrite each other), and the key `(tenant, org, workflow_id, window_key, window_start)` is
+  DB-enforced UNIQUE (the mirror read-then-inserts with no constraint, so two passes both insert).
+- **The rollup is RECOMPUTED, never incremented.** `writeRollupsForScope` snaps the bounds to
+  `WORKFLOW_ROLLUP_BUCKET_MS` (15 min), rebuilds each window from source rows and upserts. Two
+  passes in one bucket therefore produce byte-identical rows; a pass after the bucket rolls over
+  adds a row rather than mutating history. MUST NOT convert this to an incremental counter.
+- **Only metrics the engine actually populates ship.** `StepInstance.executionTimeMs` is
+  deliberately NOT used: `exitStep` writes it on the COMPLETED path only, and every FAILED path
+  leaves it null, so a "step p95" would be a success-only latency wearing the wrong name. Run
+  duration is `startedAt` → the terminal timestamp instead. **`COMPENSATED` is absent from
+  `WORKFLOW_TERMINAL_STATUSES`** because `compensation-handler` writes NO terminal timestamp and
+  `completeWorkflow` returns before its own `completedAt` assignment on that path — a compensated
+  run belongs to no window. Fixing that is a state-machine change (Ask First).
+- **Every rate reports its denominator, and a zero denominator is `null`, never 0.** "No run
+  finished in this window" and "every run failed" are opposite facts.
+- **Dry runs never count**: `isDryRun: false` is on every instance query and tasks are reached only
+  through those instances' ids. The same filter was missing from `api/instances/failure-queue` and
+  is now there.
+- **A rollup ROW is per-organization, so the read route serves it only for a single-organization
+  scope**; a multi-org or tenant-wide scope live-computes over the resolved set, because counts sum
+  across organizations but a percentile does not. `GET api/metrics/definitions` (feature
+  `workflows.metrics.view`, batch capped at 50 ids) reports `source: 'rollup' | 'live'` per item and
+  re-validates every stored row against `workflowDefinitionMetricsSchema`.
+- Scheduled PER ORGANIZATION from `setup.ts` (`@open-mercato/scheduler`, optional peer, best-effort)
+  onto the `workflow-definition-metric-rollup` queue. The queue name is a string LITERAL in the
+  worker — the generator's AST extractor cannot resolve an imported one — and a test asserts it
+  matches `WORKFLOW_DEFINITION_METRIC_ROLLUP_QUEUE`.
+- Still §8.5 and deliberately NOT here: repeated-failure alerts, the process correlation view,
+  the triggers reverse lookup, a cross-org overview surface, retention/archival, and the
+  stuck / awaiting-disposition-too-long halves of the needs-attention queue (the failed +
+  attention-parked halves already ship as `api/instances/failure-queue`).
+
 ## Dry Run (spec §8.2)
 
 - **A dry run is a REAL instance executed by the ordinary engine, not a second interpreter.**
@@ -910,7 +950,7 @@ When adding new injected widgets, follow this pattern — keep the widget self-c
 
 ```
 src/modules/workflows/
-├── acl.ts                    # 26 RBAC features
+├── acl.ts                    # 27 RBAC features
 ├── ce.ts                     # Custom entities (empty)
 ├── cli.ts                    # CLI: seed-demo, start-worker, process-activities
 ├── di.ts                     # DI: workflowExecutor, stepHandler, transitionHandler, activityExecutor, eventLogger
