@@ -345,6 +345,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.29 Bind provider repair, multi-seam persistence, verification, and compatibility work to their progressive references — `5725cca14`
 - [x] 3.30 Bind installed customer-success response, event, and ID extensions to the compatibility snapshot — `65f481756`
 - [x] 3.31 Align the CLI scaffold integration expectation with the intentionally removed unreachable package guides — `58216de54`
+- [x] 3.32 Stabilize measured high-effort mini timeouts, exact unavailable-read startup recovery, installed-contract UMES routing, callback inbox claiming, and observed context floors — `13d13ab6a`
 
 ### Phase 4: Compatibility baseline
 
