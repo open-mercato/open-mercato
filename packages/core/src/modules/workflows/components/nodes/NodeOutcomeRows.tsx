@@ -5,6 +5,7 @@ import { Check, CircleAlert, Info, ShieldMinus, Slash, Dot } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { NodeOutcomeRow, NodeOutcomeRowGlyph, NodeOutcomeRowTone } from '../../lib/node-outcome-rows'
+import { NODE_HANDLE_CLASS, NODE_HANDLE_EDGE_OFFSET } from '../../lib/node-geometry'
 
 /**
  * The node's outcome-row footer (fidelity gap #4, spec §7.2).
@@ -93,8 +94,8 @@ export function NodeOutcomeRows({
                 isConnectable={isConnectable}
                 title={label}
                 aria-label={label}
-                style={{ right: -6, top: '50%' }}
-                className={`!h-2.5 !w-2.5 !border-2 !border-background ${TONE_DOT_CLASSES[row.tone]}`}
+                style={{ right: NODE_HANDLE_EDGE_OFFSET, top: '50%' }}
+                className={`${NODE_HANDLE_CLASS} ${TONE_DOT_CLASSES[row.tone]}`}
               />
             </div>
           )

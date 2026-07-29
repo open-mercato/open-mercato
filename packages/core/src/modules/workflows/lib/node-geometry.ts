@@ -1,6 +1,6 @@
 /**
  * Rendered node geometry — the SINGLE source of truth for how much space a
- * workflow node occupies.
+ * workflow node occupies AND for how big its connection handles are.
  *
  * Two consumers need the same numbers and used to keep private copies in sync
  * behind a comment: `components/WorkflowNodeCard.tsx` (which renders the card)
@@ -9,6 +9,13 @@
  * here instead. This module stays PURE — no React, no `lucide-react`, no
  * `@xyflow/react` — so the layout transform can import it in node and jest
  * contexts without pulling in the editor's render chain.
+ *
+ * The handle constants below joined it for the same reason: every node
+ * component spelled its own `!w-3 !h-3 !border-2 !border-background` and the
+ * outcome-row footer spelled a smaller one, so a footer dot and the source
+ * handle floating beside it rendered at different diameters on the same card.
+ * Tailwind scans this file (`@source ".../@open-mercato/core/src/**\/*.{ts,tsx}"`),
+ * so the literals here are real utilities, not dead strings.
  */
 
 /** Narrowest a `w-fit` card may render. */
@@ -46,3 +53,41 @@ export const NODE_OUTCOME_FOOTER_CHROME_HEIGHT = 22
  */
 export const TERMINAL_NODE_MIN_WIDTH = 96
 export const TERMINAL_NODE_HEIGHT = 36
+
+/**
+ * Diameter, in px, of a connection handle. One number for the target handle,
+ * every source handle, the error handle and the terminal pills' handles: a
+ * canvas where the dots differ in size reads as a rendering bug, and the
+ * maintainer's report of "different sizes" was exactly a 10px footer dot next
+ * to a 12px floating one.
+ */
+export const NODE_HANDLE_SIZE = 12
+
+/** Tailwind form of {@link NODE_HANDLE_SIZE}. */
+export const NODE_HANDLE_SIZE_CLASS = '!h-3 !w-3'
+
+/**
+ * The ring that lifts a handle off whatever it overlaps. Kept with the size so
+ * a handle can never be resized without its border following.
+ */
+export const NODE_HANDLE_BORDER_CLASS = '!border-2 !border-background'
+
+/** Size + ring. Callers add only the DS colour token the handle speaks with. */
+export const NODE_HANDLE_CLASS = `${NODE_HANDLE_SIZE_CLASS} ${NODE_HANDLE_BORDER_CLASS}`
+
+/**
+ * How far a handle overhangs the edge it sits on — half its diameter, so it
+ * straddles the border rather than floating beside it. React Flow positions
+ * edge-anchored handles itself; this is for handles placed by a row's own
+ * layout (the outcome footer), which have to reproduce the same overhang.
+ */
+export const NODE_HANDLE_EDGE_OFFSET = -(NODE_HANDLE_SIZE / 2)
+
+/**
+ * Sub-workflow IO ports are deliberately smaller than a control-flow handle:
+ * a sub-workflow fans out one per declared input/output along an edge a
+ * control-flow handle owns alone. Registered here anyway so the two sizes are
+ * a decision made in one file rather than a drift discovered on a card.
+ */
+export const NODE_PORT_HANDLE_SIZE_CLASS = '!h-2.5 !w-2.5'
+export const NODE_PORT_HANDLE_CLASS = `${NODE_PORT_HANDLE_SIZE_CLASS} !border !border-background`

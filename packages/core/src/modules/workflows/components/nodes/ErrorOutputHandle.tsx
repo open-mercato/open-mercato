@@ -1,6 +1,7 @@
 'use client'
 
 import { Handle, Position } from '@xyflow/react'
+import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ERROR_SOURCE_HANDLE_ID } from '../../lib/error-routing'
 
@@ -25,7 +26,7 @@ export function ErrorOutputHandle({ isConnectable }: { isConnectable?: boolean }
       aria-label={label}
       data-testid="workflow-error-handle"
       style={{ top: '75%' }}
-      className="!w-3 !h-3 !bg-status-error-icon !border-2 !border-background"
+      className={`${NODE_HANDLE_CLASS} !bg-status-error-icon`}
     />
   )
 }
