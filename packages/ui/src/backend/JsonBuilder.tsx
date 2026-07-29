@@ -164,7 +164,7 @@ export function JsonBuilder({
                         disabled={disabled}
                     />
                     {parseError && (
-                        <div className="text-xs text-red-600">Invalid JSON format</div>
+                        <div className="text-xs text-destructive">Invalid JSON format</div>
                     )}
                 </div>
             ) : (
@@ -185,7 +185,7 @@ export function JsonBuilder({
                 </div>
             )}
 
-            {error && <div className="text-xs text-red-600">{error}</div>}
+            {error && <div className="text-xs text-destructive">{error}</div>}
             {ConfirmDialogElement}
         </div>
     )

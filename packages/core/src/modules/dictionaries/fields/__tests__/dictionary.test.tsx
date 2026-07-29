@@ -100,13 +100,13 @@ describe('dictionary field defEditor', () => {
     expect(screen.getByText('Default values are not available for multi-select dictionary fields.')).toBeInTheDocument()
   })
 
-  it('uses the design-system error token (not text-red-600) for load failures', async () => {
+  it('uses the design-system error token (not text-destructive) for load failures', async () => {
     apiCallMock.mockResolvedValue({ ok: false, result: { error: 'boom' } })
     renderEditor({ configJson: {} })
 
     const message = await screen.findByText(/Failed to load dictionaries/)
     expect(message).toHaveClass('text-status-error-text')
-    expect(message).not.toHaveClass('text-red-600')
+    expect(message).not.toHaveClass('text-destructive')
   })
 
   it('uses the design-system warning token (not text-amber-600) for a stale default value', async () => {

@@ -1256,7 +1256,7 @@ function NotesSectionImpl<C = unknown>({
                       editorWrapperClassName="w-full rounded-md border border-muted-foreground/20 bg-background p-2"
                       remarkPlugins={markdownPlugins}
                     />
-                    {contentError ? <p className="text-xs text-red-600">{contentError}</p> : null}
+                    {contentError ? <p className="text-xs text-destructive">{contentError}</p> : null}
                     <div className="flex flex-wrap items-center gap-2">
                       <Button type="button" size="sm" onClick={handleContentSave} disabled={contentSavingId === note.id}>
                         {contentSavingId === note.id ? (

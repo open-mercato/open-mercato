@@ -310,7 +310,7 @@ export default function WorkflowInstancesListPage() {
       <Page>
         <PageBody>
           <div className="p-8 text-center">
-            <p className="text-red-600">{t('workflows.instances.messages.loadFailed')}</p>
+            <p className="text-destructive">{t('workflows.instances.messages.loadFailed')}</p>
             <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['workflow-instances'] })} className="mt-4">
               {t('common.retry')}
             </Button>

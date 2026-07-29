@@ -178,7 +178,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.transitions')}
           </p>
-          {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-sm text-destructive mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addTransition} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
@@ -251,7 +251,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     onClick={() => removeTransition(index)}
                     title={t('common.delete')}
                   >
-                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               </div>
@@ -428,7 +428,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                               onClick={() => removeActivity(index, activityIndex)}
                               title={t('common.delete')}
                             >
-                              <Trash2 className="h-3 w-3 text-red-600" />
+                              <Trash2 className="h-3 w-3 text-destructive" />
                             </Button>
                           </div>
                         </div>

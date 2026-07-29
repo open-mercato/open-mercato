@@ -555,7 +555,7 @@ export function PriceKindSettings() {
                   {t('catalog.priceKinds.form.activeLabel', 'Active')}
                 </label>
               </div>
-              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
             </form>
             <DialogFooter>
               <Button variant="ghost" onClick={closeDialog}>

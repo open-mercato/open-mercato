@@ -1697,7 +1697,7 @@ export function AvailabilityRulesEditor({
                                     </Button>
                                   </div>
                                   {windowError ? (
-                                    <div className="text-xs text-red-600">{windowError}</div>
+                                    <div className="text-xs text-destructive">{windowError}</div>
                                   ) : null}
                                 </div>
                               )
@@ -2013,7 +2013,7 @@ export function AvailabilityRulesEditor({
                                   </Button>
                                 </div>
                                 {windowError ? (
-                                  <div className="text-xs text-red-600">{windowError}</div>
+                                  <div className="text-xs text-destructive">{windowError}</div>
                                 ) : null}
                               </div>
                             )

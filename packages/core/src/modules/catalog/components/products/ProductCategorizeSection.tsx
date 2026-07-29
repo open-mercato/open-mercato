@@ -220,7 +220,7 @@ export function ProductCategorizeSection({
         <p className="text-xs text-muted-foreground">
           {t('catalog.products.create.organize.categoriesHelp', 'Assign products to one or more taxonomy nodes.')}
         </p>
-        {errors.categoryIds ? <p className="text-xs text-red-600">{errors.categoryIds}</p> : null}
+        {errors.categoryIds ? <p className="text-xs text-destructive">{errors.categoryIds}</p> : null}
       </div>
 
       <div className="space-y-2">
@@ -238,7 +238,7 @@ export function ProductCategorizeSection({
         <p className="text-xs text-muted-foreground">
           {t('catalog.products.create.organize.channelsHelp', 'Selected channels will receive default offers for this product.')}
         </p>
-        {errors.channelIds ? <p className="text-xs text-red-600">{errors.channelIds}</p> : null}
+        {errors.channelIds ? <p className="text-xs text-destructive">{errors.channelIds}</p> : null}
       </div>
 
       <div className="space-y-2">
@@ -254,7 +254,7 @@ export function ProductCategorizeSection({
         <p className="text-xs text-muted-foreground">
           {t('catalog.products.create.organize.tagsHelp', 'Describe products with shared labels to build quick filters.')}
         </p>
-        {errors.tags ? <p className="text-xs text-red-600">{errors.tags}</p> : null}
+        {errors.tags ? <p className="text-xs text-destructive">{errors.tags}</p> : null}
       </div>
     </div>
   )

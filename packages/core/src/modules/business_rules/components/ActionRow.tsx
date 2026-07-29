@@ -202,7 +202,7 @@ export function ActionRow({
         {/* Error Display */}
         {error && (
           <div className="mt-2">
-            <p className="text-xs text-red-600">{error}</p>
+            <p className="text-xs text-destructive">{error}</p>
           </div>
         )}
       </div>
@@ -234,7 +234,7 @@ export function ActionRow({
         <button
           type="button"
           onClick={() => onDelete(index)}
-          className="p-1 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+          className="p-1 text-muted-foreground hover:text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
           title={t('business_rules.components.actionRow.delete')}
         >
           <X className="w-4 h-4" />

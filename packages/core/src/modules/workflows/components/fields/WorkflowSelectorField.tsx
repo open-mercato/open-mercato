@@ -128,7 +128,7 @@ export function WorkflowSelectorField({
         <p className="text-xs text-muted-foreground mt-0.5">
           {description}
         </p>
-        {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+        {error && <p className="text-xs text-destructive mt-1">{error}</p>}
       </div>
 
       {!workflowId ? (
@@ -178,7 +178,7 @@ export function WorkflowSelectorField({
                       )}
                       {workflowDetails?.enabled !== undefined && (
                         workflowDetails.enabled ? (
-                          <Badge variant="default" className="bg-emerald-500 text-xs">
+                          <Badge variant="default" className="bg-status-success-solid text-status-success-solid-foreground text-xs">
                             {t('common.enabled')}
                           </Badge>
                         ) : (

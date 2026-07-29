@@ -98,14 +98,14 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
       <div className="space-y-2">
         <Label className="flex items-center gap-1">
           {t('catalog.variants.form.nameLabel', 'Name')}
-          <span className="text-red-600">*</span>
+          <span className="text-destructive">*</span>
         </Label>
         <Input
           value={values.name}
           onChange={(event) => setValue('name', event.target.value)}
           placeholder={t('catalog.variants.form.namePlaceholder', 'e.g., Blue / Small')}
         />
-        {errors.name ? <p className="text-xs text-red-600">{errors.name}</p> : null}
+        {errors.name ? <p className="text-xs text-destructive">{errors.name}</p> : null}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">

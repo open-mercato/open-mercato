@@ -1941,7 +1941,7 @@ function ProductMetaSection({
           )}
         />
         {errors.subtitle ? (
-          <p className="text-xs text-red-600">{errors.subtitle}</p>
+          <p className="text-xs text-destructive">{errors.subtitle}</p>
         ) : null}
       </div>
 
@@ -1972,7 +1972,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.handle ? (
-          <p className="text-xs text-red-600">{errors.handle}</p>
+          <p className="text-xs text-destructive">{errors.handle}</p>
         ) : null}
       </div>
 
@@ -1994,7 +1994,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.sku ? (
-          <p className="text-xs text-red-600">{errors.sku}</p>
+          <p className="text-xs text-destructive">{errors.sku}</p>
         ) : null}
       </div>
 
@@ -2031,7 +2031,7 @@ function ProductMetaSection({
           </SelectContent>
         </Select>
         {errors.productType ? (
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-destructive">
             {errors.productType}
           </p>
         ) : null}
@@ -2104,7 +2104,7 @@ function ProductMetaSection({
               )}
         </p>
         {errors.taxRateId ? (
-          <p className="text-xs text-red-600">{errors.taxRateId}</p>
+          <p className="text-xs text-destructive">{errors.taxRateId}</p>
         ) : null}
       </div>
     </div>

@@ -480,7 +480,7 @@ export function AddressTiles<C = unknown>({
             addressTypesAdapter={addressTypesAdapter}
             addressTypesContext={addressTypesContext}
           />
-          {generalError ? <p className="text-xs text-red-600">{generalError}</p> : null}
+          {generalError ? <p className="text-xs text-destructive">{generalError}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={handleCancel} disabled={disableActions}>
               {label('cancel', 'Cancel')}
