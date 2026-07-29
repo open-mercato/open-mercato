@@ -3,7 +3,7 @@ import { Agent as HttpsAgent, request as sendHttps } from 'node:https'
 import { isIP, type LookupFunction } from 'node:net'
 import type { Readable } from 'node:stream'
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib'
-import { WebResearchError, errorMessage } from '../contract/errors'
+import { WebResearchError, errorMessage, isWebResearchError } from '../contract/errors'
 import type { HttpClient, HttpRequestInit, HttpResponse } from '../contract/http'
 import { assertPublicUrl, type LookupFn } from './ssrf'
 
@@ -25,6 +25,11 @@ export type HttpClientOptions = {
   /** Minimum gap between requests to the same host. */
   readonly politenessMs?: number
   readonly lookup?: LookupFn
+  /**
+   * Hosts allowed to resolve to a non-public address. Empty by default; see
+   * `assertPublicUrl` for why this is an allowlist and not a boolean.
+   */
+  readonly allowPrivateHosts?: readonly string[]
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
   readonly now?: () => number
 }
@@ -115,6 +120,15 @@ async function readCapped(
 type SentRequest = {
   readonly response: IncomingMessage
   readonly dispose: () => void
+  /**
+   * Why we tore the exchange down, if we did.
+   *
+   * Destroying a request does not deliver our reason to the response stream —
+   * Node surfaces its own socket error there — so a read cut short by our own
+   * timeout or abort would otherwise be reported as a generic network fault,
+   * and an adapter would call a deadline breach a retriable error.
+   */
+  readonly terminalError: () => WebResearchError | null
 }
 
 type SendOptions = {
@@ -144,9 +158,15 @@ function send(target: URL, addresses: readonly string[], options: SendOptions): 
       },
       (response) => {
         clearTimeout(headerTimer)
-        resolve({ response, dispose })
+        resolve({ response, dispose, terminalError: () => terminal })
       },
     )
+
+    let terminal: WebResearchError | null = null
+    const fail = (error: WebResearchError): void => {
+      terminal = error
+      request.destroy(error)
+    }
 
     /**
      * Teardown for the whole exchange, headers *and* body. The abort listener and
@@ -164,26 +184,27 @@ function send(target: URL, addresses: readonly string[], options: SendOptions): 
     }
 
     const headerTimer = setTimeout(() => {
-      request.destroy(new WebResearchError('timeout', `Request to ${target.href} timed out`))
+      fail(new WebResearchError('timeout', `Request to ${target.href} timed out`))
     }, options.timeoutMs)
 
     request.setTimeout(options.timeoutMs, () => {
-      request.destroy(new WebResearchError('timeout', `Request to ${target.href} stalled`))
+      fail(new WebResearchError('timeout', `Request to ${target.href} stalled`))
     })
 
     function onAbort(): void {
-      request.destroy(new WebResearchError('aborted', `Request to ${target.href} was aborted`))
+      fail(new WebResearchError('aborted', `Request to ${target.href} was aborted`))
     }
     options.signal?.addEventListener('abort', onAbort, { once: true })
 
     request.on('error', (error) => {
       dispose()
       reject(
-        error instanceof WebResearchError
-          ? error
-          : new WebResearchError('network', `Request to ${target.href} failed: ${errorMessage(error)}`, {
-              cause: error,
-            }),
+        terminal ??
+          (isWebResearchError(error)
+            ? error
+            : new WebResearchError('network', `Request to ${target.href} failed: ${errorMessage(error)}`, {
+                cause: error,
+              })),
       )
     })
 
@@ -302,6 +323,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     for (let hop = 0; hop <= maxRedirects; hop += 1) {
       const vetted = await assertPublicUrl(currentUrl, 'web research fetch', {
         ...(options.lookup ? { lookup: options.lookup } : {}),
+        ...(options.allowPrivateHosts ? { allowPrivateHosts: options.allowPrivateHosts } : {}),
       })
       await waitForHost(vetted.url.host, init.signal)
 
@@ -320,10 +342,11 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
           }
           break
         } catch (error) {
-          const typed =
-            error instanceof WebResearchError
-              ? error
-              : new WebResearchError('network', errorMessage(error), { cause: error })
+          // Branded rather than `instanceof`: this package typechecks as `src`
+          // and runs as `dist`, so the two class identities can differ.
+          const typed = isWebResearchError(error)
+            ? error
+            : new WebResearchError('network', errorMessage(error), { cause: error })
           lastError = typed
           if (typed.code === 'aborted' || retry === maxRetries || !isRetriable(typed)) throw typed
           const backoff = Math.min(typed.retryAfterMs ?? 250 * 2 ** retry, MAX_BACKOFF_MS)
@@ -362,7 +385,9 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
         const { text, truncated } = await readCapped(decompress(sent.response), maxBytes)
         return { url: vetted.url.href, status, headers, contentType, body: text, truncated }
       } catch (error) {
-        throw error instanceof WebResearchError
+        const terminal = sent.terminalError()
+        if (terminal) throw terminal
+        throw isWebResearchError(error)
           ? error
           : new WebResearchError('network', `Reading ${vetted.url.href} failed: ${errorMessage(error)}`, {
               cause: error,
