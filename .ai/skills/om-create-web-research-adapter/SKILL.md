@@ -37,6 +37,7 @@ and `jest.config.cjs` from the closest reference above and change the name. Thre
 ```
 
 - `version` **must** equal `packages/shared/package.json`'s version or `scripts/check-version-alignment.sh` fails the release.
+- `contractVersion` on the descriptor is checked against a supported range, not an exact value, so an additive engine bump does not disable your package. Always declare `CONTRACT_VERSION` from the engine you compiled against.
 - The `openMercato.webResearchAdapter.id` is what the generator scans for and must match the `id` on the descriptor.
 - Keep `@open-mercato/web-research` a **peer** dependency plus a `workspace:*` dev dependency. Two copies of the engine means two `CONTRACT_VERSION` constants.
 - `jest.config.cjs` needs the `moduleNameMapper` pointing `@open-mercato/web-research` at `../web-research/src`.
@@ -131,13 +132,17 @@ under it. An adapter with a hardcoded 30s timeout inside an 8s budget does not f
 keeps working, and keeps whatever it holds open, long after nobody is listening. Derive every
 internal timeout from `Math.max(0, context.deadlineAt - Date.now())`.
 
-**The SSRF guard blocks private, loopback and link-local targets — with no allowlist.** This is
-the one that surprises people: an adapter for a service the operator runs themselves at
-`http://searxng:8080` or `http://localhost:8080` cannot reach it. `context.http` fails closed on
-every private address, on every redirect hop, and on a hostname that resolves to one. If your
-adapter's `baseUrl` will normally point inside the deployment's own network, say so in the field
-description and in your package README, because today the only working configuration is a
-publicly resolvable host.
+**The SSRF guard blocks private, loopback and link-local targets by default.** This is the one that
+surprises people: an adapter for a service the operator runs themselves at `http://searxng:8080`
+cannot reach it out of the box. `context.http` fails closed on every private address, on every
+redirect hop, and on a hostname that resolves to one.
+
+The escape hatch is `allowPrivateHosts` on the client — an allowlist of hosts permitted to resolve
+privately, matched on exact host or a dot-boundary suffix, empty unless an operator fills it. It is
+deliberately not a boolean: "allow private" would open every internal address to whatever URL a
+model or a search result happens to produce. **You do not set it**; the host builds the client. If
+your adapter's `baseUrl` normally points inside the deployment's own network, say so in the field
+description and in your README so the operator knows to name that host.
 
 ### 4. Lifecycle and the cost of a health check
 
