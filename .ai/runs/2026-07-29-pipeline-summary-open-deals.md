@@ -91,18 +91,18 @@ formatting, still a draft) will touch the same component.
 
 ### Phase 1: Status-aware request
 
-- [ ] 1.1 Extend settings with `statusScope` and add `CLOSED_DEAL_STATUSES`
-- [ ] 1.2 Add `buildPipelineDataRequest` and consume it in the widget
+- [x] 1.1 Extend settings with `statusScope` and add `CLOSED_DEAL_STATUSES` — c0b325ac1
+- [x] 1.2 Add `buildPipelineDataRequest` and consume it in the widget — c0b325ac1
 
 ### Phase 2: Setting UI and translations
 
-- [ ] 2.1 Render the status-scope `Select` in settings mode
-- [ ] 2.2 Add the translation keys to en, pl, de and es
+- [x] 2.1 Render the status-scope `Select` in settings mode — c0b325ac1
+- [x] 2.2 Add the translation keys to en, pl, de and es — c0b325ac1
 
 ### Phase 3: Tests
 
-- [ ] 3.1 Unit-test `hydrateSettings`
-- [ ] 3.2 Unit-test `buildPipelineDataRequest`
+- [x] 3.1 Unit-test `hydrateSettings` — c0b325ac1
+- [x] 3.2 Unit-test `buildPipelineDataRequest` — c0b325ac1
 
 ### Phase 4: Validation
 
