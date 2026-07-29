@@ -95,7 +95,7 @@ import {
   type LedgerWorkflowDefinition,
 } from '../../../lib/context-ledger'
 import { useAvailableEvents } from '@open-mercato/ui/backend/inputs/EventSelect'
-import { collectUnresolvedContextRefWarnings } from '../../../lib/expression-refs'
+import { toUnresolvedContextRefIssues } from '../../../lib/definition-evaluation'
 import type { PinnedSampleEnvelope } from '../../../lib/sample-resolver'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -185,14 +185,7 @@ function collectContextRefWarnings(
   triggerPayloadContracts?: Record<string, LedgerContract>,
 ): ZodIssueLike[] {
   const ledger = computeClientContextLedger(definitionData, triggerPayloadContracts)
-  return collectUnresolvedContextRefWarnings(definitionData, ledger).map((warning) => ({
-    path: warning.path,
-    message: translate(
-      'workflows.visualEditor.problems.unresolvedContextRef',
-      'Context reference "{path}" is not provided by any earlier step, trigger, or input',
-      { path: warning.refPath },
-    ),
-  }))
+  return toUnresolvedContextRefIssues(definitionData, ledger, translate)
 }
 
 /**
