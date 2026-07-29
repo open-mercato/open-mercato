@@ -61,10 +61,32 @@
  *   maybe. Known 2a approximation: branch-namespace scoping is not modeled —
  *   entries produced inside parallel branches flow through the generic join
  *   rule as `maybe` even though post-join they live under `branches.<key>`.
- * - SUB_WORKFLOW contributes nothing: handleSubWorkflowStep maps
- *   `outputMapping` from the child context but only returns it as
- *   `stepInstance.outputData` — it is never merged into `instance.context` —
- *   so advertising those keys would fabricate availability.
+ * - SUB_WORKFLOW is PATH-DEPENDENT and contributes its `config.outputMapping`
+ *   target keys, all `maybe`. Two resolution paths exist and only one of them
+ *   merges. When the child terminates inside the parent's own call,
+ *   handleSubWorkflowStep returns the mapped output as `stepInstance.outputData`
+ *   only (`exitStep` writes it there and nowhere else). When the child instead
+ *   parks on its first async/agent step, the parent parks on
+ *   SUB_WORKFLOW_SIGNAL_NAME and the child's terminal
+ *   `resume_subworkflow_parent` job maps the same output through the shared
+ *   `mapSubWorkflowOutput` and hands it to `sendSignal`, which spreads the
+ *   payload FLAT into `instance.context` (signal-handler). So a mapped key
+ *   genuinely lands on the async path and never on the inline one, and which
+ *   path runs is a property of the CHILD at runtime rather than of the parent
+ *   definition — hence `maybe` on every entry (the mapping additionally drops
+ *   any target whose source path resolves to `undefined`). Targets stay
+ *   `unknown`-typed: their source paths address the CHILD's context and the
+ *   child's `io.outputs` contract lives on the CHILD definition, which this
+ *   pure function is never given.
+ *   Two real contributions are deliberately NOT modeled. (1) With no mapping —
+ *   or when no mapped source resolves — `mapOutputData` falls back to the WHOLE
+ *   child context; those keys cannot be named from the parent definition, and a
+ *   `'*'` wildcard would silence every downstream unresolved-ref warning, so a
+ *   step declaring no `outputMapping` advertises nothing. (2) `sendSignal` also
+ *   records `signal_<name>_payload`/`_receivedAt`, but the sub-workflow signal
+ *   name is `workflows.sub_workflow.completed`, so the flat key contains dots
+ *   and `{{context.*}}` resolution (getNestedValue splits on `.`) can never
+ *   reach it — advertising it would hand the picker a path that cannot resolve.
  * - INVOKE_AGENT (an AUTOMATED step carrying an `INVOKE_AGENT` activity) is
  *   the verified exception to the "AUTOMATED sync outputs stay in outputData"
  *   rule: its result IS merged top-level into `instance.context`. Three
@@ -456,6 +478,24 @@ function joinContributions(step: LedgerStepDefinition): LedgerEntry[] {
   return entries
 }
 
+function subWorkflowContributions(step: LedgerStepDefinition): LedgerEntry[] {
+  const outputMapping = step.config?.outputMapping
+  if (!isPlainObject(outputMapping)) return []
+
+  const source: LedgerEntrySource = {
+    kind: 'subWorkflow',
+    stepId: step.stepId,
+    label: `subWorkflow:${step.stepId}`,
+  }
+
+  const entries: LedgerEntry[] = []
+  for (const targetKey of Object.keys(outputMapping)) {
+    if (!targetKey) continue
+    entries.push(makeEntry(targetKey, 'unknown', 'maybe', source))
+  }
+  return entries
+}
+
 function asyncResultContributions(
   activity: LedgerActivityDefinition,
   stepId: string | undefined,
@@ -614,6 +654,8 @@ function stepContributions(
       return signalContributions(step)
     case 'PARALLEL_JOIN':
       return joinContributions(step)
+    case 'SUB_WORKFLOW':
+      return subWorkflowContributions(step)
     case 'AUTOMATED':
       return [
         ...(step.activities ?? [])

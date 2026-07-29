@@ -269,6 +269,44 @@ describe('findUnresolvedRefs', () => {
   })
 })
 
+describe('SUB_WORKFLOW mapped output keys resolve downstream', () => {
+  const definition = (config: Record<string, unknown>): LedgerWorkflowDefinition => ({
+    steps: [
+      { stepId: 'start', stepType: 'START' },
+      { stepId: 'child', stepType: 'SUB_WORKFLOW', config },
+      {
+        stepId: 'notify',
+        stepType: 'AUTOMATED',
+        activities: [
+          {
+            activityId: 'send',
+            activityType: 'SEND_EMAIL',
+            config: { subject: 'Approval {{context.approvalStatus}}' },
+          },
+        ],
+      },
+    ],
+    transitions: [
+      { transitionId: 'start-to-child', fromStepId: 'start', toStepId: 'child' },
+      { transitionId: 'child-to-notify', fromStepId: 'child', toStepId: 'notify' },
+    ],
+  })
+
+  test('a ref to a declared outputMapping target raises no unresolved-ref warning', () => {
+    const withMapping = definition({ subWorkflowId: 'child-flow', outputMapping: { approvalStatus: 'result.status' } })
+    const ledger = computeContextLedger(withMapping, { resolveOutputContract: () => 'unknown' })
+    expect(collectUnresolvedContextRefWarnings(withMapping, ledger)).toEqual([])
+  })
+
+  test('the same ref still warns when the step declares no outputMapping', () => {
+    const withoutMapping = definition({ subWorkflowId: 'child-flow' })
+    const ledger = computeContextLedger(withoutMapping, { resolveOutputContract: () => 'unknown' })
+    expect(collectUnresolvedContextRefWarnings(withoutMapping, ledger)).toEqual([
+      { path: ['steps', 2, 'activities', 0, 'config', 'subject'], refPath: 'approvalStatus' },
+    ])
+  })
+})
+
 describe('collectUnresolvedContextRefWarnings + editor merge', () => {
   const definition: LedgerWorkflowDefinition = {
     steps: [
