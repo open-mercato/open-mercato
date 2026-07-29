@@ -33,6 +33,18 @@ describe('canonicalizeUrl', () => {
     expect(canonical?.url).toBe('https://example.com/real')
   })
 
+  it('rejects a DuckDuckGo sponsored link', () => {
+    // Ads sit in the same markup as organic hits, so the SERP parser picks them
+    // up; left alone they survive a `site:` filter and an agent cites an advert.
+    const advert =
+      'https://duckduckgo.com/y.js?ad_domain=udemy.com&ad_provider=bingv7aa&ad_type=txad&u3=https%3A%2F%2Fwww.bing.com%2Faclick'
+    expect(canonicalizeUrl(advert)).toBeNull()
+  })
+
+  it('keeps an ordinary duckduckgo.com page', () => {
+    expect(canonicalizeUrl('https://duckduckgo.com/about')?.url).toBe('https://duckduckgo.com/about')
+  })
+
   it('unwraps a Google redirect', () => {
     expect(canonicalizeUrl('https://www.google.com/url?q=https://example.com/x')?.url).toBe(
       'https://example.com/x',

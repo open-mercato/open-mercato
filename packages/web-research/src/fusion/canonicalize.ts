@@ -35,6 +35,21 @@ const REDIRECT_HOSTS: ReadonlyArray<{ host: RegExp; path?: RegExp; params: reado
   { host: /(^|\.)steamcommunity\.com$/, path: /^\/linkfilter\/?$/, params: ['url'] },
 ]
 
+/**
+ * Endpoints that are never a real result. DuckDuckGo renders sponsored slots as
+ * `y.js` click-tracking links carrying `ad_domain`, and they sit in the same
+ * markup as organic hits — so a SERP parser picks them up, they survive a
+ * `site:` filter that should have excluded them, and an agent ends up citing or
+ * fetching an advert. There is nothing to unwrap here that is worth keeping.
+ */
+const AD_ENDPOINTS: ReadonlyArray<{ host: RegExp; path: RegExp }> = [
+  { host: /(^|\.)duckduckgo\.com$/, path: /^\/y\.js$/ },
+]
+
+function isAdEndpoint(url: URL): boolean {
+  return AD_ENDPOINTS.some((rule) => rule.host.test(url.hostname) && rule.path.test(url.pathname))
+}
+
 function isTracking(key: string): boolean {
   const lower = key.toLowerCase()
   return lower.startsWith('utm_') || TRACKING_PARAMS.has(lower)
@@ -78,6 +93,7 @@ export function canonicalizeUrl(raw: string): CanonicalUrl | null {
     parsed = unwrapped
   }
 
+  if (isAdEndpoint(parsed)) return null
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
   if (parsed.hostname.length === 0) return null
 
