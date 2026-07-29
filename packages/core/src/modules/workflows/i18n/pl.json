@@ -955,6 +955,7 @@
   "workflows.form.invokeAgent.subjectType": "Typ rekordu",
   "workflows.form.invokeAgent.subjectTypePlaceholder": "claim",
   "workflows.form.invokeAgent.threshold": "Gdy pewność agenta osiągnie próg, propozycja jest stosowana automatycznie; w przeciwnym razie pytany jest człowiek.",
+  "workflows.form.invokeAgent.thresholdFailClosed": "Fail-closed: propozycja bez żadnej wartości pewności liczy się jako poniżej progu, więc trafia do człowieka.",
   "workflows.form.invokeAgent.warnings.unknownInputKey": "Przykładowe dane wejściowe agenta nie używają tego klucza.",
   "workflows.form.maxAttempts": "Maks. Prób",
   "workflows.form.maxInterval": "Maks. Interwał (ms)",

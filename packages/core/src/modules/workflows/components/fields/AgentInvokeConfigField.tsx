@@ -6,6 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Slider } from '@open-mercato/ui/primitives/slider'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { RadioGroup, Radio } from '@open-mercato/ui/primitives/radio'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
@@ -56,11 +57,22 @@ export const emptyAgentSubject: AgentSubjectValue = {
   subjectLabel: '',
 }
 
+/**
+ * The threshold control's bounds and granularity. Unchanged from the number
+ * input this field has always rendered — spelled out as constants only so the
+ * slider and the input cannot drift apart. The COMPARISON against these values
+ * lives in the enterprise disposition service and is not touched here.
+ */
+const THRESHOLD_MIN = 0
+const THRESHOLD_MAX = 1
+const THRESHOLD_STEP = 0.05
+const DEFAULT_AUTO_APPROVE_THRESHOLD = 0.8
+
 const emptyValue: AgentInvokeConfigValue = {
   agentId: '',
   inputs: [],
   resultMode: 'autoApprove',
-  autoApproveThreshold: '0.8',
+  autoApproveThreshold: String(DEFAULT_AUTO_APPROVE_THRESHOLD),
   outputs: [],
   subject: emptyAgentSubject,
 }
@@ -90,6 +102,13 @@ export function AgentInvokeConfigField({
   const inputs = Array.isArray(config.inputs) ? config.inputs : []
   const outputs = Array.isArray(config.outputs) ? config.outputs : []
   const subject: AgentSubjectValue = { ...emptyAgentSubject, ...(config.subject || {}) }
+  // The stored value is the author's raw text, so a half-typed entry ("0.") is
+  // an ordinary state the slider must survive; it falls back to the same 0.8
+  // the field has always defaulted to rather than snapping to 0.
+  const parsedThreshold = Number.parseFloat(config.autoApproveThreshold)
+  const thresholdSliderValue = Number.isFinite(parsedThreshold)
+    ? Math.min(THRESHOLD_MAX, Math.max(THRESHOLD_MIN, parsedThreshold))
+    : DEFAULT_AUTO_APPROVE_THRESHOLD
 
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [selectedAgent, setSelectedAgent] = useState<AgentListItem | null>(null)
@@ -353,9 +372,9 @@ export function AgentInvokeConfigField({
             <span>{t('workflows.form.invokeAgent.autoApprove')}</span>
             <Input
               type="number"
-              step="0.05"
-              min="0"
-              max="1"
+              step={THRESHOLD_STEP}
+              min={THRESHOLD_MIN}
+              max={THRESHOLD_MAX}
               value={config.autoApproveThreshold}
               onChange={(e) => update({ autoApproveThreshold: e.target.value })}
               onFocus={() => update({ resultMode: 'autoApprove' })}
@@ -363,12 +382,44 @@ export function AgentInvokeConfigField({
               className="w-24"
             />
           </label>
+          {/*
+            Presentation only. The slider and the number input edit the SAME
+            `autoApproveThreshold` string, over the same 0-1 range and the same
+            0.05 step the field has always used; the comparison, the default and
+            the fail-closed branch all live in the enterprise disposition
+            service and are untouched. The input stays because a slider cannot
+            express an exact value, and removing it would take a capability
+            away.
+          */}
+          <div className="flex items-center gap-3 pl-6">
+            <Slider
+              aria-label={t('workflows.form.invokeAgent.autoApprove')}
+              value={[thresholdSliderValue]}
+              onValueChange={([next]) =>
+                update({
+                  resultMode: 'autoApprove',
+                  autoApproveThreshold: String(Number(next.toFixed(2))),
+                })
+              }
+              min={THRESHOLD_MIN}
+              max={THRESHOLD_MAX}
+              step={THRESHOLD_STEP}
+              disabled={disabled || config.resultMode !== 'autoApprove'}
+              className="max-w-xs"
+            />
+            <span className="text-xs font-mono text-muted-foreground tabular-nums">
+              {thresholdSliderValue.toFixed(2)}
+            </span>
+          </div>
           <label className="flex items-center gap-2 text-sm text-foreground">
             <Radio value="alwaysAsk" />
             <span>{t('workflows.form.invokeAgent.alwaysAsk')}</span>
           </label>
         </RadioGroup>
         <p className="text-xs text-muted-foreground mt-1">{t('workflows.form.invokeAgent.threshold')}</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {t('workflows.form.invokeAgent.thresholdFailClosed')}
+        </p>
       </div>
 
       {/* Output mapping */}

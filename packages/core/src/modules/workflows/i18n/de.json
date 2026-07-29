@@ -955,6 +955,7 @@
   "workflows.form.invokeAgent.subjectType": "Datensatztyp",
   "workflows.form.invokeAgent.subjectTypePlaceholder": "claim",
   "workflows.form.invokeAgent.threshold": "Erreicht die Konfidenz des Agenten den Schwellenwert, wird der Vorschlag automatisch angewendet; andernfalls wird ein Mensch gefragt.",
+  "workflows.form.invokeAgent.thresholdFailClosed": "Fail-closed: Ein Vorschlag ganz ohne Konfidenzwert gilt als unter dem Schwellenwert und geht an einen Menschen.",
   "workflows.form.invokeAgent.warnings.unknownInputKey": "Die Beispiel-Eingabe des Agenten verwendet diesen Schlüssel nicht.",
   "workflows.form.maxAttempts": "Maximale Versuche",
   "workflows.form.maxInterval": "Maximales Intervall (ms)",

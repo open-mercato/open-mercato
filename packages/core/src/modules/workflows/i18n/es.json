@@ -955,6 +955,7 @@
   "workflows.form.invokeAgent.subjectType": "Tipo de registro",
   "workflows.form.invokeAgent.subjectTypePlaceholder": "claim",
   "workflows.form.invokeAgent.threshold": "Cuando la confianza del agente alcanza el umbral, la propuesta se aplica automáticamente; de lo contrario, se pregunta a una persona.",
+  "workflows.form.invokeAgent.thresholdFailClosed": "A prueba de fallos: una propuesta que no informa ninguna confianza cuenta como por debajo del umbral, así que pasa a una persona.",
   "workflows.form.invokeAgent.warnings.unknownInputKey": "La entrada de ejemplo del agente no usa esta clave.",
   "workflows.form.maxAttempts": "Intentos maximos",
   "workflows.form.maxInterval": "Intervalo maximo (ms)",

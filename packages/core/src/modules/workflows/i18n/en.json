@@ -955,6 +955,7 @@
   "workflows.form.invokeAgent.subjectType": "Record type",
   "workflows.form.invokeAgent.subjectTypePlaceholder": "claim",
   "workflows.form.invokeAgent.threshold": "When the agent's confidence meets the threshold the proposal is applied automatically; otherwise a human is asked.",
+  "workflows.form.invokeAgent.thresholdFailClosed": "Fail-closed: a proposal that reports no confidence at all counts as below the threshold, so it goes to a human.",
   "workflows.form.invokeAgent.warnings.unknownInputKey": "The agent sample input does not use this key.",
   "workflows.form.maxAttempts": "Max Attempts",
   "workflows.form.maxInterval": "Max Interval (ms)",
