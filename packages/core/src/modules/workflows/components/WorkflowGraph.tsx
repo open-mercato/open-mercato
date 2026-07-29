@@ -6,6 +6,7 @@ import type { Node, Edge, Connection } from '@xyflow/react'
 import type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import type { RunExecution } from '../lib/run-execution'
+import type { TriggerLike } from '../lib/trigger-node'
 
 export type { WorkflowGraphDropEvent, WorkflowGraphNodesChangeMeta } from './WorkflowGraphImpl'
 
@@ -47,6 +48,19 @@ export interface WorkflowGraphProps {
    * an autosave.
    */
   runOverlay?: RunExecution | null
+  /**
+   * The definition's event triggers (fidelity gap #5). Display-only: the pill is
+   * minted at render time and never enters the editor's node state, so it cannot
+   * reach `graphToDefinition`, the undo stack or an autosave. `undefined`/`null`
+   * renders nothing; an ARRAY opts in, and an EMPTY array still renders — a
+   * definition with no triggers is started manually or by API, which is exactly
+   * what the pill then says.
+   */
+  triggers?: TriggerLike[] | null
+  /** The definition's enabled flag — a disabled definition starts from nothing. */
+  definitionEnabled?: boolean
+  /** Opens the definition drawer on its triggers section. */
+  onOpenTriggers?: () => void
 }
 
 const WorkflowGraphImpl = dynamic(() => import('./WorkflowGraphImpl'), {

@@ -33,9 +33,30 @@ import { WorkflowIconPicker } from './WorkflowIconPicker'
 import type { WorkflowMetadataHandlers, WorkflowMetadataState } from '../data/types'
 import type { WorkflowInterpolationMode } from '../lib/interpolation-pipeline'
 
+/**
+ * The drawer's five sections, addressable so another surface can open it AT one
+ * of them. The canvas trigger pill (fidelity gap #5) is the first caller: a node
+ * that says "here is how this workflow starts" has to lead to the place that
+ * edits it, and dropping the author at the top of a twelve-field form to hunt
+ * for it would be half-wiring the affordance.
+ */
+export type DefinitionMetadataSection =
+  | 'identity'
+  | 'presentation'
+  | 'availability'
+  | 'inputs'
+  | 'runtime'
+
 export type DefinitionMetadataDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * Scroll to and focus this section when the drawer opens. Focus, not just a
+   * scroll: the keyboard path has to land there too, so the section heading is
+   * programmatically focusable and takes focus, which also makes a screen reader
+   * announce where it just arrived.
+   */
+  focusSection?: DefinitionMetadataSection | null
   /** Null while creating — drives the "fixed after create" locks on id + version. */
   definitionId: string | null
   /** Code-defined workflows are read-only; mirrors the editor's `isCodeOnly`. */
@@ -50,8 +71,10 @@ export type DefinitionMetadataDrawerProps = {
 }
 
 type SectionProps = {
+  id: DefinitionMetadataSection
   title: string
   hint: string
+  focused?: boolean
   children: React.ReactNode
 }
 
@@ -61,11 +84,35 @@ type SectionProps = {
  * in top-to-bottom before the first save, and tabs would hide "Workflow ID is
  * empty" behind a navigation step, split the Tab order, and break Ctrl+F.
  */
-function MetadataSection({ title, hint, children }: SectionProps) {
+function MetadataSection({ id, title, hint, focused = false, children }: SectionProps) {
+  const sectionRef = React.useRef<HTMLElement | null>(null)
+
+  React.useEffect(() => {
+    if (!focused) return
+    const element = sectionRef.current
+    if (!element) return
+    // One frame later: the drawer animates in, and scrolling a panel that has
+    // not settled lands somewhere else.
+    const frame = requestAnimationFrame(() => {
+      element.scrollIntoView({ block: 'start' })
+      element.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focused])
+
   return (
-    <section className="border-b border-border py-5 first:pt-2 last:border-b-0 last:pb-2">
+    <section
+      ref={sectionRef}
+      id={`workflow-metadata-section-${id}`}
+      data-metadata-section={id}
+      tabIndex={-1}
+      aria-labelledby={`workflow-metadata-section-${id}-title`}
+      className="border-b border-border py-5 outline-none first:pt-2 last:border-b-0 last:pb-2"
+    >
       <div className="mb-4">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <h3 id={`workflow-metadata-section-${id}-title`} className="text-sm font-semibold text-foreground">
+          {title}
+        </h3>
         <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
       </div>
       {children}
@@ -109,6 +156,7 @@ function MetadataField({ htmlFor, label, required, hint, className, children }: 
 export function DefinitionMetadataDrawer({
   open,
   onOpenChange,
+  focusSection = null,
   definitionId,
   readOnly = false,
   metadata,
@@ -174,6 +222,8 @@ export function DefinitionMetadataDrawer({
         <DrawerBody>
           <fieldset disabled={readOnly} className="disabled:opacity-70">
             <MetadataSection
+              id="identity"
+              focused={focusSection === 'identity'}
               title={t('workflows.visualEditor.metadata.sections.identity')}
               hint={t('workflows.visualEditor.metadata.sections.identityHint')}
             >
@@ -242,6 +292,8 @@ export function DefinitionMetadataDrawer({
             </MetadataSection>
 
             <MetadataSection
+              id="presentation"
+              focused={focusSection === 'presentation'}
               title={t('workflows.visualEditor.metadata.sections.presentation')}
               hint={t('workflows.visualEditor.metadata.sections.presentationHint')}
             >
@@ -270,6 +322,8 @@ export function DefinitionMetadataDrawer({
             </MetadataSection>
 
             <MetadataSection
+              id="availability"
+              focused={focusSection === 'availability'}
               title={t('workflows.visualEditor.metadata.sections.availability')}
               hint={t('workflows.visualEditor.metadata.sections.availabilityHint')}
             >
@@ -304,6 +358,8 @@ export function DefinitionMetadataDrawer({
             </MetadataSection>
 
             <MetadataSection
+              id="inputs"
+              focused={focusSection === 'inputs'}
               title={t('workflows.visualEditor.metadata.sections.inputs')}
               hint={t('workflows.visualEditor.metadata.sections.inputsHint')}
             >
@@ -317,6 +373,8 @@ export function DefinitionMetadataDrawer({
 
             {setInterpolation || setErrorHandler ? (
               <MetadataSection
+                id="runtime"
+                focused={focusSection === 'runtime'}
                 title={t('workflows.visualEditor.metadata.sections.runtime')}
                 hint={t('workflows.visualEditor.metadata.sections.runtimeHint')}
               >

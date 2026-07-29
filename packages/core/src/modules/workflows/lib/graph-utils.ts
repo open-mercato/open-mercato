@@ -5,6 +5,7 @@ import type { WorkflowIoContract } from '../data/validators'
 import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { isAnnotationNode } from './editor-annotations'
+import { isTriggerEdge, isTriggerNode } from './trigger-node'
 import {
   findRouteKindDescriptor,
   resolveEdgeRouteKind,
@@ -86,8 +87,16 @@ export function graphToDefinition(
   // `metadata.editor.annotations` and MUST NOT reach `steps` or `transitions`,
   // so a definition carrying them serializes byte-identically to one that does
   // not and the engine can never see them.
-  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
-  const annotationIds = new Set(allNodes.filter(isAnnotationNode).map((node) => node.id))
+  // The canvas trigger pill (fidelity gap #5) is filtered on the same terms:
+  // it is a render-time overlay derived from `definition.triggers` and has no
+  // step form at all, so a definition declaring triggers must serialize
+  // byte-identically to one that does not. It can only reach here through a
+  // caller mistake — it never enters the editor's node state — which is exactly
+  // why the guarantee is enforced rather than assumed.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node) && !isTriggerNode(node))
+  const annotationIds = new Set(
+    allNodes.filter((node) => isAnnotationNode(node) || isTriggerNode(node)).map((node) => node.id),
+  )
 
   // Extract steps from nodes
   const steps = nodes.map((node) => {
@@ -219,6 +228,7 @@ export function graphToDefinition(
   const transitions = edges
     .filter((edge) => !isDataMappingEdge(edge)
       && !isCompensationGhostEdge(edge)
+      && !isTriggerEdge(edge)
       && !annotationIds.has(edge.source)
       && !annotationIds.has(edge.target))
     .map((edge) => {
@@ -796,8 +806,11 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   // Annotations are not ranked: dagre only knows about the control-flow graph,
   // so a note or group placed deliberately beside a step keeps the position its
   // author gave it while Tidy re-lays the steps around it.
+  // The trigger pill is excluded for the same reason a note is, only harder: it
+  // has no rank at all. It is positioned relative to the START terminal it
+  // annotates, so ranking it would move it out from under its own anchor.
   const steps = nodes
-    .filter((node) => !isAnnotationNode(node))
+    .filter((node) => !isAnnotationNode(node) && !isTriggerNode(node))
     .map((node) => ({
       stepId: node.id,
       stepName: (node.data as any)?.label,
@@ -908,8 +921,11 @@ export function validateWorkflowGraph(allNodes: Node[], edges: Edge[]): Validati
   const errors: ValidationError[] = []
 
   // Annotations are documentation, not steps: a sticky note has no routes by
-  // design and must never be reported as a disconnected node.
-  const nodes = allNodes.filter((node) => !isAnnotationNode(node))
+  // design and must never be reported as a disconnected node. The trigger pill
+  // is skipped for a stronger reason: it is not a step, so counting it would
+  // corrupt the exactly-one-START / at-least-one-END invariants this function
+  // exists to enforce.
+  const nodes = allNodes.filter((node) => !isAnnotationNode(node) && !isTriggerNode(node))
 
   // Check for at least one start node
   const startNodes = nodes.filter((n) => n.type === 'start')

@@ -55,6 +55,26 @@ export const TERMINAL_NODE_MIN_WIDTH = 96
 export const TERMINAL_NODE_HEIGHT = 36
 
 /**
+ * Footprint of the canvas trigger node (fidelity gap #5) — the pill that states
+ * how a definition is entered, drawn in the gutter BEFORE the START terminal.
+ *
+ * It is derived rather than measured for the same reason the outcome-row footer
+ * is: the node is minted at render time from the definition's triggers and has
+ * to be placed before React Flow has laid a single card out. It is never handed
+ * to dagre (it is not a step and has no rank), so these numbers do not reserve a
+ * box — they position one, and `TRIGGER_NODE_GAP` matches dagre's own `ranksep`
+ * so the pill sits one rank-gap ahead of START rather than at some second
+ * spacing nothing else on the canvas uses.
+ */
+export const TRIGGER_NODE_WIDTH = 200
+/** The pill itself: icon + label, at the terminal pills' vertical rhythm. */
+export const TRIGGER_NODE_HEADER_HEIGHT = 32
+/** One dashed event tag (or the manual-start / overflow line) plus its gap. */
+export const TRIGGER_NODE_ROW_HEIGHT = 22
+/** Horizontal clearance between the trigger pill and the START terminal. */
+export const TRIGGER_NODE_GAP = 80
+
+/**
  * Diameter, in px, of a connection handle. One number for the target handle,
  * every source handle, the error handle and the terminal pills' handles: a
  * canvas where the dots differ in size reads as a rendering bug, and the

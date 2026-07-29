@@ -49,7 +49,7 @@ import {
 import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
 import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
 import { WorkflowCodeView } from '../../../components/WorkflowCodeView'
-import { DefinitionMetadataDrawer } from '../../../components/DefinitionMetadataDrawer'
+import { DefinitionMetadataDrawer, type DefinitionMetadataSection } from '../../../components/DefinitionMetadataDrawer'
 import { describeCodeViewDraft, evaluateCodeViewDraft } from '../../../lib/code-view-apply'
 import {
   locateDefinitionJsonEntities,
@@ -301,6 +301,23 @@ export default function VisualEditorPage() {
   // page is for — and `handleSave` opens it when the required id/name are
   // still missing, which is the moment the author needs it.
   const [metadataOpen, setMetadataOpen] = useState(false)
+  // Which section the drawer lands on. Only the canvas trigger pill sets it
+  // (fidelity gap #5) — every other way in wants the top of the form — so it is
+  // cleared whenever the drawer is opened by anything else.
+  const [metadataFocusSection, setMetadataFocusSection] = useState<DefinitionMetadataSection | null>(null)
+  // The canvas trigger pill's action. It opens the drawer AT "Inputs and
+  // triggers" rather than at the top of the form: the node states how the
+  // workflow starts, so the affordance has to land on the editor for it.
+  const handleOpenTriggers = useCallback(() => {
+    setMetadataFocusSection('inputs')
+    setMetadataOpen(true)
+  }, [])
+  // The focus target is one-shot: every other way into the drawer wants the top
+  // of the form, so closing it clears the request.
+  const handleMetadataOpenChange = useCallback((open: boolean) => {
+    if (!open) setMetadataFocusSection(null)
+    setMetadataOpen(open)
+  }, [])
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [structuralConflict, setStructuralConflict] = useState<StructuralEditConflict | null>(null)
@@ -2770,7 +2787,8 @@ export default function VisualEditorPage() {
       />
       <DefinitionMetadataDrawer
         open={metadataOpen}
-        onOpenChange={setMetadataOpen}
+        onOpenChange={handleMetadataOpenChange}
+        focusSection={metadataFocusSection}
         definitionId={definitionId}
         readOnly={isCodeOnly}
         metadata={metadata}
@@ -3068,7 +3086,7 @@ export default function VisualEditorPage() {
           onLoadExample={handleOpenTemplateGallery}
           onClear={handleClear}
           metadata={metadata}
-          onMetadataOpenChange={setMetadataOpen}
+          onMetadataOpenChange={handleMetadataOpenChange}
         />
         {sharedDialogs}
         {ConfirmDialogElement}
@@ -3363,6 +3381,9 @@ export default function VisualEditorPage() {
                 nodeErrorCounts={nodeErrorCounts}
                 showCompensation={showCompensation}
                 runOverlay={lastRunOverlay.execution}
+                triggers={triggers}
+                definitionEnabled={enabled}
+                onOpenTriggers={handleOpenTriggers}
               />
             </div>
 
@@ -3591,6 +3612,9 @@ export default function VisualEditorPage() {
                   nodeErrorCounts={nodeErrorCounts}
                   showCompensation={showCompensation}
                   runOverlay={lastRunOverlay.execution}
+                  triggers={triggers}
+                  definitionEnabled={enabled}
+                  onOpenTriggers={handleOpenTriggers}
                 />
               </div>
 
