@@ -2,8 +2,6 @@
 
 import type { Node } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
@@ -34,6 +32,7 @@ import type { RouteOrderEntry } from '../lib/route-priority'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import { InputDataPanel } from './InputDataPanel'
+import { InspectorPanel, type InspectorPanelVariant } from './InspectorPanel'
 import {
   Select,
   SelectContent,
@@ -210,6 +209,11 @@ export interface NodeEditDialogCrudFormProps {
    * rather than producing a form value.
    */
   onConvertType?: (nodeId: string, targetType: ConvertibleStepType) => void
+  /**
+   * How the inspector is presented. Defaults to `overlay` so a caller that has
+   * not opted in keeps the modal shape it had.
+   */
+  variant?: InspectorPanelVariant
 }
 
 /**
@@ -232,7 +236,7 @@ export interface NodeEditDialogCrudFormProps {
  * - waitForCondition: ConditionBuilder predicate + mandatory timeout policy
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder, onConvertType }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder, onConvertType, variant = 'overlay' }: NodeEditDialogCrudFormProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
@@ -293,12 +297,6 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     if (!node || !onDelete) return
     onDelete(node.id)
   }, [node, onDelete])
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose()
-    }
-  }, [onClose])
 
   // Dynamic groups based on node type
   const typeGroups: CrudFormGroup[] = useMemo(() => {
@@ -1092,69 +1090,61 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
   const canDelete = !!onDelete
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent
-        className="sm:max-w-7xl max-h-[90vh] overflow-hidden flex flex-col !p-0 [&_.grid]:!grid-cols-1"
-        onKeyDown={handleKeyDown}
-      >
-        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b border-border/70">
-          <div className="flex items-center gap-2 mb-2">
-            <DialogTitle>{t('workflows.nodeEditor.title')}</DialogTitle>
-            <Badge variant="secondary" className="text-xs">
-              {nodeTypeLabel}
-            </Badge>
-          </div>
-          <div className="space-y-1">
-            <DialogDescription>
-              {t('workflows.nodeEditor.description')}
-            </DialogDescription>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">{t('workflows.fields.id')}:</span>
-              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{node.id}</code>
-            </div>
-          </div>
-        </DialogHeader>
+    <InspectorPanel
+      open={isOpen}
+      onClose={onClose}
+      variant={variant}
+      title={t('workflows.nodeEditor.title')}
+      typeLabel={nodeTypeLabel}
+      description={t('workflows.nodeEditor.description')}
+      recordId={node.id}
+    >
+      {/* JSON Schema Conversion Warning */}
+      {showJsonSchemaWarning && (
+        <Alert variant="info" className="mb-4">
+          <AlertDescription className="text-xs">
+            {t('workflows.nodeEditor.jsonSchemaFormat')}
+          </AlertDescription>
+        </Alert>
+      )}
 
-        <div className="flex flex-1 min-h-0 gap-4 overflow-hidden px-6">
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {/* JSON Schema Conversion Warning */}
-            {showJsonSchemaWarning && (
-              <Alert variant="info" className="mb-4">
-                <AlertDescription className="text-xs">
-                  {t('workflows.nodeEditor.jsonSchemaFormat')}
-                </AlertDescription>
-              </Alert>
-            )}
+      {/* Remount when the inspected step changes. A docked rail re-targets on a
+          canvas click, and CrudForm deliberately preserves fields the author has
+          already edited when `initialValues` changes — correct for late-arriving
+          field definitions, wrong here: it would carry an unsaved edit from the
+          previous step onto this one. */}
+      <CrudForm
+        key={node.id}
+        density="compact"
+        fields={fields}
+        groups={groups}
+        initialValues={initialValues}
+        onSubmit={handleSubmit}
+        embedded={true}
+        submitLabel={t('workflows.form.saveStep')}
+        extraActions={
+          canDelete ? (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDelete}
+            >
+              <Trash2 className="size-4 mr-2" />
+              {t('workflows.form.deleteStep')}
+            </Button>
+          ) : undefined
+        }
+      />
 
-            <CrudForm
-              fields={fields}
-              groups={groups}
-              initialValues={initialValues}
-              onSubmit={handleSubmit}
-              embedded={true}
-              submitLabel={t('workflows.form.saveStep')}
-              extraActions={
-                canDelete ? (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={handleDelete}
-                  >
-                    <Trash2 className="size-4 mr-2" />
-                    {t('workflows.form.deleteStep')}
-                  </Button>
-                ) : undefined
-              }
-            />
-          </div>
-          <InputDataPanel
-            entries={ledgerEntries}
-            stepId={node.id}
-            samples={samples}
-            className="hidden w-72 shrink-0 self-start lg:flex max-h-full"
-          />
-        </div>
-      </DialogContent>
-    </Dialog>
+      {/* The rail is too narrow for the side column the 1280px modal used, so
+          the ledger stacks under the form, folded until it is wanted. */}
+      <InputDataPanel
+        entries={ledgerEntries}
+        stepId={node.id}
+        samples={samples}
+        className="mt-4"
+        defaultCollapsed
+      />
+    </InspectorPanel>
   )
 }

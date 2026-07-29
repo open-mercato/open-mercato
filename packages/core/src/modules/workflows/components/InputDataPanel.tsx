@@ -36,11 +36,18 @@ export interface InputDataPanelProps {
   stepId?: string | null
   samples?: Record<string, PinnedSampleEnvelope>
   className?: string
+  /**
+   * Whether the panel starts folded. In the docked rail it does: the form is
+   * what the author came for, and an expanded ledger would push it off the top
+   * of a 384px column. The old 1280px modal showed it beside the form, where
+   * costing nothing was true.
+   */
+  defaultCollapsed?: boolean
 }
 
-export function InputDataPanel({ entries, stepId, samples, className }: InputDataPanelProps) {
+export function InputDataPanel({ entries, stepId, samples, className, defaultCollapsed = false }: InputDataPanelProps) {
   const t = useT()
-  const [collapsed, setCollapsed] = React.useState(false)
+  const [collapsed, setCollapsed] = React.useState(defaultCollapsed)
   const [search, setSearch] = React.useState('')
   const [copiedPath, setCopiedPath] = React.useState<string | null>(null)
 
@@ -106,7 +113,7 @@ export function InputDataPanel({ entries, stepId, samples, className }: InputDat
             />
           </div>
           <p className="px-3 pb-2 text-xs text-muted-foreground">{t('workflows.inputDataPanel.hint')}</p>
-          <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+          <div className="min-h-0 max-h-64 flex-1 overflow-y-auto px-1 pb-2">
             {listedEntries.length === 0 ? (
               <p className="p-3 text-xs text-muted-foreground">{t('workflows.variablePicker.emptyState')}</p>
             ) : groups.length === 0 ? (

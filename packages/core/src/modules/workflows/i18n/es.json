@@ -1070,6 +1070,7 @@
   "workflows.inputDataPanel.hint": "Arrastra un campo a un parámetro o haz clic para copiar la variable.",
   "workflows.inputDataPanel.rowHint": "Arrastra a un campo o haz clic para copiar",
   "workflows.inputDataPanel.title": "Datos de entrada",
+  "workflows.inspector.close": "Cerrar el inspector",
   "workflows.instances.actions.backToList": "Volver a instancias",
   "workflows.instances.actions.cancel": "Cancelar",
   "workflows.instances.actions.retry": "Reintentar",

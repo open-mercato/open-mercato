@@ -688,6 +688,42 @@ Treat a regression here as a broken feature, not a nit.
   pair green + a check, route chips are labelled buttons and the collapsed semantic-zoom dot row is a
   labelled `role="img"`. `components/__tests__/canvasAccessibility.test.tsx` is the guard.
 
+## Step & Route Inspector (the docked rail)
+
+- **`components/InspectorPanel.tsx` is the ONE shell** both inspectors render
+  through (`NodeEditDialogCrudForm`, `EdgeEditDialogCrudForm`). They used to be two
+  independent modals that had drifted apart in padding, heading shape and close
+  affordance. MUST NOT give either its own chrome again.
+- **`docked` is a layout sibling of the canvas, not an overlay.** The page renders
+  it INSIDE the editor row (`data-testid="workflow-editor-row"`), so opening it
+  narrows the graph and leaves it visible and clickable. `overlay` is the same
+  content in a modal `Drawer` and is what the compact (<1280px) layout uses — that
+  layout is a separate single-column branch with no row to dock into.
+  `inspectorsDocked` in the page owns the decision; both variants are otherwise
+  identical, or a step inspected on a laptop stops being the same surface.
+- **Docking is SPATIAL, never a keyboard change.** An open inspector still owns the
+  shortcuts: it holds unsaved form values, and every canvas binding either mutates
+  the document under it (undo, delete, paste) or would save a graph that omits the
+  edit sitting in the rail. Escape from the canvas closes the rail; Escape raised
+  inside it is claimed by the panel itself (`stopPropagation`).
+- **Exactly one rail at a time.** With a live canvas a step click can arrive while
+  the ROUTE inspector is open, so `handleNodeClick` / `handleEdgeClick` each close
+  the other. The modal variant could never reach that state.
+- **The form is KEYED on the inspected record.** `CrudForm` deliberately preserves
+  fields the author already edited when `initialValues` changes — right for
+  late-arriving field definitions, wrong for re-targeting, where it would carry an
+  unsaved edit from step A onto step B and save it there. MUST keep `key={node.id}`
+  / `key={edge.id}`.
+- **The ledger panel folds by default here** (`InputDataPanel defaultCollapsed`).
+  In the old 1280px modal it sat BESIDE the form and cost nothing; stacked under
+  the form in a 384px column an expanded ledger pushes the form off the top.
+- **Both inspectors pass `density="compact"` to `CrudForm`** (the prop added for
+  this rail). `CrudForm`'s default lays groups out for a full-width page, which is
+  airy at 384px; compact steps the between-group and between-field spacing and the
+  group-card padding one DS step down and changes NOTHING else. MUST NOT reach for
+  descendant `[&_…]` overrides on a shared primitive from this module instead — if
+  a narrow host needs more, extend the prop where it lives.
+
 ## Definition Metadata Drawer
 
 - **`components/DefinitionMetadataDrawer.tsx` is the ONE definition-metadata form.** The Studio and

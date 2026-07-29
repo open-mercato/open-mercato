@@ -1070,6 +1070,7 @@
   "workflows.inputDataPanel.hint": "Przeciągnij pole do parametru lub kliknij, aby skopiować znacznik.",
   "workflows.inputDataPanel.rowHint": "Przeciągnij do pola lub kliknij, aby skopiować",
   "workflows.inputDataPanel.title": "Dane wejściowe",
+  "workflows.inspector.close": "Zamknij inspektora",
   "workflows.instances.actions.backToList": "Powrót do instancji",
   "workflows.instances.actions.cancel": "Anuluj",
   "workflows.instances.actions.retry": "Ponów",

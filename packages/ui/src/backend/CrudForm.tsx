@@ -368,6 +368,17 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Hide the footer action bar (Save/Cancel/Delete) when embedding in a custom layout
   hideFooterActions?: boolean
   /**
+   * Vertical rhythm of the form body.
+   *
+   * `default` is the page-width layout every existing host renders today and is
+   * unchanged byte-for-byte. `compact` tightens the between-group and
+   * between-field spacing and the group-card padding for narrow hosts — a docked
+   * inspector rail, a side panel — where the page rhythm reads as airy and costs
+   * the host a third of its column. It changes SPACING only: no label, helper
+   * text, control size or copy differs between the two.
+   */
+  density?: 'default' | 'compact'
+  /**
    * Opt-in: track dirty state even when `embedded` is true, AND enable the form's built-in
    * navigation protection (beforeunload, link-click intercept, pushState/replaceState/popstate).
    *
@@ -726,6 +737,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   loadingMessage,
   customEntity = false,
   embedded = false,
+  density = 'default',
   hideFooterActions = false,
   trackDirtyWhenEmbedded = false,
   onDirtyChange,
@@ -1274,6 +1286,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // handles the overflow case on its own: when content scrolls, the footer stays pinned
   // to the dialog's bottom and the user can scroll fields above it.
   const dialogFormPadding = ''
+  // One step down the DS scale each, never an arbitrary value. `default` returns
+  // the exact strings that were inline before this prop existed.
+  const isCompactDensity = density === 'compact'
+  const densityStackLg = isCompactDensity ? 'space-y-3' : 'space-y-4'
+  const densityStackMd = isCompactDensity ? 'space-y-2' : 'space-y-3'
+  const densityCardPadding = isCompactDensity ? 'p-3' : 'p-4'
+  const densityGroupCardPadding = isCompactDensity ? 'px-3 py-2' : 'px-4 py-3'
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -3190,7 +3209,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           const sectionKey = `${entityLayout.entityId}:${section.fieldsetCode ?? 'default'}`
           const manageDisabled = !manageHref
           nodes.push(
-            <div key={sectionKey} className="rounded-lg border bg-card p-4 space-y-4">
+            <div key={sectionKey} className={`rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-2">
                   {FieldsetIcon ? (
@@ -3432,7 +3451,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 fieldCount={customFieldCount}
                 chevronPosition={collapsibleChevronPosition}
               >
-                <div className="space-y-3">
+                <div className={densityStackMd}>
                   {customFieldsInnerNodes}
                 </div>
               </CollapsibleGroup>,
@@ -3486,14 +3505,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               fieldCount={groupFields.length}
               chevronPosition={collapsibleChevronPosition}
             >
-              <div className="space-y-3">
+              <div className={densityStackMd}>
                 {groupContent}
               </div>
             </CollapsibleGroup>,
           )
         } else {
           nodes.push(
-            <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
+            <div key={g.id} className={`rounded-lg border bg-card ${densityGroupCardPadding} ${densityStackMd}`}>
               {g.title ? (
                 <div className="text-sm font-medium">{t(g.title, g.title)}</div>
               ) : null}
@@ -3547,7 +3566,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
         >
           {wrapFormBody(
-            <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
+            <form id={formId} onSubmit={handleSubmit} className={`${densityStackLg} ${dialogFormPadding}`}>
             {resolvedInjectionSpotId ? (
               <InjectionSpot
                 spotId={resolvedInjectionSpotId}
@@ -3566,13 +3585,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-3">{col1Content}</div>
+                    <div className={densityStackMd}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className="space-y-3">{col1Content}</div>
+                <div className={densityStackMd}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className="space-y-3" data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
@@ -3633,7 +3652,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <form
             id={formId}
             onSubmit={handleSubmit}
-            className={`${embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'} ${dialogFormPadding}`}
+            className={`${embedded ? densityStackLg : `rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`} ${dialogFormPadding}`}
           >
             {resolvedInjectionSpotId ? (
               <InjectionSpot

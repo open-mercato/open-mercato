@@ -1070,6 +1070,7 @@
   "workflows.inputDataPanel.hint": "Drag a field into a parameter, or click it to copy the pill.",
   "workflows.inputDataPanel.rowHint": "Drag into a field, or click to copy",
   "workflows.inputDataPanel.title": "Input data",
+  "workflows.inspector.close": "Close inspector",
   "workflows.instances.actions.backToList": "Back to instances",
   "workflows.instances.actions.cancel": "Cancel",
   "workflows.instances.actions.retry": "Retry",
