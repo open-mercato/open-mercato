@@ -25,8 +25,16 @@ import {
   MarkerType,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode, StickyNoteNode, AnnotationGroupNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode, TriggerNode, StickyNoteNode, AnnotationGroupNode} from './nodes'
 import { ANNOTATION_GROUP_NODE_TYPE, ANNOTATION_NOTE_NODE_TYPE } from '../lib/editor-annotations'
+import {
+  buildTriggerEdge,
+  buildTriggerNode,
+  buildTriggerNodeModel,
+  isTriggerNode,
+  WORKFLOW_TRIGGER_NODE_TYPE,
+  type TriggerLike,
+} from '../lib/trigger-node'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
 import { WorkflowDataMappingEdge } from './WorkflowDataMappingEdge'
 import { WorkflowCompensationGhostEdge } from './WorkflowCompensationGhostEdge'
@@ -158,6 +166,27 @@ export interface WorkflowGraphImplProps {
    * stack, an autosave, or `graphToDefinition`.
    */
   runOverlay?: RunExecution | null
+  /**
+   * The definition's event triggers, for the canvas trigger node (fidelity gap
+   * #5). Display-only and minted at RENDER time, the same rule the compensation
+   * ghosts and the last-run overlay follow, so the pill never enters the
+   * editor's node state, the undo stack, an autosave or `graphToDefinition`.
+   *
+   * `undefined` / `null` renders nothing at all, so every existing caller (the
+   * read-only viewers) is untouched. An ARRAY opts in — including an EMPTY one,
+   * which still renders the pill: a definition with no triggers is not a
+   * definition with no way in, it is one started manually or through the API,
+   * and saying so is the point of the node.
+   */
+  triggers?: TriggerLike[] | null
+  /**
+   * The definition's own enabled flag. `startWorkflow` throws
+   * `DEFINITION_DISABLED` before it looks at triggers, so the pill must not list
+   * entry points that cannot fire.
+   */
+  definitionEnabled?: boolean
+  /** Opens the definition drawer on its triggers section. */
+  onOpenTriggers?: () => void
 }
 
 export default function WorkflowGraphImpl({
@@ -177,6 +206,9 @@ export default function WorkflowGraphImpl({
   nodeErrorCounts,
   showCompensation = false,
   runOverlay = null,
+  triggers = null,
+  definitionEnabled = true,
+  onOpenTriggers,
 }: WorkflowGraphImplProps) {
   const t = useT()
   const [nodes, setNodes] = useNodesState(initialNodes)
@@ -416,15 +448,49 @@ export default function WorkflowGraphImpl({
     })
   }, [decoratedNodes, runOverlay])
 
+  // The trigger pill (fidelity gap #5). Derived at render time from the
+  // definition's triggers and anchored to the START terminal, so it is absent
+  // from the node state, the undo stack, the drag autosave, the per-user draft
+  // and the subgraph clipboard by construction — not by remembering to filter it
+  // in each of them.
+  const triggerModel = useMemo(
+    () => (triggers ? buildTriggerNodeModel(triggers, { definitionEnabled }) : null),
+    [triggers, definitionEnabled],
+  )
+
+  const triggerAnchor = useMemo(
+    () => (triggerModel ? overlaidNodes.find((node) => node.type === 'start') ?? null : null),
+    [triggerModel, overlaidNodes],
+  )
+
+  const canvasNodes = useMemo(() => {
+    if (!triggerModel || !triggerAnchor) return overlaidNodes
+    return [...overlaidNodes, buildTriggerNode(triggerModel, triggerAnchor, { onOpen: onOpenTriggers })]
+  }, [overlaidNodes, triggerModel, triggerAnchor, onOpenTriggers])
+
   const displayEdges = useMemo(() => {
     const withGhosts = showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges
-    if (!runOverlay) return withGhosts
-    return withGhosts.map((edge) =>
-      isRouteTaken(runOverlay, { transitionId: edge.id, fromStepId: edge.source, toStepId: edge.target })
-        ? { ...edge, data: { ...edge.data, state: 'completed' } }
-        : edge,
-    )
-  }, [showCompensation, edges, runOverlay])
+    const overlaid = !runOverlay
+      ? withGhosts
+      : withGhosts.map((edge) =>
+          isRouteTaken(runOverlay, { transitionId: edge.id, fromStepId: edge.source, toStepId: edge.target })
+            ? { ...edge, data: { ...edge.data, state: 'completed' } }
+            : edge,
+        )
+    if (!triggerAnchor) return overlaid
+    return [...overlaid, buildTriggerEdge(triggerAnchor.id, ROUTE_MARKER_END)]
+  }, [showCompensation, edges, runOverlay, triggerAnchor])
+
+  // The pill is not a step, so a click on it must never reach the step
+  // inspector. It carries its own button, which opens the triggers section of
+  // the definition drawer instead.
+  const handleNodeClick = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      if (isTriggerNode(node)) return
+      onNodeClickProp?.(event, node)
+    },
+    [onNodeClickProp],
+  )
 
   const nodeTypes = useMemo(
     () => ({
@@ -441,6 +507,7 @@ export default function WorkflowGraphImpl({
       invokeAgent: InvokeAgentNode,
       ifElse: IfElseNode,
       switch: SwitchNode,
+      [WORKFLOW_TRIGGER_NODE_TYPE]: TriggerNode,
       [ANNOTATION_NOTE_NODE_TYPE]: StickyNoteNode,
       [ANNOTATION_GROUP_NODE_TYPE]: AnnotationGroupNode,
     }),
@@ -471,7 +538,7 @@ export default function WorkflowGraphImpl({
       } as React.CSSProperties}
     >
       <ReactFlow
-        nodes={overlaidNodes}
+        nodes={canvasNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -480,7 +547,7 @@ export default function WorkflowGraphImpl({
         onConnect={editable ? onConnect : undefined}
         onReconnect={editable ? onReconnectProp : undefined}
         edgesReconnectable={editable && !!onReconnectProp}
-        onNodeClick={onNodeClickProp}
+        onNodeClick={handleNodeClick}
         onEdgeClick={onEdgeClickProp}
         onInit={(instance) => {
           reactFlowInstanceRef.current = instance

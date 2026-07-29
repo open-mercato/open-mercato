@@ -269,6 +269,39 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Command / function / event / agent / signal / sub-workflow ids render `font-mono`; the mockup's
   10.4px mono has no DS equivalent and is NOT reproduced — `text-xs` is the floor.
 
+## Canvas Trigger Node (fidelity gap #5)
+
+- **`lib/trigger-node.ts` (PURE) derives the pill; `components/nodes/TriggerNode.tsx` renders it.**
+  It is a RENDER-TIME overlay minted in `WorkflowGraphImpl` from the `triggers` prop, the same rule
+  the compensation ghosts and the last-run overlay follow — so it is absent from the node state, the
+  undo stack, the drag autosave, the per-user draft and the subgraph clipboard BY CONSTRUCTION.
+  `graphToDefinition`, `validateWorkflowGraph` and `applyAutoLayout` filter it anyway, which is what
+  makes the guarantee testable (`lib/__tests__/trigger-node.test.ts`).
+- **NO engine change.** The triggers are already on the definition; nothing here is read by the
+  executor.
+- **ONE node lists every trigger, not one node per trigger.** Triggers are a definition-level
+  property and every one of them starts the SAME START step, so N pills converging on one target
+  would be N edges' worth of noise carrying a list's worth of information. Capped at
+  `TRIGGER_NODE_EVENT_LIMIT` (= `ROUTE_CHIP_LIMIT`) with a `+N` line, and enabled triggers sort first
+  so a disabled one can never displace a live entry point into the overflow.
+- **What it says must be TRUE.** `POST /api/workflows/instances` → `startWorkflow` needs no trigger,
+  so the manual/API line is unconditional and a definition with ZERO triggers still renders the node
+  (rendering nothing would leave "where does this start" unanswered for the majority of definitions).
+  `startWorkflow` throws `DEFINITION_DISABLED` before it looks at a trigger, so a disabled definition
+  renders ONLY that fact. MUST NOT draw an event trigger as the only way in.
+- **It is not a step and has no rank.** It is positioned relative to the START terminal
+  (`TRIGGER_NODE_*` in `lib/node-geometry.ts`, `TRIGGER_NODE_GAP` = dagre's own `ranksep`) and is
+  never handed to dagre — ranking it would move it out from under its own anchor and would make it
+  count toward the exactly-one-START invariant.
+- **The connector is deliberately not a `workflowTransition`.** It carries no condition, no
+  activities and no id the engine resolves, so it uses the built-in bezier with its own dash pattern
+  (`4,4` — distinct from error `8,4`, data-mapping `2,3`, compensation `10,4,2,4`; `pending` is
+  solid). The pill exposes no connectable handle, so it can never become a route endpoint.
+- **Clicking it opens `DefinitionMetadataDrawer` AT its `inputs` section** (`focusSection`, which
+  scrolls AND focuses — the keyboard path has to arrive there too). The pill IS a `<button>`, so
+  §4.6's non-pointer requirement is met by the element rather than by a re-implementation, and every
+  state it paints pairs its token with a glyph and an `sr-only` name.
+
 ## Route Kinds (the handle ↔ `kind` round trip)
 
 - **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers
