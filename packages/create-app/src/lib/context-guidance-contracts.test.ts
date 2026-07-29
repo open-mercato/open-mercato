@@ -390,6 +390,7 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(uiSkill, /Do not load contracts or `om-module-scaffold` unless it adds app-owned persistence\/API\/commands/)
   assert.match(root, /Existing installed form\/table fields, filters, row\/bulk actions without app persistence = `umes` \+ `backend-ui` only/)
   assert.match(root, /read `crud-surfaces` \+ `quality-states`; do not load contracts, module-scaffold, or page\/navigation/)
+  assert.match(root, /installed guard without app persistence = `umes` only, so do not load contracts/)
   assert.match(root, /read-only behavior\/auth\/dependents\/customization = `framework-context`/)
   assert.match(root, /`framework-context` \(alone: no extensions guide; report `installed-version`\)/)
   assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
@@ -471,6 +472,7 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
     'shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
   )
   assert.match(root, /AI file or content drafting\/attachment\/override.*`om-create-ai-agent`/)
+  assert.match(aiSkill, /MUST load the `attachments` facts plus `references\/attachments-and-overrides\.md` and report ALL offered decisions/)
   for (const decision of ['artifact-authorization', 'encrypted-storage', 'cleanup', 'draft-only-ai-output']) {
     assert.ok(aiSkill.includes(`\`${decision}\``), `missing AI attachment decision ${decision}`)
   }
