@@ -135,9 +135,21 @@ type WidgetDataResponse = {
   metadata: {
     fetchedAt: string
     recordCount: number
+    currency?: string | null
   }
 }
 ```
+
+`metadata.currency` is the tenant/organization base currency used by money-rendering
+widgets. The service emits an ISO 4217 code when one can be resolved and `null` when
+the currencies module or a configured base currency is unavailable.
+
+### Migration & Backward Compatibility
+
+`metadata.currency` is an additive optional response field. Existing API clients may
+ignore it and continue using their current fallback behavior. New clients should use
+the code when present and preserve their historical fallback when it is absent or
+`null`; the built-in analytics widgets fall back to USD.
 
 ## Caching
 

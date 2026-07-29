@@ -529,13 +529,17 @@ test.describe('TC-DASH-001..008: Dashboard API integration coverage', () => {
     const body = await readJsonSafe<{
       value?: number | null
       data?: unknown[]
-      metadata?: { fetchedAt?: string; recordCount?: number }
+      metadata?: { fetchedAt?: string; recordCount?: number; currency?: string | null }
     }>(response)
     expect(response.status()).toBe(200)
     expect(typeof body?.value === 'number' || body?.value === null).toBe(true)
     expect(Array.isArray(body?.data)).toBe(true)
     expect(typeof body?.metadata?.fetchedAt).toBe('string')
     expect(typeof body?.metadata?.recordCount).toBe('number')
+    expect(
+      typeof body?.metadata?.currency === 'string' || body?.metadata?.currency === null,
+      'single widget-data response should expose the resolved currency or an explicit null fallback',
+    ).toBe(true)
 
     const invalidResponse = await apiRequest(request, 'POST', API.widgetData, {
       token: adminToken,
@@ -555,13 +559,24 @@ test.describe('TC-DASH-001..008: Dashboard API integration coverage', () => {
       },
     })
     const batchBody = await readJsonSafe<{
-      results?: Array<{ id?: string; ok?: boolean; data?: unknown; error?: string }>
+      results?: Array<{
+        id?: string
+        ok?: boolean
+        data?: { metadata?: { currency?: string | null } }
+        error?: string
+      }>
     }>(batchResponse)
     expect(batchResponse.status()).toBe(200)
     expect(batchBody?.results).toHaveLength(2)
-    expect(batchBody?.results?.find((item) => item.id === 'orders-count')).toEqual(
+    const successfulBatchItem = batchBody?.results?.find((item) => item.id === 'orders-count')
+    expect(successfulBatchItem).toEqual(
       expect.objectContaining({ ok: true, data: expect.any(Object) }),
     )
+    expect(
+      typeof successfulBatchItem?.data?.metadata?.currency === 'string'
+      || successfulBatchItem?.data?.metadata?.currency === null,
+      'batch widget-data response should expose the resolved currency or an explicit null fallback',
+    ).toBe(true)
     expect(batchBody?.results?.find((item) => item.id === 'invalid-field')).toEqual(
       expect.objectContaining({ ok: false, error: expect.stringContaining('Invalid metric field') }),
     )

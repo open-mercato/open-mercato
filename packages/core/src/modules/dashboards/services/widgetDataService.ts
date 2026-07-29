@@ -87,7 +87,7 @@ export type WidgetDataResponse = {
      * Base currency of the requesting scope, or `null` when none is configured.
      * Money-rendering widgets format with it instead of assuming USD (#4620).
      */
-    currency: string | null
+    currency?: string | null
   }
 }
 
