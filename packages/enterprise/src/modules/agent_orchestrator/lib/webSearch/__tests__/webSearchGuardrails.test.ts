@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import { MODEL_ADAPTER_TIMEOUT_MS, resolvePolicy } from '@open-mercato/web-research'
 import { enforceWebSearchRateLimit, resolveRunId } from '../guardrails'
 import { hostnameOf, isHostAllowed, resolveEnvSettings, type WebSearchGuardrails } from '../policy'
 
@@ -43,7 +44,19 @@ const allowingLimiter = () => ({ consume: jest.fn(async () => ({ allowed: true }
 describe('resolveEnvSettings', () => {
   it('enables only model-native by default, keeping SERP scraping opt-in', () => {
     const settings = resolveEnvSettings({})
-    expect(settings.policy.adapters).toEqual([{ id: 'model-native', enabled: true, order: 0, weight: 1 }])
+    expect(settings.policy.adapters).toEqual([
+      { id: 'model-native', enabled: true, order: 0, weight: 1, timeoutMs: MODEL_ADAPTER_TIMEOUT_MS },
+    ])
+  })
+
+  it('gives the default adapter a budget it can actually finish in', () => {
+    // model-native runs the model's own multi-step web search and measures around
+    // 30s. Under the generic adapter budget it timed out on every run, so the
+    // shipped configuration returned nothing at all.
+    const settings = resolveEnvSettings({})
+    const modelNative = settings.policy.adapters?.find((entry) => entry.id === 'model-native')
+    expect(modelNative?.timeoutMs).toBeGreaterThan(30_000)
+    expect(resolvePolicy(settings.policy).hardDeadlineMs).toBeGreaterThanOrEqual(modelNative?.timeoutMs ?? 0)
   })
 
   it('enables the listed adapters in the given order', () => {

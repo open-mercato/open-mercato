@@ -58,7 +58,8 @@ export async function runAdapter(
   deps: AdapterRunDeps,
 ): Promise<AdapterRunResult> {
   const startedAt = deps.now()
-  const budget = Math.max(0, Math.min(deps.adapterTimeoutMs, deps.deadlineAt - startedAt))
+  const allowance = entry.timeoutMs ?? deps.adapterTimeoutMs
+  const budget = Math.max(0, Math.min(allowance, deps.deadlineAt - startedAt))
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), budget)
   timer.unref?.()

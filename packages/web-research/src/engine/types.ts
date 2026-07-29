@@ -54,6 +54,8 @@ export type EngineAdapterEntry = {
    * source out of every query while retaining it as the safety net.
    */
   readonly enabled: boolean
+  /** Overrides `policy.adapterTimeoutMs` for this adapter alone. */
+  readonly timeoutMs?: number
 }
 
 export type SearchEngineOptions = {

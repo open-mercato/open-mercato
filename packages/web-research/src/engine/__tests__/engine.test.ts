@@ -229,6 +229,57 @@ describe('search engine scheduling', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('gives an adapter its own timeout when the policy sets one', async () => {
+    const adapters = () => [
+      entry(createFakeAdapter({ id: 'slow', latencyMs: 200, results: hits('slow.com', 3) }), {
+        timeoutMs: 5_000,
+      }),
+    ]
+
+    const shared = await engineWith(
+      [entry(createFakeAdapter({ id: 'slow', latencyMs: 200, results: hits('slow.com', 3) }))],
+      { adapterTimeoutMs: 50, minResults: 1, lastResort: null },
+    ).search({ query: 'x' })
+    const overridden = await engineWith(adapters(), {
+      adapterTimeoutMs: 50,
+      minResults: 1,
+      lastResort: null,
+    }).search({ query: 'x' })
+
+    expect(statusOf(shared, 'slow')).toBe('timeout')
+    expect(statusOf(overridden, 'slow')).toBe('ok')
+  })
+
+  it('does not call a thin but healthy run degraded', async () => {
+    const engine = engineWith(
+      [entry(createFakeAdapter({ id: 'alpha', results: hits('alpha.com', 2) }))],
+      { minResults: 5, lastResort: null },
+    )
+
+    const result = await engine.search({ query: 'x' })
+
+    // Two hits under a minimum of five is the web being thin, not the engine
+    // failing; an agent told otherwise reports its own findings as unreliable.
+    expect(result.results.length).toBe(2)
+    expect(result.diagnostics.degraded).toBe(false)
+  })
+
+  it('calls a run degraded when a source was lost', async () => {
+    const engine = engineWith(
+      [
+        entry(createFakeAdapter({ id: 'alpha', results: hits('alpha.com', 2) })),
+        entry(createFakeAdapter({ id: 'beta', outcome: { status: 'blocked', reason: 'HTTP 429' } }), {
+          order: 1,
+        }),
+      ],
+      { settleMode: 'exhaustive', minResults: 1, lastResort: null },
+    )
+
+    const result = await engine.search({ query: 'x' })
+
+    expect(result.diagnostics.degraded).toBe(true)
+  })
+
   it('reports a degraded run rather than failing when every adapter is down', async () => {
     const engine = engineWith(
       [

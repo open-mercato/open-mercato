@@ -8,6 +8,13 @@ export type AdapterPolicyEntry = {
   readonly order: number
   /** Relative pull in the fusion step; higher trusts this adapter's ranking more. */
   readonly weight: number
+  /**
+   * Overrides `adapterTimeoutMs` for this adapter alone. Latency is not uniform
+   * across kinds: a SERP read finishes in about a second, while a model doing its
+   * own multi-step web search takes tens of seconds. One shared budget has to be
+   * either too tight for the model or too slack for everything else.
+   */
+  readonly timeoutMs?: number
 }
 
 export type ContentPolicy = {
@@ -38,14 +45,25 @@ export type SearchPolicy = {
   readonly adapters: readonly AdapterPolicyEntry[]
 }
 
+/**
+ * Budget for `model-native`, the adapter enabled by default. It runs the model's
+ * own multi-step web search, which measures at roughly 30s end to end, so the
+ * generic adapter budget would time it out on every single run and the shipped
+ * configuration could never return anything.
+ */
+export const MODEL_ADAPTER_TIMEOUT_MS = 45_000
+
 export const DEFAULT_POLICY: SearchPolicy = {
   settleMode: 'quorum',
   concurrency: 2,
   minResults: 5,
   minAdapters: 1,
   minConfidence: 0,
+  // The soft deadline only binds once results exist, so a fast adapter still
+  // settles the run in about a second; this ceiling is what a lone slow adapter
+  // is allowed to use, not what a normal search costs.
   softDeadlineMs: 6_000,
-  hardDeadlineMs: 15_000,
+  hardDeadlineMs: 60_000,
   adapterTimeoutMs: 8_000,
   maxPerDomain: 3,
   cacheTtlMs: 900_000,
@@ -60,6 +78,7 @@ export const adapterPolicyEntrySchema = z.object({
   enabled: z.boolean().optional(),
   order: z.number().int().min(0).optional(),
   weight: z.number().min(0).max(10).optional(),
+  timeoutMs: z.number().int().min(250).max(120_000).optional(),
 })
 
 export const searchPolicySchema = z.object({
@@ -119,6 +138,9 @@ export function resolvePolicy(input: SearchPolicyInput | null | undefined): Sear
       enabled: entry.enabled ?? true,
       order: entry.order ?? index,
       weight: entry.weight ?? 1,
+      // Clamped to the hard deadline for the same reason the shared budget is:
+      // a per-adapter timeout past it can never be reached.
+      ...(entry.timeoutMs === undefined ? {} : { timeoutMs: Math.min(entry.timeoutMs, hardDeadlineMs) }),
     })),
   }
 }

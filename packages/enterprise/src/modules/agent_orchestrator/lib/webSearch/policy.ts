@@ -2,11 +2,15 @@ import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import {
   DEFAULT_POLICY,
+  MODEL_ADAPTER_TIMEOUT_MS,
   resolvePolicy,
   searchPolicySchema,
   type SearchPolicy,
   type SearchPolicyInput,
 } from '@open-mercato/web-research'
+
+/** The adapter enabled by default; also the one that needs its own budget. */
+const MODEL_ADAPTER_ID = 'model-native'
 
 /** Module + key under which the per-tenant policy is stored. */
 export const WEB_SEARCH_CONFIG_MODULE = 'agent_orchestrator'
@@ -65,11 +69,15 @@ export function resolveEnvSettings(env: NodeJS.ProcessEnv = process.env): {
   guardrails: WebSearchGuardrails
 } {
   const enabled = csv(env.OM_WEB_SEARCH_ADAPTERS)
-  const adapters = (enabled.length > 0 ? enabled : ['model-native']).map((id, index) => ({
+  const adapters = (enabled.length > 0 ? enabled : [MODEL_ADAPTER_ID]).map((id, index) => ({
     id,
     enabled: true,
     order: index,
     weight: 1,
+    // The model adapter runs its own multi-step web search and measures around
+    // 30s; under the generic budget it times out on every run, which is what
+    // made the shipped default configuration return nothing at all.
+    ...(id === MODEL_ADAPTER_ID ? { timeoutMs: MODEL_ADAPTER_TIMEOUT_MS } : {}),
   }))
 
   return {
@@ -80,6 +88,7 @@ export function resolveEnvSettings(env: NodeJS.ProcessEnv = process.env): {
         : {}),
       concurrency: positiveInt(env.OM_WEB_SEARCH_CONCURRENCY, DEFAULT_POLICY.concurrency),
       minResults: positiveInt(env.OM_WEB_SEARCH_MIN_RESULTS, DEFAULT_POLICY.minResults),
+      adapterTimeoutMs: positiveInt(env.OM_WEB_SEARCH_ADAPTER_TIMEOUT_MS, DEFAULT_POLICY.adapterTimeoutMs),
       softDeadlineMs: positiveInt(env.OM_WEB_SEARCH_SOFT_DEADLINE_MS, DEFAULT_POLICY.softDeadlineMs),
       hardDeadlineMs: positiveInt(env.OM_WEB_SEARCH_HARD_DEADLINE_MS, DEFAULT_POLICY.hardDeadlineMs),
       cacheTtlMs: positiveInt(env.OM_WEB_SEARCH_CACHE_TTL_MS, DEFAULT_POLICY.cacheTtlMs),
