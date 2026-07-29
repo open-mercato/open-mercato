@@ -41,6 +41,7 @@ The engine addresses each of those directly:
 | `@open-mercato/web-research-serp` | `serp-html` | Our own crawler over public SERP HTML. Free, no key, no dependencies. **Off by default** — enabling it is the operator's decision. |
 | `@open-mercato/web-research-firecrawl` | `firecrawl` | Keyed API that returns page content inline. |
 | `@open-mercato/web-research-tavily` | `tavily` | Keyed API oriented at LLM consumption. |
+| `@open-mercato/web-research-exa` | `exa` | Keyed API with an embeddings index. Filters by domain and publication date natively, and returns the passages it judged relevant rather than a page preview. Priced per call and reports the cost of each search in the live step feed. |
 | `@open-mercato/web-research-searxng` | `searxng` | Client for an instance **you** run. SearXNG is AGPL-3.0, so we ship the client only. |
 | `@open-mercato/web-research-browser` | `browser` | Renders blocked SERPs and JavaScript-only pages in a Playwright sidecar. Ships Playwright as a dependency and downloads the Chromium binary on first use, so installing the package is the only step. |
 
