@@ -33,15 +33,15 @@ type TaskContext = {
   formData?: unknown
 }
 
-type ProposalResponse = {
-  items?: {
-    id: string
-    runId?: string | null
-    payload?: unknown
-    confidence?: number | null
-    disposition?: string | null
-  }[]
+type DraftProposal = {
+  id: string
+  runId?: string | null
+  payload?: unknown
+  confidence?: number | null
+  disposition?: string | null
 }
+
+type ProposalResponse = { items?: DraftProposal[] }
 
 function readProposalId(context: TaskContext): string | null {
   for (const source of [context.formSchema, context.formData]) {
@@ -59,9 +59,7 @@ export default function TaskProposalDraftWidget({ context }: InjectionWidgetComp
   const proposalId = readProposalId((context ?? {}) as TaskContext)
 
   const [loading, setLoading] = React.useState(false)
-  const [proposal, setProposal] = React.useState<ProposalResponse['items'] extends (infer Item)[]
-    ? Item | null
-    : null>(null)
+  const [proposal, setProposal] = React.useState<DraftProposal | null>(null)
 
   React.useEffect(() => {
     if (!proposalId) {
