@@ -84,6 +84,24 @@ scheduler code is touched by this change.
 - [x] 4.1 Keep `GeneratedFileNotFoundError` internal — drop the `export` so the diagnostics fix adds
   no shared public type (review finding r3650721984, Medium) — 1add4fc8b
 
+### Phase 5: CI
+
+- [x] 5.1 Clear the `ephemeral-integration (3/15)` red check on head `30c9d5215`
+
+The failure was a docker-registry image pull timing out
+(`(HTTP code 500) server error - Get "https://registry-1.docker.io/v2/": net/http: request canceled`),
+not a test assertion, so it needs a fresh run rather than a code change. `gh run rerun --failed` is
+unavailable to this account (`Must have admin rights to Repository`), which leaves a push as the only
+lever.
+
+An earlier pass deferred that push, reasoning that merging current `develop` first would inherit the
+red `i18n:check-usage` that #4147 introduced (fixed by #4608). That reasoning was wrong on the point
+that mattered: `.github/workflows/ci.yml:468-469` runs `yarn i18n:check-usage` with
+`continue-on-error: true`, so a base-inherited i18n regression never fails the GitHub job — it only
+fails the local `validation.commands` gate, where every non-zero exit counts. This resume therefore
+pushes **without** merging the base: the tree stays free of the unrelated i18n regression, the local
+gate result recorded in Phase 3 still describes the pushed bytes, and CI re-runs clean of the flake.
+
 ## Follow-up observed while working (not fixed here) — tracked as #4526
 
 `compileAndImport` does `return import(fileUrl)` inside its `try`, so the promise is not awaited and
