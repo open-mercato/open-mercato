@@ -148,6 +148,51 @@ describe('entities/definitions API', () => {
     expect(notes?.defaultValue).toBeUndefined()
   })
 
+  it('passes phone defaultCountryIso2 from configJson into the normalized response (#62)', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'work_phone',
+          kind: 'phone',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: {
+            label: 'Work phone',
+            defaultCountryIso2: 'PL',
+          },
+        },
+        {
+          key: 'mobile_phone',
+          kind: 'phone',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: {
+            label: 'Mobile phone',
+            // no defaultCountryIso2 configured
+          },
+        },
+      ])
+      .mockResolvedValueOnce([]) // tombstones
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    const items = body.items as Array<Record<string, unknown>>
+    const work = items.find((i) => i.key === 'work_phone')
+    const mobile = items.find((i) => i.key === 'mobile_phone')
+
+    expect(work?.kind).toBe('phone')
+    expect(work?.defaultCountryIso2).toBe('PL')
+    expect(mobile?.defaultCountryIso2).toBeUndefined()
+  })
+
   it('hides inherited definitions that have a scoped tombstone', async () => {
     mockEm.find
       .mockResolvedValueOnce([
