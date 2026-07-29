@@ -247,5 +247,14 @@
   "entities.userEntities.records.form.editTitle": "Datensatz bearbeiten",
   "entities.userEntities.records.form.submitCreate": "Erstellen",
   "entities.userEntities.records.form.submitSave": "Speichern",
-  "entities.userEntities.records.loading": "Datensatz wird geladen..."
+  "entities.userEntities.records.loading": "Datensatz wird geladen...",
+  "entities.settings.title": "Benutzerdefinierte Entitäten",
+  "entities.settings.description": "Globale Konfigurationen für benutzerdefinierte Entitäten verwalten.",
+  "entities.settings.newEntitiesRestrictedByDefault.label": "Datensatzzugriff standardmäßig einschränken",
+  "entities.settings.newEntitiesRestrictedByDefault.description": "Für Datensätze neu erstellter benutzerdefinierter Entitäten standardmäßig explizite Berechtigungen pro Entität erfordern.",
+  "entities.settings.flash.saved": "Einstellungen gespeichert",
+  "entities.settings.errors.saveFailed": "Speichern der Einstellungen fehlgeschlagen",
+  "entities.settings.errors.loadFailed": "Laden der Einstellungen fehlgeschlagen",
+  "entities.settings.errors.conflict": "Die Einstellungen wurden von einem anderen Benutzer geändert. Bitte neu laden.",
+  "entities.userEntities.errors.settingsLoadFailed": "Standardeinschränkungsrichtlinie konnte nicht geladen werden; Standardwert wird verwendet"
 }

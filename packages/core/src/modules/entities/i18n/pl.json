@@ -247,5 +247,14 @@
   "entities.userEntities.records.form.editTitle": "Edytuj rekord",
   "entities.userEntities.records.form.submitCreate": "Utwórz",
   "entities.userEntities.records.form.submitSave": "Zapisz",
-  "entities.userEntities.records.loading": "Wczytywanie rekordu..."
+  "entities.userEntities.records.loading": "Wczytywanie rekordu...",
+  "entities.settings.title": "Niestandardowe encje",
+  "entities.settings.description": "Zarządzaj globalnymi ustawieniami niestandardowych encji.",
+  "entities.settings.newEntitiesRestrictedByDefault.label": "Domyślnie ograniczaj dostęp do rekordów",
+  "entities.settings.newEntitiesRestrictedByDefault.description": "Domyślnie wymagaj jawnych uprawnień dla poszczególnych encji do rekordów nowo tworzonych niestandardowych encji.",
+  "entities.settings.flash.saved": "Ustawienia zostały zapisane",
+  "entities.settings.errors.saveFailed": "Nie udało się zapisać ustawień",
+  "entities.settings.errors.loadFailed": "Nie udało się załadować ustawień",
+  "entities.settings.errors.conflict": "Ustawienia zostały zmodyfikowane przez innego użytkownika. Proszę przeładować.",
+  "entities.userEntities.errors.settingsLoadFailed": "Nie udało się załadować domyślnej polityki ograniczeń; używanie wartości domyślnej"
 }

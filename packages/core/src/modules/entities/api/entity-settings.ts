@@ -15,6 +15,11 @@ export const metadata = {
 }
 
 type ModuleConfigServiceLike = {
+  getRecord: (
+    moduleId: string,
+    name: string,
+    scope?: { tenantId?: string | null },
+  ) => Promise<any>
   getValue: (
     moduleId: string,
     name: string,
@@ -25,7 +30,7 @@ type ModuleConfigServiceLike = {
     name: string,
     value: unknown,
     scope?: { tenantId?: string | null },
-  ) => Promise<unknown>
+  ) => Promise<any>
 }
 
 async function readPolicy(tenantId: string | null): Promise<boolean> {
@@ -45,12 +50,20 @@ async function readPolicy(tenantId: string | null): Promise<boolean> {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const newEntitiesRestrictedByDefault = await readPolicy(auth.tenantId ?? null)
-  return NextResponse.json({ newEntitiesRestrictedByDefault })
+  const { resolve } = await createRequestContainer()
+  const moduleConfigService = resolve('moduleConfigService') as ModuleConfigServiceLike
+  const record = await moduleConfigService.getRecord(CONFIG_MODULE, NEW_ENTITIES_RESTRICTED_KEY, {
+    tenantId: auth.tenantId ?? null,
+  })
+  return NextResponse.json({
+    newEntitiesRestrictedByDefault: record ? record.value === true : false,
+    updatedAt: record ? record.updatedAt : null,
+  })
 }
 
 const putBodySchema = z.object({
   newEntitiesRestrictedByDefault: z.boolean(),
+  expectedUpdatedAt: z.string().optional(),
 })
 
 export async function PUT(req: Request) {
@@ -64,17 +77,40 @@ export async function PUT(req: Request) {
   }
   const { resolve } = await createRequestContainer()
   const moduleConfigService = resolve('moduleConfigService') as ModuleConfigServiceLike
-  await moduleConfigService.setValue(
+
+  const currentRecord = await moduleConfigService.getRecord(
+    CONFIG_MODULE,
+    NEW_ENTITIES_RESTRICTED_KEY,
+    { tenantId: auth.tenantId ?? null },
+  )
+
+  const ifMatchHeader = req.headers.get('If-Match') || req.headers.get('x-om-ext-optimistic-lock-expected-updated-at')
+  const expectedUpdatedAt = ifMatchHeader || parsed.data.expectedUpdatedAt
+
+  if (expectedUpdatedAt && currentRecord && currentRecord.updatedAt !== expectedUpdatedAt) {
+    return NextResponse.json(
+      { code: 'optimistic_lock_conflict', error: 'Settings were modified by another user. Please reload.' },
+      { status: 409 },
+    )
+  }
+
+  const updatedRecord = await moduleConfigService.setValue(
     CONFIG_MODULE,
     NEW_ENTITIES_RESTRICTED_KEY,
     parsed.data.newEntitiesRestrictedByDefault,
     { tenantId: auth.tenantId ?? null },
   )
-  return NextResponse.json({ ok: true, newEntitiesRestrictedByDefault: parsed.data.newEntitiesRestrictedByDefault })
+
+  return NextResponse.json({
+    ok: true,
+    newEntitiesRestrictedByDefault: parsed.data.newEntitiesRestrictedByDefault,
+    updatedAt: updatedRecord ? updatedRecord.updatedAt : null,
+  })
 }
 
 const settingsResponseSchema = z.object({
   newEntitiesRestrictedByDefault: z.boolean(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -94,9 +130,10 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Sets the tenant-scoped default-restricted policy for new custom entities.',
       requestBody: { schema: putBodySchema },
       responses: [
-        { status: 200, description: 'Updated settings', schema: z.object({ ok: z.boolean(), newEntitiesRestrictedByDefault: z.boolean() }) },
+        { status: 200, description: 'Updated settings', schema: z.object({ ok: z.boolean(), newEntitiesRestrictedByDefault: z.boolean(), updatedAt: z.string().nullable().optional() }) },
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Missing authentication', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Optimistic lock conflict', schema: z.object({ code: z.string(), error: z.string() }) },
       ],
     },
   },
