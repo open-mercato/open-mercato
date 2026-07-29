@@ -66,7 +66,7 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     )
     expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm']))
     // Non-gateway backends stay unflagged.
-    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq', 'azure']) {
+    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq']) {
       const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === id)!
       expect(preset.usesVendorPrefixedModelIds).toBeFalsy()
     }
@@ -114,15 +114,12 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     expect(model).toBeDefined()
   })
 
-  it('azure preset honors baseURLEnvKeys override', () => {
-    const azurePreset = OPENAI_COMPATIBLE_PRESETS.find(
-      (p) => p.id === 'azure',
-    )
-    expect(azurePreset).toBeDefined()
-    expect(azurePreset?.baseURLEnvKeys).toContain('AZURE_OPENAI_BASE_URL')
-    // Sanity: the adapter can be created from the preset.
-    const provider = createOpenAICompatibleProvider(azurePreset!)
-    expect(provider.id).toBe('azure')
+  it('leaves Azure to its native adapter', () => {
+    // Azure was an OpenAI-compatible preset, which speaks Chat Completions and
+    // therefore cannot carry provider-executed tools — its native web search is
+    // a Responses API built-in. A preset here would also overwrite the capable
+    // adapter, since both register under the id `azure`.
+    expect(OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'azure')).toBeUndefined()
   })
 
   it('preset env baseURL override beats preset default for openai', () => {
@@ -198,7 +195,6 @@ describe('OPENAI_COMPATIBLE_PRESETS built-in catalog', () => {
     expect(ids).toContain('groq')
     expect(ids).toContain('together')
     expect(ids).toContain('fireworks')
-    expect(ids).toContain('azure')
     expect(ids).toContain('litellm')
     expect(ids).toContain('ollama')
     expect(ids).toContain('openrouter')

@@ -28,5 +28,17 @@ export async function loadNativeSearchTool(
       return null
     }
   }
+  if (providerId === 'azure') {
+    try {
+      // Azure's web search is a Responses API built-in backed by Grounding with
+      // Bing. `@ai-sdk/azure` calls the Responses API by default, which is what
+      // makes the tool reachable at all — the OpenAI-compatible Chat Completions
+      // surface Azure used to be wired through cannot carry it.
+      const { azure } = await import('@ai-sdk/azure')
+      return { web_search: azure.tools.webSearch() }
+    } catch {
+      return null
+    }
+  }
   return null
 }

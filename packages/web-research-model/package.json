@@ -33,12 +33,16 @@
   },
   "peerDependencies": {
     "@ai-sdk/anthropic": "^4.0.1",
+    "@ai-sdk/azure": "^4.0.0",
     "@ai-sdk/openai": "^4.0.2",
     "@open-mercato/web-research": "^0.6.0",
     "ai": "^7.0.4"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/azure": {
       "optional": true
     },
     "@ai-sdk/openai": {
@@ -50,6 +54,7 @@
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^4.0.1",
+    "@ai-sdk/azure": "^4.0.0",
     "@ai-sdk/openai": "^4.0.2",
     "@open-mercato/web-research": "workspace:*",
     "@types/jest": "^30.0.0",
