@@ -8,7 +8,7 @@ Brief: `BRIEFING-phase5.md` §8.1/§8.2 + "Code view stage 2". Owned by this exe
 
 | Step | Title | Status | Commit |
 |------|-------|--------|--------|
-| D.1 | `INVOKE_AGENT` gets a `mock` — the one built-in that could not dry-run | todo | |
+| D.1 | `INVOKE_AGENT` gets a `mock` — the one built-in that could not dry-run | done | `5d63aeb33` |
 | D.2 | `WorkflowInstance.isDryRun` + mocked-effector execution + the isolation guarantees | todo | |
 | D.3 | Start fixtures + step-through | todo | |
 | D.4 | Code view stage 2 — two-way sync + issue-to-node squiggles | todo | |
@@ -25,4 +25,25 @@ Brief: `BRIEFING-phase5.md` §8.1/§8.2 + "Code view stage 2". Owned by this exe
 
 ## Bugs / wrong premises found
 
-(filled in as they are found)
+1. **The spec's §8.2(c) premise is false.** It says a dry run *"keeps ACTION-type business rules
+   un-triggerable (conditions are evaluate-only on this path today; the dry-runner asserts it stays
+   that way)"*. They are not evaluate-only: `executeSingleRule`
+   (`business_rules/lib/rule-engine.ts`) runs `actionExecutor.executeActions` unconditionally, and
+   the engine's own `dryRun` flag only suppresses the execution LOG — an existing test passes
+   `dryRun: true` and asserts actions ran. A workflow transition's `preConditions`/`postConditions`
+   therefore fire real ACTION-type rules. Fixed by adding an additive `skipActions` to the rule
+   engine and passing it from the dry-run path, with tests proving actions do not run and that
+   omitting the flag is byte-identical.
+2. **`ExecutionContext.dryRun` was a declared-but-never-read flag** in `lib/workflow-executor.ts` —
+   a trap, since a reader would assume dry-run was already wired. Marked `@deprecated` and inert,
+   with the reason a per-call flag cannot work (it does not survive a park/resume).
+3. **Forcing the sync path is not enough to avoid a deadlock.** `executeActivity` echoes the
+   AUTHORED `async` flag on its result, and `transition-handler` parks the token in
+   `WAITING_FOR_ACTIVITIES` when any result says `async`. A dry run running an authored-async
+   activity inline would park forever waiting for a job it deliberately never enqueued. Caught by a
+   test; fixed by correcting the flag on the inline path.
+4. **Agent KPI leak (pre-existing).** `metricRollupService` floors `AgentRun` counts to
+   `source: 'runtime'` — with a comment explaining exactly why — but the `AgentProposal` counts
+   beside them had no floor, so `approveUnchangedRate` was a ratio over two different populations
+   and every eval replay's proposals skewed it. Floored to the same runtime run ids; regression test
+   added. Its fixture was also missing the NOT NULL `runId`.

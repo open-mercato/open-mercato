@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
     const parentInstanceId = searchParams.get('parentInstanceId')
     const hasParent = parseBooleanToken(searchParams.get('hasParent'))
     const attention = parseBooleanToken(searchParams.get('attention'))
+    const dryRun = parseBooleanToken(searchParams.get('dryRun'))
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -110,6 +111,11 @@ export async function GET(request: NextRequest) {
     if (correlationKey) {
       where.correlationKey = correlationKey
     }
+
+    // Simulations are excluded from the run list by DEFAULT (spec section 8.2:
+    // "excludes the instance from KPIs"). A caller that wants them asks for
+    // them with `dryRun=true`; `dryRun=false` is the same as omitting it.
+    where.isDryRun = dryRun === true
 
     if (startedAtRange.range) {
       where.startedAt = startedAtRange.range
@@ -247,6 +253,23 @@ export async function POST(request: NextRequest) {
 
     const input: StartWorkflowApiInput = validation.data
 
+    // Dry run (spec section 8.2) is the definition-author's test loop, not a
+    // way to start instances, so it carries its own grant on top of
+    // `instances.create` — the same feature the per-node Test step uses.
+    if (input.dryRun) {
+      const canTestRun = await rbacService.userHasAllFeatures(
+        auth.sub,
+        ['workflows.definitions.test_run'],
+        { tenantId, organizationId }
+      )
+      if (!canTestRun) {
+        return NextResponse.json(
+          { error: 'Insufficient permissions' },
+          { status: 403 }
+        )
+      }
+    }
+
     // Reject standalone start of a reusable component. Components have no
     // trigger and may only be invoked as a SUB_WORKFLOW; this guard lives on
     // the manual-start path only, so sub-workflow invocation is unaffected.
@@ -276,6 +299,7 @@ export async function POST(request: NextRequest) {
       initialContext: input.initialContext || {},
       correlationKey: input.correlationKey,
       metadata,
+      isDryRun: input.dryRun === true,
       tenantId,
       organizationId,
     })

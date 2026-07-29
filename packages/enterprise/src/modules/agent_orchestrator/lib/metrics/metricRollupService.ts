@@ -72,11 +72,18 @@ export async function computeAgentMetrics(
   const evalPassedRuns = evaluated.filter((run) => run.evalPassed === true).length
   const p95LatencyMs = percentileOf(latencies, 0.95)
 
-  const proposalWindow = { ...scope, agentId, createdAt }
-  const [unchanged, changed] = await Promise.all([
-    em.count(AgentProposal, { ...proposalWindow, disposition: { $in: ['approved', 'auto_approved'] } }),
-    em.count(AgentProposal, { ...proposalWindow, disposition: { $in: ['edited', 'rejected'] } }),
-  ])
+  // Floored to the SAME runtime runs the metrics above count. Without the
+  // `runId` floor the proposal counts silently included every non-runtime run's
+  // proposals — eval replays, and now workflow dry runs — while the run counts
+  // beside them excluded those runs, so `approveUnchangedRate` was a ratio over
+  // two different populations. `runIds` is already the runtime-only set.
+  const proposalWindow = { ...scope, agentId, createdAt, runId: { $in: runIds } }
+  const [unchanged, changed] = runIds.length
+    ? await Promise.all([
+        em.count(AgentProposal, { ...proposalWindow, disposition: { $in: ['approved', 'auto_approved'] } }),
+        em.count(AgentProposal, { ...proposalWindow, disposition: { $in: ['edited', 'rejected'] } }),
+      ])
+    : [0, 0]
   const disposedProposals = unchanged + changed
   const approveUnchangedRate = disposedProposals ? unchanged / disposedProposals : null
 

@@ -572,6 +572,98 @@ describe('Step Handler (Unit Tests)', () => {
       expect(result.outputData.userTaskId).toBe('user-task-1')
     })
 
+    // Dry-run isolation (spec section 8.2): the USER_TASK step is the one place
+    // a run creates a task row, so it is the one place the suppression has to
+    // hold. No row means no `workflows.task.assigned` event, therefore no
+    // notification row, no SLA queue jobs, and nothing for any Work Inbox or
+    // task-list query to return.
+    test('a dry run raises NO UserTask row, and still waits so the author can simulate the decision', async () => {
+      mockEm.findOne
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+
+      const mockStepInstance = {
+        id: 'step-instance-1',
+        workflowInstanceId: testInstanceId,
+        stepId: 'user-task-step',
+        stepName: 'User Task Step',
+        stepType: 'USER_TASK',
+        status: 'ACTIVE',
+        enteredAt: new Date(),
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as StepInstance
+
+      const createdEntities: unknown[] = []
+      mockEm.create.mockImplementation(((entity: unknown, payload: Record<string, unknown>) => {
+        createdEntities.push(entity)
+        return createdEntities.length === 1 ? mockStepInstance : payload
+      }) as never)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        { ...mockInstance, isDryRun: true } as WorkflowInstance,
+        'user-task-step',
+        { workflowContext: {} }
+      )
+
+      expect(result.status).toBe('WAITING')
+      expect(result.waitReason).toBe('USER_TASK')
+      expect(result.outputData).toEqual({ simulated: true, wouldRaiseTask: 'User Task Step' })
+      expect(result.outputData.userTaskId).toBeUndefined()
+
+      const createdNames = createdEntities.map((entity) =>
+        typeof entity === 'function' ? entity.name : String(entity)
+      )
+      expect(createdNames).not.toContain('UserTask')
+      // Only the StepInstance and the WorkflowEvent rows the run log needs.
+      expect(new Set(createdNames)).toEqual(new Set(['StepInstance', 'WorkflowEvent']))
+    })
+
+    test('a dry run reports who the task WOULD have gone to, so the report is actionable', async () => {
+      mockEm.findOne
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+
+      const mockStepInstance = {
+        id: 'step-instance-1',
+        workflowInstanceId: testInstanceId,
+        stepId: 'user-task-step',
+        stepName: 'User Task Step',
+        stepType: 'USER_TASK',
+        status: 'ACTIVE',
+        enteredAt: new Date(),
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as StepInstance
+
+      const events: Array<Record<string, unknown>> = []
+      let call = 0
+      mockEm.create.mockImplementation(((entity: unknown, payload: Record<string, unknown>) => {
+        call += 1
+        if (typeof payload?.eventType === 'string') events.push(payload)
+        return call === 1 ? mockStepInstance : payload
+      }) as never)
+
+      await stepHandler.executeStep(
+        mockEm,
+        { ...mockInstance, isDryRun: true } as WorkflowInstance,
+        'user-task-step',
+        { workflowContext: {} }
+      )
+
+      const simulated = events.find((event) => event.eventType === 'USER_TASK_SIMULATED')
+      expect(simulated).toBeDefined()
+      expect(events.some((event) => event.eventType === 'USER_TASK_CREATED')).toBe(false)
+      expect((simulated?.eventData as Record<string, unknown>).taskName).toBe('User Task Step')
+    })
+
     test('should create user task with form schema and assignment', async () => {
       mockEm.findOne
         .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)

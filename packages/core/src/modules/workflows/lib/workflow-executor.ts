@@ -39,6 +39,7 @@ import { scheduleWorkflowErrorHandler } from './error-handler'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
+import { DRY_RUN_EVENT_TYPES } from './dry-run'
 import type {
   WorkflowActivityJob,
   WorkflowActivityJobResumeSubWorkflowParent,
@@ -64,12 +65,29 @@ export interface StartWorkflowOptions {
     // the depth guard travels with the child instance (spec 5.9).
     errorHandler?: WorkflowInstanceErrorHandlerMetadata | null
   }
+  /**
+   * Run this instance as a side-effect-free simulation (spec section 8.2).
+   *
+   * It is durable state on the row rather than a per-call argument because a
+   * run outlives the call that started it: it parks on a signal, resumes from a
+   * worker, is advanced by a task completion. Anything that only lived on this
+   * options object would stop protecting the run the moment it suspended.
+   */
+  isDryRun?: boolean
   tenantId: string
   organizationId: string
 }
 
 export interface ExecutionContext {
   userId?: string
+  /**
+   * @deprecated Never read, and never was. Dry-run state lives on
+   * `WorkflowInstance.isDryRun` (spec section 8.2) because a per-execution flag
+   * cannot survive the instance parking on a signal and resuming inside a
+   * worker — which is exactly when a leak would happen. Kept as an inert field
+   * for one minor per `BACKWARD_COMPATIBILITY.md`; pass `isDryRun` to
+   * `startWorkflow` instead.
+   */
   dryRun?: boolean
   timeout?: number
 }
@@ -140,6 +158,7 @@ export async function startWorkflow(
     initialContext = {},
     correlationKey,
     metadata,
+    isDryRun = false,
     tenantId,
     organizationId,
   } = options
@@ -246,6 +265,7 @@ export async function startWorkflow(
     metadata,
     startedAt: now,
     retryCount: 0,
+    isDryRun,
     tenantId,
     organizationId,
     createdAt: now,
@@ -269,6 +289,17 @@ export async function startWorkflow(
     tenantId,
     organizationId,
   })
+
+  if (isDryRun) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      eventType: DRY_RUN_EVENT_TYPES.started,
+      eventData: { workflowId: instance.workflowId, version: instance.version },
+      userId: metadata?.initiatedBy,
+      tenantId,
+      organizationId,
+    })
+  }
 
   await emitInstanceLifecycleEvent(instance, 'workflows.instance.created')
   await emitInstanceLifecycleEvent(instance, 'workflows.instance.started')

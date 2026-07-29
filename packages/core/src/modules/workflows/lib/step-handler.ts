@@ -34,6 +34,7 @@ import {
   mapDispositionToAgentOutcome,
 } from './outcome-routing'
 import { logWorkflowEvent } from './event-logger'
+import { DRY_RUN_EVENT_TYPES, isDryRunInstance } from './dry-run'
 import { findDefinitionForInstance } from './find-definition'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from './interpolation-pipeline'
 import {
@@ -843,6 +844,50 @@ async function handleUserTaskStep(
 
   // Create user task
   const now = new Date()
+
+  // Dry run (spec section 8.2): a simulation raises NO real task. The row is
+  // what everything else hangs off — the `workflows.task.assigned` event and
+  // therefore the notification subscriber, the SLA reminder/breach queue jobs,
+  // and every Work Inbox and task-list query — so suppressing the row is what
+  // suppresses all of them, rather than a filter at each read site that a new
+  // reader could forget. Everything above still runs, so the report says
+  // exactly who the task WOULD have gone to. The step still WAITS: the author
+  // simulates the decision through step-through or the advance action.
+  if (isDryRunInstance(instance)) {
+    await logStepEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: stepInstance.id,
+      ...(branch ? { branchInstanceId: branch.id } : {}),
+      eventType: DRY_RUN_EVENT_TYPES.userTaskSimulated,
+      eventData: {
+        taskName,
+        assignedTo: assignment.assignedTo,
+        assignedToRoles: assignment.assignedToRoles,
+        assigneeKind: assignment.assigneeKind,
+        ...(bindings.length ? { entityBindings: bindings } : {}),
+        ...(decisions.length ? { decisions } : {}),
+        ...(deadlineDuration ? { deadlineDuration } : {}),
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    if (branch) {
+      branch.status = 'PAUSED'
+      branch.updatedAt = now
+    } else {
+      instance.status = 'PAUSED'
+      instance.updatedAt = now
+    }
+    await em.flush()
+
+    return {
+      status: 'WAITING',
+      waitReason: 'USER_TASK',
+      outputData: { simulated: true, wouldRaiseTask: taskName },
+    }
+  }
+
   const userTask = em.create(UserTask, {
     workflowInstanceId: instance.id,
     stepInstanceId: stepInstance.id,

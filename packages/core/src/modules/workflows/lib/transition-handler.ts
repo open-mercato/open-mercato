@@ -29,6 +29,7 @@ import {
   resolveStepFailureHandling,
   type StepFailureHandling,
 } from './error-routing'
+import { DRY_RUN_EVENT_TYPES, isDryRunInstance } from './dry-run'
 import { excludeNonNormalTransitions } from './route-kinds'
 import {
   type ExecutionToken,
@@ -74,6 +75,26 @@ function buildFailureRouting(
     return { failedStepId, errorHandlerStepId: handling.stepId }
   }
   return {}
+}
+
+/**
+ * Record that a dry run evaluated a transition's business rule but withheld its
+ * ACTION arm, so the "Would do" report can say which side effect was skipped
+ * rather than leaving the author to assume the rule did nothing.
+ */
+async function logSuppressedRuleActions(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  ruleId: string,
+  phase: 'pre_transition' | 'post_transition'
+): Promise<void> {
+  await logTransitionEvent(em, {
+    workflowInstanceId: instance.id,
+    eventType: DRY_RUN_EVENT_TYPES.businessRuleActionsSuppressed,
+    eventData: { ruleId, phase },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
 }
 
 // ============================================================================
@@ -510,6 +531,20 @@ export async function executeTransitionForToken(
       const failedActivities = results.filter(r => !r.success)
 
       if (failedActivities.length > 0) {
+        // A dry-run refusal stops the run AT that node (spec section 8.2). It is
+        // not an activity failure — nothing was attempted — so neither
+        // `continueOnActivityFailure` nor the step's error route/directive may
+        // absorb it. Answering it before either is consulted is what keeps the
+        // marker explicit instead of silently routed.
+        const refusal = failedActivities.find((result) => result.dryRunRefused)
+        if (refusal) {
+          return {
+            success: false,
+            error: refusal.error ?? 'Dry run stopped',
+            conditionsEvaluated: { preConditions: true, postConditions: false },
+          }
+        }
+
         const continueOnFailure = transition.continueOnActivityFailure ?? false
 
         // Log activity failures
@@ -916,6 +951,7 @@ async function evaluatePreConditions(
     }
 
     // Execute each pre-condition rule directly by ruleId
+    const dryRun = isDryRunInstance(instance)
     const startTime = Date.now()
     const executedRules: ruleEngine.RuleExecutionResult[] = []
     const errors: string[] = []
@@ -942,7 +978,16 @@ async function evaluatePreConditions(
         entityType: `workflow:${definition.workflowId}:transition`,
         entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
         eventType: 'pre_transition',
+        // Dry run (spec section 8.2): the rule engine's own `dryRun` only
+        // suppresses its execution LOG — a rule's success/failure ACTIONS run
+        // regardless — so a side-effect-free run has to ask for `skipActions`.
+        // The conditions still evaluate, so the run takes the routes it really
+        // would; only the ACTION arm is withheld, and it is reported.
+        skipActions: dryRun,
       })
+      if (dryRun && result.actionsExecuted === null) {
+        await logSuppressedRuleActions(em, instance, condition.ruleId, 'pre_transition')
+      }
 
       // Create a compatible RuleExecutionResult for tracking
       // We don't have the full BusinessRule entity, but we can create a partial result
@@ -1043,6 +1088,7 @@ async function evaluatePostConditions(
     }
 
     // Execute each post-condition rule directly by ruleId
+    const dryRun = isDryRunInstance(instance)
     const startTime = Date.now()
     const executedRules: ruleEngine.RuleExecutionResult[] = []
     const errors: string[] = []
@@ -1069,7 +1115,16 @@ async function evaluatePostConditions(
         entityType: `workflow:${definition.workflowId}:transition`,
         entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
         eventType: 'post_transition',
+        // Dry run (spec section 8.2): the rule engine's own `dryRun` only
+        // suppresses its execution LOG — a rule's success/failure ACTIONS run
+        // regardless — so a side-effect-free run has to ask for `skipActions`.
+        // The conditions still evaluate, so the run takes the routes it really
+        // would; only the ACTION arm is withheld, and it is reported.
+        skipActions: dryRun,
       })
+      if (dryRun && result.actionsExecuted === null) {
+        await logSuppressedRuleActions(em, instance, condition.ruleId, 'post_transition')
+      }
 
       // Create a compatible RuleExecutionResult for tracking
       const ruleResult: ruleEngine.RuleExecutionResult = {

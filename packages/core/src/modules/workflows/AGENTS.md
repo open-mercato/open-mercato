@@ -510,6 +510,50 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   document, the undo stack, an autosave or `graphToDefinition` — guarded by
   `lib/__tests__/last-run-overlay.test.ts`. It fetches nothing until the toggle is on.
 
+## Dry Run (spec §8.2)
+
+- **A dry run is a REAL instance executed by the ordinary engine, not a second interpreter.**
+  `WorkflowInstance.isDryRun` (additive boolean column) is written once at start and never mutated.
+  A parallel simulator would drift from the engine and its report would stop being evidence about
+  the workflow that actually runs.
+- **`isDryRun` is a COLUMN, not a metadata key**, because every isolation decision reads it and a
+  jsonb path predicate in a hot filter is both slower and easy to forget. `ExecutionContext.dryRun`
+  in `lib/workflow-executor.ts` is `@deprecated` and inert: it never was read, and a per-call flag
+  cannot survive an instance parking on a signal and resuming inside a worker — exactly when a leak
+  would happen.
+- **One swap point buys the whole guarantee.** `executeActivityByType` in `lib/activity-executor.ts`
+  is the ONLY place `entry.execute` is reached, so a dry run swaps it for the registry `mock`
+  there — and every effector (command bus, event bus, mailer, webhook fetch, agent bridge) is
+  behind it. `mock: 'refuse'` or a missing mock throws `WorkflowDryRunRefusalError`.
+- **A refusal is a STOP, never a failure.** Nothing was attempted, so it must not be absorbed by
+  `continueOnActivityFailure`, an error route or an `errorDirective` — `transition-handler` answers
+  `dryRunRefused` before any of those are consulted. It is also not retried.
+- **A dry run never enqueues.** A queue job carries no `isDryRun` of its own, so a worker picking it
+  up would run the real effector. `executeActivities` forces the sync path — and MUST also report
+  `async: false` on the result, or the token parks in `WAITING_FOR_ACTIVITIES` waiting for a job
+  that was never enqueued.
+- **USER_TASK suppression is structural.** `handleUserTaskStep` skips the row, so there is no
+  `workflows.task.assigned` event, therefore no notification row, no SLA reminder/breach jobs, and
+  nothing for any Work Inbox or task-list query to return. Everything above the row still resolves,
+  so the report names who the task WOULD have gone to. The step still WAITS.
+- **`INVOKE_AGENT`'s mock names the agent and the disposition it would REQUEST** — never a
+  fabricated outcome. A simulation has no model confidence, so it fails closed to `human_review`,
+  the same rule `dispositionService` applies to a missing confidence. It carries `invoked: false`
+  and a `kind` outside the runtime vocabulary so nothing mistakes it for a real disposition. No
+  bridge call means no `AgentRun`, no proposal, and nothing reaching `dispositionService.dispose`.
+- **Business-rule ACTIONS need their own flag.** The rule engine's `dryRun` only suppresses the
+  execution LOG — `successActions`/`failureActions` run regardless — so the transition handler
+  passes `skipActions` (additive, `packages/core/src/modules/business_rules`). Conditions still
+  evaluate, so the run takes the routes it really would.
+- **The "Would do" report is DERIVED from `WorkflowEvent` rows**, never stored twice, so it inherits
+  the run views' scoping, ordering and retention. `lib/dry-run.ts` is PURE and owns both the event
+  vocabulary (`DRY_RUN_EVENT_TYPES`) and `buildWouldDoReport`; `GET /api/workflows/instances/[id]/would-do`
+  serves it and resolves each entry back to its definition `stepId`.
+- **Dry runs are excluded from the instance list by default** (`?dryRun=true` opts in), and the
+  agent KPI rollup floors proposal counts to the same runtime runs it already floors run counts to.
+- Starting one needs `workflows.definitions.test_run` ON TOP of `workflows.instances.create` — it is
+  the definition author's test loop, not a way to start instances.
+
 ## Code View (stage 1 — read-only)
 
 - `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste

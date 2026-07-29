@@ -390,7 +390,7 @@ export class WorkflowDefinitionDraft {
 @Index({ name: 'workflow_instances_current_step_idx', properties: ['currentStepId', 'status'] })
 @Index({ name: 'workflow_instances_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 export class WorkflowInstance {
-  [OptionalProps]?: 'retryCount' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'retryCount' | 'isDryRun' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -451,6 +451,18 @@ export class WorkflowInstance {
 
   @Property({ name: 'retry_count', type: 'integer', default: 0 })
   retryCount: number = 0
+
+  /**
+   * Marks the run as a side-effect-free simulation (spec section 8.2).
+   *
+   * It is a COLUMN rather than a metadata key because every isolation decision
+   * reads it — the activity dispatcher, the USER_TASK handler, the business-rule
+   * bridge and the list/KPI `where` builders — and a jsonb path predicate in a
+   * hot filter is both slower and easy to forget. It is written once at start
+   * and never mutated, so a run cannot change what it is halfway through.
+   */
+  @Property({ name: 'is_dry_run', type: 'boolean', default: false })
+  isDryRun: boolean = false
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string

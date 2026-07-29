@@ -1241,6 +1241,7 @@ export const createWorkflowInstanceSchema = z.object({
   errorMessage: z.string().max(5000).optional().nullable(),
   errorDetails: z.any().optional().nullable(),
   retryCount: z.number().int().min(0).default(0),
+  isDryRun: z.boolean().default(false),
   tenantId: uuid,
   organizationId: uuid,
 })
@@ -1259,6 +1260,7 @@ export const workflowInstanceFilterSchema = z.object({
   status: workflowInstanceStatusSchema.optional(),
   correlationKey: z.string().optional(),
   currentStepId: z.string().optional(),
+  isDryRun: z.boolean().optional(),
   tenantId: uuid.optional(),
   organizationId: uuid.optional(),
 })
@@ -1448,6 +1450,12 @@ export const startWorkflowInputSchema = z.object({
   correlationKey: z.string().optional(),
   initialContext: z.record(z.string(), z.any()).optional(),
   metadata: workflowInstanceMetadataSchema.optional(),
+  /**
+   * Start the run as a side-effect-free simulation (spec section 8.2). Opting
+   * IN is the only way to get one: absent means a real run, exactly as before.
+   * The route gates it behind `workflows.definitions.test_run`.
+   */
+  dryRun: z.boolean().optional(),
 })
 
 export type StartWorkflowApiInput = z.infer<typeof startWorkflowInputSchema>
