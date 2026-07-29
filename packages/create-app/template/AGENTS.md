@@ -84,7 +84,7 @@ Match every work-unit row; OPEN its skill before selection.
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-“Installed contract(s)” alone does not select `framework-context`; “inspect exact installed contracts first” or exact response/error identity does. Otherwise use guides/facts and invoke it only for one named unresolved detail.
+`framework-context`: skip for “installed contracts” alone; require for exact contract/response/error identity or current behavior, authorization, dependents, and safest customization seam. Otherwise resolve one named unknown from facts.
 
 ### Axis 3 — SDLC and Delivery
 

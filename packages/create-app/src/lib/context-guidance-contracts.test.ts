@@ -370,6 +370,23 @@ test('router distinguishes durable multi-stage state from one-step schedules', (
   assert.match(root, /one-step reminders are `module-data`/)
 })
 
+test('installed behavior discovery and field-versus-history design bind their exact owners', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
+  const extensionSkill = readAgentic('shared/ai/skills/om-system-extension/SKILL.md')
+  assert.match(root, /current behavior, authorization, dependents/)
+  assert.match(root, /safest customization seam/)
+  assert.match(extensionSkill, /one installed-host field is sufficient or history\/rules require separate extension records/)
+  for (const reference of ['mechanism-selector.md', 'extension-branches.md']) {
+    assert.ok(
+      extensionSkill.includes(`.ai/skills/om-system-extension/references/${reference}`),
+      `missing field-versus-history reference ${reference}`,
+    )
+  }
+  for (const decision of ['extension-mechanism', 'additive-before-replacement', 'extension-entity', 'eject-last']) {
+    assert.ok(extensionSkill.includes(`\`${decision}\``), `missing field-versus-history decision ${decision}`)
+  }
+})
+
 test('workflow skill binds implementation prompts to the progressive contract references', () => {
   const workflowSkill = readAgentic('shared/ai/skills/om-build-workflow/SKILL.md')
   assert.match(workflowSkill, /Always load `references\/workflow-design\.md`/)
