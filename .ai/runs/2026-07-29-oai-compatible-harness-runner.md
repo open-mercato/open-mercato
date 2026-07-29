@@ -78,11 +78,11 @@ PR: #4637
 
 ### Phase 2: Screening sweep
 
-- [ ] 2.1 Record the pinned provider and model-card sampling per candidate
-- [ ] 2.2 Run the screening set for every candidate and the in-lane baseline
-- [ ] 2.3 Classify failures and select the candidates that earn a full matrix
+- [x] 2.1 Record the pinned provider and model-card sampling per candidate — sweep config.json per lane: 35B=Parasail/fp8 thinking (0.6/0.95/20), 27B=DeepInfra/fp8 thinking, Coder-Next=Parasail/bf16 non-thinking (0.7/0.8/20), baseline=OpenAI reasoning-effort high
+- [x] 2.2 Run the screening set for every candidate and the in-lane baseline — superseded: the 13-case screen lacks the statistical power for the baseline−2 p.p. gate, so after two adapter defects found by screening (response_format vs tool calling at 54a95450f; reasoning round-trip plus spend accounting at a6d78003f) the budget went to full matrices for 35B + baseline
+- [x] 2.3 Classify failures and select the candidates that earn a full matrix — 35B advanced (screening fails were context-declaration class, the same cluster #4529 remediated for Sonnet at shared owners; no disqualifying signal); 27B and Coder-Next deferred until the 35B-vs-baseline verdict
 
 ### Phase 3: Full matrices
 
-- [ ] 3.1 Run the complete 192-case matrix for the selected candidates and the baseline
+- [ ] 3.1 Run the complete 192-case matrix for the selected candidates and the baseline — IN PROGRESS: both lanes launched 2026-07-29, one sweep per controller, concurrency 3, resumable driver
 - [ ] 3.2 Publish the per-model comparison report and the local-hosting recommendation
