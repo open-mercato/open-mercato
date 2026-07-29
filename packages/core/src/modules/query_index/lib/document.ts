@@ -1,3 +1,9 @@
+import {
+  isSearchFieldBlocklisted,
+  resolveSearchConfig,
+  type SearchConfig,
+} from '@open-mercato/shared/lib/search/config'
+
 export type IndexDocumentScope = {
   organizationId?: string | null
   tenantId?: string | null
@@ -11,6 +17,18 @@ export type IndexCustomFieldValue = {
 }
 
 export const AGGREGATE_SEARCH_FIELD = 'search_text'
+
+/**
+ * Controls which fields may contribute text to the `search_text` aggregate.
+ *
+ * Both properties are optional so existing callers keep working unchanged: an
+ * omitted `config` is resolved from the environment, and an omitted `entityType`
+ * means only the global blocklist entries apply.
+ */
+export type AggregateSearchOptions = {
+  entityType?: string | null
+  config?: SearchConfig
+}
 
 function normalizeScopeValue(value: string | null | undefined): string | null {
   if (value === undefined || value === null || value === '') return null
@@ -30,7 +48,12 @@ function normalizeValue(value: unknown): unknown {
   return value
 }
 
-function collectAggregateSearchValues(field: string, value: unknown): string[] {
+function collectAggregateSearchValues(
+  field: string,
+  value: unknown,
+  entityType: string | null,
+  config: SearchConfig,
+): string[] {
   const lower = field.toLowerCase()
   if (
     lower === AGGREGATE_SEARCH_FIELD
@@ -42,6 +65,8 @@ function collectAggregateSearchValues(field: string, value: unknown): string[] {
   ) {
     return []
   }
+
+  if (isSearchFieldBlocklisted(field, entityType, config)) return []
 
   if (typeof value === 'string') {
     const trimmed = value.trim()
@@ -58,12 +83,17 @@ function collectAggregateSearchValues(field: string, value: unknown): string[] {
   return []
 }
 
-export function attachAggregateSearchField(doc: Record<string, unknown>): Record<string, unknown> {
+export function attachAggregateSearchField(
+  doc: Record<string, unknown>,
+  options: AggregateSearchOptions = {},
+): Record<string, unknown> {
+  const config = options.config ?? resolveSearchConfig()
+  const entityType = options.entityType ?? null
   const parts: string[] = []
   const seen = new Set<string>()
 
   for (const [field, value] of Object.entries(doc)) {
-    const values = collectAggregateSearchValues(field, value)
+    const values = collectAggregateSearchValues(field, value, entityType, config)
     for (const entry of values) {
       const key = entry.toLowerCase()
       if (seen.has(key)) continue
@@ -83,6 +113,7 @@ export function buildIndexDocument(
   baseRow: Record<string, unknown>,
   customFieldValues: Iterable<IndexCustomFieldValue> = [],
   scope: IndexDocumentScope = {},
+  options: AggregateSearchOptions = {},
 ): Record<string, unknown> {
   const doc: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(baseRow)) {
@@ -123,5 +154,5 @@ export function buildIndexDocument(
     }
   }
 
-  return attachAggregateSearchField(doc)
+  return attachAggregateSearchField(doc, options)
 }

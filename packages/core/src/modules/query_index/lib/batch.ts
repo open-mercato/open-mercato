@@ -4,6 +4,7 @@ import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { buildIndexDocument, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 
 const logger = createLogger('query_index').child({ component: 'reindex-batch' })
 
@@ -228,6 +229,7 @@ export async function upsertIndexBatch(
   const basePayloads: IndexRowPayload[] = []
 
   const debugEnabled = isSearchDebugEnabled()
+  const searchConfig = resolveSearchConfig()
 
   for (const row of rows) {
     const recordId = normalizeId(row.id)
@@ -264,10 +266,15 @@ export async function upsertIndexBatch(
       if (!entityRow) return row
       return { ...entityRow, ...row }
     })()
-    let doc = buildIndexDocument(mergedRow, values, {
-      organizationId: scopeOrg ?? null,
-      tenantId: scopeTenant ?? null,
-    })
+    let doc = buildIndexDocument(
+      mergedRow,
+      values,
+      {
+        organizationId: scopeOrg ?? null,
+        tenantId: scopeTenant ?? null,
+      },
+      { entityType, config: searchConfig },
+    )
     let tokenDoc: Record<string, unknown> = doc
     if (typeof options.encryptDoc === 'function') {
       try {

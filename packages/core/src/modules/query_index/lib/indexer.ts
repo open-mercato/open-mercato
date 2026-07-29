@@ -122,7 +122,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   } catch {}
 
   try {
-    doc = attachAggregateSearchField(doc)
+    doc = attachAggregateSearchField(doc, { entityType: params.entityType })
     const encryption = resolveTenantEncryptionService(em as any)
     doc = await encryptIndexDocForStorage(
       params.entityType,
