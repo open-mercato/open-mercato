@@ -15,6 +15,7 @@ import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import { createAgentDispositionTask } from '../agent-disposition-task'
 import { emitWorkflowsEvent } from '../../events'
+import { scheduleUserTaskSla } from '../task-sla'
 import { StepInstance, WorkflowInstance } from '../../data/entities'
 
 jest.mock('../../events', () => {
@@ -22,7 +23,13 @@ jest.mock('../../events', () => {
   return { ...actual, emitWorkflowsEvent: jest.fn() }
 })
 
+jest.mock('../task-sla', () => {
+  const actual = jest.requireActual('../task-sla') as Record<string, unknown>
+  return { ...actual, scheduleUserTaskSla: jest.fn() }
+})
+
 const mockEmit = emitWorkflowsEvent as jest.MockedFunction<typeof emitWorkflowsEvent>
+const mockSchedule = scheduleUserTaskSla as jest.MockedFunction<typeof scheduleUserTaskSla>
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
@@ -79,6 +86,7 @@ describe('createAgentDispositionTask', () => {
       flush: jest.fn(),
     } as unknown as jest.Mocked<EntityManager>
     mockEmit.mockResolvedValue(undefined as never)
+    mockSchedule.mockResolvedValue([] as never)
   })
 
   test('carries the authored assignment, priority and deadline onto the row', async () => {
@@ -150,6 +158,33 @@ describe('createAgentDispositionTask', () => {
       expect.objectContaining({ taskId: 'task-1', assignedToRoles: ['Sales Rep'] }),
       { persistent: true },
     )
+  })
+
+  test('schedules the reminders and the deadline breach against the created task', async () => {
+    await createAgentDispositionTask(mockEm, mockContainer as never, {
+      ...baseOptions,
+      review: { deadlineDuration: 'P2D', reminders: [{ offset: 'PT4H' }] },
+    })
+
+    expect(mockSchedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userTaskId: 'task-1',
+        stepInstanceId,
+        reminders: [{ offset: 'PT4H' }],
+        now: baseOptions.now,
+      }),
+    )
+    const scheduled = mockSchedule.mock.calls[0][0]
+    expect((scheduled.dueDate as Date).toISOString()).toBe('2026-07-31T10:00:00.000Z')
+  })
+
+  test('no deadline schedules nothing', async () => {
+    await createAgentDispositionTask(mockEm, mockContainer as never, {
+      ...baseOptions,
+      review: { assignedToRoles: ['Sales Rep'] },
+    })
+
+    expect(mockSchedule).toHaveBeenCalledWith(expect.objectContaining({ dueDate: null }))
   })
 
   test('a missing workflow instance refuses rather than writing an orphan row', async () => {

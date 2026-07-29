@@ -23,6 +23,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { StepInstance, UserTask, WorkflowInstance } from '../data/entities'
 import { calculateDueDate } from './duration'
+import { scheduleUserTaskSla } from './task-sla'
 import { emitWorkflowsEvent } from '../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -179,6 +180,25 @@ export async function createAgentDispositionTask(
   })
 
   await emitDispositionTaskAssigned(task, instance)
+
+  // Reminders and the deadline breach ride the SAME queue-backed scheduler a
+  // USER_TASK's do — one job per authored offset plus one for the deadline, all
+  // enqueued here with the deadline ABSOLUTE on the payload. A task with no
+  // deadline schedules nothing. What the breach then DOES is escalate-only
+  // (`lib/task-sla.ts` → `applyBreachHandling`): it never disposes the proposal
+  // and never routes the run past it.
+  await scheduleUserTaskSla({
+    workflowInstanceId: options.workflowInstanceId,
+    stepInstanceId: task.stepInstanceId,
+    branchInstanceId: task.branchInstanceId ?? null,
+    userTaskId: task.id,
+    dueDate,
+    reminders: review?.reminders ?? null,
+    tenantId,
+    organizationId,
+    userId: options.userId,
+    now,
+  })
 
   return {
     userTaskId: task.id,
