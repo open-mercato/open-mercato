@@ -280,6 +280,41 @@ describe('search engine scheduling', () => {
     expect(result.diagnostics.degraded).toBe(true)
   })
 
+  it('omits the per-adapter view unless the caller asks for it', async () => {
+    const engine = engineWith([entry(createFakeAdapter({ id: 'alpha', results: hits('alpha.com', 3) }))], {
+      minResults: 1,
+      lastResort: null,
+    })
+
+    expect((await engine.search({ query: 'x' })).byAdapter).toBeUndefined()
+  })
+
+  it('returns each adapter untouched by fusion when asked to compare', async () => {
+    const alpha = createFakeAdapter({
+      id: 'alpha',
+      outcome: { status: 'ok', results: hits('shared.com', 1), answer: 'alpha prose' },
+    })
+    const beta = createFakeAdapter({
+      id: 'beta',
+      outcome: { status: 'ok', results: hits('shared.com', 1), answer: 'beta prose' },
+    })
+    const engine = engineWith([entry(alpha), entry(beta, { order: 1 })], {
+      settleMode: 'exhaustive',
+      minResults: 1,
+      lastResort: null,
+    })
+
+    const result = await engine.search({ query: 'x' }, { includeAdapterResults: true })
+
+    // Fusion collapses the shared hit into one and keeps only the first prose;
+    // the comparison view is what survives that, per adapter.
+    expect(result.results).toHaveLength(1)
+    expect(result.answer).toBe('alpha prose')
+    expect(result.byAdapter?.map((entry) => entry.adapterId)).toEqual(['alpha', 'beta'])
+    expect(result.byAdapter?.map((entry) => entry.answer)).toEqual(['alpha prose', 'beta prose'])
+    expect(result.byAdapter?.every((entry) => entry.results.length === 1)).toBe(true)
+  })
+
   it('reports a degraded run rather than failing when every adapter is down', async () => {
     const engine = engineWith(
       [

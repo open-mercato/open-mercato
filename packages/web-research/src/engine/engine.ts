@@ -228,6 +228,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
 
     const diagnostics: AdapterDiagnostic[] = []
     const collected: FusionInput[] = []
+    const answersById = new Map<string, string>()
     const attempted = new Set<string>()
     const blockedAdapters: string[] = []
     let successCount = 0
@@ -296,6 +297,9 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
           weight: settled.entry.weight,
           results: settled.outcome.results,
         })
+        // The top-level answer stays first-wins, but every adapter's prose is
+        // kept so a comparison run can show them side by side.
+        if (settled.outcome.answer) answersById.set(id, settled.outcome.answer)
         if (answer === null && settled.outcome.answer) answer = settled.outcome.answer
       }
       if (status === 'blocked') blockedAdapters.push(id)
@@ -450,6 +454,16 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
         escalated,
         elapsedMs,
       },
+      ...(runOptions.includeAdapterResults
+        ? {
+            byAdapter: collected.map((input) => ({
+              adapterId: input.adapterId,
+              weight: input.weight,
+              answer: answersById.get(input.adapterId) ?? null,
+              results: input.results,
+            })),
+          }
+        : {}),
     }
   }
 
@@ -457,10 +471,17 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     const report = createReporter([options.onStep, runOptions.onStep])
     const { request, includeContent } = normalizeRequest(input, policy)
     const adapterIds = ordered.filter((entry) => entry.enabled).map((entry) => entry.adapter.id)
-    const cacheKey = `${buildCacheKey(request, adapterIds)}:${includeContent ? 'full' : 'lite'}`
+    const compare = runOptions.includeAdapterResults === true
+    // The suffix keeps a comparison run off the normal run's single-flight slot,
+    // which would otherwise hand one caller a result built for the other shape.
+    const cacheKey = `${buildCacheKey(request, adapterIds)}:${includeContent ? 'full' : 'lite'}${compare ? ':compare' : ''}`
+    // A comparison is a diagnostic: serving it from cache would show an operator
+    // yesterday's adapter behaviour while they change settings, and storing it
+    // would put every adapter's full result list in the cache for one debug run.
+    const useCache = options.cache !== undefined && policy.cacheTtlMs > 0 && !compare
 
-    if (options.cache && policy.cacheTtlMs > 0) {
-      const cached = await options.cache.get(cacheKey).catch(() => null)
+    if (useCache) {
+      const cached = await options.cache!.get(cacheKey).catch(() => null)
       if (cached) {
         report('done', 'cached', undefined, 'served from cache', { resultCount: cached.results.length })
         return { ...cached, diagnostics: { ...cached.diagnostics, cached: true } }
@@ -469,8 +490,8 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
 
     const result = await singleFlight(cacheKey, () => runSearch(request, includeContent, runOptions, report))
 
-    if (options.cache && policy.cacheTtlMs > 0 && result.results.length > 0) {
-      await options.cache.set(cacheKey, result, policy.cacheTtlMs).catch(() => undefined)
+    if (useCache && result.results.length > 0) {
+      await options.cache!.set(cacheKey, result, policy.cacheTtlMs).catch(() => undefined)
     }
     return result
   }
