@@ -1263,7 +1263,6 @@
   "agent_orchestrator.traces.window.30d": "30d",
   "agent_orchestrator.traces.window.7d": "7d",
   "agent_orchestrator.traces.windowTooltip": "Time range — runs from the selected period",
-  "agent_orchestrator.webSearch.activity.engine": "engine",
   "agent_orchestrator.webSearch.activity.event.blocked": "Blocked",
   "agent_orchestrator.webSearch.activity.event.cached": "From cache",
   "agent_orchestrator.webSearch.activity.event.cancelled": "Cancelled",
@@ -1275,5 +1274,9 @@
   "agent_orchestrator.webSearch.activity.event.started": "Querying",
   "agent_orchestrator.webSearch.activity.event.timeout": "Timed out",
   "agent_orchestrator.webSearch.activity.event.unavailable": "Not configured",
-  "agent_orchestrator.webSearch.activity.results": "{count} results"
+  "agent_orchestrator.webSearch.activity.results": "{count} results",
+  "agent_orchestrator.webSearch.activity.stage.done": "Done",
+  "agent_orchestrator.webSearch.activity.stage.merging": "Merging results",
+  "agent_orchestrator.webSearch.activity.stage.reading": "Reading pages",
+  "agent_orchestrator.webSearch.activity.title": "Web search"
 }

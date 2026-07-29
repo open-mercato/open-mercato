@@ -1263,7 +1263,6 @@
   "agent_orchestrator.traces.window.30d": "30d",
   "agent_orchestrator.traces.window.7d": "7d",
   "agent_orchestrator.traces.windowTooltip": "Zakres czasu — przebiegi z wybranego okresu",
-  "agent_orchestrator.webSearch.activity.engine": "silnik",
   "agent_orchestrator.webSearch.activity.event.blocked": "Zablokowano",
   "agent_orchestrator.webSearch.activity.event.cached": "Z pamięci podręcznej",
   "agent_orchestrator.webSearch.activity.event.cancelled": "Anulowano",
@@ -1275,5 +1274,9 @@
   "agent_orchestrator.webSearch.activity.event.started": "Zapytanie",
   "agent_orchestrator.webSearch.activity.event.timeout": "Przekroczono czas",
   "agent_orchestrator.webSearch.activity.event.unavailable": "Nieskonfigurowany",
-  "agent_orchestrator.webSearch.activity.results": "{count} wyników"
+  "agent_orchestrator.webSearch.activity.results": "{count} wyników",
+  "agent_orchestrator.webSearch.activity.stage.done": "Gotowe",
+  "agent_orchestrator.webSearch.activity.stage.merging": "Scalanie wyników",
+  "agent_orchestrator.webSearch.activity.stage.reading": "Czytanie stron",
+  "agent_orchestrator.webSearch.activity.title": "Wyszukiwanie w sieci"
 }
