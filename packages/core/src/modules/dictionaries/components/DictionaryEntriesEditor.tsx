@@ -424,7 +424,15 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => (!open ? closeDialog() : undefined)}>
-        <DialogContent>
+        <DialogContent
+          aria-modal="true"
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !isSaving) {
+              event.preventDefault()
+              void handleSave()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {formState.id
@@ -434,11 +442,12 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">
+              <label htmlFor="dictionary-entry-value" className="text-sm font-medium">
                 {t('dictionaries.config.entries.dialog.valueLabel', 'Value')}
                 <span className="ml-1 text-destructive">*</span>
               </label>
               <Input
+                id="dictionary-entry-value"
                 type="text"
                 value={formState.value}
                 onChange={(event) => {
@@ -448,8 +457,9 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                     setErrors((prev) => ({ ...prev, value: undefined }))
                   }
                 }}
+                aria-required="true"
                 aria-invalid={errors.value ? 'true' : 'false'}
-                aria-describedby="dictionary-entry-value-error"
+                aria-describedby={errors.value ? 'dictionary-entry-value-error' : undefined}
               />
               {errors.value ? (
                 <p id="dictionary-entry-value-error" className="text-xs text-destructive">
@@ -458,10 +468,11 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               ) : null}
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">
+              <label htmlFor="dictionary-entry-label" className="text-sm font-medium">
                 {t('dictionaries.config.entries.dialog.labelLabel', 'Label')}
               </label>
               <Input
+                id="dictionary-entry-label"
                 type="text"
                 value={formState.label}
                 onChange={(event) => setFormState((prev) => ({ ...prev, label: event.target.value }))}

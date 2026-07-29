@@ -64,7 +64,7 @@ describe('feature_toggles.global commands', () => {
 
             const ctx: any = {
                 container,
-                auth: { isSuperAdmin: true },
+                auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' },
             }
 
             const input = {
@@ -92,6 +92,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'created',
                 entity: expect.objectContaining({ id: 'new-toggle-id' }),
+                identifiers: expect.objectContaining({ id: 'new-toggle-id', organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
         })
@@ -177,6 +178,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'created',
                 entity: expect.objectContaining({ id: 'seeded-toggle-id' }),
+                identifiers: expect.objectContaining({ id: 'seeded-toggle-id', organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
         })
@@ -217,7 +219,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container, auth: { isSuperAdmin: true } }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
             const logEntry = { resourceId: toggleId }
 
             await createCommand.undo({ logEntry, ctx })
@@ -229,6 +231,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'deleted',
                 entity: existingToggle,
+                identifiers: expect.objectContaining({ id: toggleId, organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
         })
@@ -275,7 +278,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'created',
                 entity: expect.objectContaining({ id: 'toggle-id', identifier: 'qa.redo' }),
-                identifiers: expect.objectContaining({ id: 'toggle-id', organizationId: null, tenantId: 'tenant-1' }),
+                identifiers: expect.objectContaining({ id: 'toggle-id', organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('qa.redo')
@@ -317,7 +320,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container, auth: { isSuperAdmin: true } }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
 
             const input = {
                 id: '123e4567-e89b-12d3-a456-426614174000',
@@ -335,9 +338,64 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'updated',
                 entity: existingToggle,
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('test_feature')
+        })
+
+        it('keeps update undo side effects global for a super-admin with a selected tenant', async () => {
+            let updateCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.update')?.[0]
+            })
+
+            const existingToggle = {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                identifier: 'test_feature',
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(existingToggle),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = { markOrmEntityChange: jest.fn() }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
+
+            await updateCommand.undo({
+                logEntry: {
+                    payload: {
+                        undo: {
+                            before: {
+                                id: existingToggle.id,
+                                identifier: existingToggle.identifier,
+                                name: 'Test Feature',
+                                description: null,
+                                category: null,
+                                type: 'boolean',
+                                defaultValue: true,
+                            },
+                        },
+                    },
+                },
+                ctx,
+            })
+
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'updated',
+                entity: existingToggle,
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
         })
 
         it('throws error when toggle not found', async () => {
@@ -359,7 +417,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container, auth: { isSuperAdmin: true } }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
 
             await expect(updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Toggle not found')
         })
@@ -428,6 +486,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'deleted',
                 entity: existingToggle,
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('test_feature')
@@ -468,6 +527,11 @@ describe('feature_toggles.global commands', () => {
             expect(em.create).toHaveBeenCalledTimes(2)
             expect(em.persist).toHaveBeenCalledTimes(2)
             expect(em.flush).toHaveBeenCalled()
+            expect(dataEngine.markOrmEntityChange).toHaveBeenLastCalledWith(expect.objectContaining({
+                action: 'updated',
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
         })
 
         it('throws error when toggle not found', async () => {
