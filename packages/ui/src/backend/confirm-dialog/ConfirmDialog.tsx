@@ -262,7 +262,7 @@ export function ConfirmDialog({
           {resolvedConfirmText !== false && (
             <Button
               ref={confirmButtonRef}
-              variant={variant === "destructive" ? "destructive" : "default"}
+              variant={variant === "destructive" ? "destructive-solid" : "default"}
               onClick={handleConfirm}
               disabled={loading}
               className="w-full sm:w-auto"
