@@ -20,26 +20,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/core'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
-import { WorkflowDefinition, type WorkflowDefinitionData } from '../../../../data/entities'
+import { type WorkflowDefinitionData } from '../../../../data/entities'
 import {
-  buildTriggerPayloadContracts,
-  computeContextLedger,
-  type LedgerWorkflowDefinition,
-} from '../../../../lib/context-ledger'
-import { ensureWorkflowEndpointCatalog } from '../../../../lib/endpoint-catalog'
-import {
-  ensureWorkflowAgentOutcomeContracts,
-  resolveServerOutputContract,
-} from '../../../../lib/server-output-contract'
-import { getCodeWorkflow, getAllCodeWorkflows } from '../../../../lib/code-registry'
-import { codeWorkflowUuid } from '../../../../lib/find-definition'
+  computeDefinitionContextLedger,
+  narrowLedgerToStep,
+  resolveDefinitionDataForLedger,
+  warmContextLedgerResolvers,
+} from '../../../../lib/definition-context-schema'
 import {
   workflowsTag,
   workflowErrorSchema,
@@ -60,23 +54,12 @@ interface RouteContext {
   }>
 }
 
-function toLedgerDefinition(definition: WorkflowDefinitionData): LedgerWorkflowDefinition {
-  return definition as unknown as LedgerWorkflowDefinition
-}
-
 function respondWithLedger(definition: WorkflowDefinitionData, stepId: string | null) {
-  const ledgerDefinition = toLedgerDefinition(definition)
-  const ledger = computeContextLedger(ledgerDefinition, {
-    resolveOutputContract: resolveServerOutputContract,
-    triggerPayloadContracts: buildTriggerPayloadContracts(
-      ledgerDefinition.triggers ?? [],
-      getDeclaredEvents(),
-    ),
-  })
+  const ledger = computeDefinitionContextLedger(definition)
   if (stepId === null) {
     return NextResponse.json({ steps: ledger.steps })
   }
-  const stepView = ledger.steps[stepId]
+  const stepView = narrowLedgerToStep(ledger, stepId)
   if (!stepView) {
     return NextResponse.json(
       { error: 'Step not found in workflow definition' },
@@ -98,9 +81,7 @@ export async function GET(
   try {
     const params = await context.params
     const container = await createRequestContainer()
-    const em = container.resolve('em') as {
-      findOne: (entity: unknown, where: Record<string, unknown>) => Promise<unknown>
-    }
+    const em = container.resolve('em') as EntityManager
     const auth = await getAuthFromRequest(request)
 
     if (!auth || !auth.sub) {
@@ -134,37 +115,19 @@ export async function GET(
 
     const stepId = new URL(request.url).searchParams.get('stepId')
 
-    await ensureWorkflowEndpointCatalog()
-    await ensureWorkflowAgentOutcomeContracts(container)
-
-    if (params.id.startsWith('code:')) {
-      const workflowId = params.id.slice(5)
-      const codeDef = getCodeWorkflow(workflowId)
-      if (!codeDef) {
-        return NextResponse.json({ error: 'Workflow definition not found' }, { status: 404 })
-      }
-      return respondWithLedger(codeDef.definition as unknown as WorkflowDefinitionData, stepId)
-    }
+    await warmContextLedgerResolvers(container)
 
     const orgFilter = resolveOrganizationScopeFilter(scope, auth)
-    const definition = (await em.findOne(WorkflowDefinition, {
-      id: params.id,
+    const definitionData = await resolveDefinitionDataForLedger(em, params.id, {
       tenantId,
-      ...orgFilter.where,
-      deletedAt: null,
-    })) as WorkflowDefinition | null
+      organizationWhere: orgFilter.where,
+    })
 
-    if (!definition) {
-      const codeDef = getAllCodeWorkflows().find(
-        (workflow) => codeWorkflowUuid(workflow.workflowId) === params.id,
-      )
-      if (codeDef) {
-        return respondWithLedger(codeDef.definition as unknown as WorkflowDefinitionData, stepId)
-      }
+    if (!definitionData) {
       return NextResponse.json({ error: 'Workflow definition not found' }, { status: 404 })
     }
 
-    return respondWithLedger(definition.definition, stepId)
+    return respondWithLedger(definitionData, stepId)
   } catch (error) {
     logger.error('Error computing workflow context schema', { err: error })
     return NextResponse.json(
