@@ -717,11 +717,12 @@ Treat a regression here as a broken feature, not a nit.
 - **The ledger panel folds by default here** (`InputDataPanel defaultCollapsed`).
   In the old 1280px modal it sat BESIDE the form and cost nothing; stacked under
   the form in a 384px column an expanded ledger pushes the form off the top.
-- **Known limit:** the rail closes the *modal* half of fidelity gap #7, not the
-  field-pitch half. `CrudForm` lays groups out for a full-width page, and shrinking
-  the label / helper-text rhythm needs a density contract on `CrudForm` itself —
-  which `packages/ui/AGENTS.md` puts behind Ask-First. Do NOT reach for descendant
-  `[&_…]` overrides on a shared primitive from this module instead.
+- **Both inspectors pass `density="compact"` to `CrudForm`** (the prop added for
+  this rail). `CrudForm`'s default lays groups out for a full-width page, which is
+  airy at 384px; compact steps the between-group and between-field spacing and the
+  group-card padding one DS step down and changes NOTHING else. MUST NOT reach for
+  descendant `[&_…]` overrides on a shared primitive from this module instead — if
+  a narrow host needs more, extend the prop where it lives.
 
 ## Definition Metadata Drawer
 
