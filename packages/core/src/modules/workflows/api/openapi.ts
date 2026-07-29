@@ -596,6 +596,32 @@ export const workflowEventRowListResponseSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Step Instance Schemas (spec §8.3 per-step I/O inspector)
+// ---------------------------------------------------------------------------
+
+export const workflowStepInstanceRowSchema = z.object({
+  id: z.string().uuid(),
+  workflowInstanceId: z.string().uuid(),
+  branchInstanceId: z.string().uuid().nullable().optional(),
+  stepId: z.string(),
+  stepName: z.string(),
+  stepType: z.string(),
+  status: z.string(),
+  inputData: z.unknown().nullable().optional(),
+  outputData: z.unknown().nullable().optional(),
+  errorData: z.unknown().nullable().optional(),
+  enteredAt: z.string().nullable().optional(),
+  exitedAt: z.string().nullable().optional(),
+  executionTimeMs: z.number().int().nullable().optional(),
+  retryCount: z.number().int().nonnegative(),
+})
+
+export const workflowStepInstanceListResponseSchema = z.object({
+  data: z.array(workflowStepInstanceRowSchema),
+  pagination: paginationSchema,
+})
+
+// ---------------------------------------------------------------------------
 // Signal Schemas
 // ---------------------------------------------------------------------------
 
