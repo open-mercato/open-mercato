@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { assertSandboxRuntimeAvailable, sandboxedInvocation, verifyLinuxSandboxIsolation } from './execution-sandbox.mjs'
 
 const WRITABLE_KINDS = new Set(['implementation', 'regression'])
-const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude']
+const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude', 'oai']
 const RELEASE_VALIDATION_COMMANDS = ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build']
 const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
   ['yarn generate', ['.mercato/generated']],
@@ -41,12 +41,12 @@ function usage() {
   return `Run the complete standalone agent-harness release gate.
 
 Usage:
-  yarn harness:release --runner <codex|claude> --prepare-targets /absolute/empty-directory --acknowledge-writes
-  yarn harness:release --runner <codex|claude> --writable-targets /absolute/release-targets.json --acknowledge-writes
+  yarn harness:release --runner <codex|claude|oai> --prepare-targets /absolute/empty-directory --acknowledge-writes
+  yarn harness:release --runner <codex|claude|oai> --writable-targets /absolute/release-targets.json --acknowledge-writes
 
 Options:
   --root <absolute-app>          Controller/generated app root (default: current directory)
-  --runner <codex|claude>        Required primary runner for every blocking live lane
+  --runner <codex|claude|oai>    Required primary runner for every blocking live lane
   --portability-runner <runner> Optional different runner for the 39-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
@@ -101,8 +101,8 @@ function parseArgs(argv) {
   }
   if (options.help) return options
   if (!path.isAbsolute(options.root)) throw new Error('--root must be an absolute path')
-  if (!RUNNERS.has(options.runner)) throw new Error('--runner must be codex or claude')
-  if (options.portabilityRunner !== undefined && !RUNNERS.has(options.portabilityRunner)) throw new Error('--portability-runner must be codex or claude')
+  if (!RUNNERS.has(options.runner)) throw new Error('--runner must be codex, claude, or oai')
+  if (options.portabilityRunner !== undefined && !RUNNERS.has(options.portabilityRunner)) throw new Error('--portability-runner must be codex, claude, or oai')
   if (options.portabilityRunner === options.runner) throw new Error('--portability-runner must differ from --runner')
   if (Boolean(options.prepareTargets) === Boolean(options.writableTargets)) throw new Error('pass exactly one of --prepare-targets or --writable-targets')
   if (options.prepareTargets && !path.isAbsolute(options.prepareTargets)) throw new Error('--prepare-targets must be an absolute path')

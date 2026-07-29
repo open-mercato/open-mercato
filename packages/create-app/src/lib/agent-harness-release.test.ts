@@ -106,14 +106,14 @@ function releaseInputs() {
   const releaseMatrix = {
     deterministic: { caseIds: 'all' },
     releaseSuite: {
-      supportedRunners: ['codex', 'claude'],
+      supportedRunners: ['codex', 'claude', 'oai'],
       requireGeneratedCodeReview: true,
       validationCommands: ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'],
     },
     routing: {
       required: { caseIds: 'all' },
       portability: { caseIds: ['OMH-002', 'OMH-003'] },
-      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
+      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' }, oai: { modelSelector: 'default' } },
     },
     writable: [
       { caseId: 'OMH-002' },
@@ -123,7 +123,7 @@ function releaseInputs() {
       required: true,
       skill: 'om-code-review',
       caseIds: ['OMH-002', 'OMH-003'],
-      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
+      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' }, oai: { modelSelector: 'default' } },
     },
     generatedTests: { required: true, entries: [] },
   }
@@ -1258,7 +1258,7 @@ test('release command requires one explicit primary runner and rejects a duplica
     releaseScript, '--prepare-targets', path.join(os.tmpdir(), 'om-release-unused-targets'), '--acknowledge-writes',
   ], { encoding: 'utf8' })
   assert.equal(missing.status, 2)
-  assert.match(missing.stderr, /--runner must be codex or claude/)
+  assert.match(missing.stderr, /--runner must be codex, claude, or oai/)
 
   const duplicate = spawnSync(process.execPath, [
     releaseScript, '--runner', 'codex', '--portability-runner', 'codex',

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -15,6 +15,7 @@ const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandb
 const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 const sourceFrameworkContext = path.join(sharedRoot, 'scripts', 'framework-context.mjs')
+const sourceOaiRunner = path.join(sharedRoot, 'scripts', 'agent-harness-oai-runner.mjs')
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript-standalone/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
@@ -87,6 +88,7 @@ function stageApp(): string {
   fs.copyFileSync(sourceToolServer, path.join(root, 'scripts', 'agent-harness-tool-server.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
   fs.copyFileSync(sourceFrameworkContext, path.join(root, 'scripts', 'framework-context.mjs'))
+  fs.copyFileSync(sourceOaiRunner, path.join(root, 'scripts', 'agent-harness-oai-runner.mjs'))
   fs.mkdirSync(path.join(root, 'node_modules'))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export const enabledModules = []\n')
@@ -273,7 +275,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
   assert.deepEqual(matrix.routing.portability.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.routing.required.caseIds, 'all')
-  assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
+  assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' }, oai: { modelSelector: 'default' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
   assert.equal(validators.catalog.writableCaseIds.length, 45)
@@ -295,7 +297,7 @@ test('the catalog count and release coverage are derived from the validator regi
     { caseId: 'OMH-165', runner: 'playwright-browser', artifact: 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts', network: 'loopback' },
     { caseId: 'OMH-192', runner: 'jest', artifact: 'src/modules/library/commands/__tests__/crm-loans.test.ts', network: 'none' },
   ])
-  assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
+  assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude', 'oai'])
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
   assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
   assert.deepEqual(
@@ -1040,6 +1042,289 @@ test('refused instruction-tree enumeration still fails closed above the bounded 
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     const [stored] = storedResults(root)
     assert.ok(stored.violations.some((entry) => entry.startsWith('refused context read budget exceeded')), JSON.stringify(stored.violations))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The OpenAI-compatible lane owns its agent loop instead of delegating to a vendor CLI, so
+// its contract is the wire: which tools the model is offered, which decoding and gateway
+// routing the request pins, and how provider failures classify. These tests drive a real
+// local endpoint rather than a binary that echoes its own flags — a fake asserting exactly
+// what the adapter sends can only confirm itself.
+type MockProviderStep =
+  | { tool: string; args: Record<string, unknown> }
+  | { final: Record<string, unknown> }
+  | { status: number; body: string }
+
+type MockProvider = {
+  baseUrl: string
+  requests: () => Array<Record<string, unknown>>
+  stop: () => void
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function startMockProvider(steps: MockProviderStep[]): MockProvider {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-oai-mock-')))
+  const readyFile = path.join(directory, 'ready.json')
+  const requestFile = path.join(directory, 'requests.jsonl')
+  const serverFile = path.join(directory, 'server.mjs')
+  fs.writeFileSync(serverFile, `
+import fs from 'node:fs'
+import http from 'node:http'
+
+const steps = ${JSON.stringify(steps)}
+let cursor = 0
+const server = http.createServer((request, response) => {
+  let body = ''
+  request.on('data', (chunk) => { body += chunk })
+  request.on('end', () => {
+    const parsed = JSON.parse(body || '{}')
+    fs.appendFileSync(${JSON.stringify(requestFile)}, JSON.stringify({
+      url: request.url,
+      authorized: (request.headers.authorization ?? '').startsWith('Bearer '),
+      tools: (parsed.tools ?? []).map((tool) => tool.function.name),
+      responseFormat: parsed.response_format?.type ?? null,
+      schemaName: parsed.response_format?.json_schema?.name ?? null,
+      provider: parsed.provider ?? null,
+      temperature: parsed.temperature ?? null,
+      topP: parsed.top_p ?? null,
+      roles: (parsed.messages ?? []).map((message) => message.role),
+    }) + '\\n')
+    // A fresh evaluator attempt starts from the system+user pair, so the scripted
+    // conversation restarts with it instead of leaking state across retries.
+    if ((parsed.messages ?? []).length <= 2) cursor = 0
+    const step = steps[Math.min(cursor, steps.length - 1)]
+    cursor += 1
+    if (step.status) {
+      response.writeHead(step.status, { 'content-type': 'application/json' })
+      response.end(step.body)
+      return
+    }
+    const message = step.final
+      ? { role: 'assistant', content: JSON.stringify(step.final) }
+      : {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            id: 'call_' + cursor,
+            type: 'function',
+            function: { name: step.tool, arguments: JSON.stringify(step.args) },
+          }],
+        }
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({
+      id: 'mock',
+      provider: 'MockProvider',
+      choices: [{ index: 0, message, finish_reason: step.final ? 'stop' : 'tool_calls' }],
+      usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12, cost: 0.0001 },
+    }))
+  })
+})
+server.listen(0, '127.0.0.1', () => {
+  fs.writeFileSync(${JSON.stringify(readyFile)}, JSON.stringify({ port: server.address().port }))
+})
+`)
+  const child = spawn(process.execPath, [serverFile], { stdio: 'ignore', detached: false })
+  for (let attempt = 0; attempt < 100 && !fs.existsSync(readyFile); attempt += 1) sleepSync(50)
+  if (!fs.existsSync(readyFile)) {
+    child.kill()
+    throw new Error('mock provider did not start')
+  }
+  const { port } = JSON.parse(fs.readFileSync(readyFile, 'utf8'))
+  return {
+    baseUrl: `http://127.0.0.1:${port}/v1`,
+    requests: () => (fs.existsSync(requestFile)
+      ? fs.readFileSync(requestFile, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line))
+      : []),
+    stop: () => {
+      child.kill()
+      fs.rmSync(directory, { recursive: true, force: true })
+    },
+  }
+}
+
+const OAI_ROUTING_ANSWER = {
+  selectedRouter: ['architecture'],
+  selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: [],
+}
+
+test('the OpenAI-compatible lane reaches app content only through the harness tool server', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const provider = startMockProvider([
+    { tool: 'mcp__harness__read', args: { path: 'AGENTS.md' } },
+    { tool: 'mcp__harness__read', args: { path: '.ai/guides/architecture.md' } },
+    { final: OAI_ROUTING_ANSWER },
+  ])
+  try {
+    const result = runEvaluator(root, ['--runner', 'oai', '--model', 'mock/model', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_BASE_URL: provider.baseUrl,
+      OM_OAI_API_KEY: 'test-provider-key',
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    assert.match(result.stdout, /PASS OMH-001/)
+    const requests = provider.requests()
+    assert.ok(requests.length >= 3, JSON.stringify(requests))
+    for (const request of requests) {
+      assert.ok(request.authorized, 'every provider call must carry the configured credential')
+      // Read-only routing exposes exactly one capability, and it is the evaluator-owned
+      // exact-path file tool: no shell, discovery, search, or write surface.
+      assert.deepEqual(request.tools, ['mcp__harness__read'])
+      assert.equal(request.responseFormat, 'json_schema')
+    }
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    provider.stop()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Gateway routing and decoding are the measurement's control variables: without them a
+// sweep can silently move between hosts, quantizations, or samplers mid-run and its
+// per-case results stop being comparable.
+test('the OpenAI-compatible lane pins configured gateway routing and sampling on every call', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const provider = startMockProvider([
+    { tool: 'mcp__harness__read', args: { path: 'AGENTS.md' } },
+    { tool: 'mcp__harness__read', args: { path: '.ai/guides/architecture.md' } },
+    { final: OAI_ROUTING_ANSWER },
+  ])
+  try {
+    const result = runEvaluator(root, ['--runner', 'oai', '--model', 'mock/model', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_BASE_URL: provider.baseUrl,
+      OM_OAI_API_KEY: 'test-provider-key',
+      OM_OAI_PROVIDER_ORDER: 'PinnedHost',
+      OM_OAI_QUANTIZATIONS: 'fp8,bf16',
+      OM_OAI_TEMPERATURE: '0.7',
+      OM_OAI_TOP_P: '0.8',
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    for (const request of provider.requests()) {
+      assert.deepEqual(request.provider, { order: ['PinnedHost'], quantizations: ['fp8', 'bf16'], allow_fallbacks: false })
+      assert.equal(request.temperature, 0.7)
+      assert.equal(request.topP, 0.8)
+    }
+  } finally {
+    provider.stop()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('an unconfigured OpenAI-compatible lane sends no sampling or routing preference of its own', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const provider = startMockProvider([
+    { tool: 'mcp__harness__read', args: { path: 'AGENTS.md' } },
+    { tool: 'mcp__harness__read', args: { path: '.ai/guides/architecture.md' } },
+    { final: OAI_ROUTING_ANSWER },
+  ])
+  try {
+    const result = runEvaluator(root, ['--runner', 'oai', '--model', 'mock/model', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_BASE_URL: provider.baseUrl,
+      OM_OAI_API_KEY: 'test-provider-key',
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    for (const request of provider.requests()) {
+      assert.equal(request.provider, null)
+      assert.equal(request.temperature, null)
+      assert.equal(request.topP, null)
+    }
+  } finally {
+    provider.stop()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The refused-call correlation is the failure mode a JSON-argument tool protocol invites:
+// losing the call identifier turns a guard-refused attempt into either an invisible read or
+// a false unsafe-read verdict.
+test('the OpenAI-compatible lane records a refused read without failing an otherwise correct route', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const provider = startMockProvider([
+    { tool: 'mcp__harness__read', args: { path: 'AGENTS.md' } },
+    { tool: 'mcp__harness__read', args: { path: '.ai/guides/architecture.md' } },
+    { tool: 'mcp__harness__read', args: { path: '.ai/guides/extensions.md' } },
+    { final: OAI_ROUTING_ANSWER },
+  ])
+  try {
+    const result = runEvaluator(root, ['--runner', 'oai', '--model', 'mock/model', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_BASE_URL: provider.baseUrl,
+      OM_OAI_API_KEY: 'test-provider-key',
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.refusedContextReads, ['.ai/guides/extensions.md'])
+    assert.ok(!stored.actualContext.paths.includes('.ai/guides/extensions.md'))
+  } finally {
+    provider.stop()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a rate-limited OpenAI-compatible provider retries once and a credential failure stops the sweep', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const throttled = startMockProvider([{ status: 429, body: '{"error":{"message":"rate limit exceeded"}}' }])
+  try {
+    const result = runEvaluator(root, ['--runner', 'oai', '--model', 'mock/model', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_BASE_URL: throttled.baseUrl,
+      OM_OAI_API_KEY: 'test-provider-key',
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2, 'a transient provider failure is retried exactly once')
+    assert.match(String(stored.sanitizedError), /HTTP 429/)
+  } finally {
+    throttled.stop()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+  const unauthorized = startMockProvider([{ status: 401, body: '{"error":{"message":"invalid credential test-provider-key"}}' }])
+  const second = stageApp()
+  try {
+    const result = runEvaluator(second, ['--runner', 'oai', '--model', 'mock/model', '--all'], {
+      ...process.env,
+      OM_OAI_BASE_URL: unauthorized.baseUrl,
+      OM_OAI_API_KEY: 'test-provider-key',
+    })
+    // A terminal credential failure must abort the matrix instead of burning every case.
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(`${result.stdout}${result.stderr}`, /provider environment failure/)
+    // The configured secret must never survive into operator-visible output.
+    assert.doesNotMatch(`${result.stdout}${result.stderr}`, /test-provider-key/)
+  } finally {
+    unauthorized.stop()
+    fs.rmSync(second, { recursive: true, force: true })
+  }
+})
+
+test('the OpenAI-compatible lane requires an explicit model and a credential', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  try {
+    const withoutModel = runEvaluator(root, ['--runner', 'oai', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_API_KEY: 'test-provider-key',
+      OM_OAI_MODEL: '',
+    })
+    assert.equal(withoutModel.status, 2, `${withoutModel.stdout}\n${withoutModel.stderr}`)
+    assert.match(withoutModel.stderr, /requires --model/)
+    const withoutKey = runEvaluator(root, ['--runner', 'oai', '--model', 'mock/model', '--case', 'OMH-001'], {
+      ...process.env,
+      OM_OAI_API_KEY: '',
+    })
+    assert.equal(withoutKey.status, 2, `${withoutKey.stdout}\n${withoutKey.stderr}`)
+    assert.match(`${withoutKey.stdout}${withoutKey.stderr}`, /missing api key/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

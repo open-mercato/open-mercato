@@ -8,7 +8,7 @@
     "schemaVersion": { "const": 1 },
     "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
     "promptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "runner": { "enum": ["deterministic", "codex", "claude"] },
+    "runner": { "enum": ["deterministic", "codex", "claude", "oai"] },
     "runnerVersion": { "type": "string", "maxLength": 200 },
     "model": { "type": "string", "maxLength": 200 },
     "reasoningEffort": { "enum": ["minimal", "low", "medium", "high", "xhigh"] },

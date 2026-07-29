@@ -17,7 +17,7 @@
       }
     },
     "targetFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "runner": { "enum": ["codex", "claude"] },
+    "runner": { "enum": ["codex", "claude", "oai"] },
     "runnerVersion": { "type": "string", "maxLength": 200 },
     "model": { "type": "string", "maxLength": 200 },
     "reasoningEffort": { "enum": ["minimal", "low", "medium", "high", "xhigh"] },

@@ -5,6 +5,7 @@
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009
+yarn harness:validate --runner oai --model qwen/qwen3.6-35b-a3b --all
 ```
 
 For an explicitly requested Codex comparison outside the blocking release matrix, pin both dimensions so the sanitized result is reproducible, for example `--model gpt-5.4-mini --reasoning-effort high`. The effort override is Codex-only; supported values are `minimal`, `low`, `medium`, `high`, and `xhigh`, and omitting it preserves the existing runner default. Measured high-effort mini runs legitimately exceed ten minutes on broad context, so that exact model/effort pair uses a 15-minute per-attempt floor; measured Claude/Sonnet runs use a 10-minute floor. Passing `--timeout` remains authoritative, and other routing runs retain the five-minute default.
@@ -38,6 +39,28 @@ yarn harness:validate --runner codex --review-writable-result /absolute/controll
 ```
 
 The source must be a passing one-shot implementation result from the current harness and its final whole-target fingerprint must still match. The controller copies changed regular text files as line-numbered inert snapshots, plus its pinned installed `om-code-review` skill and bounded trusted evidence, into a temporary read-only bundle. Target package scripts, dependencies, Git data, tracker state, original source files, and the target's absolute path are not copied or supplied to the reviewer; trace-verified out-of-bundle, environment, or process inspection and any bundle or target mutation fail closed. A separate sanitized artifact records source-result, target, policy, and installed-skill hashes plus the strict verdict, findings, and report. This supplemental review uses prior controller oracle evidence and does not claim the full repository validation gate or CI passed.
+
+## OpenAI-compatible lane
+
+`--runner oai` measures any model behind an OpenAI-compatible chat-completions endpoint: a gateway, a vendor API, or a local llama.cpp/LM Studio server. The lane owns its agent loop instead of delegating to a vendor CLI, so the model reaches app content only through the same `env -i` MCP tool server the other runners receive, and its trace, budgets, refused reads, and fail-closed gates are unchanged.
+
+Configuration is environment-only; no endpoint, credential, or model identifier is committed:
+
+| Variable | Meaning |
+|---|---|
+| `OM_OAI_API_KEY` | Required bearer credential. |
+| `OM_OAI_BASE_URL` | Endpoint root, default `https://openrouter.ai/api/v1`. |
+| `OM_OAI_MODEL` | Model id used when `--model` is absent. |
+| `OM_OAI_PROVIDER_ORDER`, `OM_OAI_QUANTIZATIONS`, `OM_OAI_PROVIDER_SORT`, `OM_OAI_ALLOW_FALLBACKS` | Gateway routing pin. Setting any of them sends `allow_fallbacks: false` unless overridden. |
+| `OM_OAI_TEMPERATURE`, `OM_OAI_TOP_P`, `OM_OAI_TOP_K`, `OM_OAI_MIN_P`, `OM_OAI_MAX_TOKENS`, `OM_OAI_SEED` | Decoding. Every unset key is omitted from the request rather than defaulted. |
+| `OM_OAI_REASONING_EFFORT`, `OM_OAI_REASONING_MAX_TOKENS`, `OM_OAI_REASONING_EXCLUDE` | Thinking-mode controls for models that expose them. |
+| `OM_OAI_MAX_STEPS` | Tool-call budget per case, default 40. |
+| `OM_OAI_DISABLE_RESPONSE_FORMAT` | Skip `response_format` for an endpoint that cannot enforce a JSON schema. |
+| `OM_OAI_USAGE_ACCOUNTING` | Request gateway token/cost accounting. Defaults on for OpenRouter hosts and off elsewhere, because a strict endpoint rejects the field. |
+
+Two properties decide whether a sweep is comparable. First, a gateway that routes freely can serve different hosts and quantizations inside one matrix, so pin the provider and record which one served the run: the lane sends the pin on every call and each result stores the serving provider. Second, sampling that is left to gateway defaults varies by host, so set the decoding the model card prescribes rather than assuming a default. A structured-output downgrade, a truncated completion, and a step-budget exhaustion each fail their case loudly instead of degrading quietly.
+
+Run exactly one sweep per lane at a time and keep a separate results directory per sweep. Concurrent sweeps of the same lane against one controller produce results that cannot be attributed to a harness version.
 
 ## Live-run security boundary
 

@@ -6,7 +6,7 @@
     "mandatoryFailuresWaivable": false
   },
   "releaseSuite": {
-    "supportedRunners": ["codex", "claude"],
+    "supportedRunners": ["codex", "claude", "oai"],
     "requireGeneratedCodeReview": true,
     "validationCommands": ["yarn generate", "yarn typecheck", "yarn lint", "yarn build"]
   },
@@ -29,7 +29,8 @@
     },
     "runners": {
       "codex": { "modelSelector": "default" },
-      "claude": { "modelSelector": "sonnet" }
+      "claude": { "modelSelector": "sonnet" },
+      "oai": { "modelSelector": "default" }
     }
   },
   "writable": [
@@ -94,7 +95,8 @@
     ],
     "runners": {
       "codex": { "modelSelector": "default" },
-      "claude": { "modelSelector": "sonnet" }
+      "claude": { "modelSelector": "sonnet" },
+      "oai": { "modelSelector": "default" }
     },
     "maxChangedFiles": 16,
     "maxChangedBytes": 262144,

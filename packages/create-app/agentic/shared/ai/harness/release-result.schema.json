@@ -27,8 +27,8 @@
       "additionalProperties": false,
       "required": ["primaryRunner", "portabilityRunner"],
       "properties": {
-        "primaryRunner": { "enum": ["codex", "claude"] },
-        "portabilityRunner": { "type": ["string", "null"], "enum": ["codex", "claude", null] }
+        "primaryRunner": { "enum": ["codex", "claude", "oai"] },
+        "portabilityRunner": { "type": ["string", "null"], "enum": ["codex", "claude", "oai", null] }
       }
     },
     "catalog": {
@@ -67,7 +67,7 @@
             "additionalProperties": false,
             "required": ["runner", "expectedCaseIds", "executedCaseIds", "missingCaseIds"],
             "properties": {
-              "runner": { "enum": ["codex", "claude"] },
+              "runner": { "enum": ["codex", "claude", "oai"] },
               "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
               "executedCaseIds": { "$ref": "#/$defs/caseIds" },
               "missingCaseIds": { "$ref": "#/$defs/caseIds" }
@@ -172,7 +172,7 @@
           "id": { "type": "string", "maxLength": 160 },
           "kind": { "enum": ["deterministic", "validation", "routing", "fixture", "writable", "target-validation", "generated-test", "review", "dependency-guard"] },
           "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
-          "runner": { "enum": ["codex", "claude"] },
+          "runner": { "enum": ["codex", "claude", "oai"] },
           "testRunner": { "enum": ["jest", "playwright-api", "playwright-browser"] },
           "artifact": { "type": "string", "maxLength": 300 },
           "network": { "enum": ["none", "loopback"] },

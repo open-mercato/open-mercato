@@ -74,11 +74,20 @@ const BASE_RUNNER_ENV_KEYS = [
   'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'NODE_EXTRA_CA_CERTS',
   'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
 ]
+const SUPPORTED_RUNNERS = ['codex', 'claude', 'oai']
 const RUNNER_ENV_KEYS = {
   codex: [
     'CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORG_ID',
     'OPENAI_PROJECT_ID', 'AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT',
     'AZURE_OPENAI_API_VERSION',
+  ],
+  oai: [
+    'OM_OAI_API_KEY', 'OM_OAI_BASE_URL', 'OM_OAI_MODEL', 'OM_OAI_MAX_STEPS',
+    'OM_OAI_PROVIDER_ORDER', 'OM_OAI_QUANTIZATIONS', 'OM_OAI_PROVIDER_SORT',
+    'OM_OAI_ALLOW_FALLBACKS', 'OM_OAI_TEMPERATURE', 'OM_OAI_TOP_P', 'OM_OAI_TOP_K',
+    'OM_OAI_MIN_P', 'OM_OAI_MAX_TOKENS', 'OM_OAI_SEED', 'OM_OAI_REASONING_EFFORT',
+    'OM_OAI_REASONING_MAX_TOKENS', 'OM_OAI_REASONING_EXCLUDE',
+    'OM_OAI_DISABLE_RESPONSE_FORMAT', 'OM_OAI_USAGE_ACCOUNTING',
   ],
   claude: [
     'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN',
@@ -96,6 +105,7 @@ const SENSITIVE_RUNNER_ENV_KEYS = new Set([
   'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_REGION',
   'AWS_DEFAULT_REGION', 'GOOGLE_APPLICATION_CREDENTIALS', 'ANTHROPIC_VERTEX_PROJECT_ID',
   'CLOUD_ML_REGION', 'HTTP_PROXY', 'HTTPS_PROXY',
+  'OM_OAI_API_KEY', 'OM_OAI_BASE_URL',
 ])
 const IN_MEMORY_SECRET_VALUES = new Set([...SENSITIVE_RUNNER_ENV_KEYS]
   .map((key) => process.env[key])
@@ -103,6 +113,11 @@ const IN_MEMORY_SECRET_VALUES = new Set([...SENSITIVE_RUNNER_ENV_KEYS]
 )
 const HARD_FORBIDDEN_READ_PATTERNS = ['.env*', '.git', '.git/**', '.ai/harness', '.ai/harness/**']
 const TOOL_SERVER_PATH = fileURLToPath(new URL('./agent-harness-tool-server.mjs', import.meta.url))
+const OAI_RUNNER_PATH = fileURLToPath(new URL('./agent-harness-oai-runner.mjs', import.meta.url))
+// The OpenAI-compatible lane owns its own agent loop, so its per-case tool budget is a
+// harness contract rather than a vendor CLI default. It bounds a runaway loop without
+// truncating an ordinary progressive routing sequence.
+const OAI_MAX_STEPS = 40
 // The only built-in Claude Code tool the harness exposes. It carries no filesystem, shell,
 // process, or network capability of its own; it exists solely so the deferred harness MCP
 // tools become callable. Keep this list at exactly one entry.
@@ -120,13 +135,17 @@ function usage() {
 
 Usage:
   node scripts/evaluate-agent-harness.mjs [--root <app>] [--case <OMH-NNN> | --family <name> | --all]
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> [selector] [--model <selector>] [--reasoning-effort <level>] [--timeout <ms>]
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --case <id> --writable-root <absolute-path> --acknowledge-writes
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --review-writable-result <absolute-result.json> --writable-root <absolute-path> [--review-validation-result <absolute-result.json>]
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude|oai> [selector] [--model <selector>] [--reasoning-effort <level>] [--timeout <ms>]
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude|oai> --case <id> --writable-root <absolute-path> --acknowledge-writes
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude|oai> --review-writable-result <absolute-result.json> --writable-root <absolute-path> [--review-validation-result <absolute-result.json>]
 
 Default mode is deterministic and validates the complete catalog. An explicit runner --all
 selects the complete catalog; a runner without a selector uses the representative portability
 set. Writable mode accepts only catalog-declared writable cases.
+The oai runner drives any OpenAI-compatible chat-completions endpoint. It reads OM_OAI_API_KEY,
+OM_OAI_BASE_URL (default https://openrouter.ai/api/v1), and OM_OAI_MODEL when --model is absent;
+OM_OAI_PROVIDER_ORDER / OM_OAI_QUANTIZATIONS / OM_OAI_ALLOW_FALLBACKS pin gateway routing, and the
+OM_OAI_TEMPERATURE / TOP_P / TOP_K / MIN_P / MAX_TOKENS / SEED sampling keys stay unset unless configured.
 Generated-code review is an explicit, read-only post-oracle lane and never runs automatically.
 Exit codes: 0 pass, 1 evaluated failure, 2 invalid invocation or environment.`
 }
@@ -172,8 +191,8 @@ function parseArgs(argv) {
     else if (arg === '--acknowledge-writes') options.acknowledgeWrites = true
     else throw new Error(`unknown argument: ${arg}`)
   }
-  if (options.runner && !['codex', 'claude'].includes(options.runner)) {
-    throw new Error('--runner must be codex or claude')
+  if (options.runner && !SUPPORTED_RUNNERS.includes(options.runner)) {
+    throw new Error('--runner must be codex, claude, or oai')
   }
   if (options.reasoningEffort && options.runner !== 'codex') {
     throw new Error('--reasoning-effort is supported only with --runner codex')
@@ -511,9 +530,9 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!isPlainObject(entry) || !cases.some((candidate) => candidate.id === entry.caseId) || Object.keys(entry).length !== 1) globalErrors.push(`invalid runner-neutral writable release entry ${entry?.caseId ?? '<missing>'}`)
   }
   const releaseSuite = releaseMatrix?.releaseSuite
-  const supportedRunners = ['codex', 'claude']
-  if (JSON.stringify(releaseSuite?.supportedRunners) !== JSON.stringify(supportedRunners)) globalErrors.push('release suite supported runners must be Codex and Claude')
-  if (JSON.stringify(Object.keys(releaseMatrix?.routing?.runners ?? {})) !== JSON.stringify(supportedRunners)) globalErrors.push('routing matrix must configure exactly Codex and Claude')
+  const supportedRunners = SUPPORTED_RUNNERS
+  if (JSON.stringify(releaseSuite?.supportedRunners) !== JSON.stringify(supportedRunners)) globalErrors.push('release suite supported runners must be Codex, Claude, and the OpenAI-compatible lane')
+  if (JSON.stringify(Object.keys(releaseMatrix?.routing?.runners ?? {})) !== JSON.stringify(supportedRunners)) globalErrors.push('routing matrix must configure exactly Codex, Claude, and the OpenAI-compatible lane')
   for (const runner of supportedRunners) {
     if (typeof releaseMatrix?.routing?.runners?.[runner]?.modelSelector !== 'string') globalErrors.push(`routing matrix requires a ${runner} model selector`)
   }
@@ -524,7 +543,7 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   if (review?.skill !== REVIEW_SKILL) globalErrors.push(`generated-code review skill must be ${REVIEW_SKILL}`)
   if (review?.required !== true) globalErrors.push('generated-code review must be mandatory for every writable case')
   if (JSON.stringify(review?.caseIds) !== JSON.stringify(reviewIds)) globalErrors.push('generated-code review matrix must exactly cover every writable case')
-  for (const runner of ['codex', 'claude']) {
+  for (const runner of supportedRunners) {
     if (typeof review?.runners?.[runner]?.modelSelector !== 'string') globalErrors.push(`generated-code review requires a ${runner} model selector`)
   }
   for (const [key, minimum, maximum] of [
@@ -1672,6 +1691,14 @@ function routingCorrectionDiagnostics(violations) {
 }
 
 function runnerVersion(runner, root) {
+  // The OpenAI-compatible lane is harness-owned, so its identity is the interpreter plus
+  // the endpoint host it was pointed at, never a vendor CLI version probe.
+  if (runner === 'oai') {
+    const configured = process.env.OM_OAI_BASE_URL || 'https://openrouter.ai/api/v1'
+    let host
+    try { host = new URL(configured).host } catch { throw new Error('OM_OAI_BASE_URL must be an absolute URL') }
+    return `harness lane on node ${process.versions.node} via ${host}`
+  }
   const result = spawnSync(runner, ['--version'], {
     encoding: 'utf8',
     timeout: 10_000,
@@ -1768,8 +1795,31 @@ function harnessMcpConfig(root, writable, allowedReads, allowedWrites) {
   }
 }
 
-function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites }) {
+function resolveOaiModel(model) {
+  const resolved = model && model !== 'default' ? model : process.env.OM_OAI_MODEL
+  if (!resolved) throw new Error('the oai runner requires --model <provider/model-id> or OM_OAI_MODEL')
+  return resolved
+}
+
+function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, timeout }) {
   const mcp = harnessMcpConfig(root, writable, allowedReads, allowedWrites)
+  if (runner === 'oai') {
+    // The lane spawns the same env-cleared, path-validating MCP server the vendor CLIs
+    // receive, so the model's only filesystem capability stays identical across runners.
+    const maxSteps = Number.parseInt(process.env.OM_OAI_MAX_STEPS ?? '', 10)
+    const args = [
+      OAI_RUNNER_PATH,
+      '--root', root,
+      '--schema', schemaPath,
+      '--output', outputPath,
+      '--model', resolveOaiModel(model),
+      '--tool-server', JSON.stringify(mcp),
+      '--max-steps', String(Number.isInteger(maxSteps) ? maxSteps : OAI_MAX_STEPS),
+      '--request-timeout', String(timeout ?? DEFAULT_LIVE_TIMEOUT_MS),
+    ]
+    if (writable) args.push('--writable')
+    return { command: fs.realpathSync(process.execPath), args }
+  }
   if (runner === 'codex') {
     const args = [
       'exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
@@ -1834,9 +1884,15 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reason
   const isolatedSchemaPath = path.join(tempDir, 'output.schema.json')
   fs.copyFileSync(schemaPath, isolatedSchemaPath, fs.constants.COPYFILE_EXCL)
   fs.chmodSync(isolatedSchemaPath, 0o600)
-  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites })
+  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, timeout })
   const runnerEnv = narrowRunnerEnv(runner)
-  if (runner === 'codex') {
+  if (runner === 'oai') {
+    // This lane holds no on-disk credential or session store: its provider secret arrives
+    // through the narrowed environment only, so isolation is limited to a private HOME.
+    const isolatedHome = path.join(tempDir, 'home')
+    fs.mkdirSync(isolatedHome, { recursive: true, mode: 0o700 })
+    runnerEnv.HOME = isolatedHome
+  } else if (runner === 'codex') {
     const isolatedCodexHome = path.join(tempDir, 'codex-home')
     const isolatedHome = path.join(tempDir, 'home')
     fs.mkdirSync(isolatedCodexHome, { recursive: true, mode: 0o700 })

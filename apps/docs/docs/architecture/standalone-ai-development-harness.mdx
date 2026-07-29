@@ -176,6 +176,7 @@ Do not label an implementation claim as routing-only because a fixture or oracle
 ```bash
 yarn harness:validate --case OMH-NNN
 yarn harness:validate --runner codex --case OMH-NNN
+yarn harness:validate --runner oai --model <provider/model-id> --case OMH-NNN
 yarn harness:validate --family <family>
 yarn harness:validate --all
 ```
@@ -195,6 +196,12 @@ yarn harness:validate --runner codex --case OMH-NNN \
 ```
 
 The fixture command only prepares a target; it is never passing evidence.
+
+### OpenAI-compatible runner
+
+`--runner oai` evaluates a model served by any OpenAI-compatible chat-completions endpoint, including a self-hosted one. Unlike the Codex and Claude lanes it does not delegate the agent loop to a vendor CLI; the harness runs the loop and gives the model the same `env -i` MCP tool server, trace verification, budgets, and fail-closed gates the other lanes use.
+
+Its endpoint, credential, model, gateway routing pin, and decoding come from `OM_OAI_*` environment variables, so nothing provider-specific is committed. Pin the gateway provider and set the decoding the model card prescribes before a comparison sweep: a gateway free to reroute between hosts or quantizations mid-run, or sampling left to host defaults, makes per-case results incomparable. The harness README documents each variable.
 
 ## Evaluation lanes
 
