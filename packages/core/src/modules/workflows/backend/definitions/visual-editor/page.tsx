@@ -48,13 +48,13 @@ import {
 import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
 import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
 import { WorkflowCodeView } from '../../../components/WorkflowCodeView'
+import { DefinitionMetadataDrawer } from '../../../components/DefinitionMetadataDrawer'
 import { describeCodeViewDraft, evaluateCodeViewDraft } from '../../../lib/code-view-apply'
 import {
   locateDefinitionJsonEntities,
   locateIssues,
   severityByLine,
 } from '../../../lib/definition-json-locations'
-import { WorkflowIconPicker } from '../../../components/WorkflowIconPicker'
 import { WorkflowCommandPalette } from '../../../components/WorkflowCommandPalette'
 import { buildWorkflowEditorCommands, type WorkflowEditorCommand } from '../../../lib/editor-commands'
 import { NUDGE_COMMIT_DELAY_MS, nudgeOffset, nudgeSelectedNodes, resolveNudgeDirection, selectedNodeIds } from '../../../lib/node-nudge'
@@ -71,7 +71,6 @@ import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } fr
 import { findRouteKindDescriptorForHandle } from '../../../lib/route-kinds'
 import { isDecisionSourceHandle, type DecisionRowLike } from '../../../lib/node-outcome-rows'
 import { STRUCTURAL_EDIT_CONFLICT_CODE } from '../../../lib/definition-edit-safety'
-import { DefinitionErrorHandlerField } from '../../../components/DefinitionErrorHandlerField'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
 import { WORKFLOW_ROUTE_CHIP_EVENT, type RouteChipEventDetail } from '../../../lib/route-chip-events'
@@ -104,13 +103,6 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@open-mercato/ui/primitives/select'
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -118,7 +110,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -140,13 +131,11 @@ import {
   type WorkflowStartFixtures,
 } from '../../../lib/start-fixtures'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, History, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelTopClose, PanelTopOpen, Play, Save, ShieldMinus, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, CircleQuestionMark, Code, Command, Group, History, Maximize2, Minimize2, Network, PanelLeftClose, PanelLeftOpen, PanelRightOpen, Play, Save, ShieldMinus, StickyNote, Trash2, TriangleAlert, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { useSidebarCollapse } from '@open-mercato/ui/backend/AppShell'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
-import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
-import { ContextSchemaEditor } from '../../../components/ContextSchemaEditor'
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../../components/TemplateGalleryDialog'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
@@ -306,7 +295,11 @@ export default function VisualEditorPage() {
   edgesRef.current = edges
   const nodesRef = React.useRef<Node[]>([])
   nodesRef.current = nodes
-  const [showMetadata, setShowMetadata] = useState(true)
+  // Definition metadata lives in a right-side Drawer, so it costs the canvas
+  // nothing and never needs hiding. It starts closed — the canvas is what the
+  // page is for — and `handleSave` opens it when the required id/name are
+  // still missing, which is the moment the author needs it.
+  const [metadataOpen, setMetadataOpen] = useState(false)
   const [isCompactViewport, setIsCompactViewport] = useState(false)
   const [autosaveState, setAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [structuralConflict, setStructuralConflict] = useState<StructuralEditConflict | null>(null)
@@ -330,31 +323,26 @@ export default function VisualEditorPage() {
   // not pay for three requests they never asked for.
   const { value: showLastRun, toggle: toggleLastRun } = usePersistedBooleanFlag('om:wf-editor-last-run', false)
   const { requestCollapse, releaseRequest } = useSidebarCollapse()
-  // Remember the palette/metadata state from before Focus mode took over so we
-  // can restore exactly what the author had when they exit.
+  // Remember the palette state from before Focus mode took over so we can
+  // restore exactly what the author had when they exit.
   const priorPaletteCollapsedRef = React.useRef<boolean | null>(null)
-  const priorShowMetadataRef = React.useRef<boolean | null>(null)
 
-  // Focus mode orchestrator: collapse the app sidebar + palette and hide the
-  // metadata form when entering; restore the author's prior palette/metadata
-  // state when leaving. Runs on mount too, so a persisted `focusMode === true`
-  // applies the collapses immediately.
+  // Focus mode orchestrator: collapse the app sidebar + palette when entering
+  // and restore the author's prior palette state when leaving. Runs on mount
+  // too, so a persisted `focusMode === true` applies the collapses immediately.
+  // The metadata Drawer is not touched: it overlays rather than displaces the
+  // canvas, so hiding it would buy Focus mode nothing and would only make the
+  // palette's "Toggle the workflow details panel" command a silent no-op.
   useEffect(() => {
     if (focusMode) {
       if (priorPaletteCollapsedRef.current === null) priorPaletteCollapsedRef.current = paletteCollapsed
-      if (priorShowMetadataRef.current === null) priorShowMetadataRef.current = showMetadata
       requestCollapse(true)
       setPaletteCollapsed(true)
-      setShowMetadata(false)
     } else {
       releaseRequest()
       if (priorPaletteCollapsedRef.current !== null) {
         setPaletteCollapsed(priorPaletteCollapsedRef.current)
         priorPaletteCollapsedRef.current = null
-      }
-      if (priorShowMetadataRef.current !== null) {
-        setShowMetadata(priorShowMetadataRef.current)
-        priorShowMetadataRef.current = null
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -364,14 +352,12 @@ export default function VisualEditorPage() {
   // user's prior sidebar state is restored when they navigate away.
   useEffect(() => () => releaseRequest(), [releaseRequest])
 
-  // Auto-collapse metadata on compact viewports after hydration
+  // Track the compact (<1280px) layout after hydration
   useEffect(() => {
     if (typeof window === 'undefined') return
     const mediaQuery = window.matchMedia('(max-width: 1279px)')
     const applyViewportMode = () => {
-      const compact = mediaQuery.matches
-      setIsCompactViewport(compact)
-      setShowMetadata(!compact)
+      setIsCompactViewport(mediaQuery.matches)
     }
 
     applyViewportMode()
@@ -1931,9 +1917,11 @@ export default function VisualEditorPage() {
 
   // Save workflow definition
   const handleSave = useCallback(async () => {
-    // Validate required fields
+    // Validate required fields. They live in the details drawer, so open it —
+    // an error toast pointing at fields the author cannot see is a dead end.
     if (!workflowId || !workflowName) {
-      flash('Workflow ID and Name are required fields', 'error')
+      setMetadataOpen(true)
+      flash(t('workflows.visualEditor.metadata.requiredFields', 'Workflow ID and name are required.'), 'error')
       return
     }
 
@@ -2207,7 +2195,7 @@ export default function VisualEditorPage() {
       goToStep: focusNode,
       tidy: handleAutoArrange,
       togglePalette: togglePaletteCollapsed,
-      toggleMetadata: () => setShowMetadata((visible) => !visible),
+      toggleMetadata: () => setMetadataOpen((open) => !open),
       toggleFocus,
       toggleProblems: () => setShowProblems((visible) => !visible),
       toggleCodeView: () => setShowCodeView((visible) => !visible),
@@ -2240,10 +2228,15 @@ export default function VisualEditorPage() {
       const tag = (active?.tagName || '').toLowerCase()
       const isEditing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!active?.isContentEditable
       const isDialogOpen = showNodeDialog || showEdgeDialog || showAnnotationDialog || showClearConfirm || startOpen || showCodeView
+      // The details drawer is a modal overlay, so the canvas bindings must not
+      // fire behind it. Cmd+S is the deliberate exception: the drawer has no
+      // submit of its own to protect — saving the workflow IS its primary
+      // action — so the shortcut keeps working while it is open.
+      const isOverlayOpen = isDialogOpen || metadataOpen
       const isCommandKey = (event.metaKey || event.ctrlKey) && !event.altKey
 
       if (isCommandKey && (event.key === 'k' || event.key === 'K')) {
-        if (isDialogOpen) return
+        if (isOverlayOpen) return
         event.preventDefault()
         setShowCommandPalette((open) => !open)
         return
@@ -2257,13 +2250,13 @@ export default function VisualEditorPage() {
       if (isEditing || showCommandPalette) return
 
       if (isCommandKey && (event.key === 'z' || event.key === 'Z')) {
-        if (isDialogOpen) return
+        if (isOverlayOpen) return
         event.preventDefault()
         if (event.shiftKey) handleRedo()
         else handleUndo()
         return
       }
-      if (isCommandKey && !event.shiftKey && !isDialogOpen) {
+      if (isCommandKey && !event.shiftKey && !isOverlayOpen) {
         if (event.key === 'c' || event.key === 'C') {
           event.preventDefault()
           void handleCopySelection()
@@ -2282,13 +2275,13 @@ export default function VisualEditorPage() {
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === 'Escape') {
-        if (focusMode && !isDialogOpen) {
+        if (focusMode && !isOverlayOpen) {
           event.preventDefault()
           setFocusMode(false)
         }
         return
       }
-      if (isDialogOpen) return
+      if (isOverlayOpen) return
       if (event.key === 'Enter') {
         event.preventDefault()
         openSelectedInspector()
@@ -2312,7 +2305,7 @@ export default function VisualEditorPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     isMobile, focusMode, showNodeDialog, showEdgeDialog, showAnnotationDialog, showClearConfirm, startOpen,
-    showCodeView, showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
+    showCodeView, metadataOpen, showCommandPalette, toggleFocus, setFocusMode, handleUndo, handleRedo, handleCopySelection, handlePaste,
     handleDuplicateSelection, openSelectedInspector, handleDeleteSelection, handleNudge,
     handleSave, isCodeOnly,
   ])
@@ -2701,13 +2694,21 @@ export default function VisualEditorPage() {
     workflowId, workflowName, description, version,
     enabled, category, tags, icon,
     effectiveFrom, effectiveTo, triggers,
+    contextSchema, interpolation, errorHandler,
   }
 
   const metadataHandlers: WorkflowMetadataHandlers = {
     setWorkflowId, setWorkflowName, setDescription, setVersion,
     setEnabled, setCategory, setTags, setIcon,
     setEffectiveFrom, setEffectiveTo, setTriggers,
+    setContextSchema,
+    setInterpolation,
+    setErrorHandler: (next) => setErrorHandler(next ?? undefined),
   }
+
+  // The required identity fields now live behind the details drawer, so the
+  // toolbar has to say when they are still blank.
+  const metadataIncomplete = !isCodeOnly && (!workflowId || !workflowName)
 
   const crudFormDialogsEnabled = resolveCrudFormDialogsEnabled(process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED)
 
@@ -3098,16 +3099,30 @@ export default function VisualEditorPage() {
               </Button>
               {!focusMode && (
               <>
+              {/* Details drawer trigger. When the required id/name are still
+                  blank it carries a marker — the fields are behind an overlay
+                  now, so their absence has to be visible from the toolbar and
+                  not only after a refused save. Shape + text, never colour
+                  alone (spec §4.6). */}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setShowMetadata(!showMetadata)}
+                data-testid="workflow-details-trigger"
+                onClick={() => setMetadataOpen(true)}
                 disabled={isSaving}
                 className="h-8 px-2 text-xs"
-                aria-label={showMetadata ? t('workflows.visualEditor.hideMetadata') : t('workflows.visualEditor.showMetadata')}
+                aria-label={metadataIncomplete
+                  ? `${t('workflows.visualEditor.metadata.open')} — ${t('workflows.visualEditor.metadata.requiredFields')}`
+                  : t('workflows.visualEditor.metadata.open')}
               >
-                {showMetadata ? <PanelTopClose className="mr-1.5 h-4 w-4" /> : <PanelTopOpen className="mr-1.5 h-4 w-4" />}
-                {showMetadata ? t('workflows.visualEditor.hideMetadata') : t('workflows.visualEditor.showMetadata')}
+                <PanelRightOpen className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {t('workflows.visualEditor.metadata.buttonLabel')}
+                {metadataIncomplete && (
+                  <>
+                    <TriangleAlert className="ml-1.5 h-3.5 w-3.5 text-status-warning-text" aria-hidden="true" />
+                    <span className="sr-only">{t('workflows.visualEditor.metadata.requiredFields')}</span>
+                  </>
+                )}
               </Button>
               {!isCodeOnly && (
                 <Button
@@ -3276,198 +3291,6 @@ export default function VisualEditorPage() {
 
       {/* Per-user draft restore banner (spec §4.7) */}
       {draftRestoreBanner}
-
-      {/* Workflow Metadata Form */}
-      {showMetadata && !focusMode && (
-        <div className={isCompactViewport
-          ? 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[60svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
-          : 'shrink-0 border-b border-border bg-background px-3 py-2 max-h-[45svh] overflow-y-auto overscroll-contain md:px-6 md:py-3'
-        }>
-          <fieldset disabled={isCodeOnly} className="rounded-lg border bg-card p-3 disabled:opacity-70 md:p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.workflowMetadata')}</h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 md:gap-4">
-              {/* Workflow ID */}
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="workflowId" className="text-xs">{t('workflows.form.workflowId')} *</Label>
-                <Input
-                  id="workflowId"
-                  value={workflowId}
-                  onChange={(e) => setWorkflowId(e.target.value)}
-                  placeholder="checkout_workflow"
-                  disabled={!!definitionId}
-                  className="h-8 text-sm"
-                />
-                {definitionId && <p className="text-overline text-muted-foreground">{t('workflows.visualEditor.readOnly')}</p>}
-              </div>
-
-              {/* Workflow Name */}
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="workflowName" className="text-xs">{t('workflows.form.workflowName')} *</Label>
-                <Input
-                  id="workflowName"
-                  value={workflowName}
-                  onChange={(e) => setWorkflowName(e.target.value)}
-                  placeholder="Checkout Process"
-                  className="h-8 text-sm"
-                />
-              </div>
-
-              {/* Category */}
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="category" className="text-xs">{t('workflows.form.category')}</Label>
-                <Input
-                  id="category"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="E-Commerce"
-                  className="h-8 text-sm"
-                />
-              </div>
-
-              {/* Description */}
-              <div className="min-w-0 space-y-1 sm:col-span-2 lg:col-span-3">
-                <Label htmlFor="description" className="text-xs">{t('workflows.form.description')}</Label>
-                <Textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={t('workflows.form.placeholders.description')}
-                  rows={2}
-                  className="min-h-[60px] text-sm"
-                />
-              </div>
-
-              {/* Version */}
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="version" className="text-xs">{t('workflows.form.version')} *</Label>
-                <Input
-                  id="version"
-                  type="number"
-                  value={version}
-                  onChange={(e) => setVersion(parseInt(e.target.value) || 1)}
-                  min={1}
-                  disabled={!!definitionId}
-                  className="h-8 text-sm"
-                />
-              </div>
-
-              {/* Enabled */}
-              <div className="min-w-0 space-y-1">
-                <Label className="text-xs">{t('common.enabled', 'Enabled')}</Label>
-                <div className="flex h-8 items-center gap-2">
-                  <Switch
-                    id="enabled"
-                    checked={enabled}
-                    onCheckedChange={setEnabled}
-                  />
-                  <Label htmlFor="enabled" className="cursor-pointer text-xs font-normal">
-                    {enabled ? t('common.on', 'On') : t('common.off', 'Off')}
-                  </Label>
-                </div>
-              </div>
-
-              {/* Tags */}
-              <div className="min-w-0 space-y-1">
-                <Label className="text-xs">{t('workflows.form.tags')}</Label>
-                <TagsInput
-                  value={tags}
-                  onChange={setTags}
-                  placeholder={t('workflows.form.placeholders.tags')}
-                />
-              </div>
-
-              {/* Icon — searchable grid over the shared lucide registry, with
-                  free text kept as the fallback so existing values never break */}
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="icon" className="text-xs">{t('workflows.form.icon')}</Label>
-                <WorkflowIconPicker id="icon" value={icon} onChange={setIcon} disabled={isCodeOnly} />
-              </div>
-
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="effectiveFrom" className="text-xs">{t('workflows.form.effectiveFrom')}</Label>
-                <Input
-                  id="effectiveFrom"
-                  type="date"
-                  value={effectiveFrom}
-                  onChange={(e) => setEffectiveFrom(e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="effectiveTo" className="text-xs">{t('workflows.form.effectiveTo')}</Label>
-                <Input
-                  id="effectiveTo"
-                  type="date"
-                  value={effectiveTo}
-                  onChange={(e) => setEffectiveTo(e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-            </div>
-          </fieldset>
-
-          {/* Event Triggers — also locked when the workflow is code-defined */}
-          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
-            <DefinitionTriggersEditor
-              value={triggers}
-              onChange={setTriggers}
-            />
-          </fieldset>
-
-          {/* Declared context inputs (spec §3.1) — same lock as triggers */}
-          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
-            <ContextSchemaEditor
-              value={contextSchema}
-              onChange={setContextSchema}
-            />
-          </fieldset>
-
-          {/* Interpolation mode (spec §3.6) — same lock as triggers/context */}
-          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
-            <div className="flex flex-wrap items-center gap-2">
-              <Label htmlFor="interpolation-mode" className="text-xs">
-                {t('workflows.visualEditor.interpolation.label', 'Missing variables')}
-              </Label>
-              <Select
-                value={interpolation ?? 'lenient'}
-                onValueChange={(mode) => setInterpolation(mode as WorkflowInterpolationMode)}
-              >
-                <SelectTrigger
-                  id="interpolation-mode"
-                  className="w-full sm:w-[280px]"
-                  aria-label={t('workflows.visualEditor.interpolation.label', 'Missing variables')}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="strict">
-                    {t('workflows.visualEditor.interpolation.strict', 'Strict — fail the step')}
-                  </SelectItem>
-                  <SelectItem value="lenient">
-                    {t('workflows.visualEditor.interpolation.lenient', 'Lenient — keep the text as written')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t(
-                'workflows.visualEditor.interpolation.help',
-                'Controls what happens when a variable placeholder cannot be resolved at run time: strict fails the step so problems surface immediately; lenient keeps the unresolved text unchanged. New workflows start strict.',
-              )}
-            </p>
-          </fieldset>
-
-          {/* Workflow-level error handler (spec §5.9) — same lock as triggers/context */}
-          <fieldset disabled={isCodeOnly} className="mt-3 disabled:opacity-70">
-            <DefinitionErrorHandlerField
-              value={errorHandler ?? null}
-              onChange={(next) => setErrorHandler(next ?? undefined)}
-              stepOptions={errorHandlerStepOptions}
-            />
-          </fieldset>
-        </div>
-      )}
 
       {/* Main Content */}
       {isCompactViewport ? (
@@ -3746,6 +3569,17 @@ export default function VisualEditorPage() {
       )}
       {problemsPanel}
       {sharedDialogs}
+      <DefinitionMetadataDrawer
+        open={metadataOpen}
+        onOpenChange={setMetadataOpen}
+        definitionId={definitionId}
+        readOnly={isCodeOnly}
+        metadata={metadata}
+        handlers={metadataHandlers}
+        errorHandlerStepOptions={errorHandlerStepOptions}
+        onSave={() => { void handleSave() }}
+        isSaving={isSaving}
+      />
       {ConfirmDialogElement}
     </Page>
   )

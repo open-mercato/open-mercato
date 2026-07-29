@@ -177,6 +177,12 @@ describe('visual editor undo/redo (spec section 4.5)', () => {
     addUserTaskStep()
     saveFromInspector()
 
+    // The definition fields live in the details drawer. Cmd+Z is suppressed
+    // both because a field has focus and because a modal overlay is up — the
+    // guarantee under test is that neither path reaches the canvas history.
+    act(() => {
+      fireEvent.click(screen.getByTestId('workflow-details-trigger'))
+    })
     const nameInput = document.getElementById('workflowName') as HTMLInputElement
     act(() => {
       nameInput.focus()

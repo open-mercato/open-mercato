@@ -104,13 +104,30 @@ function pressSaveWasClaimed(overrides: Partial<KeyboardEventInit> = {}): boolea
   return !notCancelled
 }
 
-function fillIdentity() {
+// The identity fields live in the details drawer now, so filling them means
+// opening it. Closed again afterwards, because the canvas bindings under test
+// are suppressed while a modal overlay is up.
+function openDetails() {
+  act(() => {
+    fireEvent.click(screen.getByTestId('workflow-details-trigger'))
+  })
+}
+
+function closeDetails() {
+  act(() => {
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+  })
+}
+
+function fillIdentity({ keepOpen = false }: { keepOpen?: boolean } = {}) {
+  openDetails()
   const id = document.getElementById('workflowId') as HTMLInputElement
   const name = document.getElementById('workflowName') as HTMLInputElement
   act(() => {
     fireEvent.change(id, { target: { value: 'shortcut_test' } })
     fireEvent.change(name, { target: { value: 'Shortcut test' } })
   })
+  if (!keepOpen) closeDetails()
 }
 
 function addUserTaskStep() {
@@ -158,6 +175,9 @@ describe('visual editor Cmd+S save shortcut', () => {
     renderWithProviders(<VisualEditorPage />)
     fillIdentity()
     addUserTaskStep()
+    // Re-open the drawer: its name field is the text input under test, and the
+    // drawer is deliberately NOT one of the surfaces that release Cmd+S.
+    openDetails()
 
     const nameInput = document.getElementById('workflowName') as HTMLInputElement
     act(() => {
