@@ -102,10 +102,41 @@ fails the local `validation.commands` gate, where every non-zero exit counts. Th
 pushes **without** merging the base: the tree stays free of the unrelated i18n regression, the local
 gate result recorded in Phase 3 still describes the pushed bytes, and CI re-runs clean of the flake.
 
-## Follow-up observed while working (not fixed here) — tracked as #4526
+### Phase 6: Base merge
 
-`compileAndImport` does `return import(fileUrl)` inside its `try`, so the promise is not awaited and
-the `catch` that calls `recoverMikroOrmV7GeneratedCacheFromImportError` never sees an import-time
+- [x] 6.1 Merge `upstream/develop` and re-run the full gate
+
+The Phase 5 push did clear the docker-registry flake, but the next run went red on
+`ephemeral-integration (11/15)`: `TC-PLAN-005-ruleset-prefill` timed out at 20s on both attempts and
+`TC-RESO-009` failed once then passed on retry. Neither touches this change. The branch was 162
+commits behind by then, and the contemporaneous `develop` run (`4efa7961c`, WMS #4566) was green on
+all 15 shards — so the failure lived in the stale base, not in the diff, and skipping the base merge
+had stopped being the cheaper option.
+
+The merge also had to happen for a second reason: #4540 landed the follow-up below in `develop` and
+edits the same function. The merge is clean and the two changes compose as intended —
+`compileAndImport` now `return await import(fileUrl)`, so a broken optional registry first goes
+through `recoverMikroOrmV7GeneratedCacheFromImportError`, and only a non-applicable recovery
+re-throws into `loadOptionalGeneratedModule`, which still logs it and falls back.
+`GeneratedFileNotFoundError` survives the merge unexported, so the Phase 4 review fix still holds.
+
+Gate on the merge result, runner: local. `yarn build:packages` (×2), `yarn generate` (no tracked-file
+churn), `yarn i18n:check-sync`, `yarn typecheck`, `yarn build:app` — pass. Two non-blocking results:
+
+- `yarn i18n:check-usage` reports the same 2 keys from #4147 (`ui.customFields.phone.defaultCountry`,
+  `…defaultCountryAuto`) that this branch does not touch — base-inherited, tracked as #4607/#4608,
+  and `continue-on-error: true` in CI.
+- `yarn test` lost one `@open-mercato/enterprise` suite to
+  `a jest worker process was terminated … signal=SIGSEGV` under parallel load — the same class of
+  flake the Phase 3 run hit in `@open-mercato/scheduler`. Standalone the workspace is 57/57 suites
+  and 462/462 tests green, and `packages/shared/src/lib/bootstrap/__tests__/` is 4/4 suites and 19/19
+  tests green, which is where both this change and #4540's regression coverage live.
+
+## Follow-up observed while working — tracked as #4526, fixed on `develop` by #4540
+
+`compileAndImport` did `return import(fileUrl)` inside its `try`, so the promise was not awaited and
+the `catch` that calls `recoverMikroOrmV7GeneratedCacheFromImportError` never saw an import-time
 rejection — exactly the `does not provide an export named 'Entity'` case that recovery exists for.
-Adding the missing `await` would re-arm a recovery path that deletes stale generated cache files, so
-it is a behavior change that belongs in its own issue rather than inside this diagnostics fix.
+Adding the missing `await` re-arms a recovery path that deletes stale generated cache files, so it
+was a behavior change that belonged in its own issue rather than inside this diagnostics fix. #4540
+shipped it; Phase 6 merged it in.
