@@ -9222,9 +9222,10 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-data-model-design/SKILL.md",
-        ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+      ".ai/skills/om-data-model-design/SKILL.md",
+      ".ai/skills/om-module-scaffold/SKILL.md",
+      ".ai/guides/modules/catalog.md",
+      ".ai/guides/modules/wms.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/sales.md",
