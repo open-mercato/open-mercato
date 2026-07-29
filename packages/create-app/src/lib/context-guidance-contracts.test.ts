@@ -324,6 +324,14 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
   assert.match(integration, /singular `integration`\/`bundle` definitions/)
   assert.match(integration, /plural `integrations`\/`bundles` arrays/)
 
+  const reliability = readAgentic(
+    'shared/ai/skills/om-integration-builder/references/security-and-reliability.md',
+  )
+  const integrationGuide = readAgentic('guides/integrations.md')
+  assert.match(reliability, /atomically claim each inbox delivery/)
+  assert.match(reliability, /`atomic-inbox-claim`/)
+  assert.match(integrationGuide, /atomically claim each inbox delivery/)
+
   const schema = readAgentic(
     'shared/ai/skills/om-data-model-design/references/schema-design.md',
   )
@@ -370,6 +378,7 @@ test('debugging stays additive to cross-module domain and extension work', () =>
   const root = readAgentic('shared/AGENTS.md.template')
   const debugging = readAgentic('guides/testing-debugging.md')
   assert.match(root, /`debugging` is additive/)
+  assert.match(root, /Installed API\/command\/record\/status\/event\/UI changes add `umes`/)
   assert.match(root, /A scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
   assert.match(root, /load `om-data-model-design` \+ `om-system-extension`/)
   assert.match(debugging, /`unit-regression-oracle` when that decision vocabulary is requested/)

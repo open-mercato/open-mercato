@@ -111,6 +111,8 @@ const CLAUDE_DISCOVERY_TOOL = 'ToolSearch'
 // before the run is treated as instruction-tree enumeration rather than progressive
 // routing. Refused attempts transfer no bytes, so they never enter the context budgets.
 const MAX_REFUSED_CONTEXT_READS = 6
+const DEFAULT_LIVE_TIMEOUT_MS = 300_000
+const HIGH_EFFORT_MINI_TIMEOUT_MS = 600_000
 
 function usage() {
   return `Open Mercato standalone agent harness evaluator
@@ -137,7 +139,8 @@ function parseArgs(argv) {
     runner: undefined,
     model: undefined,
     reasoningEffort: undefined,
-    timeout: 300_000,
+    timeout: DEFAULT_LIVE_TIMEOUT_MS,
+    timeoutExplicit: false,
     batchSize: 1,
     writableRoot: undefined,
     reviewWritableResult: undefined,
@@ -160,7 +163,7 @@ function parseArgs(argv) {
     else if (arg === '--runner') options.runner = value()
     else if (arg === '--model') options.model = value()
     else if (arg === '--reasoning-effort') options.reasoningEffort = value()
-    else if (arg === '--timeout') options.timeout = Number(value())
+    else if (arg === '--timeout') { options.timeout = Number(value()); options.timeoutExplicit = true }
     else if (arg === '--batch-size') options.batchSize = Number(value())
     else if (arg === '--writable-root') options.writableRoot = value()
     else if (arg === '--review-writable-result') options.reviewWritableResult = value()
@@ -1634,8 +1637,8 @@ function isCorrectableTraceStartupFailure(violation) {
   return violation === 'runner trace unavailable; observed context cannot be verified'
 }
 
-function isCorrectableTraceStartupResponseViolation(violation) {
-  return /^(?:harness\.read|harness read tool) (?:is|was) unavailable\b/i.test(violation)
+export function isCorrectableTraceStartupResponseViolation(violation) {
+  return /^(?:(?:required )?harness\.read(?: tool| access)?|harness read tool) (?:(?:is|was) )?(?:unavailable|not available)\b/i.test(violation)
 }
 
 function isCorrectableTraceStartupResponseFailure(violation) {
@@ -2518,6 +2521,16 @@ function deterministicRun(selected, validation) {
   return failed ? EXIT_FAILURE : EXIT_PASS
 }
 
+export function resolveLiveCaseTimeout(options, model, caseTimeout = 0) {
+  const runnerTimeout = !options.timeoutExplicit
+    && options.runner === 'codex'
+    && options.reasoningEffort === 'high'
+    && model === 'gpt-5.4-mini'
+    ? HIGH_EFFORT_MINI_TIMEOUT_MS
+    : options.timeout
+  return Math.max(runnerTimeout, caseTimeout)
+}
+
 function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema }) {
   const schemaPath = path.join(harnessDir, 'routing-response.schema.json')
   const version = runnerVersion(options.runner, root)
@@ -2525,7 +2538,8 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
   const writableRoot = options.writableRoot ? path.resolve(options.writableRoot) : undefined
   if (writableRoot) assertFilesystemDisjoint(root, writableRoot, 'writable root')
   let failures = 0
-  console.log(`Runner: ${options.runner} ${version}; model selector: ${model}${options.reasoningEffort ? `; reasoning effort: ${options.reasoningEffort}` : ''}; cases: ${selected.length}; fresh process per case`)
+  const runnerTimeout = resolveLiveCaseTimeout(options, model)
+  console.log(`Runner: ${options.runner} ${version}; model selector: ${model}${options.reasoningEffort ? `; reasoning effort: ${options.reasoningEffort}` : ''}; case timeout floor: ${runnerTimeout}ms; cases: ${selected.length}; fresh process per case`)
   for (let offset = 0; offset < selected.length; offset += options.batchSize) {
     const batch = selected.slice(offset, offset + options.batchSize)
     for (const caseRecord of batch) {
@@ -2558,7 +2572,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       if (writable && beforeOracle.failures.length === 0) throw new Error(`${caseRecord.id}: writable oracle already passes before the edit`)
       const prompt = buildPrompt(evaluationCase, runRoot, writable, preparedFrameworkContext.entries) + (writable ? `\n\nImplement the task only under these allowed app-relative paths: ${caseRecord.allowedWrites.join(', ')}. Do not change anything else.` : '')
       const allowedReads = caseReadAllowlist(evaluationCase, writable)
-      const timeout = Math.max(options.timeout, caseRecord.timeoutMs ?? 0)
+      const timeout = resolveLiveCaseTimeout(options, model, caseRecord.timeoutMs ?? 0)
       const executions = [runAgentOnce({
         runner: options.runner, root: runRoot, schemaPath, prompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
         allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [],

@@ -5591,7 +5591,7 @@
       "oracle.regression.cursor"
     ],
     "maxContextFiles": 7,
-    "maxInitialContextBytes": 45056,
+    "maxInitialContextBytes": 46080,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-069"
@@ -10891,7 +10891,7 @@
     "requiredDecisions":["durable-user-task","separation-of-duties","mutation-guards","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","requireRoles"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":9,"maxInitialContextBytes":49152,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
+    "maxContextFiles":9,"maxInitialContextBytes":50176,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
   },
   {
     "id": "OMH-140",

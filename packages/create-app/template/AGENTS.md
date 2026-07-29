@@ -33,7 +33,7 @@ Use the smallest relevant set. Broad: `yarn generate && yarn typecheck && yarn l
 
 ## Three-Axis Context Assembler
 
-Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
+Routes are additive: ownership says WHO; other axes say WHAT. Select every match.
 
 Combine: lifecycle reaction = `module-data` + `umes`; convergence bugs add `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. Fixes retain domain/extension routes; `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`. `framework-context` is only for unresolved contracts.
 
@@ -58,7 +58,7 @@ Staff preview/report/bulk actions add `backend-ui` unless API-only.
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Location never decides routing. Installed-record changes use `module-data` + `umes`; reading facts does not. Reusable providers are published dependencies, never `packages/*`.
+Location never decides routing. Installed API/command/record/status/event/UI changes add `umes`; app persistence adds `module-data`. Facts do not. Reusable providers are published dependencies, never `packages/*`.
 
 ### Axis 2 — Work Units
 

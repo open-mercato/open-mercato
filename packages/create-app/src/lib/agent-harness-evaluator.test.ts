@@ -377,6 +377,41 @@ test('runner selection distinguishes explicit primary all-cases from the default
   assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: false, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-002', 'OMH-003'])
 })
 
+test('live timeout policy gives only default high-effort mini runs the measured ten-minute floor', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    resolveLiveCaseTimeout: (
+      options: { timeout: number; timeoutExplicit: boolean; runner: string; reasoningEffort?: string },
+      model: string,
+      caseTimeout?: number,
+    ) => number
+  }
+  const defaultOptions = { timeout: 300_000, timeoutExplicit: false, runner: 'codex', reasoningEffort: 'high' }
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini'), 600_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, timeoutExplicit: true }, 'gpt-5.4-mini'), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, reasoningEffort: 'medium' }, 'gpt-5.4-mini'), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined }, 'sonnet'), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 700_000), 700_000)
+})
+
+test('trace-start recovery recognizes only bounded unavailable-read startup reports', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    isCorrectableTraceStartupResponseViolation: (violation: string) => boolean
+  }
+  for (const violation of [
+    'Harness read tool is unavailable in the provided tool interface',
+    'harness.read unavailable in this environment',
+    'Required harness.read access was unavailable in this environment',
+    'required harness.read tool unavailable in this environment',
+    'harness.read is not available in this environment',
+  ]) assert.equal(evaluator.isCorrectableTraceStartupResponseViolation(violation), true, violation)
+  for (const violation of [
+    'harness.write is unavailable in this environment',
+    'harness.read returned an unsafe path',
+    'I did not call harness.read',
+    'runner trace unavailable; observed context cannot be verified',
+  ]) assert.equal(evaluator.isCorrectableTraceStartupResponseViolation(violation), false, violation)
+})
+
 test('deterministic evaluation passes every concrete catalog case in an emitted-layout fixture', () => {
   const root = stageApp()
   try {
