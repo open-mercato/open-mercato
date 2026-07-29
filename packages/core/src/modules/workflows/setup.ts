@@ -14,7 +14,7 @@ export const setup: ModuleSetupConfig = {
    *
    * Declared HERE rather than in `customer_accounts` because a module ships its
    * own portal features the same way it ships its own backoffice ones —
-   * `ensureDefaultCustomerRoleAcls` collects `defaultCustomerRoleFeatures` from
+   * `syncDefaultCustomerRoleAcls` collects `defaultCustomerRoleFeatures` from
    * every enabled module and merges them into the seeded customer roles.
    * Workflows is the first shipped consumer of that seam.
    *
@@ -24,9 +24,9 @@ export const setup: ModuleSetupConfig = {
    * something it does not.
    *
    * Two rollout caveats, neither a bug:
-   * - The merge is additive into EXISTING roles (`if (!role) continue`) and runs
-   *   during tenant setup, so an already-provisioned tenant grants these by hand
-   *   from the customer-role editor.
+   * - The merge is additive into EXISTING roles and runs during tenant setup,
+   *   so an already-provisioned tenant picks these up only after
+   *   `mercato customer_accounts sync-customer-role-acls`.
    * - `CustomerRbacService` caches ACLs for 5 minutes, so a fresh grant is not
    *   immediately visible to a signed-in portal user.
    */

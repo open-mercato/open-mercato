@@ -1,6 +1,5 @@
-import type { ModuleSetupConfig, DefaultCustomerRoleFeatures } from '@open-mercato/shared/modules/setup'
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Module } from '@open-mercato/shared/modules/registry'
 import { hash } from 'bcryptjs'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import {
@@ -9,6 +8,7 @@ import {
   CustomerUser,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { syncDefaultCustomerRoleAcls } from './lib/customerRoleAclSync'
 
 interface SeedScope {
   tenantId: string
@@ -146,50 +146,6 @@ const DEFAULT_ROLES = [
   },
 ]
 
-/**
- * Collect defaultCustomerRoleFeatures from all enabled modules and merge
- * them into the corresponding CustomerRoleAcl records.
- */
-async function ensureDefaultCustomerRoleAcls(
-  em: EntityManager,
-  tenantId: string,
-  modules: Module[],
-): Promise<void> {
-  const featuresByRole: Record<string, string[]> = {}
-
-  for (const mod of modules) {
-    const customerRoleFeatures = mod.setup?.defaultCustomerRoleFeatures
-    if (!customerRoleFeatures) continue
-    for (const [roleSlug, features] of Object.entries(customerRoleFeatures)) {
-      if (!features || !features.length) continue
-      if (!featuresByRole[roleSlug]) featuresByRole[roleSlug] = []
-      featuresByRole[roleSlug].push(...features)
-    }
-  }
-
-  const roleSlugs = Object.keys(featuresByRole)
-  if (!roleSlugs.length) return
-
-  for (const roleSlug of roleSlugs) {
-    const role = await em.findOne(CustomerRole, { tenantId, slug: roleSlug, deletedAt: null })
-    if (!role) continue
-
-    const acl = await em.findOne(CustomerRoleAcl, { role: role.id as any, tenantId })
-    if (!acl) continue
-
-    const currentFeatures = Array.isArray(acl.featuresJson) ? acl.featuresJson : []
-    const merged = Array.from(new Set([...currentFeatures, ...featuresByRole[roleSlug]]))
-    const changed =
-      merged.length !== currentFeatures.length ||
-      merged.some((value, index) => value !== currentFeatures[index])
-    if (changed) {
-      acl.featuresJson = merged
-      em.persist(acl)
-    }
-  }
-  await em.flush()
-}
-
 async function seedDefaultRoles(em: EntityManager, scope: SeedScope): Promise<void> {
   for (const roleDef of DEFAULT_ROLES) {
     const existing = await em.findOne(CustomerRole, {
@@ -236,11 +192,13 @@ export const setup: ModuleSetupConfig = {
 
   async seedDefaults({ em, tenantId, organizationId, container }) {
     await seedDefaultRoles(em, { tenantId, organizationId })
-    // Merge defaultCustomerRoleFeatures from all enabled modules
+    // Merge defaultCustomerRoleFeatures from all enabled modules. Existing
+    // tenants replay the same merge via `mercato customer_accounts
+    // sync-customer-role-acls`.
     try {
       const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
       const allModules = getModules()
-      await ensureDefaultCustomerRoleAcls(em, tenantId, allModules)
+      await syncDefaultCustomerRoleAcls(em, tenantId, allModules)
     } catch {
       // Modules may not be registered yet during initial setup
     }
