@@ -1136,12 +1136,13 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       />
 
       {/* The rail is too narrow for the side column the 1280px modal used, so
-          the ledger stacks under the form. Made collapsible in a follow-up. */}
+          the ledger stacks under the form, folded until it is wanted. */}
       <InputDataPanel
         entries={ledgerEntries}
         stepId={node.id}
         samples={samples}
         className="mt-4"
+        defaultCollapsed
       />
     </InspectorPanel>
   )

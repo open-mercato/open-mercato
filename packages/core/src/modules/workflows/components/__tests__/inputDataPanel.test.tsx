@@ -122,6 +122,18 @@ describe('InputDataPanel', () => {
 
     expect(screen.queryByText('customer.email')).not.toBeInTheDocument()
   })
+
+  it('starts folded when the host asks for it, and still opens', () => {
+    // The docked rail stacks this under the form rather than beside it, so an
+    // expanded ledger would push the form the author came for off the top.
+    renderWithProviders(<InputDataPanel entries={entries} stepId="review" defaultCollapsed />)
+
+    expect(screen.queryByText('customer.email')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getByText('customer.email')).toBeInTheDocument()
+  })
 })
 
 describe('ledgerDropTargetProps', () => {

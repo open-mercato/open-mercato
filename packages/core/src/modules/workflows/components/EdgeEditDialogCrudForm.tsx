@@ -293,6 +293,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
         entries={ledgerEntries}
         stepId={edge.target}
         className="mt-4"
+        defaultCollapsed
       />
     </InspectorPanel>
   )
