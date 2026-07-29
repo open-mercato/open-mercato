@@ -213,7 +213,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => router.push(`/backend/traces/${proposal.runId}`)}
+                onClick={() => router.push(`/backend/traces/${encodeURIComponent(proposal.runId!)}`)}
               >
                 {t('agent_orchestrator.proposal.openTrace')}
               </Button>
