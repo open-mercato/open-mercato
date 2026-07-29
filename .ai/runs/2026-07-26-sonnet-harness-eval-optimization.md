@@ -357,6 +357,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.41 Bind storage authorization/lifecycle and honest provider-test decisions to their exact owners — `c7ee2b604`
 - [x] 3.42 Bind requested one-shot PR delivery without replacing implementation task routes — `74c176d40`
 - [x] 3.43 Bind field-versus-history architecture and explicit eject-last reporting to their exact owners — `d9c14fac1`
+- [x] 3.44 Bind installed-host workflow ownership and new-account setup hooks to their exact owner — `c183ffca7`
 
 ### Phase 4: Compatibility baseline
 
