@@ -2723,6 +2723,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "is_dry_run": {
+          "name": "is_dry_run",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "metadata": {
           "name": "metadata",
           "type": "jsonb",

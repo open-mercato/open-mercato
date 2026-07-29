@@ -510,14 +510,110 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   document, the undo stack, an autosave or `graphToDefinition` — guarded by
   `lib/__tests__/last-run-overlay.test.ts`. It fetches nothing until the toggle is on.
 
-## Code View (stage 1 — read-only)
+## Dry Run (spec §8.2)
 
-- `components/WorkflowCodeView.tsx` is the Phase 3 stage of spec §2.2: **read-only view + copy/paste
-  of subgraphs + JSON-schema validation display**. Two-way live sync is Phase 5 — nothing in this
-  panel edits, and the canvas stays the source of truth.
+- **A dry run is a REAL instance executed by the ordinary engine, not a second interpreter.**
+  `WorkflowInstance.isDryRun` (additive boolean column) is written once at start and never mutated.
+  A parallel simulator would drift from the engine and its report would stop being evidence about
+  the workflow that actually runs.
+- **`isDryRun` is a COLUMN, not a metadata key**, because every isolation decision reads it and a
+  jsonb path predicate in a hot filter is both slower and easy to forget. `ExecutionContext.dryRun`
+  in `lib/workflow-executor.ts` is `@deprecated` and inert: it never was read, and a per-call flag
+  cannot survive an instance parking on a signal and resuming inside a worker — exactly when a leak
+  would happen.
+- **One swap point buys the whole guarantee.** `executeActivityByType` in `lib/activity-executor.ts`
+  is the ONLY place `entry.execute` is reached, so a dry run swaps it for the registry `mock`
+  there — and every effector (command bus, event bus, mailer, webhook fetch, agent bridge) is
+  behind it. `mock: 'refuse'` or a missing mock throws `WorkflowDryRunRefusalError`.
+- **A refusal is a STOP, never a failure.** Nothing was attempted, so it must not be absorbed by
+  `continueOnActivityFailure`, an error route or an `errorDirective` — `transition-handler` answers
+  `dryRunRefused` before any of those are consulted. It is also not retried.
+- **A dry run never enqueues.** A queue job carries no `isDryRun` of its own, so a worker picking it
+  up would run the real effector. `executeActivities` forces the sync path — and MUST also report
+  `async: false` on the result, or the token parks in `WAITING_FOR_ACTIVITIES` waiting for a job
+  that was never enqueued.
+- **USER_TASK suppression is structural.** `handleUserTaskStep` skips the row, so there is no
+  `workflows.task.assigned` event, therefore no notification row, no SLA reminder/breach jobs, and
+  nothing for any Work Inbox or task-list query to return. Everything above the row still resolves,
+  so the report names who the task WOULD have gone to. The step still WAITS.
+- **`INVOKE_AGENT`'s mock names the agent and the disposition it would REQUEST** — never a
+  fabricated outcome. A simulation has no model confidence, so it fails closed to `human_review`,
+  the same rule `dispositionService` applies to a missing confidence. It carries `invoked: false`
+  and a `kind` outside the runtime vocabulary so nothing mistakes it for a real disposition. No
+  bridge call means no `AgentRun`, no proposal, and nothing reaching `dispositionService.dispose`.
+- **Business-rule ACTIONS need their own flag.** The rule engine's `dryRun` only suppresses the
+  execution LOG — `successActions`/`failureActions` run regardless — so the transition handler
+  passes `skipActions` (additive, `packages/core/src/modules/business_rules`). Conditions still
+  evaluate, so the run takes the routes it really would.
+- **The "Would do" report is DERIVED from `WorkflowEvent` rows**, never stored twice, so it inherits
+  the run views' scoping, ordering and retention. `lib/dry-run.ts` is PURE and owns both the event
+  vocabulary (`DRY_RUN_EVENT_TYPES`) and `buildWouldDoReport`; `GET /api/workflows/instances/[id]/would-do`
+  serves it and resolves each entry back to its definition `stepId`.
+- **Dry runs are excluded from the instance list by default** (`?dryRun=true` opts in), and the
+  agent KPI rollup floors proposal counts to the same runtime runs it already floors run counts to.
+- Starting one needs `workflows.definitions.test_run` ON TOP of `workflows.instances.create` — it is
+  the definition author's test loop, not a way to start instances.
+
+## Step-Through & Start Fixtures (spec §8.1 · §8.2)
+
+- **Step-through is an instance-level `PAUSED` between steps** (`lib/step-through.ts`, PURE) — the
+  same shape the `failureQueue` directive uses. NO new instance status and NO new step status, so
+  the state machines are untouched. Independent of dry run: a real run can be stepped through, and a
+  dry run can be let loose end to end.
+- **The marker is a RELEASE TOKEN, not a paused boolean.** The author releases ONE named step, the
+  engine burns the token before running it, and the cursor landing anywhere else pauses again. That
+  is what makes it idempotent: replaying `executeWorkflow` after a crash cannot run a step nobody
+  released, and a double Continue cannot run two steps.
+- **`POST api/instances/[id]/step-through`** (`continue` | `stop`, feature
+  `workflows.definitions.test_run`) mints the token from the instance's OWN `currentStepId` — never
+  from the request body — so a client cannot release a step the run is not sitting on. Aborting is
+  the existing cancel endpoint; a second way to cancel would be a second place to get compensation
+  wrong. The marker is engine-owned: only the feature-gated start flag and this route write it.
+- **END is exempt from the pause**, so a finished step-through reads COMPLETED rather than parked one
+  click short of the end.
+- **Start fixtures are named START contexts** (`lib/start-fixtures.ts`, PURE,
+  `metadata.editor.fixtures`) and are a DIFFERENT thing from pinned per-step samples — the spec says
+  so, and conflating them would make "which wins" unanswerable. Caps are checked against the RESULT,
+  so shrinking your way back under a cap always works. Fixture data is stored verbatim and is neither
+  redacted nor encrypted; keep the warning copy wherever one is saved.
+
+## Code View (stage 2 — two-way sync)
+
+- **The safety model, and why it is asymmetric.** Spec §2.2 asks for "two-way live sync"; taken
+  literally — mutate the canvas on every keystroke — it is unimplementable safely, because deleting
+  the `s` of `"steps"` momentarily produces a document with no steps and applying it would delete
+  every node, lose the arrangement and push one undo entry per character. So each direction gets what
+  it can actually support: **canvas → code is LIVE** (the panel re-renders from the canvas whenever
+  the author has not started editing); **code → canvas needs an explicit Apply** (button or
+  Cmd/Ctrl+Enter). Parsing, validation, the issue list and the gutter markers stay LIVE as you type,
+  so the feedback loop is immediate even though the commit is not.
+- **`lib/code-view-apply.ts` (PURE) is the gate**, which is what makes the rule testable without a
+  canvas. Four escalating refusals, each with its own reason: `unchanged` · `parseError` (carrying
+  the line to mark) · `schemaError` · `graphError`. Graph WARNINGS never block, exactly as they never
+  block a Save; graph ERRORS do, because a canvas holding a graph the engine would reject is worse
+  than no apply — the author has lost the text they typed and now repairs a canvas by hand.
+  Validation runs `definitionToGraph(..., { autoLayout: false })`: whether a definition is valid
+  cannot depend on running a layout engine over it.
+- **An apply is ONE fully reversible action.** `WorkflowEditorDocument` gained an optional `panel`
+  carrying the definition-panel fields the canvas does not hold (triggers, `contextSchema`, `io`,
+  `interpolation`, `errorHandler`), because the Code view's Apply replaces the WHOLE definition —
+  undoing it without them would restore the graph with somebody else's triggers attached. Entries
+  captured before the field existed carry none, and readers then leave the panel alone.
+- **Markers are GUTTER markers, not underlines.** A plain textarea cannot decorate a substring, and
+  an overlaid highlight layer drifts out of alignment with the textarea's own text metrics. Each
+  marked line carries its severity glyph as well as its DS colour, per the §4.6 colour-only rule, and
+  every issue row states its line and focuses it.
+- **`lib/definition-json-locations.ts` (PURE) answers WHERE a node lives** in the JSON text, with a
+  minimal tokenizer rather than a regex over `"id": "<value>"` — the author is editing free text, so
+  a step id also appears inside `{{context.*}}` templates, inside `fromStepId`, and inside note
+  markdown, and a regex would happily point the squiggle at any of them. Ids are attached from the
+  PARSED document by array index, so a malformed id cannot desynchronise the scan.
+- **Closing the panel discards an unapplied draft.** Keeping it would let the author reopen the view
+  onto text that no longer describes the canvas, with no signal that the two had diverged.
 - **The JSON is the save payload, not a re-serialization.** It is assembled through the same
   `graphToDefinition` + `buildDefinitionPayload` pair `handleSave` uses, so what an author reads is
-  byte-for-byte what a Save would persist. It is only computed while the drawer is open.
+  byte-for-byte what a Save would persist, and what they apply is the same shape. It is only computed
+  while the drawer is open.
 - **Paste reuses the canvas clipboard format** (`lib/subgraph-clipboard.ts`) through the page's own
   `handlePaste`, so a fragment copied from the canvas and a fragment copied out of the Code view are
   the same payload, an unknown payload is refused with the same message, and the paste is ONE undo

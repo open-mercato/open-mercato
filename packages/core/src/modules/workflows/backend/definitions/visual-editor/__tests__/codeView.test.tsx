@@ -1,11 +1,14 @@
 /**
  * @jest-environment jsdom
  *
- * Step 3.12 (workflows UX Phase 3b): Code view, stage 1 — read-only definition
- * JSON, a copy action, a paste-subgraph action through the SHARED clipboard
- * format, and the JSON-schema validation display. Editing the JSON is Phase 5,
- * so the assertions here deliberately prove the panel never writes to the graph
- * except through the same subgraph paste the canvas uses.
+ * Code view, stages 1 and 2 (spec section 2.2): the definition JSON, a copy
+ * action, a paste-subgraph action through the SHARED clipboard format, the
+ * JSON-schema validation display — and, from stage 2, an EDITABLE draft applied
+ * to the canvas only on an explicit Apply.
+ *
+ * The stage-2 assertions exist to pin the safety model: an in-progress edit is
+ * never applied, a draft that does not parse or whose graph is broken cannot be
+ * applied at all, and an Apply that does land is ONE undoable action.
  */
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
@@ -66,6 +69,13 @@ jest.mock('../../../../components/WorkflowGraph', () => ({
 
 import VisualEditorPage from '../page'
 
+// jsdom does not implement structuredClone, which dagre uses while laying out
+// the applied definition. Node has had it since 17, so this is an environment
+// gap rather than anything the editor should work around.
+if (typeof globalThis.structuredClone !== 'function') {
+  globalThis.structuredClone = (<T,>(value: T): T => JSON.parse(JSON.stringify(value))) as typeof structuredClone
+}
+
 function stubMatchMedia() {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -109,17 +119,31 @@ async function openCodeView() {
   await click(screen.getByRole('button', { name: /Show the definition JSON/i }))
 }
 
-function codeViewJson(): string {
-  return screen.getByTestId('workflow-code-view-json').textContent ?? ''
+function codeViewEditor(): HTMLTextAreaElement {
+  return screen.getByTestId('workflow-code-view-json') as HTMLTextAreaElement
 }
 
-describe('visual editor Code view (spec section 2.2, stage 1)', () => {
+function codeViewJson(): string {
+  return codeViewEditor().value
+}
+
+async function typeCode(text: string) {
+  await act(async () => {
+    fireEvent.change(codeViewEditor(), { target: { value: text } })
+  })
+}
+
+function applyButton(): HTMLButtonElement {
+  return screen.getByTestId('workflow-code-view-apply') as HTMLButtonElement
+}
+
+describe('visual editor Code view (spec section 2.2)', () => {
   beforeEach(() => {
     stubMatchMedia()
     window.localStorage.clear()
   })
 
-  test('renders the assembled definition JSON read-only', async () => {
+  test('renders the assembled definition JSON in an editable draft', async () => {
     stubClipboard({ text: '' })
     renderWithProviders(<VisualEditorPage />)
 
@@ -129,7 +153,86 @@ describe('visual editor Code view (spec section 2.2, stage 1)', () => {
     const parsed = JSON.parse(codeViewJson())
     expect(parsed.steps).toHaveLength(1)
     expect(parsed.steps[0].stepType).toBe('USER_TASK')
-    expect(screen.getByTestId('workflow-code-view-json').tagName).toBe('PRE')
+    expect(codeViewEditor().tagName).toBe('TEXTAREA')
+    // Nothing to apply until the author changes something.
+    expect(applyButton()).toBeDisabled()
+  })
+
+  test('an unparseable draft cannot be applied, and the canvas is untouched', async () => {
+    stubClipboard({ text: '' })
+    renderWithProviders(<VisualEditorPage />)
+
+    await addStep(/USER TASK/)
+    await openCodeView()
+    const nodesBefore = screen.getAllByTestId('canvas-node').length
+
+    await typeCode('{ "steps": [')
+
+    expect(applyButton()).toBeDisabled()
+    expect(screen.getByTestId('workflow-code-view-blocking')).toBeInTheDocument()
+    expect(screen.getAllByTestId('canvas-node')).toHaveLength(nodesBefore)
+  })
+
+  test('a draft whose graph is broken is refused with a reason', async () => {
+    stubClipboard({ text: '' })
+    renderWithProviders(<VisualEditorPage />)
+
+    await addStep(/USER TASK/)
+    await openCodeView()
+
+    // Schema-valid, but there is no START step — the engine would reject it.
+    await typeCode(JSON.stringify({
+      workflowId: 'demo',
+      workflowName: 'Demo',
+      steps: [{ stepId: 'only', stepName: 'Only', stepType: 'USER_TASK' }],
+      transitions: [],
+    }, null, 2))
+
+    expect(applyButton()).toBeDisabled()
+    expect(screen.getByTestId('workflow-code-view-blocking')).toBeInTheDocument()
+  })
+
+  test('a valid draft applies to the canvas and is one undoable action', async () => {
+    stubClipboard({ text: '' })
+    renderWithProviders(<VisualEditorPage />)
+
+    await addStep(/USER TASK/)
+    await openCodeView()
+
+    await typeCode(JSON.stringify({
+      workflowId: 'demo',
+      workflowName: 'Demo',
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'review', stepName: 'Review', stepType: 'USER_TASK' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 't_1', fromStepId: 'start', toStepId: 'review', trigger: 'auto' },
+        { transitionId: 't_2', fromStepId: 'review', toStepId: 'end', trigger: 'auto' },
+      ],
+    }, null, 2))
+
+    expect(applyButton()).not.toBeDisabled()
+    await click(applyButton())
+
+    const labels = screen.getAllByTestId('canvas-node').map((node) => node.textContent)
+    expect(labels).toEqual(expect.arrayContaining(['Start', 'Review', 'End']))
+  })
+
+  test('discarding edits restores the canvas text without touching the canvas', async () => {
+    stubClipboard({ text: '' })
+    renderWithProviders(<VisualEditorPage />)
+
+    await addStep(/USER TASK/)
+    await openCodeView()
+    const original = codeViewJson()
+
+    await typeCode('not json at all')
+    expect(codeViewJson()).toBe('not json at all')
+
+    await click(screen.getByRole('button', { name: /Discard edits/i }))
+    expect(codeViewJson()).toBe(original)
   })
 
   test('the copy action puts the definition JSON on the clipboard', async () => {

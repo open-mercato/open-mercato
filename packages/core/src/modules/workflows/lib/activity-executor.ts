@@ -35,6 +35,12 @@ import {
   type SetVariableOutput,
 } from './set-variable'
 import {
+  DRY_RUN_EVENT_TYPES,
+  WorkflowDryRunRefusalError,
+  isDryRunInstance,
+  isDryRunRefusal,
+} from './dry-run'
+import {
   applyTransforms,
   parseInterpolationToken,
   type WorkflowInterpolationMode,
@@ -233,6 +239,13 @@ export interface ActivityExecutionResult {
   executionTimeMs: number
   async?: boolean // Marks activity as async (queued)
   jobId?: string // Queue job ID for async activities
+  /**
+   * The activity was not attempted because a dry run cannot simulate its type
+   * (spec section 8.2). Callers MUST treat it as a stop, never as a failure:
+   * error routes and error directives describe what to do when an effector
+   * fails, and no effector ran.
+   */
+  dryRunRefused?: boolean
 }
 
 export class ActivityExecutionError extends Error {
@@ -583,6 +596,11 @@ export async function executeActivity(
       lastError = error
       retryCount = attempt + 1
 
+      // A dry-run refusal is not a failure — nothing was attempted — so retrying
+      // it would only re-log the same refusal N times before reaching the same
+      // answer.
+      if (isDryRunRefusal(error)) break
+
       // Log activity retry attempt with context
       if (attempt < retryPolicy.maxAttempts - 1) {
         logger.error('Activity failed; will retry', {
@@ -611,6 +629,19 @@ export async function executeActivity(
 
   // All retries exhausted
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
+  if (isDryRunRefusal(lastError)) {
+    return {
+      activityId: activity.activityId,
+      activityName: activity.activityName,
+      activityType: activity.activityType,
+      success: false,
+      dryRunRefused: true,
+      error: `Dry run stopped: activity type ${lastError.activityType} cannot be simulated (${lastError.reason})`,
+      retryCount: 0,
+      executionTimeMs: 0,
+      async: activity.async || false,
+    }
+  }
   logger.error('Activity failed after all attempts', {
     activityId: activity.activityId,
     activityType: activity.activityType,
@@ -649,11 +680,17 @@ export async function executeActivities(
 ): Promise<ActivityExecutionResult[]> {
   const results: ActivityExecutionResult[] = []
 
+  // A dry run never enqueues. The queue job would carry no `isDryRun` of its
+  // own, so a worker picking it up would execute the real effector on its own
+  // connection — the isolation would leak out of the request that opted in.
+  // Mocks are pure and synchronous, so running them inline loses nothing.
+  const forceSynchronous = isDryRunInstance(context.workflowInstance)
+
   for (let i = 0; i < activities.length; i++) {
     const activity = activities[i]
 
     // Check if activity should run async
-    if (activity.async) {
+    if (activity.async && !forceSynchronous) {
       // Enqueue for background execution
       const jobId = await enqueueActivity(em, activity, context)
 
@@ -669,7 +706,17 @@ export async function executeActivities(
       })
     } else {
       // Execute synchronously (existing logic)
-      const result = await executeActivity(em, container, activity, context)
+      const executed = await executeActivity(em, container, activity, context)
+      // `executeActivity` echoes the AUTHORED `async` flag, which is what the
+      // transition handler reads to decide whether to park the token in
+      // WAITING_FOR_ACTIVITIES. A dry run that ran an authored-async activity
+      // inline must therefore correct the flag, or the run would park waiting
+      // for a queue job that was deliberately never enqueued — a deadlock, and
+      // the step handler would also misclassify a refusal as "still pending"
+      // instead of a failure.
+      const result = forceSynchronous && activity.async
+        ? { ...executed, async: false }
+        : executed
       results.push(result)
 
       // Stop execution if activity fails (fail-fast)
@@ -728,6 +775,51 @@ async function executeActivityByType(
       activity.activityType,
       activity.activityName
     )
+  }
+
+  // Dry run (spec section 8.2): the ONE place `entry.execute` is reached, so it
+  // is the one place the swap has to happen. Everything side-effecting in the
+  // engine ends up here — the command bus, the event bus, the mailer, the
+  // webhook fetch and the agent bridge — which is what makes "no effector runs"
+  // a property of a single branch rather than a checklist.
+  if (isDryRunInstance(context.workflowInstance)) {
+    if (entry.mock === 'refuse' || entry.mock === undefined) {
+      const refusal = new WorkflowDryRunRefusalError(
+        activity.activityType,
+        entry.mock === 'refuse' ? 'refused' : 'noMock',
+        activity.activityName,
+      )
+      await logWorkflowEvent(em, {
+        workflowInstanceId: context.workflowInstance.id,
+        stepInstanceId: context.stepInstanceId,
+        eventType: DRY_RUN_EVENT_TYPES.activityRefused,
+        eventData: {
+          activityId: activity.activityId,
+          activityName: activity.activityName,
+          activityType: activity.activityType,
+          reason: refusal.reason,
+        },
+        tenantId: context.workflowInstance.tenantId,
+        organizationId: context.workflowInstance.organizationId,
+      })
+      throw refusal
+    }
+
+    const simulated = entry.mock(interpolatedConfig, context)
+    await logWorkflowEvent(em, {
+      workflowInstanceId: context.workflowInstance.id,
+      stepInstanceId: context.stepInstanceId,
+      eventType: DRY_RUN_EVENT_TYPES.activitySimulated,
+      eventData: {
+        activityId: activity.activityId,
+        activityName: activity.activityName,
+        activityType: activity.activityType,
+        output: simulated ?? null,
+      },
+      tenantId: context.workflowInstance.tenantId,
+      organizationId: context.workflowInstance.organizationId,
+    })
+    return simulated
   }
 
   return await entry.execute(interpolatedConfig, context, {

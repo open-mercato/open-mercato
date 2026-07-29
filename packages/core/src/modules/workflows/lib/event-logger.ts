@@ -90,6 +90,15 @@ export const WorkflowEventTypes = {
   OUTCOME_ROUTED: 'OUTCOME_ROUTED',
   OUTCOME_UNHANDLED: 'OUTCOME_UNHANDLED',
 
+  // Dry run (spec 8.2). Written only by an `isDryRun` instance; the pure
+  // `lib/dry-run.ts` owns the same literals as `DRY_RUN_EVENT_TYPES` and builds
+  // the "Would do" report from them. A test pins the two lists together.
+  DRY_RUN_STARTED: 'DRY_RUN_STARTED',
+  ACTIVITY_SIMULATED: 'ACTIVITY_SIMULATED',
+  ACTIVITY_SIMULATION_REFUSED: 'ACTIVITY_SIMULATION_REFUSED',
+  USER_TASK_SIMULATED: 'USER_TASK_SIMULATED',
+  BUSINESS_RULE_ACTIONS_SUPPRESSED: 'BUSINESS_RULE_ACTIONS_SUPPRESSED',
+
   // Timer events (Phase 9)
   TIMER_AWAITING: 'TIMER_AWAITING',
   TIMER_FIRED: 'TIMER_FIRED',

@@ -93,14 +93,69 @@ describe('built-in activity types', () => {
     })
   })
 
-  test('INVOKE_AGENT registers sync-only, with no mock, and delegates through the executor binding seam', () => {
+  test('INVOKE_AGENT registers sync-only and delegates through the executor binding seam', () => {
     const { registryModule } = loadIsolated()
     const entry = requireEntry(registryModule, 'INVOKE_AGENT')
     expect(entry.icon).toBe('Bot')
     expect(entry.i18nKey).toBe('workflows.activities.types.INVOKE_AGENT')
-    expect(entry.mock).toBeUndefined()
     expect(entry.executeAsync).toBeUndefined()
     expect(entry.form.map((field) => field.id)).toEqual(['agentId', 'input', 'onResult', 'outputMapping'])
+  })
+
+  describe('INVOKE_AGENT would-do mock', () => {
+    test('names the agent and the disposition it would request, never a fabricated outcome', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'INVOKE_AGENT')
+      expect(mock(
+        { agentId: 'deal_enricher', onResult: { autoApproveThreshold: 0.8 } },
+        {} as never,
+      )).toEqual({
+        simulated: true,
+        invoked: false,
+        kind: 'would_invoke',
+        wouldInvokeAgent: 'deal_enricher',
+        wouldRequestDisposition: 'human_review',
+        reason: 'noConfidenceInSimulation',
+        autoApproveThreshold: 0.8,
+      })
+    })
+
+    test('reports alwaysAsk as the reason when the step never auto-approves', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'INVOKE_AGENT')
+      expect(mock({ agentId: 'triage', onResult: { alwaysAsk: true } }, {} as never)).toEqual({
+        simulated: true,
+        invoked: false,
+        kind: 'would_invoke',
+        wouldInvokeAgent: 'triage',
+        wouldRequestDisposition: 'human_review',
+        reason: 'alwaysAsk',
+        autoApproveThreshold: null,
+      })
+    })
+
+    test('never returns a runtime disposition kind, so no consumer can mistake it for a real outcome', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'INVOKE_AGENT')
+      const output = mock({ agentId: 'a', onResult: { autoApproveThreshold: 0.9 } }, {} as never) as {
+        kind: string
+      }
+      expect(['auto_approved', 'informative', 'user_task']).not.toContain(output.kind)
+    })
+
+    test('tolerates an unconfigured or still-templated step', () => {
+      const { registryModule } = loadIsolated()
+      const mock = requireMockFn(registryModule, 'INVOKE_AGENT')
+      expect(mock(null, {} as never)).toEqual({
+        simulated: true,
+        invoked: false,
+        kind: 'would_invoke',
+        wouldInvokeAgent: null,
+        wouldRequestDisposition: 'human_review',
+        reason: 'noConfidenceInSimulation',
+        autoApproveThreshold: null,
+      })
+    })
   })
 
   test('SET_VARIABLE registers with the Variable icon and a mock returning the would-be assignments', () => {

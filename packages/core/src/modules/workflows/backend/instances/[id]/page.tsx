@@ -9,6 +9,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { FlaskConical, Footprints } from 'lucide-react'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -29,6 +31,8 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { WouldDoReport, type WouldDoReportPayload } from '../../../components/run/WouldDoReport'
 import { definitionToGraph } from '../../../lib/graph-utils'
 import { STEP_STATUS_STYLES } from '../../../lib/status-colors'
 import {
@@ -63,8 +67,9 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   const [selectedStepId, setSelectedStepId] = React.useState<string | null>(null)
   const [rerunOpen, setRerunOpen] = React.useState(false)
   const [rerunPending, setRerunPending] = React.useState(false)
+  const [stepThroughPending, setStepThroughPending] = React.useState(false)
   const { payload: chromePayload } = useBackendChrome()
-  const { runMutation } = useGuardedMutation({ contextId: 'workflows.instances.rerunStep' })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'workflows.instances.rerunStep' })
   const canRerunStep = hasFeature(chromePayload?.grantedFeatures, 'workflows.instances.rerun_step')
 
   const { data: instance, isLoading, error } = useQuery({
@@ -118,6 +123,61 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     },
     enabled: !!instance?.id,
   })
+
+  // Dry-run "Would do" report (spec section 8.2). Fetched only for a dry run —
+  // a real run answers an empty report, so asking for one would be a wasted
+  // round trip on every ordinary run view.
+  const { data: wouldDoReport } = useQuery({
+    queryKey: ['workflow-would-do', instance?.id],
+    queryFn: async () => {
+      const response = await apiFetch(`/api/workflows/instances/${instance!.id}/would-do?limit=100`)
+      if (!response.ok) {
+        throw new Error('[internal] Failed to fetch the would-do report')
+      }
+      return (await response.json()) as WouldDoReportPayload
+    },
+    enabled: !!instance?.id && instance?.isDryRun === true,
+  })
+
+  const stepThroughMarker = instance?.metadata?.stepThrough ?? null
+  const isStepping = stepThroughMarker?.enabled === true
+
+  const handleStepThrough = React.useCallback(async (action: 'continue' | 'stop') => {
+    if (!instance?.id) return
+    setStepThroughPending(true)
+    try {
+      await runMutation({
+        operation: async () => {
+          const response = await apiFetch(`/api/workflows/instances/${instance.id}/step-through`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action }),
+          })
+          if (!response.ok) {
+            const body = await readJsonSafe<{ error?: string }>(response, null)
+            throw new Error(body?.error || t('workflows.stepThrough.failed'))
+          }
+          return response
+        },
+        mutationPayload: { resourceId: instance.id, operation: 'step-through' },
+        context: {
+          formId: 'workflows.instances.stepThrough',
+          resourceKind: 'workflows.instance',
+          resourceId: instance.id,
+          operation: 'step-through',
+          retryLastMutation,
+        },
+      })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-instance-steps', instance.id] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-events', instance.id] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-would-do', instance.id] })
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('workflows.stepThrough.failed'), 'error')
+    } finally {
+      setStepThroughPending(false)
+    }
+  }, [instance?.id, runMutation, retryLastMutation, queryClient, id, t])
 
   const { data: workflowDefinition, isLoading: definitionLoading } = useQuery({
     queryKey: ['workflow-definition-for-instance', instance?.definitionId],
@@ -604,6 +664,55 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                   <JsonDisplay data={instance.errorDetails} className="border-destructive/20 bg-destructive/5" maxInitialDepth={1} />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Spec section 8.2 — a simulation must SAY it is one everywhere it is
+              read, so nobody mistakes an empty inbox for a broken workflow. */}
+          {instance.isDryRun && (
+            <Alert variant="info">
+              <FlaskConical className="size-4" aria-hidden="true" />
+              <AlertTitle>{t('workflows.dryRun.badge')}</AlertTitle>
+              <AlertDescription>{t('workflows.dryRun.bannerDescription')}</AlertDescription>
+            </Alert>
+          )}
+
+          {isStepping && (
+            <Alert variant="warning">
+              <Footprints className="size-4" aria-hidden="true" />
+              <AlertTitle>{t('workflows.stepThrough.title')}</AlertTitle>
+              <AlertDescription>
+                <div className="space-y-2">
+                  <p>
+                    {instance.status === 'PAUSED'
+                      ? t('workflows.stepThrough.pausedAt', { stepId: instance.currentStepId })
+                      : t('workflows.stepThrough.running')}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={stepThroughPending}
+                      onClick={() => void handleStepThrough('continue')}
+                    >
+                      {stepThroughPending ? <Spinner className="h-4 w-4" /> : t('workflows.stepThrough.continue')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={stepThroughPending}
+                      onClick={() => void handleStepThrough('stop')}
+                    >
+                      {t('workflows.stepThrough.stop')}
+                    </Button>
+                  </div>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {instance.isDryRun && (
+            <div className="rounded-lg border bg-card p-6">
+              <WouldDoReport report={wouldDoReport ?? null} />
             </div>
           )}
 

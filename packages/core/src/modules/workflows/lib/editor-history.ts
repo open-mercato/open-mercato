@@ -31,10 +31,35 @@ export const EDITOR_HISTORY_LIMIT = 100
  * has its own native undo and committing per keystroke would evict real
  * structural edits from a 100-entry stack.
  */
+/**
+ * The definition-panel fields the canvas does NOT carry — triggers, the context
+ * schema, the sub-workflow port contract, the interpolation mode and the
+ * workflow-level error handler.
+ *
+ * Kept OPAQUE here on purpose: this module must not learn the definition's
+ * vocabulary to version it, and the page is the only thing that reads the
+ * shape back. Versioning them matters because the Code view's Apply replaces
+ * the WHOLE document — undoing it without them would restore the graph with
+ * somebody else's triggers attached.
+ */
+export interface WorkflowEditorPanelState {
+  triggers: unknown
+  contextSchema: unknown
+  io: unknown
+  interpolation: unknown
+  errorHandler: unknown
+}
+
 export interface WorkflowEditorDocument {
   nodes: Node[]
   edges: Edge[]
   metadata: Record<string, unknown> | null
+  /**
+   * Absent on entries captured before this field existed, which is why every
+   * reader treats it as optional and simply leaves the panel alone when it is
+   * missing.
+   */
+  panel?: WorkflowEditorPanelState
 }
 
 export interface EditorHistoryEntry<TDocument> {
