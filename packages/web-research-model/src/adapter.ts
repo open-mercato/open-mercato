@@ -55,6 +55,31 @@ export type ModelOptions = z.infer<typeof modelOptionsSchema>
 
 const DEFAULT_MAX_USES = 3
 
+/**
+ * A spent quota, a bad key or a suspended account is a configuration problem, not
+ * a transient one. Reporting it as `error` tells the scheduler to treat it as
+ * bad luck and an operator to wait for it to pass, when the fix is billing or a
+ * credential — so it maps to `unavailable`, which is what "this source cannot
+ * currently work" means everywhere else in the contract.
+ */
+const NOT_CONFIGURED_MARKERS = [
+  'exceeded your current quota',
+  'insufficient_quota',
+  'billing',
+  'payment required',
+  'invalid api key',
+  'incorrect api key',
+  'invalid_api_key',
+  'authentication',
+  'unauthorized',
+  'account is not active',
+]
+
+function isConfigurationFault(message: string): boolean {
+  const haystack = message.toLowerCase()
+  return NOT_CONFIGURED_MARKERS.some((marker) => haystack.includes(marker))
+}
+
 function buildPrompt(request: SearchRequest): string {
   const constraints: string[] = []
   if (request.site) constraints.push(`Restrict results to the site ${request.site}.`)
@@ -139,11 +164,11 @@ export function createModelAdapter(options: ModelOptions): SearchAdapter {
         })
       } catch (error) {
         if (context.signal.aborted) return { status: 'timeout', reason: 'model search was aborted' }
-        return {
-          status: 'error',
-          reason: `model search failed: ${error instanceof Error ? error.message : String(error)}`,
-          retriable: true,
+        const detail = error instanceof Error ? error.message : String(error)
+        if (isConfigurationFault(detail)) {
+          return { status: 'unavailable', reason: `model search is not usable: ${detail}` }
         }
+        return { status: 'error', reason: `model search failed: ${detail}`, retriable: true }
       }
 
       const text = result.text ?? ''

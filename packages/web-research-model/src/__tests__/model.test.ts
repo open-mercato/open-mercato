@@ -158,6 +158,39 @@ describe('model adapter', () => {
     })
   })
 
+  it('reports a spent quota as unavailable rather than a retriable error', async () => {
+    // Seen live against OpenAI: reported as `error` with retriable: true, which
+    // reads as bad luck when the fix is billing.
+    const adapter = createModelAdapter({
+      resolveModel: () => ({ model: {}, providerId: 'openai', modelId: 'gpt' }),
+      loadTools: async () => ({ web_search: {} }),
+      generate: async () => {
+        throw new Error(
+          'Failed after 3 attempts. Last error: AI_APICallError: You exceeded your current quota, please check your plan and billing details.',
+        )
+      },
+    })
+
+    await expect(adapter.search({ query: 'x', limit: 5 }, createTestContext())).resolves.toMatchObject({
+      status: 'unavailable',
+    })
+  })
+
+  it('still reports a genuine transient failure as a retriable error', async () => {
+    const adapter = createModelAdapter({
+      resolveModel: () => ({ model: {}, providerId: 'openai', modelId: 'gpt' }),
+      loadTools: async () => ({ web_search: {} }),
+      generate: async () => {
+        throw new Error('socket hang up')
+      },
+    })
+
+    await expect(adapter.search({ query: 'x', limit: 5 }, createTestContext())).resolves.toMatchObject({
+      status: 'error',
+      retriable: true,
+    })
+  })
+
   it('passes the abort signal down and reports a timeout when aborted', async () => {
     const controller = new AbortController()
     let received: AbortSignal | undefined

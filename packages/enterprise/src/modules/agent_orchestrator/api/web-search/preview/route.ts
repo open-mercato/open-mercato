@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { enforceWebSearchRateLimit } from '../../../lib/webSearch/guardrails'
 import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from '../../../lib/webSearch/policy'
 import { buildWebSearchEngine } from '../../../lib/webSearch/registry'
 import { agentOrchestratorTag } from '../../openapi'
@@ -51,6 +52,16 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const tenantId = auth.tenantId ?? null
   const settings = await resolveWebSearchSettings(container, tenantId)
+
+  // Same tenant ceiling the agent path obeys. Being behind `agents.manage` bounds
+  // who can call this, not how often, and every call is real egress on every
+  // enabled adapter — a held-down key would be the most expensive loop here.
+  const gate = await enforceWebSearchRateLimit(
+    container,
+    { runId: null, tenantId, kind: 'search' },
+    settings.guardrails,
+  )
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 429 })
 
   // Exhaustive on purpose: under the tenant's own settle mode the scheduler
   // cancels adapters as soon as it has enough, which is right for a search and
@@ -145,6 +156,7 @@ export const openApi: OpenApiRouteDoc = {
           description: 'Missing agent_orchestrator.agents.manage',
           schema: z.object({ error: z.string() }),
         },
+        { status: 429, description: 'Tenant rate limit exceeded', schema: z.object({ error: z.string() }) },
       ],
     },
   },

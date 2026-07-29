@@ -46,7 +46,7 @@ import { WebSearchPreview } from './WebSearchPreview'
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
 
-type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number }
+type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number; timeoutMs?: number }
 
 type Policy = {
   settleMode: 'race' | 'quorum' | 'exhaustive'
@@ -429,11 +429,13 @@ export default function WebSearchSettingsPage() {
                         id={entry.id}
                         enabled={entry.enabled}
                         weight={entry.weight}
+                        timeoutMs={entry.timeoutMs}
                         meta={installed.find((adapter) => adapter.id === entry.id)}
                         health={health.find((report) => report.id === entry.id)}
                         options={adapterOptions[entry.id] ?? {}}
                         onToggle={(enabled) => updateAdapter(entry.id, { enabled })}
                         onWeight={(weight) => updateAdapter(entry.id, { weight })}
+                        onTimeout={(timeoutMs) => updateAdapter(entry.id, { timeoutMs })}
                         onOption={(field, value) => updateOption(entry.id, field, value)}
                       />
                     ))}

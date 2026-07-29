@@ -156,11 +156,14 @@ export type AdapterRowProps = {
   id: string
   enabled: boolean
   weight: number
+  /** Per-adapter budget; falls back to the policy-wide one when unset. */
+  timeoutMs?: number
   meta?: InstalledAdapter
   health?: AdapterHealth
   options: Record<string, unknown>
   onToggle: (enabled: boolean) => void
   onWeight: (weight: number) => void
+  onTimeout: (timeoutMs: number | undefined) => void
   onOption: (field: string, value: unknown) => void
 }
 
@@ -168,11 +171,13 @@ export function AdapterRow({
   id,
   enabled,
   weight,
+  timeoutMs,
   meta,
   health,
   options,
   onToggle,
   onWeight,
+  onTimeout,
   onOption,
 }: AdapterRowProps) {
   const t = useT()
@@ -247,6 +252,30 @@ export function AdapterRow({
             value={weight}
             className="h-8 w-16"
             onChange={(event) => onWeight(Number(event.target.value) || 0)}
+          />
+          {/* Latency is not uniform across kinds: a SERP read finishes in about a
+              second while a model running its own web search takes tens of them.
+              Without this the shared budget silently times the slow one out. */}
+          <Label className="text-xs text-muted-foreground">
+            {t('agent_orchestrator.settings.webSearch.timeout', 'Timeout')}
+          </Label>
+          <Input
+            type="number"
+            min={250}
+            max={120000}
+            step={1000}
+            autoComplete="off"
+            value={timeoutMs ?? ''}
+            placeholder={t('agent_orchestrator.settings.webSearch.timeoutDefault', 'default')}
+            title={t(
+              'agent_orchestrator.settings.webSearch.timeoutHint',
+              'Milliseconds this adapter alone may take. Leave empty to use the policy-wide budget.',
+            )}
+            className="h-8 w-24"
+            onChange={(event) => {
+              const raw = event.target.value.trim()
+              onTimeout(raw === '' ? undefined : Number(raw))
+            }}
           />
           {fields.length > 0 ? (
             <Button variant="ghost" size="sm" onClick={() => setOpen((current) => !current)}>
