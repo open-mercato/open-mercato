@@ -388,7 +388,10 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(uiSkill, /read `references\/crud-surfaces\.md` and `references\/quality-states\.md`/)
   assert.match(uiSkill, /stable host ID \(`stable-table-host`\)/)
   assert.match(uiSkill, /Do not load contracts or `om-module-scaffold` unless it adds app-owned persistence\/API\/commands/)
+  assert.match(root, /Existing installed form\/table fields, filters, row\/bulk actions without app persistence = `umes` \+ `backend-ui` only/)
+  assert.match(root, /read `crud-surfaces` \+ `quality-states`; do not load contracts, module-scaffold, or page\/navigation/)
   assert.match(root, /read-only behavior\/auth\/dependents\/customization = `framework-context`/)
+  assert.match(root, /`framework-context` \(alone: no extensions guide; report `installed-version`\)/)
   assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
   const frameworkContext = readAgentic('shared/ai/skills/om-framework-context/SKILL.md')
   assert.match(frameworkContext, /does not load `\.ai\/guides\/extensions\.md` unless the selected route also includes `umes`/)
@@ -405,6 +408,8 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(extensionSkill, /`eject-last`; the last applies even when ejection is rejected/)
   assert.match(extensionSkill, /one backend invariant across UI, API, and direct callers \(`backend-consistency`\)/)
   assert.match(extensionSkill, /host status transition invariant \(`status-invariant`\)/)
+  assert.match(extensionSkill, /host status-command guard changes a public contract: read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+  assert.match(extensionSkill, /do not read `references\/read-write-roundtrip\.md` unless adding an editable field/)
   assert.match(extensionSkill, /installed host guard, do not load contracts or `om-module-scaffold` unless adding app-owned persistence\/API\/commands/)
 })
 
@@ -460,14 +465,16 @@ test('debugging stays additive to cross-module domain and extension work', () =>
 })
 
 test('AI attachments, CRM lead capture, and customer renewals bind their exact progressive owners', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
   const aiSkill = readAgentic('shared/ai/skills/om-create-ai-agent/SKILL.md')
   const blueprints = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
   )
+  assert.match(root, /AI file or content drafting\/attachment\/override.*`om-create-ai-agent`/)
   for (const decision of ['artifact-authorization', 'encrypted-storage', 'cleanup', 'draft-only-ai-output']) {
     assert.ok(aiSkill.includes(`\`${decision}\``), `missing AI attachment decision ${decision}`)
   }
-  assert.match(blueprints, /load `om-data-model-design` for the lead record and scalar CRM link/)
+  assert.match(blueprints, /MUST invoke `om-data-model-design` and report `smallest-validation` for the lead record and scalar CRM link/)
   assert.match(blueprints, /load both `scheduler` and `customers` facts/)
   assert.match(blueprints, /trusted host scope \(`host-scope-contract`\)/)
 })
