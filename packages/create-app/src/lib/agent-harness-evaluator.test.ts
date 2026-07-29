@@ -1172,14 +1172,25 @@ test('the OpenAI-compatible lane reaches app content only through the harness to
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     assert.match(result.stdout, /PASS OMH-001/)
     const requests = provider.requests()
-    assert.ok(requests.length >= 3, JSON.stringify(requests))
+    assert.ok(requests.length >= 4, JSON.stringify(requests))
     for (const request of requests) {
       assert.ok(request.authorized, 'every provider call must carry the configured credential')
+    }
+    // Schema-constrained decoding and tool calling cannot share a turn: an endpoint that
+    // enforces the schema shapes the first turn into the answer object, so the model never
+    // calls a tool and answers from the prompt alone. The tool phase must therefore stay
+    // unconstrained, and exactly one final turn enforces the schema with no tools offered.
+    const toolPhase = requests.slice(0, -1)
+    const finalization = requests.at(-1)
+    for (const request of toolPhase) {
       // Read-only routing exposes exactly one capability, and it is the evaluator-owned
       // exact-path file tool: no shell, discovery, search, or write surface.
       assert.deepEqual(request.tools, ['mcp__harness__read'])
-      assert.equal(request.responseFormat, 'json_schema')
+      assert.equal(request.responseFormat, null)
     }
+    assert.deepEqual(finalization?.tools, [])
+    assert.equal(finalization?.responseFormat, 'json_schema')
+    assert.equal(finalization?.schemaName, 'harness_response')
     const [stored] = storedResults(root)
     assert.deepEqual(stored.violations, [])
     assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])

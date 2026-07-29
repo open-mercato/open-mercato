@@ -317,37 +317,8 @@ async function main() {
       { role: 'user', content: prompt },
     ]
 
-    while (steps < options.maxSteps) {
-      steps += 1
-      const body = {
-        model: options.model,
-        messages,
-        tools,
-        tool_choice: 'auto',
-        ...sampling,
-        ...(providerRouting ? { provider: providerRouting } : {}),
-        ...(reasoning ? { reasoning } : {}),
-        ...(structuredOutputMode === 'json_schema'
-          ? { response_format: { type: 'json_schema', json_schema: { name: 'harness_response', strict: true, schema } } }
-          : {}),
-        ...(usageAccounting ? { usage: { include: true } } : {}),
-      }
-      let payload
-      try {
-        payload = await requestCompletion({ endpoint, apiKey, body, timeout: options.requestTimeout })
-      } catch (error) {
-        // A provider that cannot enforce the schema must not silently fail the whole lane:
-        // fall back once to prompt-enforced JSON and record the weaker mode in the trace.
-        const message = error instanceof Error ? error.message : String(error)
-        if (structuredOutputMode === 'json_schema' && /response_format|json_schema|structured output/i.test(message)) {
-          structuredOutputMode = 'prompt'
-          emit({ type: 'structured_output_downgrade', reason: message.slice(0, 200) })
-          messages.push({ role: 'system', content: 'Your final message must be exactly one JSON object matching the schema the task describes. Emit no prose and no code fences.' })
-          steps -= 1
-          continue
-        }
-        throw error
-      }
+    const callProvider = async (body) => {
+      const payload = await requestCompletion({ endpoint, apiKey, body, timeout: options.requestTimeout })
       servingProvider = payload.provider ?? servingProvider
       if (payload.usage) {
         usage.prompt_tokens += payload.usage.prompt_tokens ?? 0
@@ -357,8 +328,53 @@ async function main() {
       }
       const choice = payload.choices?.[0]
       if (!choice) throw new Error('provider returned no completion choice')
-      const message = choice.message ?? {}
       if (choice.finish_reason === 'length') throw new Error('provider truncated the completion (finish_reason=length); raise OM_OAI_MAX_TOKENS or lower the context')
+      return choice.message ?? {}
+    }
+
+    const commonBody = () => ({
+      model: options.model,
+      ...sampling,
+      ...(providerRouting ? { provider: providerRouting } : {}),
+      ...(reasoning ? { reasoning } : {}),
+      ...(usageAccounting ? { usage: { include: true } } : {}),
+    })
+
+    // Schema-constrained decoding and tool calling cannot share a turn: a server that
+    // enforces `response_format` shapes the very first token stream into the answer object,
+    // so the model can never emit a tool call and answers from the prompt alone. The tool
+    // phase therefore runs unconstrained, and the schema is enforced on a final turn that
+    // offers no tools.
+    const finalizeStructuredObject = async () => {
+      const request = {
+        ...commonBody(),
+        messages: [...messages, {
+          role: 'user',
+          content: 'Return the final structured object now: exactly one JSON object matching the required schema, with no prose, no code fences, and no further tool calls.',
+        }],
+      }
+      if (structuredOutputMode === 'json_schema') {
+        request.response_format = { type: 'json_schema', json_schema: { name: 'harness_response', strict: true, schema } }
+      }
+      let message
+      try {
+        message = await callProvider(request)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        if (structuredOutputMode !== 'json_schema' || !/response_format|json_schema|structured output|schema/i.test(reason)) throw error
+        // An endpoint that cannot enforce the schema must not fail the lane silently: fall
+        // back once to prompt-enforced JSON and record the weaker mode in the trace.
+        structuredOutputMode = 'prompt'
+        emit({ type: 'structured_output_downgrade', reason: reason.slice(0, 200) })
+        delete request.response_format
+        message = await callProvider(request)
+      }
+      return extractStructuredObject(message.content)
+    }
+
+    while (steps < options.maxSteps) {
+      steps += 1
+      const message = await callProvider({ ...commonBody(), messages, tools, tool_choice: 'auto' })
       const requested = Array.isArray(message.tool_calls) ? message.tool_calls : []
       messages.push({
         role: 'assistant',
@@ -366,7 +382,7 @@ async function main() {
         ...(requested.length ? { tool_calls: requested } : {}),
       })
       if (!requested.length) {
-        const structured = extractStructuredObject(message.content)
+        const structured = await finalizeStructuredObject()
         emit({ type: 'provider_metadata', provider: servingProvider ?? null, structuredOutput: structuredOutputMode, steps, toolCalls, usage })
         fs.writeFileSync(options.output, `${JSON.stringify(structured)}\n`, { encoding: 'utf8', mode: 0o600 })
         emit({ type: 'result', structured_output: structured })
