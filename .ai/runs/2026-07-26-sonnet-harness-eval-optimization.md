@@ -349,6 +349,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.33 Recover once from a successful routing startup with no observed context reads while keeping untraceable commands fail-closed — `06156c8bf`
 - [x] 3.34 Tighten measured runner floors, exact residual owner contracts, and contradictory catalog expectations without weakening compatibility or trace safety — `dd2c172e8`
 - [x] 3.35 Bind repeated installed-import, workflow-state, optional-provider, OAuth-health, and explicit-testing decisions at their existing owners — `90a89d017`
+- [x] 3.36 Merge current develop and cover its default WMS module fact without renumbering the 192-case catalog — `5d4b20e8d`
 
 ### Phase 4: Compatibility baseline
 
