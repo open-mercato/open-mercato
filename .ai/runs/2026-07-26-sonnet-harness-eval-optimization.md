@@ -346,6 +346,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.30 Bind installed customer-success response, event, and ID extensions to the compatibility snapshot — `65f481756`
 - [x] 3.31 Align the CLI scaffold integration expectation with the intentionally removed unreachable package guides — `58216de54`
 - [x] 3.32 Stabilize measured high-effort mini timeouts, exact unavailable-read startup recovery, installed-contract UMES routing, callback inbox claiming, and observed context floors — `13d13ab6a`
+- [x] 3.33 Recover once from a successful routing startup with no observed context reads while keeping untraceable commands fail-closed — `06156c8bf`
 
 ### Phase 4: Compatibility baseline
 
