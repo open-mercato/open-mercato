@@ -35,6 +35,28 @@ describe('evaluateCodeViewDraft', () => {
     expect(describeCodeViewDraft(decision).dirty).toBe(false)
   })
 
+  // Spec section 9: an AI-generated draft has no canvas text to compare
+  // against — the author asked for the document, so matching the canvas is a
+  // coincidence, not a refusal. Every other refusal still applies, which is
+  // what lets a generated definition pass the SAME gate a pasted one does.
+  test('with no canvasText, identical text is still applied', () => {
+    const decision = evaluateCodeViewDraft({ draftText: CANVAS, ...acceptEverything })
+    expect(decision).toMatchObject({ ok: true })
+  })
+
+  test('with no canvasText, a broken graph is still refused', () => {
+    const decision = evaluateCodeViewDraft({
+      draftText: CANVAS,
+      parseDefinition: (parsed: unknown) => ({ ok: true as const, definition: parsed as Definition }),
+      validateGraph: () => ['Workflow must have exactly one START step'],
+    })
+    expect(decision).toEqual({
+      ok: false,
+      reason: 'graphError',
+      messages: ['Workflow must have exactly one START step'],
+    })
+  })
+
   test('malformed JSON is refused and carries a line to mark', () => {
     const decision = evaluateCodeViewDraft({
       draftText: '{\n  "steps": [\n',

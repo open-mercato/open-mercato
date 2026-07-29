@@ -56,6 +56,7 @@ export interface WorkflowCommandPaletteLabels {
   validate: string
   runTest: string
   save: string
+  aiDraft: string
 }
 
 export interface WorkflowCommandPaletteActions {
@@ -78,6 +79,7 @@ export interface WorkflowCommandPaletteActions {
   toggleCompensation: () => void
   validate: () => void
   runTest: () => void
+  aiDraft: () => void
   save: () => void
 }
 
@@ -181,6 +183,10 @@ export function buildWorkflowEditorCommands(context: WorkflowCommandContext): Wo
     { id: 'view.toggleProblems', group: 'view', label: labels.toggleProblems, disabled: false, run: actions.toggleProblems },
     { id: 'view.toggleCodeView', group: 'view', label: labels.toggleCodeView, disabled: false, run: actions.toggleCodeView },
     { id: 'view.toggleCompensation', group: 'view', label: labels.toggleCompensation, disabled: false, run: actions.toggleCompensation },
+    // Prompt-to-draft (spec section 9). Present here for the same reason every
+    // other mutating action is: the palette is the complete non-pointer path,
+    // and a missing entry reads as "unsupported".
+    { id: 'add.aiDraft', group: 'add', label: labels.aiDraft, disabled: readOnly, run: actions.aiDraft },
     { id: 'run.validate', group: 'run', label: labels.validate, disabled: false, run: actions.validate },
     { id: 'run.test', group: 'run', label: labels.runTest, disabled: !context.canRunTest, run: actions.runTest },
     { id: 'run.save', group: 'run', label: labels.save, shortcut: 'Cmd+S', disabled: readOnly, run: actions.save },
