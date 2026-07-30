@@ -148,8 +148,8 @@ PR: #4629
 
 - [x] 6.1 Merge the latest `upstream/develop` into the branch so review and CI judge the real merge
 - [x] 6.2 Expand `CLOSED_DEAL_STATUSES` to `win`, `loose`, `won`, `lost`, `closed` with the
-      vocabulary rationale documented at the constant
+      vocabulary rationale documented at the constant — b81e8372e
 - [x] 6.3 Add regression cases that do not derive from the constant: an explicit expected set, a
       per-status `it.each` exclusion case, and a proof that a tenant-specific active status
-      (`awaiting_legal`) is never denied — verified to fail 4/17 against the old two-value list
+      (`awaiting_legal`) is never denied — b81e8372e; verified to fail 4/17 against the old two-value list
 - [x] 6.4 Re-run the validation gate and drive CI green
