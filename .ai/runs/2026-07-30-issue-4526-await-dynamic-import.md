@@ -35,5 +35,5 @@ observable proof that the `catch` ran, and they are absent without the fix.
 - [x] Apply the one-line fix (`return await import(fileUrl)`)
 - [x] Add the regression test for the import-time recovery path
 - [x] Confirm the test fails without the fix and passes with it
-- [ ] Run the full validation gate
-- [ ] Open the PR and request labels from a maintainer
+- [x] Run the full validation gate (green, local runner)
+- [x] Open the PR (#4682) and request labels from a maintainer
