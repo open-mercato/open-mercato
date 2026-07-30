@@ -374,8 +374,7 @@ export function DefinitionTriggersEditor({
                   </Button>
                   <Button
                     size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
+                    variant="destructive-ghost"
                     aria-label={t('workflows.triggers.actions.delete', 'Delete trigger')}
                     onClick={() => setDeleteConfirmId(trigger.triggerId)}
                   >

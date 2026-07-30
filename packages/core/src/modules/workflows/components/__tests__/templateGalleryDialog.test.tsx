@@ -125,4 +125,24 @@ describe('TemplateGalleryDialog', () => {
     await waitFor(() => expect(screen.getByTestId('template-card-order-approval')).toBeTruthy())
     expect(apiCallMock).toHaveBeenCalledTimes(2)
   })
+
+  it('opens as a drawer, so the list or canvas behind it stays legible', async () => {
+    mockTemplatesResponse(TEMPLATES)
+    render(<TemplateGalleryDialog open onOpenChange={jest.fn()} onSelect={jest.fn()} />)
+
+    await waitFor(() => expect(screen.getByTestId('template-card-blank')).toBeTruthy())
+    const rail = screen.getByTestId('workflow-template-gallery-drawer')
+    expect(rail.getAttribute('data-slot')).toBe('drawer-content')
+  })
+
+  it('closes on Escape', async () => {
+    mockTemplatesResponse(TEMPLATES)
+    const onOpenChange = jest.fn()
+    render(<TemplateGalleryDialog open onOpenChange={onOpenChange} onSelect={jest.fn()} />)
+
+    await waitFor(() => expect(screen.getByTestId('template-card-blank')).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
 })

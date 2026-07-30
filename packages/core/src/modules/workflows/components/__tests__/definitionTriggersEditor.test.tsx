@@ -11,7 +11,7 @@
  * data-model contract and must not change.
  */
 import * as React from 'react'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DefinitionTriggersEditor } from '../DefinitionTriggersEditor'
 import type { WorkflowDefinitionTrigger } from '../../data/entities'
@@ -44,6 +44,7 @@ jest.mock('@open-mercato/ui/backend/inputs/EventSelect', () => ({
 }))
 
 const EDIT_ACTION_KEY = 'Edit trigger'
+const DELETE_ACTION_KEY = 'Delete trigger'
 const FIELD_PLACEHOLDER_KEY = 'status'
 const VALUE_PLACEHOLDER_KEY = 'submitted'
 const SOURCE_PLACEHOLDER_KEY = 'id'
@@ -202,5 +203,52 @@ describe('DefinitionTriggersEditor typed trigger editing', () => {
       contextMapping: [{ targetKey: 'dealTitle', sourceExpression: 'title', defaultValue: undefined }],
     })
     expect(updatedTriggers[0].eventPattern).toBe('customers.deal.won')
+  })
+})
+
+/**
+ * The trigger form is a rail now. It opens ON TOP of the definition metadata
+ * drawer that hosts this editor, so its keyboard contract has to be its own:
+ * Escape closes the trigger rail (not the drawer under it) and Cmd/Ctrl+Enter
+ * submits the trigger (not the whole workflow).
+ */
+describe('DefinitionTriggersEditor trigger rail', () => {
+  it('opens the trigger editor as a drawer', () => {
+    renderWithProviders(<DefinitionTriggersEditor value={[makeTrigger()]} onChange={jest.fn()} />)
+    openEditDialog()
+
+    const rail = screen.getByTestId('workflow-trigger-drawer')
+    expect(rail).toBeInTheDocument()
+    expect(rail.getAttribute('data-slot')).toBe('drawer-content')
+  })
+
+  it('submits on Cmd/Ctrl+Enter', () => {
+    const onChange = jest.fn()
+    renderWithProviders(<DefinitionTriggersEditor value={[makeTrigger()]} onChange={onChange} />)
+    openEditDialog()
+
+    fireEvent.keyDown(screen.getByTestId('workflow-trigger-drawer'), { key: 'Enter', metaKey: true })
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange.mock.calls[0][0][0].triggerId).toBe('deal_won_trigger')
+  })
+
+  it('closes on Escape without committing the edit', async () => {
+    const onChange = jest.fn()
+    renderWithProviders(<DefinitionTriggersEditor value={[makeTrigger()]} onChange={onChange} />)
+    openEditDialog()
+
+    fireEvent.keyDown(screen.getByTestId('workflow-trigger-drawer'), { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByTestId('workflow-trigger-drawer')).not.toBeInTheDocument())
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('renders the per-trigger delete affordance outlined, not filled', () => {
+    renderWithProviders(<DefinitionTriggersEditor value={[makeTrigger()]} onChange={jest.fn()} />)
+
+    const remove = screen.getByLabelText(DELETE_ACTION_KEY)
+    expect(remove.className).toContain('destructive')
+    expect(remove.className).not.toContain('bg-destructive ')
   })
 })
