@@ -17,7 +17,7 @@
 import * as React from 'react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 const mockTranslate = (key: string, fallbackOrVars?: unknown) =>
@@ -45,6 +45,9 @@ type TableProps = {
   perspective?: { tableId?: string }
   pagination?: { pageSize?: number }
   filters?: Array<{ id: string }>
+  emptyState?: React.ReactNode
+  filterAwareEmptyState?: { active: boolean; entityNamePlural: string; onClearAll: () => void }
+  onFiltersApply?: (values: Record<string, unknown>) => void
 }
 
 let capturedTableProps: TableProps | null = null
@@ -56,6 +59,15 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
       <div data-testid="data-table">
         <div data-testid="table-id">{props.perspective?.tableId}</div>
         <div data-testid="table-actions">{props.actions}</div>
+        {/*
+          Mirrors the real DataTable's own precedence: an active
+          filterAwareEmptyState replaces the generic empty slot.
+        */}
+        {props.data.length === 0
+          ? props.filterAwareEmptyState?.active
+            ? <div data-testid="filtered-empty-results" />
+            : props.emptyState
+          : null}
         {props.data.map((row, rowIndex) => (
           <div key={String(row.id)} data-testid={`row-${row.id}`}>
             {props.columns.map((column, columnIndex) => (
@@ -139,10 +151,17 @@ jest.mock('lucide-react', () => ({
   ArrowUp: () => null,
   CheckCircle2: () => null,
   Circle: () => null,
+  AlertCircle: () => null,
   Clock: () => null,
+  EyeOff: () => null,
+  Info: () => null,
+  Rocket: () => null,
+  X: () => null,
   Flame: () => null,
+  Inbox: () => null,
   Loader: () => null,
   Minus: () => null,
+  Plus: () => null,
   XCircle: () => null,
 }))
 
@@ -189,7 +208,11 @@ const DISPOSITION_ROW = {
   proposalId: 'proposal-9',
 }
 
-function listResult(rows: Array<Record<string, unknown>>, degradedKinds: string[] = []) {
+function listResult(
+  rows: Array<Record<string, unknown>>,
+  degradedKinds: string[] = [],
+  entityHiddenCount = 0,
+) {
   return {
     ok: true,
     status: 200,
@@ -197,6 +220,18 @@ function listResult(rows: Array<Record<string, unknown>>, degradedKinds: string[
       data: rows,
       pagination: { total: rows.length, limit: 50, offset: 0, hasMore: false },
       meta: { kinds: ['user_task', 'agent_disposition'], degradedKinds },
+      ...(entityHiddenCount > 0
+        ? {
+            diagnostics: {
+              entityHiddenCount,
+              entityHidden: Array.from({ length: entityHiddenCount }, (_, index) => ({
+                id: `hidden-${index}`,
+                reason: 'denied:entity-access',
+                entityType: 'customers:person',
+              })),
+            },
+          }
+        : {}),
     },
   }
 }
@@ -286,6 +321,72 @@ describe('Work Inbox page', () => {
 
     await waitFor(() => expect(capturedTableProps).not.toBeNull())
     expect(capturedTableProps?.pagination?.pageSize).toBeLessThanOrEqual(100)
+  })
+
+  /**
+   * §6.4 shipped default-ON: an employee who is neither an assignee nor in a
+   * role queue went from the whole organisation's tasks to a blank page. These
+   * assert the blank page explains itself, and explains itself CORRECTLY —
+   * telling somebody their permissions are wrong when they merely filtered
+   * sends them to an administrator who cannot help.
+   */
+  describe('the empty inbox explains itself', () => {
+    test('says nothing is assigned to you — never that you lack permission', async () => {
+      ;(apiCall as jest.Mock).mockResolvedValue(listResult([]))
+      render(<WorkInboxPage />)
+
+      await waitFor(() => expect(screen.getByTestId('work-inbox-empty-no-relationship')).toBeTruthy())
+      expect(screen.getByText('workflows.workInbox.empty.noRelationship.title')).toBeTruthy()
+      expect(screen.getByText('workflows.workInbox.empty.noRelationship.description')).toBeTruthy()
+      expect(capturedTableProps?.filterAwareEmptyState?.active).toBe(false)
+    })
+
+    test('hands a narrowed query to the shared filtered-empty state instead', async () => {
+      ;(apiCall as jest.Mock).mockResolvedValue(listResult([]))
+      render(<WorkInboxPage />)
+
+      await waitFor(() => expect(capturedTableProps).not.toBeNull())
+      act(() => {
+        capturedTableProps?.onFiltersApply?.({ myWork: 'true', status: 'COMPLETED' })
+      })
+
+      await waitFor(() => expect(screen.getByTestId('filtered-empty-results')).toBeTruthy())
+      expect(screen.queryByTestId('work-inbox-empty-no-relationship')).toBeNull()
+      expect(capturedTableProps?.emptyState).toBeUndefined()
+    })
+
+    test('says work is hidden by the entity gate, naming no record and no reason code', async () => {
+      ;(apiCall as jest.Mock).mockResolvedValue(listResult([], [], 2))
+      render(<WorkInboxPage />)
+
+      await waitFor(() => expect(screen.getByTestId('work-inbox-empty-entity-hidden')).toBeTruthy())
+      expect(screen.getByText('workflows.workInbox.empty.entityHidden.title')).toBeTruthy()
+
+      const rendered = screen.getByTestId('data-table').textContent ?? ''
+      expect(rendered).not.toContain('denied:')
+      expect(rendered).not.toContain('customers:person')
+      expect(rendered).not.toContain('hidden-0')
+      // The banner above the table would say the same thing a second time.
+      expect(screen.queryByText('workflows.workInbox.messages.entityHidden')).toBeNull()
+    })
+
+    test('keeps the banner when rows ARE listed — the page is short, not empty', async () => {
+      ;(apiCall as jest.Mock).mockResolvedValue(listResult([TASK_ROW], [], 2))
+      render(<WorkInboxPage />)
+
+      await waitFor(() => expect(screen.getByText('workflows.workInbox.messages.entityHidden')).toBeTruthy())
+      expect(screen.queryByTestId('work-inbox-empty-entity-hidden')).toBeNull()
+    })
+
+    test('says the list may be incomplete when a source degraded', async () => {
+      ;(apiCall as jest.Mock).mockResolvedValue(listResult([], ['agent_disposition'], 4))
+      render(<WorkInboxPage />)
+
+      await waitFor(() => expect(screen.getByTestId('work-inbox-empty-degraded')).toBeTruthy())
+      expect(screen.getByText('workflows.workInbox.empty.degraded.title')).toBeTruthy()
+      expect(screen.queryByTestId('work-inbox-empty-no-relationship')).toBeNull()
+      expect(screen.getByTestId('data-table').textContent ?? '').not.toContain('agent_disposition')
+    })
   })
 
   test('keeps the RBAC guard the retired task list carried', () => {

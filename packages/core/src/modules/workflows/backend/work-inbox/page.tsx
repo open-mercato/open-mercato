@@ -38,12 +38,14 @@ import { WORK_INBOX_PRIORITIES } from '../../lib/work-inbox/provider'
 import type { WorkInboxWireRow } from '../../lib/work-inbox/provider'
 import { buildWorkInboxListQueryParams } from '../../lib/work-inbox/query'
 import { buildWorkInboxItemHref } from '../../lib/work-inbox/navigation'
+import { resolveWorkInboxEmptyState } from '../../lib/work-inbox/empty-state'
 import {
   WORK_INBOX_OVERDUE_TONE,
   describeWorkInboxPriority,
   describeWorkInboxStatus,
 } from '../../lib/work-inbox/presentation'
 import { StatusChip } from '../../components/work-inbox/StatusChip'
+import { WorkInboxEmptyState } from '../../components/work-inbox/WorkInboxEmptyState'
 
 /**
  * `data-table:workflows.tasks.list:*` is a FROZEN widget spot id — the
@@ -71,6 +73,7 @@ export default function WorkInboxPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [availableKinds, setAvailableKinds] = React.useState<string[]>([])
   const [entityHiddenCount, setEntityHiddenCount] = React.useState(0)
+  const [degradedKinds, setDegradedKinds] = React.useState<string[]>([])
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -98,9 +101,13 @@ export default function WorkInboxPage() {
       setEntityHiddenCount(response?.diagnostics?.entityHiddenCount ?? 0)
       if (response?.meta) {
         setAvailableKinds(response.meta.kinds ?? [])
-        if ((response.meta.degradedKinds ?? []).length > 0) {
+        const degraded = response.meta.degradedKinds ?? []
+        setDegradedKinds(degraded)
+        if (degraded.length > 0) {
           flash(t('workflows.workInbox.messages.degraded'), 'error')
         }
+      } else {
+        setDegradedKinds([])
       }
 
       return response?.data ?? []
@@ -432,10 +439,25 @@ export default function WorkInboxPage() {
     [handleClaim, handleRelease, t],
   )
 
+  const rows = data ?? []
+
+  // §6.4 turned an empty inbox from "there is no work" into a statement about
+  // this account's relationship to the work. Which statement it is belongs to a
+  // PURE resolver, never to this file.
+  const emptyState = React.useMemo(
+    () => resolveWorkInboxEmptyState({ filterValues, entityHiddenCount, degradedKinds }),
+    [degradedKinds, entityHiddenCount, filterValues],
+  )
+
   return (
     <Page>
       <PageBody>
-        {entityHiddenCount > 0 ? (
+        {/*
+          The banner explains a page that is SHORTER than its total. With no rows
+          at all the empty state says the same thing in the place the reader is
+          already looking, so showing both would be one message twice.
+        */}
+        {entityHiddenCount > 0 && rows.length > 0 ? (
           <Alert status="information" className="mb-4">
             {t('workflows.workInbox.messages.entityHidden', { count: entityHiddenCount })}
           </Alert>
@@ -443,13 +465,25 @@ export default function WorkInboxPage() {
         <DataTable
           title={t('workflows.workInbox.list.title')}
           columns={columns}
-          data={data ?? []}
+          data={rows}
           isLoading={isLoading}
           error={error ? t('workflows.workInbox.messages.loadFailed') : null}
           filters={filters}
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
+          emptyState={
+            emptyState.kind === 'filtered' ? undefined : <WorkInboxEmptyState state={emptyState} />
+          }
+          // The narrowed case is handed to the shared `FilteredEmptyResults`,
+          // which already owns that copy and the clear-filters affordance.
+          filterAwareEmptyState={{
+            active: emptyState.kind === 'filtered',
+            entityNamePlural: t('workflows.workInbox.empty.entityNamePlural'),
+            canRemoveLast: false,
+            onClearAll: handleFiltersClear,
+            onRemoveLast: handleFiltersClear,
+          }}
           actions={
             <Button onClick={() => void handleClaimNext()}>
               {t('workflows.workInbox.actions.claimNext')}
