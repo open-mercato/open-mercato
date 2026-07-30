@@ -31,10 +31,41 @@ const STEP_FAILED_EVENT_TYPES = new Set(['STEP_FAILED', 'StepFailed'])
 const STEP_SKIPPED_EVENT_TYPES = new Set(['STEP_SKIPPED', 'StepSkipped'])
 const TRANSITION_EXECUTED_EVENT_TYPES = new Set(['TRANSITION_EXECUTED', 'TransitionExecuted'])
 
+/**
+ * Events that RESOLVE a park. A step can park more than once in a run (a loop,
+ * a retry, a rerun-from-step), so evidence is cleared as soon as the thing it
+ * described came back — otherwise a step that waited for a signal on its first
+ * pass keeps claiming to wait for it on its second.
+ */
+const WAIT_RESOLVED_EVENT_TYPES = new Set([
+  'ACTIVITY_COMPLETED',
+  'ACTIVITY_FAILED',
+  'SIGNAL_RECEIVED',
+  'TIMER_FIRED',
+  'CONDITION_MET',
+  'CONDITION_TIMED_OUT',
+  'USER_TASK_COMPLETED',
+  'PARALLEL_JOIN_COMPLETED',
+])
+
+const BRANCH_SETTLED_EVENT_TYPES = new Set([
+  'PARALLEL_BRANCH_COMPLETED',
+  'PARALLEL_BRANCH_FAILED',
+  'PARALLEL_BRANCH_CANCELLED',
+])
+
 export type RunEventInput = {
   eventType: string
   eventData?: Record<string, unknown> | null
   occurredAt: string | Date
+  /**
+   * The engine stamps every step-scoped event with the `StepInstance` row it
+   * belongs to, but only some of them repeat the definition `stepId` inside
+   * `eventData`. Carrying the id here is what lets the park events
+   * (`SIGNAL_AWAITING`, `TIMER_AWAITING`, `USER_TASK_CREATED`, …) be attributed
+   * to a step at all — they name the row, never the step.
+   */
+  stepInstanceId?: string | null
 }
 
 export type RunStepInstanceInput = {
@@ -71,6 +102,67 @@ export type TakenRoute = {
   at: Date
 }
 
+/**
+ * What a non-terminal step is doing or waiting for, read off the events the
+ * engine ALREADY writes when it parks (spec §Part 2). Nothing here is a new
+ * column and nothing here is a new event: `SIGNAL_AWAITING`, `TIMER_AWAITING`,
+ * `CONDITION_AWAITING`, `USER_TASK_CREATED`, `ACTIVITY_QUEUED` and
+ * `PARALLEL_FORK_OPENED` are all durable rows today.
+ *
+ * `StepInstance.outputData` — which carries the same facts on the return value
+ * of `enterStep` — is deliberately NOT read: `exitStep` writes it on the
+ * COMPLETED path only, so on a parked step it is null. The events are the only
+ * place the park survives.
+ */
+export type StepWaitEvidence =
+  | { kind: 'asyncActivity'; activityName: string | null }
+  /**
+   * The agent job is on the dedicated `workflow-invoke-agent` queue and the step
+   * is parked on the proposal-ready signal WAITING FOR THE AGENT ITSELF.
+   * `INVOKE_AGENT` is not async-capable in the registry's sense
+   * (`async: { capable: false, reason: 'parksOnDedicatedQueue' }`), so it never
+   * logs `ACTIVITY_QUEUED` — the park event is the only trace, and its absence
+   * of a `proposalId` is what says the agent has not answered yet.
+   */
+  | { kind: 'agentRunning'; agentId: string | null }
+  /**
+   * The agent answered and its proposal was routed to a human.
+   * `lib/agent-disposition-task.ts` writes a real `UserTask` and logs
+   * `USER_TASK_CREATED` carrying the `proposalId` against the SAME step
+   * instance — which is the only durable thing that distinguishes "the agent is
+   * still running" from "a person has not decided yet". The invoke-agent
+   * worker's own `user_task` branch logs nothing.
+   */
+  | { kind: 'agentDisposition'; proposalId: string | null }
+  | { kind: 'subWorkflow'; childInstanceId: string | null }
+  | { kind: 'signal'; signalName: string | null }
+  | { kind: 'timer'; fireAt: Date | null }
+  | { kind: 'condition'; deadlineAt: Date | null }
+  | {
+      kind: 'userTask'
+      /**
+       * The authored ROLE QUEUE, which is definition data every viewer of the
+       * run already sees on the canvas. The individual assignee is deliberately
+       * absent — see `hasAssignee`.
+       */
+      roleQueue: string | null
+      /**
+       * Whether an individual was resolved. The id itself is NOT carried: the
+       * §6.4 visibility model decides who may see a task's owner, and this line
+       * must not become a way around it. The run APIs expose an opaque user id
+       * and no display name, so there is nothing honest to render either way.
+       */
+      hasAssignee: boolean
+    }
+  | { kind: 'fork'; branchTotal: number; branchesSettled: number }
+
+/**
+ * The engine-owned `metadata.attention` marker (the `failureQueue` directive
+ * and the agent-review breach escalation both write it). Instance-level, so it
+ * describes the step the run is parked on.
+ */
+export type RunAttention = { reason: string | null }
+
 export type RunExecution = {
   stepStates: Map<string, StepRunState>
   routes: TakenRoute[]
@@ -85,6 +177,9 @@ export type RunExecution = {
    */
   currentStepId: string | null
   instanceStatus: string | null
+  /** Per-step park evidence, keyed by definition `stepId`. */
+  waits: Map<string, StepWaitEvidence>
+  attention: RunAttention | null
 }
 
 export type RunExecutionInput = {
@@ -92,6 +187,8 @@ export type RunExecutionInput = {
   stepInstances?: readonly RunStepInstanceInput[]
   currentStepId?: string | null
   instanceStatus?: string | null
+  /** `instance.metadata.attention` verbatim; anything unshaped is ignored. */
+  attention?: unknown
 }
 
 function toDate(value: string | Date | null | undefined): Date | null {
@@ -246,11 +343,94 @@ function applyLiveInstanceStatus(
   })
 }
 
+function readBooleanish(data: Record<string, unknown> | null | undefined, key: string): boolean {
+  const value = data?.[key]
+  if (Array.isArray(value)) return value.length > 0
+  return typeof value === 'string' ? value.length > 0 : Boolean(value)
+}
+
+function readRoleQueue(data: Record<string, unknown> | null | undefined): string | null {
+  const value = data?.assignedToRoles
+  if (Array.isArray(value)) {
+    const named = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    return named.length > 0 ? named.join(', ') : null
+  }
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+/**
+ * Turn one park event into evidence. Returns `null` for anything that is not a
+ * park, so the caller can leave whatever it already had in place.
+ */
+function waitEvidenceFromEvent(event: RunEventInput): StepWaitEvidence | null {
+  const data = event.eventData ?? null
+  switch (event.eventType) {
+    case 'ACTIVITY_QUEUED':
+      return {
+        kind: 'asyncActivity',
+        activityName: readStringField(data, 'activityName') ?? readStringField(data, 'activityType'),
+      }
+    case 'SIGNAL_AWAITING': {
+      // One event type, three genuinely different situations. The engine
+      // distinguishes them with `reason` (INVOKE_AGENT / SUB_WORKFLOW) plus the
+      // ids it carries, and the presentation states differ, so they cannot be
+      // collapsed into "waiting for a signal".
+      const reason = readStringField(data, 'reason')
+      const childInstanceId = readStringField(data, 'childInstanceId')
+      if (reason === 'SUB_WORKFLOW' || childInstanceId) {
+        return { kind: 'subWorkflow', childInstanceId }
+      }
+      const proposalId = readStringField(data, 'proposalId')
+      if (reason === 'INVOKE_AGENT') {
+        // A `proposalId` at park time means the agent already ran inline (the
+        // parallel-branch fallback path); its absence — the instance-level path —
+        // means the job was only just enqueued.
+        return proposalId
+          ? { kind: 'agentDisposition', proposalId }
+          : { kind: 'agentRunning', agentId: readStringField(data, 'agentId') }
+      }
+      return { kind: 'signal', signalName: readStringField(data, 'signalName') }
+    }
+    case 'TIMER_AWAITING':
+      return { kind: 'timer', fireAt: toDate(readStringField(data, 'fireAt')) }
+    case 'CONDITION_AWAITING':
+      return { kind: 'condition', deadlineAt: toDate(readStringField(data, 'deadlineAt')) }
+    case 'USER_TASK_CREATED': {
+      // The agent-disposition review is a REAL user task, so it arrives here —
+      // and its `proposalId` is what tells the two apart.
+      const proposalId = readStringField(data, 'proposalId')
+      if (proposalId) return { kind: 'agentDisposition', proposalId }
+      return {
+        kind: 'userTask',
+        roleQueue: readRoleQueue(data),
+        hasAssignee: readBooleanish(data, 'assignedTo'),
+      }
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * Fork progress is a TALLY over events, not a read of `WorkflowBranchInstance`:
+ * the branch rows have no read surface, but `PARALLEL_FORK_OPENED` names every
+ * branch key and each branch logs its own settle event. Counting them answers
+ * "n of m branches still running" from evidence that is already durable.
+ */
+type ForkTally = { stepId: string; branchKeys: Set<string>; settled: Set<string> }
+
 export function deriveRunExecution(input: RunExecutionInput): RunExecution {
   const stepStates = new Map<string, StepRunState>()
   const routes: TakenRoute[] = []
   const takenTransitionIds = new Set<string>()
   const takenStepPairs = new Set<string>()
+  const waits = new Map<string, StepWaitEvidence>()
+  const stepIdByStepInstanceId = new Map<string, string>()
+  let forkTally: ForkTally | null = null
+
+  for (const stepInstance of input.stepInstances ?? []) {
+    if (stepInstance.id) stepIdByStepInstanceId.set(stepInstance.id, stepInstance.stepId)
+  }
 
   // Events come back newest-first from the API; replay them oldest-first so a
   // later terminal event wins over an earlier entry for the same step.
@@ -262,6 +442,38 @@ export function deriveRunExecution(input: RunExecutionInput): RunExecution {
 
   for (const event of orderedEvents) {
     applyEvent(stepStates, event)
+
+    const eventStepId =
+      readStringField(event.eventData, 'stepId')
+      ?? (event.stepInstanceId ? stepIdByStepInstanceId.get(event.stepInstanceId) ?? null : null)
+
+    if (eventStepId) {
+      // A re-entry starts a fresh attempt, so anything the previous one parked
+      // on no longer describes this step.
+      if (STEP_ENTERED_EVENT_TYPES.has(event.eventType) || WAIT_RESOLVED_EVENT_TYPES.has(event.eventType)) {
+        waits.delete(eventStepId)
+      }
+      const evidence = waitEvidenceFromEvent(event)
+      if (evidence) waits.set(eventStepId, evidence)
+    }
+
+    if (event.eventType === 'PARALLEL_FORK_OPENED') {
+      const forkStepId = readStringField(event.eventData, 'forkStepId')
+      const branchKeys = event.eventData?.branchKeys
+      if (forkStepId && Array.isArray(branchKeys)) {
+        forkTally = {
+          stepId: forkStepId,
+          branchKeys: new Set(branchKeys.filter((key): key is string => typeof key === 'string')),
+          settled: new Set<string>(),
+        }
+      }
+    } else if (BRANCH_SETTLED_EVENT_TYPES.has(event.eventType) && forkTally) {
+      const branchKey = readStringField(event.eventData, 'branchKey')
+      if (branchKey && forkTally.branchKeys.has(branchKey)) forkTally.settled.add(branchKey)
+    } else if (event.eventType === 'PARALLEL_JOIN_COMPLETED' && forkTally) {
+      waits.delete(forkTally.stepId)
+      forkTally = null
+    }
 
     if (!TRANSITION_EXECUTED_EVENT_TYPES.has(event.eventType)) continue
     const fromStepId = readStringField(event.eventData, 'fromStepId')
@@ -285,6 +497,14 @@ export function deriveRunExecution(input: RunExecutionInput): RunExecution {
 
   applyLiveInstanceStatus(stepStates, input.currentStepId, input.instanceStatus)
 
+  if (forkTally && forkTally.branchKeys.size > forkTally.settled.size) {
+    waits.set(forkTally.stepId, {
+      kind: 'fork',
+      branchTotal: forkTally.branchKeys.size,
+      branchesSettled: forkTally.settled.size,
+    })
+  }
+
   return {
     stepStates,
     routes,
@@ -292,7 +512,15 @@ export function deriveRunExecution(input: RunExecutionInput): RunExecution {
     takenStepPairs,
     currentStepId: input.currentStepId ?? null,
     instanceStatus: input.instanceStatus ?? null,
+    waits,
+    attention: readAttention(input.attention),
   }
+}
+
+function readAttention(value: unknown): RunAttention | null {
+  if (!value || typeof value !== 'object') return null
+  const reason = (value as Record<string, unknown>).reason
+  return { reason: typeof reason === 'string' && reason.length > 0 ? reason : null }
 }
 
 export type GraphNodeDescriptor = {

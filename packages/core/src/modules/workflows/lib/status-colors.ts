@@ -1,5 +1,16 @@
 import type { CSSProperties } from 'react'
 
+/**
+ * `working`, `waiting` and `needs_attention` are the run PRESENTATION states
+ * (`lib/step-presentation.ts`). They are additive: `in_progress` and `paused`
+ * keep their exact meaning and colour for every caller that already uses them,
+ * and nothing that existed was re-pointed.
+ *
+ * They exist because the two questions "is the system doing something?" and
+ * "are we blocked on the outside world?" had no separate names here — so a
+ * running agent and a task sitting on someone's desk since Tuesday painted the
+ * same amber pause.
+ */
 export type WorkflowStatus =
   | 'completed'
   | 'in_progress'
@@ -8,6 +19,9 @@ export type WorkflowStatus =
   | 'paused'
   | 'not_started'
   | 'error'
+  | 'working'
+  | 'waiting'
+  | 'needs_attention'
 
 export const STATUS_COLORS = {
   completed: {
@@ -59,6 +73,30 @@ export const STATUS_COLORS = {
     icon: 'text-status-error-icon',
     hex: 'var(--status-error-icon)',
   },
+  working: {
+    bg: 'bg-status-info-bg',
+    border: 'border-status-info-border',
+    text: 'text-status-info-text',
+    icon: 'text-status-info-icon',
+    hex: 'var(--status-info-icon)',
+  },
+  waiting: {
+    bg: 'bg-status-warning-bg',
+    border: 'border-status-warning-border',
+    text: 'text-status-warning-text',
+    icon: 'text-status-warning-icon',
+    hex: 'var(--status-warning-icon)',
+  },
+  // "Destructive-adjacent" (spec Part 2): a parked run is not a failed run, so
+  // it does not get `failed`'s glyph — but it does need a human, so it borrows
+  // the error tokens rather than sitting quietly in amber next to a timer.
+  needs_attention: {
+    bg: 'bg-status-error-bg',
+    border: 'border-status-error-border',
+    text: 'text-status-error-text',
+    icon: 'text-status-error-icon',
+    hex: 'var(--status-error-icon)',
+  },
 } as const
 
 /**
@@ -72,7 +110,16 @@ export function toWorkflowStatus(status?: string): WorkflowStatus {
   if (status === 'running' || status === 'in_progress' || status === 'active') return 'in_progress'
   if (status === 'completed') return 'completed'
   if (status === 'failed' || status === 'error') return 'failed'
-  if (status === 'paused' || status === 'waiting' || status === 'waiting_for_activities') return 'paused'
+  // The presentation states pass straight through: the run surfaces resolve
+  // them up front (`lib/step-presentation.ts`) and this must not re-collapse
+  // them back into the lifecycle vocabulary the resolver exists to replace.
+  if (status === 'working') return 'working'
+  if (status === 'waiting') return 'waiting'
+  if (status === 'needs_attention') return 'needs_attention'
+  // `waiting_for_activities` is the ENGINE working — an activity is executing
+  // in a worker — so it is no longer painted as a pause.
+  if (status === 'waiting_for_activities') return 'working'
+  if (status === 'paused') return 'paused'
   return 'not_started'
 }
 
