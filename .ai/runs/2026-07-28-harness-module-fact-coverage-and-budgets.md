@@ -70,6 +70,17 @@ Follow-up: #4603
       pattern, and the harness docs repinned to 196. `ephemeral-integration (2/15)` failed on a
       Docker Hub 500 pulling `testcontainers/ryuk` — runner infrastructure, not this branch.
 
+### Phase 6: consolidate the stack onto a single reviewable child of #4529
+
+- [x] 6.1 Close the stale package README count `449a29e73` left behind (195 while the catalog,
+      schema, validators and harness docs said 196) and bind every published count to the catalog so
+      the class cannot return — the new guard reproduces the drift as a failure before the fix and
+      passes after — 2e1a1e896
+- [ ] 6.2 Port the content unique to #4556 onto this branch and close #4556 as superseded
+- [ ] 6.3 Merge #4529 head `abed8e02a` and renumber this branch's nine cases to OMH-193…201,
+      including the `relatedCases` that would otherwise point at #4529's different OMH-188/189
+- [ ] 6.4 Full configured validation gate, republished reviewable delta in the PR body, label request
+
 ## Deliberately out of scope
 
 - The 11 fact-sheets that appear only in `context.allowedExtra`: no case fails when an agent ignores
