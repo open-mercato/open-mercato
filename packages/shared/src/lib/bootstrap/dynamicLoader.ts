@@ -7,7 +7,68 @@ import {
 } from './generatedCacheRecovery'
 import path from 'node:path'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { pathToFileURL } from 'node:url'
+
+const DYNAMIC_LOADER_CACHE_VERSION = 2
+
+type DynamicLoaderCacheMetadata = {
+  version: number
+  inputHash: string
+  outputHash: string
+}
+
+function cacheMetadataPath(jsPath: string): string {
+  return `${jsPath}.cache.json`
+}
+
+function contentHash(content: Buffer | string): string {
+  return crypto.createHash('sha256').update(content).digest('hex')
+}
+
+function cacheInputHash(tsPath: string, appTsconfig: string): string {
+  const hash = crypto.createHash('sha256')
+  hash.update(JSON.stringify({
+    version: DYNAMIC_LOADER_CACHE_VERSION,
+    sourceHash: contentHash(fs.readFileSync(tsPath)),
+    tsconfigHash: contentHash(fs.readFileSync(appTsconfig)),
+  }))
+  return hash.digest('hex')
+}
+
+function readCacheMetadata(metadataPath: string): DynamicLoaderCacheMetadata | null {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
+    if (
+      typeof parsed === 'object'
+      && parsed !== null
+      && 'version' in parsed
+      && parsed.version === DYNAMIC_LOADER_CACHE_VERSION
+      && 'inputHash' in parsed
+      && typeof parsed.inputHash === 'string'
+      && 'outputHash' in parsed
+      && typeof parsed.outputHash === 'string'
+    ) {
+      return {
+        version: parsed.version,
+        inputHash: parsed.inputHash,
+        outputHash: parsed.outputHash,
+      }
+    }
+  } catch {}
+  return null
+}
+
+function cacheIsValid(
+  jsPath: string,
+  metadataPath: string,
+  expectedInputHash: string,
+): boolean {
+  if (!fs.existsSync(jsPath)) return false
+  const metadata = readCacheMetadata(metadataPath)
+  if (!metadata || metadata.inputHash !== expectedInputHash) return false
+  return contentHash(fs.readFileSync(jsPath)) === metadata.outputHash
+}
 
 /**
  * Compile a TypeScript file to JavaScript using esbuild bundler.
@@ -17,17 +78,21 @@ import { pathToFileURL } from 'node:url'
 async function compileAndImport(tsPath: string, allowRecovery: boolean = true): Promise<Record<string, unknown>> {
   const jsPath = tsPath.replace(/\.ts$/, '.mjs')
   const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
+  const appTsconfig = path.join(appRoot, 'tsconfig.json')
+  const metadataPath = cacheMetadataPath(jsPath)
 
-  // Check if we need to recompile (source newer than compiled)
   const tsExists = fs.existsSync(tsPath)
-  const jsExists = fs.existsSync(jsPath)
+  const tsconfigExists = fs.existsSync(appTsconfig)
 
   if (!tsExists) {
     throw new Error(`Generated file not found: ${tsPath}`)
   }
+  if (!tsconfigExists) {
+    throw new Error(`App TypeScript config not found: ${appTsconfig}`)
+  }
 
-  const needsCompile = !jsExists ||
-    fs.statSync(tsPath).mtimeMs > fs.statSync(jsPath).mtimeMs
+  const expectedInputHash = cacheInputHash(tsPath, appTsconfig)
+  const needsCompile = !cacheIsValid(jsPath, metadataPath, expectedInputHash)
 
   if (needsCompile) {
     // Dynamically import esbuild only when needed
@@ -82,15 +147,23 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
       format: 'esm',
       platform: 'node',
       target: 'node18',
+      tsconfig: appTsconfig,
       plugins: [aliasPlugin, externalNonJsonPlugin],
       // Allow JSON imports
       loader: { '.json': 'json' },
     })
+    const metadata: DynamicLoaderCacheMetadata = {
+      version: DYNAMIC_LOADER_CACHE_VERSION,
+      inputHash: expectedInputHash,
+      outputHash: contentHash(fs.readFileSync(jsPath)),
+    }
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata))
   }
 
   // Import the compiled JavaScript
   try {
-    const fileUrl = `${pathToFileURL(jsPath).href}?mtime=${fs.statSync(jsPath).mtimeMs}`
+    const outputHash = contentHash(fs.readFileSync(jsPath))
+    const fileUrl = `${pathToFileURL(jsPath).href}?cache=${outputHash}`
     return await import(fileUrl)
   } catch (error) {
     if (!allowRecovery) {

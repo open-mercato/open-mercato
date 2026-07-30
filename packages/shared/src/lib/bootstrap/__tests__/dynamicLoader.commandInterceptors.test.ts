@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { loadBootstrapData } from '../dynamicLoader'
 
 const GENERATED_MODULES: Record<string, { ts: string; compiled: string }> = {
@@ -32,11 +33,33 @@ const GENERATED_MODULES: Record<string, { ts: string; compiled: string }> = {
   },
 }
 
+const APP_TSCONFIG = JSON.stringify({
+  compilerOptions: {
+    experimentalDecorators: true,
+    emitDecoratorMetadata: true,
+    useDefineForClassFields: false,
+    target: 'ES2022',
+  },
+})
+
+function hash(content: string): string {
+  return crypto.createHash('sha256').update(content).digest('hex')
+}
+
 function writeGeneratedModule(generatedDir: string, baseName: string, source: { ts: string; compiled: string }) {
-  fs.writeFileSync(path.join(generatedDir, `${baseName}.ts`), source.ts)
-  fs.writeFileSync(path.join(generatedDir, `${baseName}.mjs`), source.compiled)
-  const fresh = new Date(Date.now() + 60_000)
-  fs.utimesSync(path.join(generatedDir, `${baseName}.mjs`), fresh, fresh)
+  const sourcePath = path.join(generatedDir, `${baseName}.ts`)
+  const compiledPath = path.join(generatedDir, `${baseName}.mjs`)
+  fs.writeFileSync(sourcePath, source.ts)
+  fs.writeFileSync(compiledPath, source.compiled)
+  fs.writeFileSync(`${compiledPath}.cache.json`, JSON.stringify({
+    version: 2,
+    inputHash: hash(JSON.stringify({
+      version: 2,
+      sourceHash: hash(source.ts),
+      tsconfigHash: hash(APP_TSCONFIG),
+    })),
+    outputHash: hash(source.compiled),
+  }))
 }
 
 describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap (#4327)', () => {
@@ -46,6 +69,7 @@ describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap 
     appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4327-'))
     const generatedDir = path.join(appRoot, '.mercato', 'generated')
     fs.mkdirSync(generatedDir, { recursive: true })
+    fs.writeFileSync(path.join(appRoot, 'tsconfig.json'), APP_TSCONFIG)
     for (const [baseName, source] of Object.entries(GENERATED_MODULES)) {
       writeGeneratedModule(generatedDir, baseName, source)
     }
