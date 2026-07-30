@@ -88,6 +88,19 @@ The user list payload should include `name` alongside the existing fields so UIs
 Expected shape additions:
 - `name: string | null`
 
+### Profile Self-Read (`GET /api/auth/profile`)
+The admin surfaces above let an operator *set* a display name. The signed-in user's own profile endpoint must also *return* it, or any UI rendering the current user — backend chrome, account blocks, profile menus — is forced back to the email address even when a name is stored.
+
+Response shape addition:
+- `name: string | null`
+
+Expected semantics:
+- return the stored value for the authenticated user
+- normalise blank or whitespace-only values to `null`, so "set but empty" never surfaces as a label
+- unauthenticated requests are unaffected and still return `401`
+
+This is read-only. Whether a user may edit their *own* display name is a separate product decision: the admin route can already set it and the self-service profile form deliberately does not, so that question is left open rather than answered by implication.
+
 ### Internal Serialization
 Any existing serialization helper that already maps `user.name` should remain aligned with the route response shape. The spec does not introduce a second serialization path; it requires the API response to match the established internal representation.
 
@@ -218,3 +231,4 @@ Add or update tests:
 
 ## Changelog
 - 2026-05-09: Drafted spec to expose `User.name` in auth admin UI and user API payloads.
+- 2026-07-30: Added the Profile Self-Read section and implemented it — `GET /api/auth/profile` now returns `name` (blank normalised to `null`). Reported from a downstream app whose backend chrome could only show an email address. Note for a maintainer: the admin-surface phases of this spec appear already implemented on `develop` (`/api/auth/users` accepts `name` on create/update, returns it in list responses, and supports search by display name), so this file may be a candidate for `.ai/specs/implemented/` — not moved here, since confirming that is a maintainer call.
