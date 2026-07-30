@@ -21,6 +21,11 @@ import { WorkflowDefinition } from '../../../../data/entities'
 import type { WorkflowIoContract } from '../../../../data/validators'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { findSubWorkflowCallers } from '../../../../lib/caller-graph'
+import {
+  authorizeWorkflowGrantChange,
+  normalizeGrantedFeatures,
+  syncWorkflowDefinitionPrincipal,
+} from '../../../../lib/definition-grant'
 
 export const metadata = {
   requireAuth: true,
@@ -112,6 +117,25 @@ export async function POST(request: NextRequest, context: RouteContext) {
     )
     const nextVersion = (latest?.version ?? source.version) + 1
 
+    // The grant is per VERSION, so publishing mints a NEW execution principal
+    // from the source's grant — a new identity carrying those powers. It is
+    // therefore re-authorised against the PUBLISHER (`current: []` forces the
+    // check even though the feature list is unchanged): a user who may publish
+    // must not be able to bring a higher-privileged author's grant forward.
+    const grantedFeatures = normalizeGrantedFeatures(source.grantedFeatures)
+    const grantFailure = await authorizeWorkflowGrantChange(
+      container.resolve('rbacService') as Parameters<typeof authorizeWorkflowGrantChange>[0],
+      {
+        userId: auth.sub,
+        scope: { tenantId, organizationId },
+        requested: grantedFeatures,
+        current: [],
+      },
+    )
+    if (grantFailure) {
+      return NextResponse.json(grantFailure.body, { status: grantFailure.status })
+    }
+
     // Assign the PK up front so it is available before flush (MikroORM does not
     // generate UUIDs client-side).
     const published = em.create(WorkflowDefinition, {
@@ -126,6 +150,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       enabled: true,
       kind: source.kind,
       lifecycle: 'published',
+      grantedFeatures: grantedFeatures.length ? grantedFeatures : null,
       tenantId,
       organizationId,
       createdBy: auth.sub,
@@ -133,6 +158,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    await syncWorkflowDefinitionPrincipal(container, published)
     em.persist(published)
     await em.flush()
 

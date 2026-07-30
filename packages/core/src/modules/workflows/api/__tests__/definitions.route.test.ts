@@ -29,6 +29,19 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn(),
 }))
 
+// The execution-principal provisioner writes auth rows through a forked EM the
+// route test's fake EM does not model; the grant-authorization decision under
+// test happens BEFORE it.
+const provisionExecutionPrincipalMock = jest.fn(async () => ({ userId: 'principal-user', roleId: 'principal-role' }))
+jest.mock('@open-mercato/core/modules/auth/lib/executionPrincipal', () => ({
+  normalizeFeatureList: (value: unknown) =>
+    Array.isArray(value)
+      ? Array.from(new Set(value.filter((v): v is string => typeof v === 'string').map((v) => v.trim()).filter(Boolean))).sort()
+      : [],
+  provisionExecutionPrincipal: (...args: unknown[]) => provisionExecutionPrincipalMock(...(args as [])),
+  resolveExecutionPrincipalUserId: jest.fn(async () => null),
+}))
+
 describe('Workflow Definitions API', () => {
   let mockContainer: any
   let mockEm: any
@@ -49,7 +62,9 @@ describe('Workflow Definitions API', () => {
 
     mockRbacService = {
       userHasAllFeatures: jest.fn().mockResolvedValue(true),
+      getGrantedFeatures: jest.fn().mockResolvedValue(['*']),
     }
+    provisionExecutionPrincipalMock.mockClear()
 
     mockEm = {
       findOne: jest.fn(),
@@ -466,6 +481,81 @@ describe('Workflow Definitions API', () => {
       expect(data.error).toContain('already exists')
     })
 
+    test('records the author, so the definition-author principal fallback is not dead on arrival', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockImplementation((_entity: any, data: any) => data)
+
+      const response = await createDefinition(new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify(validDefinition),
+      }))
+
+      expect(response.status).toBe(201)
+      const created = mockEm.create.mock.calls[0][1]
+      expect(created.createdBy).toBe(testUserId)
+      expect(created.id).toEqual(expect.any(String))
+      expect(created.grantedFeatures).toBeNull()
+      expect(provisionExecutionPrincipalMock).not.toHaveBeenCalled()
+    })
+
+    test('refuses a grant the creating user cannot cover with their own features', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockImplementation((_entity: any, data: any) => data)
+      mockRbacService.userHasAllFeatures.mockImplementation(async (_userId: string, features: string[]) =>
+        features.every((f) => f === 'workflows.definitions.create' || f === 'workflows.definitions.grant_features'),
+      )
+      mockRbacService.getGrantedFeatures = jest.fn().mockResolvedValue([
+        'workflows.definitions.create',
+        'workflows.definitions.grant_features',
+      ])
+
+      const response = await createDefinition(new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify({ ...validDefinition, grantedFeatures: ['sales.orders.delete'] }),
+      }))
+
+      expect(response.status).toBe(403)
+      const body = await response.json()
+      expect(body.code).toBe('WORKFLOW_GRANT_EXCEEDS_GRANTOR_FEATURES')
+      expect(body.details.missingFeatures).toEqual(['sales.orders.delete'])
+      expect(mockEm.persist).not.toHaveBeenCalled()
+    })
+
+    test('refuses a grant without workflows.definitions.grant_features, even from a definition editor', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockImplementation((_entity: any, data: any) => data)
+      mockRbacService.userHasAllFeatures.mockImplementation(async (_userId: string, features: string[]) =>
+        !features.includes('workflows.definitions.grant_features'),
+      )
+
+      const response = await createDefinition(new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify({ ...validDefinition, grantedFeatures: ['sales.orders.view'] }),
+      }))
+
+      expect(response.status).toBe(403)
+      expect((await response.json()).code).toBe('WORKFLOW_GRANT_FEATURE_REQUIRED')
+    })
+
+    test('persists a covered grant and pins the principal to exactly it', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockImplementation((_entity: any, data: any) => data)
+
+      const response = await createDefinition(new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify({ ...validDefinition, grantedFeatures: ['b.view', 'a.view', 'a.view'] }),
+      }))
+
+      expect(response.status).toBe(201)
+      const created = mockEm.create.mock.calls[0][1]
+      expect(created.grantedFeatures).toEqual(['a.view', 'b.view'])
+      expect(provisionExecutionPrincipalMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { tenantId: testTenantId, organizationId: testOrgId },
+        expect.objectContaining({ principalKey: `workflow:${created.id}`, features: ['a.view', 'b.view'] }),
+      )
+    })
+
     test('should return 409 on database unique constraint violation', async () => {
       mockEm.findOne.mockResolvedValue(null)
       mockEm.create.mockReturnValue({
@@ -538,6 +628,7 @@ describe('Workflow Definitions API', () => {
         metadata: null,
         effectiveFrom: null,
         effectiveTo: null,
+        grantedFeatures: null,
         createdBy: null,
         updatedBy: null,
         deletedAt: null,

@@ -6,6 +6,7 @@
  * - POST /api/workflows/definitions - Create workflow definition
  */
 
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -28,6 +29,11 @@ import {
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../lib/definition-error-body'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
+import {
+  authorizeWorkflowGrantChange,
+  normalizeGrantedFeatures,
+  syncWorkflowDefinitionPrincipal,
+} from '../../lib/definition-grant'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -281,8 +287,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create workflow definition
+    const grantedFeatures = normalizeGrantedFeatures(input.grantedFeatures)
+    const grantFailure = await authorizeWorkflowGrantChange(rbacService, {
+      userId: auth.sub,
+      scope: { tenantId, organizationId },
+      requested: grantedFeatures,
+      current: [],
+    })
+    if (grantFailure) {
+      return NextResponse.json(grantFailure.body, { status: grantFailure.status })
+    }
+
+    // Create workflow definition.
+    //
+    // The PK is minted up front (MikroORM does not generate UUIDs client-side)
+    // so the execution principal — whose identity key is the definition id — can
+    // be provisioned BEFORE the row claiming the grant is persisted. A failed
+    // provisioning then leaves no definition pointing at a principal that does
+    // not exist.
+    //
+    // `createdBy` is recorded here for the first time. It was never set on this
+    // path, which silently disabled the definition-author fallback CALL_API and
+    // INVOKE_AGENT rely on for event-triggered runs.
     const definition = em.create(WorkflowDefinition, {
+      id: randomUUID(),
       workflowId: input.workflowId,
       workflowName: input.workflowName,
       description: input.description,
@@ -290,11 +318,16 @@ export async function POST(request: NextRequest) {
       definition: definitionData,
       metadata: input.metadata,
       enabled: input.enabled ?? true,
+      grantedFeatures: grantedFeatures.length ? grantedFeatures : null,
       tenantId,
       organizationId,
+      createdBy: auth.sub,
+      updatedBy: auth.sub,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+
+    await syncWorkflowDefinitionPrincipal(container, definition)
 
     await em.persist(definition).flush()
 

@@ -24,6 +24,10 @@ import {
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import {
+  definitionDeclaresGrant,
+  resolveWorkflowDefinitionExecutionUserId,
+} from './definition-grant'
+import {
   callWebhookConfigSchema,
   invokeAgentConfigSchema,
   setVariableConfigSchema,
@@ -1658,16 +1662,40 @@ async function resolveActiveRoleIdsForUser(
   return scopedRoles.map((r: any) => r.id as string)
 }
 
+/**
+ * Loads the instance's definition (including soft-deleted rows, so an execution
+ * grant on a deleted definition still binds a run that is still executing).
+ */
+async function loadInstanceDefinition(em: any, instance: CallApiInstanceLike) {
+  if (!instance.definitionId) return null
+  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  const { WorkflowDefinition } = await import('../data/entities')
+  return findOneWithDecryption(
+    em,
+    WorkflowDefinition,
+    { id: instance.definitionId, tenantId: instance.tenantId },
+    {},
+    { tenantId: instance.tenantId, organizationId: instance.organizationId },
+  )
+}
+
 export async function resolveCallApiRoleIds(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string[]> {
   if (!instance.definitionId) return []
 
-  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
-  const { WorkflowDefinition } = await import('../data/entities')
-
   const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
+  const definition = await loadInstanceDefinition(em, instance)
+
+  // 0. A definition that declares its own execution grant ALWAYS acts as its
+  //    own least-privilege principal, whoever started the run — otherwise a
+  //    CALL_API activity would mint a key carrying the starting admin's roles
+  //    and route straight around the grant.
+  if (definitionDeclaresGrant(definition)) {
+    const principalUserId = await resolveWorkflowDefinitionExecutionUserId(em, definition, null)
+    return principalUserId ? resolveActiveRoleIdsForUser(em, principalUserId, scope) : []
+  }
 
   // 1. Prefer the triggering user (whoever manually started this instance).
   //    WorkflowInstance.metadata.initiatedBy is the canonical record of that
@@ -1682,12 +1710,7 @@ export async function resolveCallApiRoleIds(
 
   // 2. Event-triggered instance with no human initiator: fall back to the
   //    definition author. Soft-deleted definitions must not mint keys.
-  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
-    id: instance.definitionId,
-    tenantId: instance.tenantId,
-    deletedAt: null,
-  }, {}, scope)
-  const authorUserId = definition?.createdBy
+  const authorUserId = definition?.deletedAt ? null : definition?.createdBy
   if (!authorUserId) return []
 
   return resolveActiveRoleIdsForUser(em, authorUserId, scope)
@@ -1703,6 +1726,9 @@ export async function resolveCallApiRoleIds(
  *   2. The definition's `createdBy` (author) for event-triggered instances with
  *      no human initiator. Soft-deleted definitions resolve to no principal.
  *
+ * Both are outranked by the definition's own `grantedFeatures` execution
+ * principal when it declares one (see `lib/definition-grant.ts`).
+ *
  * Returns `null` when no traceable principal exists — callers MUST refuse rather
  * than fall back to an empty/anonymous user id (which breaks uuid columns and
  * bypasses RBAC attribution).
@@ -1711,20 +1737,18 @@ export async function resolveWorkflowPrincipalUserId(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string | null> {
+  const definition = await loadInstanceDefinition(em, instance)
+
+  // 0. A declared execution grant outranks both — the run acts as its own
+  //    principal regardless of who started it.
+  if (definitionDeclaresGrant(definition)) {
+    return resolveWorkflowDefinitionExecutionUserId(em, definition, null)
+  }
+
   const initiatorUserId = instance.metadata?.initiatedBy ?? null
   if (initiatorUserId) return initiatorUserId
 
-  if (!instance.definitionId) return null
-
-  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
-  const { WorkflowDefinition } = await import('../data/entities')
-
-  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
-    id: instance.definitionId,
-    tenantId: instance.tenantId,
-    deletedAt: null,
-  }, {}, { tenantId: instance.tenantId, organizationId: instance.organizationId })
-
+  if (definition?.deletedAt) return null
   return definition?.createdBy ?? null
 }
 

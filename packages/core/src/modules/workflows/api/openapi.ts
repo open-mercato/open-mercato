@@ -423,6 +423,7 @@ export const workflowDefinitionResponseSchema = z
     effectiveTo: z.string().nullable(),
     tenantId: z.string().nullable(),
     organizationId: z.string().nullable(),
+    grantedFeatures: z.array(z.string()).nullable(),
     createdBy: z.string().nullable(),
     updatedBy: z.string().nullable(),
     createdAt: z.string().nullable(),

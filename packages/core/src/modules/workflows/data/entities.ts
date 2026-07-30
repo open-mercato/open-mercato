@@ -314,6 +314,23 @@ export class WorkflowDefinition {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
+  /**
+   * The least-privilege ACL features every run of THIS version executes with.
+   *
+   * Null/empty (the default, and every pre-existing row) keeps the historic
+   * behaviour: the run borrows the identity of whoever started it. A non-empty
+   * grant makes the run act as its own `auth` execution principal instead —
+   * always, regardless of who started it — so it can neither inherit an admin's
+   * powers nor be left without an actor when an event trigger starts it.
+   *
+   * A real column rather than a `metadata` key because it is a security
+   * boundary: it is read on every advance, written only through the
+   * `workflows.definitions.grant_features` gate, and must be diffable in an
+   * audit. Per version by construction — a published version is a new row.
+   */
+  @Property({ name: 'granted_features', type: 'jsonb', nullable: true })
+  grantedFeatures?: string[] | null
+
   @Property({ name: 'created_by', type: 'varchar', length: 255, nullable: true })
   createdBy?: string | null
 

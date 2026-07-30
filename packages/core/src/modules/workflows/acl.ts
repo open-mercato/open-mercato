@@ -45,6 +45,18 @@ export const features = [
     dependsOn: ['workflows.definitions.view'],
   },
   {
+    // Declaring a definition's own execution grant is strictly broader than
+    // editing it: the grant decides which ACL features EVERY run of that
+    // version executes with, so folding it into `definitions.edit` would let
+    // any workflow author mint a principal with powers they were never given.
+    // It is additionally bounded at save time — a grant can never exceed the
+    // saving user's own current features.
+    id: 'workflows.definitions.grant_features',
+    title: 'Grant execution features to workflow definitions',
+    module: moduleId,
+    dependsOn: ['workflows.definitions.edit'],
+  },
+  {
     id: 'workflows.definitions.test_run',
     title: 'Test workflow definition steps',
     module: moduleId,

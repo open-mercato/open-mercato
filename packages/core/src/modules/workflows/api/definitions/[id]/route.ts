@@ -35,6 +35,11 @@ import {
   buildStructuralEditConflictBody,
   diffDefinitionStructure,
 } from '../../../lib/definition-edit-safety'
+import {
+  authorizeWorkflowGrantChange,
+  normalizeGrantedFeatures,
+  syncWorkflowDefinitionPrincipal,
+} from '../../../lib/definition-grant'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
@@ -408,6 +413,29 @@ export async function PUT(
       definition.effectiveTo = input.effectiveTo
     }
 
+    // Execution identity. Absent leaves the stored grant untouched; an explicit
+    // value is authorised against the SAVING user's own current features (never
+    // the original author's) and the principal is re-scoped before the row is
+    // flushed, so the column and the role ACL can never disagree.
+    if (input.grantedFeatures !== undefined) {
+      const requestedGrant = normalizeGrantedFeatures(input.grantedFeatures)
+      const previousGrant = normalizeGrantedFeatures(definition.grantedFeatures)
+      const grantFailure = await authorizeWorkflowGrantChange(rbacService, {
+        userId: auth.sub,
+        scope: { tenantId, organizationId },
+        requested: requestedGrant,
+        current: previousGrant,
+      })
+      if (grantFailure) {
+        return NextResponse.json(grantFailure.body, { status: grantFailure.status })
+      }
+      definition.grantedFeatures = requestedGrant.length ? requestedGrant : null
+      // Clearing a grant re-scopes the existing principal to no features rather
+      // than leaving its old ACL behind.
+      await syncWorkflowDefinitionPrincipal(container, definition, { previousFeatures: previousGrant })
+    }
+
+    definition.updatedBy = auth.sub
     definition.updatedAt = new Date()
 
     await em.flush()

@@ -30,6 +30,7 @@ export function serializeWorkflowDefinition(definition: WorkflowDefinition) {
     effectiveTo: definition.effectiveTo ?? null,
     tenantId: definition.tenantId,
     organizationId: definition.organizationId,
+    grantedFeatures: definition.grantedFeatures ?? null,
     createdBy: definition.createdBy ?? null,
     updatedBy: definition.updatedBy ?? null,
     createdAt: definition.createdAt,
@@ -58,6 +59,9 @@ export function serializeCodeWorkflowDefinition(codeDef: CodeWorkflowDefinition,
     effectiveTo: null,
     tenantId: null,
     organizationId: null,
+    // Code-based definitions carry no execution grant: they are not editable
+    // rows, so there is nothing to authorise a grant against.
+    grantedFeatures: null,
     createdBy: null,
     updatedBy: null,
     createdAt: null,

@@ -1150,6 +1150,20 @@ export const createWorkflowDefinitionSchema = z.object({
 
 export type CreateWorkflowDefinitionInput = z.infer<typeof createWorkflowDefinitionSchema>
 
+/**
+ * The definition's own execution grant (see `lib/definition-grant.ts`).
+ *
+ * Absent leaves the stored value untouched; `null` or `[]` clears it back to
+ * "borrow the starting user's identity". Feature ids only — the subset check
+ * against the saving user's own grants happens in the route, because it needs
+ * the live RBAC service.
+ */
+export const workflowGrantedFeaturesSchema = z
+  .array(z.string().min(1).max(255))
+  .max(200)
+  .optional()
+  .nullable()
+
 // API input schema (omits tenant fields - injected from auth context)
 export const createWorkflowDefinitionInputSchema = z.object({
   workflowId: z.string().min(1).max(100).regex(/^[a-z0-9._-]+$/, 'Workflow ID must contain only lowercase letters, numbers, dots, hyphens, and underscores'),
@@ -1161,6 +1175,7 @@ export const createWorkflowDefinitionInputSchema = z.object({
   enabled: z.boolean().default(true).optional(),
   kind: workflowKindSchema.optional(),
   lifecycle: workflowLifecycleSchema.optional(),
+  grantedFeatures: workflowGrantedFeaturesSchema,
 })
 
 export type CreateWorkflowDefinitionApiInput = z.infer<typeof createWorkflowDefinitionInputSchema>
@@ -1193,6 +1208,7 @@ export const updateWorkflowDefinitionInputSchema = z.object({
   lifecycle: workflowLifecycleSchema.optional(),
   effectiveFrom: dateOrNull.optional(),
   effectiveTo: dateOrNull.optional(),
+  grantedFeatures: workflowGrantedFeaturesSchema,
 }).strict()
 
 export type UpdateWorkflowDefinitionApiInput = z.infer<typeof updateWorkflowDefinitionInputSchema>

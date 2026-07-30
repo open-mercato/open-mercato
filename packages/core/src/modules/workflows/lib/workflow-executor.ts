@@ -37,6 +37,7 @@ import {
 } from './outcome-routing'
 import { scheduleWorkflowErrorHandler } from './error-handler'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
+import { resolveWorkflowDefinitionExecutionUserId } from './definition-grant'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
 import { DRY_RUN_EVENT_TYPES } from './dry-run'
@@ -129,6 +130,30 @@ function resolveWorkflowExecutionUserId(
     normalizeWorkflowUserId(instance.metadata?.initiatedBy) ??
     undefined
   )
+}
+
+/**
+ * The identity this run advances under.
+ *
+ * A definition declaring `grantedFeatures` ALWAYS acts as its own least-
+ * privilege principal, so a run started by an admin cannot silently gain the
+ * admin's powers and an event-triggered run (which has no actor at all) gets a
+ * real one. Everything else keeps the historic borrow-the-starting-user
+ * behaviour, byte-for-byte.
+ */
+async function resolveRunActorUserId(
+  em: EntityManager,
+  definition: WorkflowDefinition,
+  context: ExecutionContext | undefined,
+  instance: WorkflowInstance,
+): Promise<string | undefined> {
+  const fallback = resolveWorkflowExecutionUserId(context, instance)
+  const actor = await resolveWorkflowDefinitionExecutionUserId(
+    em as unknown as PostgreSqlEntityManager,
+    definition,
+    fallback,
+  )
+  return actor ?? undefined
 }
 
 export class WorkflowExecutionError extends Error {
@@ -385,7 +410,7 @@ export async function executeWorkflow(
 
       const maxIterations = 100
       let iterations = 0
-      const executionUserId = resolveWorkflowExecutionUserId(context, instance)
+      const executionUserId = await resolveRunActorUserId(trx, definition, context, instance)
 
       while (iterations < maxIterations) {
         iterations++
@@ -1702,6 +1727,11 @@ export async function resumeWorkflowAfterActivities(
       organizationId: instance.organizationId,
     })
 
+    // The async-resume path runs inside a worker, so it re-resolves the actor
+    // from the definition exactly as the main loop does — otherwise a granted
+    // workflow would revert to the starting user's identity the moment one of
+    // its activities went async.
+    const resumeDefinition = await findDefinitionForInstance(trx, instance)
     const { executeStep } = await import('./step-handler')
     await executeStep(
       trx,
@@ -1709,7 +1739,9 @@ export async function resumeWorkflowAfterActivities(
       pendingTransition.toStepId,
       {
         workflowContext: instance.context || {},
-        userId: resolveWorkflowExecutionUserId(undefined, instance),
+        userId: resumeDefinition
+          ? await resolveRunActorUserId(trx, resumeDefinition, undefined, instance)
+          : resolveWorkflowExecutionUserId(undefined, instance),
       },
       container
     )
