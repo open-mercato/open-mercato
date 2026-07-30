@@ -8,9 +8,19 @@ export type SearchConfig = {
   hashAlgorithm: 'sha256' | 'sha1' | 'md5'
   storeRawTokens: boolean
   blocklistedFields: string[]
+  maxFieldChars: number
+  maxTokensPerField: number
+  maxTokensPerRecord: number
 }
 
 export const DEFAULT_SEARCH_MIN_TOKEN_LENGTH = 3
+// #4681: caps that bound how many tokens a single record can produce. Without
+// them, partial-prefix expansion over a large text field (e.g. a long email
+// body) generated 61k+ tokens for one field, feeding the runaway growth of
+// search_tokens.
+export const DEFAULT_SEARCH_MAX_FIELD_CHARS = 20000
+export const DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD = 5000
+export const DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD = 20000
 
 const DEFAULT_BLOCKLIST = ['password', 'token', 'secret', 'hash']
 
@@ -44,6 +54,9 @@ export function resolveSearchConfig(): SearchConfig {
       .map((entry) => entry.toLowerCase())
       .concat(DEFAULT_BLOCKLIST)
       .filter((value, index, arr) => arr.indexOf(value) === index),
+    maxFieldChars: parseNumber(process.env.OM_SEARCH_MAX_FIELD_CHARS, DEFAULT_SEARCH_MAX_FIELD_CHARS),
+    maxTokensPerField: parseNumber(process.env.OM_SEARCH_MAX_TOKENS_PER_FIELD, DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD),
+    maxTokensPerRecord: parseNumber(process.env.OM_SEARCH_MAX_TOKENS_PER_RECORD, DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD),
   }
 }
 

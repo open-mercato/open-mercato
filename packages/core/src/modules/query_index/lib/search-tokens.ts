@@ -100,13 +100,20 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
     tenantId: params.tenantId ?? DEFAULT_SCOPE.tenantId,
   }
 
+  // #4681: cap the total number of tokens emitted for a single record so a
+  // pathological document can never contribute an unbounded number of rows.
+  const maxTokensPerRecord = config.maxTokensPerRecord > 0 ? config.maxTokensPerRecord : Infinity
+
   for (const [field, rawValue] of Object.entries(params.doc)) {
+    if (tokens.length >= maxTokensPerRecord) break
     if (!shouldIndexField(field, rawValue, config)) continue
     const values = collectTextValues(rawValue)
     const seen = new Set<string>()
     for (const text of values) {
+      if (tokens.length >= maxTokensPerRecord) break
       const { tokens: textTokens, hashes } = tokenizeText(text, config)
       for (let i = 0; i < textTokens.length; i += 1) {
+        if (tokens.length >= maxTokensPerRecord) break
         const token = textTokens[i]
         const hash = hashes[i]
         const dedupeKey = `${field}|${hash}`

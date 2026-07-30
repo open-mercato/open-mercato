@@ -28,6 +28,9 @@ const config: SearchConfig = {
   hashAlgorithm: 'sha256',
   storeRawTokens: false,
   blocklistedFields: ['password', 'token', 'secret', 'hash'],
+  maxFieldChars: 20000,
+  maxTokensPerField: 5000,
+  maxTokensPerRecord: 20000,
 }
 
 const collectDebugPayloads = (calls: unknown[][]): Record<string, unknown>[] => {
