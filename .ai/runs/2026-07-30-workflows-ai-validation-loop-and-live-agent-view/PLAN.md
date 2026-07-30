@@ -5,7 +5,7 @@
 - **Base branch:** feat/agent-orchestrator-mvp (per maintainer decision — `develop` lacks the AI-draft feature and the agent_orchestrator peer; both live only on this WIP stack, base tip `8e549eb13`)
 - **Source doc:** .ai/specs/2026-07-30-workflows-ai-validation-loop-and-live-agent-view.md
 - **Engine:** om-auto-create-pr-loop (spec-implementation run; cross-package)
-- **Status:** in-progress
+- **Status:** complete (implementation + local typecheck/unit gate; build:app + integration + review delegated to CI/QA — see final-gate-checks.md)
 
 ## Tasks
 
