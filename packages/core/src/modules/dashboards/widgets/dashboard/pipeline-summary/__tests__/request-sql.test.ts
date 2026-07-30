@@ -18,7 +18,7 @@ function buildSqlFor(statusScope: 'open' | 'all'): string {
   const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope })
   const query = buildAggregationQuery({
     entityType: request.entityType,
-    metric: { field: request.metric.field, aggregate: 'sum' },
+    metric: request.metric,
     groupBy: request.groupBy ? { field: request.groupBy.field } : undefined,
     filters: request.filters,
     scope: { tenantId: 'tenant-1' },
