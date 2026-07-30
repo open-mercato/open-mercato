@@ -117,6 +117,21 @@ export interface EncryptionOverridesShape {
 }
 
 /**
+ * Backend navigation ordering.
+ *
+ * `groupOrder` **prepends** sidebar nav group ids: the ids listed here rank ahead of every other
+ * group, in the order given, and any group not named keeps the ordering it has today. Prepending
+ * rather than replacing means an app that only cares about its own group lists that one id, instead of
+ * having to enumerate every shipped group and accidentally demoting the ones it forgot.
+ *
+ * This is a *default*, applied beneath both role and user sidebar preferences — an operator's own
+ * arrangement still wins.
+ */
+export interface NavOverridesShape {
+  groupOrder?: string[]
+}
+
+/**
  * Umbrella shape for `entry.overrides`. Every key is optional; a
  * downstream app sets only the domains it cares about.
  */
@@ -136,6 +151,7 @@ export interface ModuleOverrides {
   acl?: AclOverridesShape
   di?: DiOverridesMap | LooseOverrideMap
   encryption?: EncryptionOverridesShape
+  nav?: NavOverridesShape
 }
 
 /**
@@ -175,6 +191,7 @@ export type ModuleOverrideDomain =
   | 'acl'
   | 'di'
   | 'encryption'
+  | 'nav'
 
 export interface ModuleOverrideEntry<TShape> {
   moduleId: string
@@ -227,6 +244,7 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
   'acl',
   'di',
   'encryption',
+  'nav',
 ]
 
 const TRACKING_ISSUE_HINT =
@@ -440,6 +458,23 @@ const aclFeatureOverrideStore: OverrideStore<Exclude<AclFeatureOverride, null>> 
 const encryptionMapOverrideStore: OverrideStore<ModuleEncryptionMap> = { modules: {}, programmatic: {} }
 const diOverrideStore: OverrideStore<Exclude<DiBindingOverride, null>> = { modules: {}, programmatic: {} }
 const setupOverridesByModule: Record<string, SetupOverridesShape> = {}
+
+/**
+ * Sidebar nav group ids to rank ahead of the built-in ordering, with the module entry that supplied
+ * them. Single-valued: nav ordering is one app-wide decision, so the last module entry in load order
+ * that supplies a non-empty list wins (a warning names the collision).
+ */
+let navGroupOrderOverride: { moduleId: string; groupOrder: string[] } | null = null
+
+/**
+ * Nav group ids an app wants ranked ahead of the built-in order, or `null` when none is configured.
+ *
+ * Consumers MUST treat `null` as "use the shipped ordering unchanged" — this is a default, applied
+ * beneath role and user sidebar preferences.
+ */
+export function getNavGroupOrderOverride(): readonly string[] | null {
+  return navGroupOrderOverride?.groupOrder ?? null
+}
 
 function normalizeIdOverrideKey(key: string, label: string): string | null {
   if (typeof key !== 'string') return null
@@ -721,6 +756,7 @@ export function resetModuleContractOverridesForTests(): void {
   clearStore(encryptionMapOverrideStore)
   clearStore(diOverrideStore)
   for (const key of Object.keys(setupOverridesByModule)) delete setupOverridesByModule[key]
+  navGroupOrderOverride = null
 }
 
 /**
@@ -1500,7 +1536,27 @@ function encryptionOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<E
   }
 }
 
+function navOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<NavOverridesShape>>): void {
+  for (const entry of entries) {
+    const raw = entry.overrides?.groupOrder
+    if (!Array.isArray(raw)) continue
+    const groupOrder = Array.from(
+      new Set(raw.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim())),
+    )
+    if (groupOrder.length === 0) continue
+    if (navGroupOrderOverride && navGroupOrderOverride.moduleId !== entry.moduleId) {
+      logger.warn('nav.groupOrder declared by more than one module — the later one wins', {
+        previousModuleId: navGroupOrderOverride.moduleId,
+        moduleId: entry.moduleId,
+        hint: 'Sidebar group ordering is a single app-wide decision; declare it on one module entry.',
+      })
+    }
+    navGroupOrderOverride = { moduleId: entry.moduleId, groupOrder }
+  }
+}
+
 function registerBuiltInModuleOverrideAppliers(): void {
+  registerModuleOverrideApplier<NavOverridesShape>('nav', navOverridesApplier)
   registerModuleOverrideApplier<RoutesOverridesShape>('routes', routesOverridesApplier)
   registerModuleOverrideApplier<EventsOverridesShape>('events', eventsOverridesApplier)
   registerModuleOverrideApplier<WorkerOverridesMap>('workers', workersOverridesApplier)
