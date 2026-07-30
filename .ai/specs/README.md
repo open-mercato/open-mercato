@@ -112,6 +112,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
 | [Backend Route Collision Guard](2026-07-23-backend-route-collision-guard.md) | 2026-07-23 | Backend Route Collision Guard | Build-time `mercato generate` guard that fails loud when two modules emit the same backend page URL (folder-derived), mirroring the duplicate-command-id guard; route overrides unaffected |
 | [Audit-Log Read Tenant Scope Fail-Closed](2026-07-28-audit-log-read-tenant-scope-fail-closed.md) | 2026-07-28 | Audit-Log Read Tenant Scope Fail-Closed | Require a resolved tenant or explicit superadmin before listing action/access logs, closing the null-tenant unscoped read across the list, CSV export and access routes |
+| [Workflow Call API Endpoint Picker](2026-07-29-workflow-call-api-endpoint-picker.md) | 2026-07-29 | Workflow Call API Endpoint Picker | Generated OpenAPI-backed endpoint discovery, parameter/schema hints, and backward-compatible pre-save validation for `CALL_API` authoring |
 
 ### Implemented Specifications
 
