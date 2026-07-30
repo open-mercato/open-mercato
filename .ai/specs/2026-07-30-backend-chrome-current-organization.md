@@ -181,6 +181,23 @@ preference seams mocked:
 - [x] Null cases covered
 - [x] Scoping asserted
 
+## Migration & Backward Compatibility
+
+No migration is required, for applications or for data.
+
+- **`BackendChromePayload.currentOrganization`** is a new **optional** field. Existing consumers are
+  unaffected; TypeScript consumers see one additional optional property. Recorded in
+  `BACKWARD_COMPATIBILITY.md` §2 alongside the other additive-field entries.
+- **`brand` is unchanged** — same field, same `logoUrl` condition, same shape. Nothing that reads `brand`
+  today changes behaviour, and this field neither supersedes nor deprecates it.
+- **`useCurrentOrganization()`** is a new export from `BackendChromeProvider`. Nothing was renamed or
+  removed there, so no bridge or deprecation window is needed.
+- **No other contract surface is touched**: no route URL or method, no request schema, no event name or
+  payload, no CLI command, no DI key, no ACL feature, and no database change.
+- **Forward constraint for future changes**: `null` MUST keep meaning "unknown" — an all-organizations
+  selection, no organization in scope, or a failed lookup. Redefining `null` as "no organization" would
+  break consumers that render a fallback label while the payload is still loading.
+
 ## Changelog
 
 - 2026-07-30: Drafted and implemented. Reported from a downstream app that had to fetch
