@@ -41,7 +41,6 @@ so tenant-specific stages are never silently reclassified.
 ## Notes
 
 - Scope stays inside the customers module. The `dashboards` pipeline-summary widget has its own
-  denylist landing in the still-open #4629; wiring it to this helper belongs to a follow-up so the
-  two PRs do not conflict.
+  status and `closureOutcome` handling in #4683; direct cross-module imports are not allowed.
 - `data/validators.ts` and `api/deals/[id]/stats/route.ts` keep the `closureOutcome` enum
   (`won` / `lost`) — that is a separate, well-defined column and not part of this mismatch.

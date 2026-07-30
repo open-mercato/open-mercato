@@ -3,8 +3,9 @@
 // `customer_deals.status` is a lenient text column and the supported writers do not agree on
 // one spelling: the closure hooks and the kanban board persist `win` / `loose`, the AI tool
 // `customers.update_deal_stage` persists `won` / `lost`, and the seeded vocabulary also carries
-// `closed`. The terminal set below therefore covers every spelling a writer persists, so a deal
-// closed through any supported path is reported the same way by every read-side surface.
+// `closed`. The terminal set below therefore covers every spelling a status writer persists, so
+// status-based readers can share one classification. `closureOutcome` is a separate signal and
+// callers that combine both columns must handle it explicitly.
 //
 // A status not known to code counts as OPEN. Deal stages are configurable per tenant, so the
 // lenient column can hold values this module has never seen — treating them as open keeps them
