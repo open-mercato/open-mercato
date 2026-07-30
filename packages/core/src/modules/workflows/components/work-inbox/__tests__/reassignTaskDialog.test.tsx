@@ -31,16 +31,30 @@ jest.mock('@open-mercato/ui/primitives/button', () => ({
   ),
 }))
 
-jest.mock('@open-mercato/ui/primitives/dialog', () => ({
-  Dialog: ({ open, children }: { open?: boolean; children?: React.ReactNode }) =>
+// The form is a rail now, so the drawer primitive is what it renders through.
+jest.mock('@open-mercato/ui/primitives/drawer', () => ({
+  Drawer: ({ open, children }: { open?: boolean; children?: React.ReactNode }) =>
     open ? <div>{children}</div> : null,
-  DialogContent: ({ children, ...rest }: { children?: React.ReactNode }) => (
-    <div {...rest}>{children}</div>
+  DrawerContent: ({
+    children,
+    closeAriaLabel: _closeAriaLabel,
+    side: _side,
+    hideCloseButton: _hideCloseButton,
+    ...rest
+  }: {
+    children?: React.ReactNode
+    closeAriaLabel?: string
+    side?: string
+    hideCloseButton?: boolean
+  }) => <div {...rest}>{children}</div>,
+  DrawerHeader: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  DrawerBody: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  DrawerFooter: ({ leading, children }: { leading?: React.ReactNode; children?: React.ReactNode }) => (
+    <div>{leading}{children}</div>
   ),
-  DialogHeader: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
-  DialogFooter: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
-  DialogDescription: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
+  DrawerTitle: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
+  DrawerDescription: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
+  DrawerClose: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/input', () => ({
