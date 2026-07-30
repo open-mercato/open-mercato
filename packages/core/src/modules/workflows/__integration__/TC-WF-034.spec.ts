@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { workflowInspector } from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -55,7 +56,11 @@ function buildConversionDefinitionPayload(timestamp: number) {
           stepType: 'USER_TASK',
           userTaskConfig: {
             assignedTo: 'admin',
-            formSchema: { fields: [{ name: 'approved', type: 'boolean', required: true }] },
+            // `label` is required by `userTaskConfigSchema`'s `fields` arm
+            // (data/validators.ts) — without it the whole definition is rejected
+            // 400 `invalid_union`. Same fix as 8e5d02974 applied to the shared
+            // fixture; this spec carries its own copy.
+            formSchema: { fields: [{ name: 'approved', type: 'boolean', label: 'Approved', required: true }] },
           },
         },
         { stepId: 'done', stepName: 'Done', stepType: 'END' },
@@ -78,7 +83,9 @@ async function openStudio(page: Page, definitionId: string): Promise<void> {
 
 async function openStepInspector(page: Page, stepId: string): Promise<void> {
   await page.locator(`.react-flow__node[data-id="${stepId}"]`).click()
-  await expect(page.getByRole('dialog').filter({ hasText: 'Edit Step' })).toBeVisible({ timeout: 15_000 })
+  // The step inspector is the DOCKED rail at this viewport, not a modal dialog.
+  await expect(workflowInspector(page)).toBeVisible({ timeout: 15_000 })
+  await expect(workflowInspector(page).getByRole('heading', { name: 'Edit Step' })).toBeVisible()
 }
 
 test.describe('TC-WF-034: step-type conversion quarantines config visibly', () => {
@@ -102,7 +109,12 @@ test.describe('TC-WF-034: step-type conversion quarantines config visibly', () =
 
       // The confirmation names what is about to be parked — the author is never
       // asked to approve a silent deletion.
-      const confirmDialog = page.getByRole('dialog').filter({ hasText: 'Change step type?' })
+      // `useConfirmDialog` renders an alertdialog, not a plain dialog.
+      const confirmDialog = page
+        .getByRole('alertdialog')
+        .filter({ hasText: 'Change step type?' })
+        .or(page.getByRole('dialog').filter({ hasText: 'Change step type?' }))
+        .first()
       await expect(confirmDialog).toBeVisible({ timeout: 15_000 })
       await expect(confirmDialog).toContainText('move to Unmapped configuration')
       await expect(confirmDialog).toContainText('userTaskConfig')
@@ -118,7 +130,7 @@ test.describe('TC-WF-034: step-type conversion quarantines config visibly', () =
       await expect(drawer.locator('pre')).toContainText('userTaskConfig')
       await expect(drawer.locator('pre')).toContainText('assignedTo')
       await page.keyboard.press('Escape')
-      await expect(page.getByRole('dialog').filter({ hasText: 'Edit Step' })).toBeHidden({ timeout: 15_000 })
+      await expect(workflowInspector(page)).toBeHidden({ timeout: 15_000 })
 
       // Problems flags it as a warning so it cannot be forgotten about.
       await page.getByRole('button', { name: 'Validate', exact: true }).click()
