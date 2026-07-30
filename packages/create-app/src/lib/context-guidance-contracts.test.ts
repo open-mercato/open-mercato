@@ -69,6 +69,9 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /extractUndoPayload/)
   assert.match(integrity, /commands\/customFieldSnapshots/)
   assert.match(integrity, /buildCustomFieldResetMap/)
+  assert.match(integrity, /loadCustomFieldSnapshot\(em, \{ entityId, recordId, tenantId, organizationId \}\)/)
+  assert.match(integrity, /`DataEngine` has no `getCustomFields`/)
+  assert.match(integrity, /dataEngine\.setCustomFields\(\{ entityId, recordId, tenantId, organizationId, values, notify \}\)/)
   assert.match(integrity, /enforceCommandOptimisticLock/)
   assert.match(integrity, /undo: async \(\{ logEntry, ctx \}\)/)
   assert.match(integrity, /registerCommand\(command\)` separately/)
@@ -167,6 +170,10 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(crudSurfaces, /`onDelete` receives no values argument/)
   assert.match(crudSurfaces, /CrudForm has no `onCancel` prop/)
   assert.match(crudSurfaces, /use `cancelHref`/)
+  assert.match(crudSurfaces, /const initialValues = values/)
+  assert.match(crudSurfaces, /TypeScript does not retain state-property narrowing/)
+  assert.match(crudSurfaces, /const \{ confirm, ConfirmDialogElement \} = useConfirmDialog\(\)/)
+  assert.match(crudSurfaces, /hook result itself is not callable/)
 
   const pageAndNavigation = readAgentic(
     'shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md',
@@ -184,6 +191,10 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(verification, /never Vitest/)
   assert.match(verification, /@jest\/globals/)
   assert.match(verification, /discover and execute/)
+  assert.match(verification, /beforeEach\(\(\) => \{ jest\.clearAllMocks\(\) \}\)/)
+  assert.match(verification, /complete callable signatures/)
+  assert.match(verification, /full `\{ input, logEntry, ctx \}` object/)
+  assert.match(verification, /Do not stop with a known TypeScript diagnostic/)
   const testingGuide = readAgentic('guides/testing-debugging.md')
   assert.match(testingGuide, /om-module-scaffold\/references\/verification\.md/)
 
