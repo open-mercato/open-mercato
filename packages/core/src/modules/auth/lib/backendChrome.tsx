@@ -411,6 +411,11 @@ export async function resolveBackendChromePayload({
     ?? (fallbackOrganizationId && !isAllOrganizationsSelection(fallbackOrganizationId) ? fallbackOrganizationId : null)
 
   let brand: BackendChromePayload['brand'] = null
+  // Resolved here rather than left to callers. `brand` only populates when the organization has a
+  // logo, so it is a branding channel, not a dependable "which organization am I viewing" source.
+  // Without this field every downstream app has to fetch `/api/directory/organization-switcher` and
+  // walk its tree for the selected id. The row is already loaded below, so the name costs nothing.
+  let currentOrganization: BackendChromePayload['currentOrganization'] = null
   if (brandOrganizationId && scopedTenantId) {
     try {
       const organization = await findOneWithDecryption(
@@ -420,6 +425,9 @@ export async function resolveBackendChromePayload({
         undefined,
         { tenantId: scopedTenantId, organizationId: brandOrganizationId },
       )
+      if (organization) {
+        currentOrganization = { id: String(organization.id), name: organization.name }
+      }
       if (organization?.logoUrl) {
         brand = {
           name: organization.name,
@@ -430,7 +438,9 @@ export async function resolveBackendChromePayload({
         }
       }
     } catch {
+      // Fail soft, as before: a failed organization lookup must not take down the nav payload.
       brand = null
+      currentOrganization = null
     }
   }
 
@@ -443,5 +453,6 @@ export async function resolveBackendChromePayload({
     grantedFeatures,
     roles: Array.isArray(auth.roles) ? auth.roles : [],
     brand,
+    currentOrganization,
   }
 }
