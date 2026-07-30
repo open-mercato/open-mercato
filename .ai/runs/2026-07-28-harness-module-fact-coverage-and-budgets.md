@@ -76,10 +76,17 @@ Follow-up: #4603
       schema, validators and harness docs said 196) and bind every published count to the catalog so
       the class cannot return — the new guard reproduces the drift as a failure before the fix and
       passes after — 2e1a1e896
-- [ ] 6.2 Port the content unique to #4556 onto this branch and close #4556 as superseded
-- [ ] 6.3 Merge #4529 head `abed8e02a` and renumber this branch's nine cases to OMH-193…201,
-      including the `relatedCases` that would otherwise point at #4529's different OMH-188/189
-- [ ] 6.4 Full configured validation gate, republished reviewable delta in the PR body, label request
+- [x] 6.2 Port the content unique to #4556: its execution plan (adapted to this branch's merge head and
+      to the fact that the seven later cases have their own plan), the portability-sample correction its
+      `f9d584589` made, and its schema-enforcement canary fix — the canary now pins `OMH-201`
+      — 3af9024e7, bbdeae39c
+- [x] 6.3 Merge #4529 head `abed8e02a` and renumber this branch's nine cases to OMH-193…201,
+      including the `relatedCases` that would otherwise point at #4529's different OMH-188/189. The
+      byte-identical parent catalog reverted three measured budget widenings; the deterministic gate
+      caught it and they are restored — 3af9024e7, 98988a512
+- [ ] 6.4 Full configured validation gate on the merge result
+- [ ] 6.5 Republish the reviewable delta in the PR body, request the missing labels, and close #4556
+      as superseded
 
 ## Deliberately out of scope
 
