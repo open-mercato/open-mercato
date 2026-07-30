@@ -366,6 +366,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.50 Bind AI attachment work to every named domain-record fact — `2b12bcd20`
 - [x] 3.51 Stabilize measured routing floors, correction declarations, and residual specialist owners — `56d36b252`
 - [x] 3.52 Bind final generative routing owners and measured case-local floors — `c359d83ed`
+- [x] 3.53 Close cross-runner generative residuals without weakening shared safety contracts — `b7a33ed1b`
 
 ### Phase 4: Compatibility baseline
 
