@@ -22,6 +22,7 @@ import { canApplyManualAction, isValidTransition, type ManualGatewayAction } fro
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
 import {
+  alignCapturedAmountWithStatus,
   assertCaptureWithinRemaining,
   formatAmountUnits,
   parseAmountUnits,
@@ -202,7 +203,11 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     scope: { organizationId: string; tenantId: string }
     assertInitialAllowed?: (transaction: GatewayTransaction) => void
     beforeInvoke?: (context: { transaction: GatewayTransaction; operation: GatewayPaymentOperation }) => Promise<void>
-    releaseOnFailure?: (context: { transaction: GatewayTransaction; operation: GatewayPaymentOperation }) => Promise<void>
+    releaseOnFailure?: (context: {
+      transaction: GatewayTransaction
+      operation: GatewayPaymentOperation
+      providerInvoked: boolean
+    }) => Promise<void>
     invoke: (context: {
       adapter: GatewayAdapter
       credentials: Record<string, unknown>
@@ -240,6 +245,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     // completion transaction committed it. A later event or logging failure must not undo either,
     // so the failure path below only runs while the operation can still be rolled back.
     let settled = false
+    // Flips once the provider call returned, so the failure path can tell "the provider never
+    // moved the money" from "the provider moved it and only our bookkeeping failed" — the two
+    // cases need opposite rollback decisions.
+    let providerInvoked = false
     try {
       await input.beforeInvoke?.({ transaction, operation })
       const { adapter, credentials } = await resolveAdapterAndCredentials(
@@ -252,6 +261,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         transaction,
         idempotencyKey: prepared.claim.providerIdempotencyKey,
       })
+      providerInvoked = true
       const statusChanged = await completePaymentOperation(
         em,
         prepared.claim,
@@ -278,7 +288,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     } catch (error: unknown) {
       if (!settled) {
         if (input.releaseOnFailure) {
-          await input.releaseOnFailure({ transaction, operation }).catch(() => undefined)
+          await input.releaseOnFailure({ transaction, operation, providerInvoked }).catch(() => undefined)
         }
         await Promise.allSettled([failPaymentOperation(em, prepared.claim)])
       }
@@ -528,11 +538,25 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             providerAmount = Number(formatAmountUnits(reservedUnits))
           }
         },
-        // Nothing was settled, so the slice goes back. A retry of this same operation id reuses the
-        // provider idempotency key, so the provider itself collapses a capture that did go through
-        // despite the error we saw.
-        releaseOnFailure: async ({ transaction, operation }) => {
+        // The slice goes back only while the provider has not been called yet. Once the capture
+        // call returned, the money may already have moved and only the completion transaction
+        // failed, so releasing would reopen the authorization for a fresh operation id and allow an
+        // over-capture. Holding the reservation is the conservative outcome: a retry of this same
+        // operation id reuses both the reservation and the provider idempotency key, so the provider
+        // itself collapses the duplicate.
+        releaseOnFailure: async ({ transaction, operation, providerInvoked }) => {
           if (reservedUnits === null) return
+          if (providerInvoked) {
+            await writeTransactionLog(
+              transaction.providerKey,
+              { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+              transaction.id,
+              'warn',
+              'Capture reservation stays outstanding because the provider call already returned',
+              { operationId: operation.operationId, reservedAmount: formatAmountUnits(reservedUnits) },
+            )
+            return
+          }
           const released = await releaseCaptureAmount(em, { transactionId, operation, reservedUnits, scope })
           if (released) return
           await writeTransactionLog(
@@ -651,6 +675,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       if (status.status !== transaction.unifiedStatus && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)) {
         const previousStatus = transaction.unifiedStatus
         transaction.unifiedStatus = status.status
+        alignCapturedAmountWithStatus(transaction, status.status)
         transaction.gatewayStatus = status.status
         transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), statusResult: status.providerData ?? null }
         transaction.lastPolledAt = new Date()
@@ -697,6 +722,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       const previousStatus = transaction.unifiedStatus
       if (shouldApplyStatus) {
         transaction.unifiedStatus = update.unifiedStatus
+        alignCapturedAmountWithStatus(transaction, update.unifiedStatus)
       }
       if (update.providerStatus) {
         transaction.gatewayStatus = update.providerStatus

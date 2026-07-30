@@ -243,6 +243,12 @@ Pass an `operationId` to make a capture retry-safe: repeating it replays the sto
 of capturing a second time. Two genuinely separate partial captures need two distinct
 `operationId` values.
 
+When a capture fails *after* the provider call returned — the money may already have moved and only
+the bookkeeping failed — the reserved slice stays held rather than being handed back, so a fresh
+`operationId` cannot spend it twice. Retry that capture with the **same** `operationId`: it reuses
+the reservation and the provider idempotency key, so the provider collapses the duplicate and the
+captured-to-date total settles on what was really captured.
+
 ## Refund payment — `POST /payment_gateways/refund`
 
 **Feature:** `payment_gateways.refund`

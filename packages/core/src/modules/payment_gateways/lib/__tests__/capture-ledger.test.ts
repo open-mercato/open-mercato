@@ -1,6 +1,7 @@
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { GatewayPaymentOperation, GatewayTransaction } from '../../data/entities'
 import {
+  alignCapturedAmountWithStatus,
   assertCaptureWithinRemaining,
   formatAmountUnits,
   parseAmountUnits,
@@ -175,6 +176,40 @@ describe('settleCapturedAmount', () => {
     settleCapturedAmount(transaction, 600_000n, Number.NaN)
 
     expect(transaction.capturedAmount).toBe('60.0000')
+  })
+})
+
+describe('alignCapturedAmountWithStatus', () => {
+  it('records the full amount when the provider reports a completed capture', () => {
+    const transaction = makeTransaction('100.0000', '0.0000')
+
+    alignCapturedAmountWithStatus(transaction, 'captured')
+
+    expect(transaction.capturedAmount).toBe('100.0000')
+  })
+
+  it('never lowers a ledger that already recorded more than the reported status implies', () => {
+    const transaction = makeTransaction('100.0000', '100.0000')
+
+    alignCapturedAmountWithStatus(transaction, 'captured')
+
+    expect(transaction.capturedAmount).toBe('100.0000')
+  })
+
+  it('leaves a partial capture alone because the reported status carries no amount', () => {
+    const transaction = makeTransaction('100.0000', '0.0000')
+
+    alignCapturedAmountWithStatus(transaction, 'partially_captured')
+
+    expect(transaction.capturedAmount).toBe('0.0000')
+  })
+
+  it('ignores statuses that do not mean money was captured', () => {
+    const transaction = makeTransaction('100.0000', '0.0000')
+
+    alignCapturedAmountWithStatus(transaction, 'authorized')
+
+    expect(transaction.capturedAmount).toBe('0.0000')
   })
 })
 

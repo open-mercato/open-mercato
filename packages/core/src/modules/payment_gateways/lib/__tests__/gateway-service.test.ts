@@ -523,6 +523,55 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
     expect(transaction.capturedAmount).toBe('60.0000')
   })
 
+  it('keeps the reservation when the provider captured but the completion transaction failed', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn, flush } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 60 })
+    flush.mockRejectedValueOnce(new Error('database unavailable'))
+
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-completion-fails'))
+      .rejects.toThrow('database unavailable')
+
+    expect(transaction.capturedAmount).toBe('60.0000')
+
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-after-completion-failure'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(captureFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('records a webhook-confirmed full capture so a later manual capture cannot charge again', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+
+    await service.syncTransactionStatus(
+      transaction.id,
+      { unifiedStatus: 'captured', providerStatus: 'succeeded' },
+      scope,
+    )
+
+    expect(transaction.capturedAmount).toBe('100.0000')
+    await expect(service.capturePayment(transaction.id, 100, scope, 'capture-after-webhook'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+    expect(captureFn).not.toHaveBeenCalled()
+  })
+
+  it('leaves the remainder capturable when a webhook only reports a partial capture', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 40 })
+
+    await service.syncTransactionStatus(
+      transaction.id,
+      { unifiedStatus: 'partially_captured', providerStatus: 'partially_succeeded' },
+      scope,
+    )
+
+    expect(transaction.capturedAmount).toBe('0.0000')
+    await service.capturePayment(transaction.id, 40, scope, 'capture-remainder')
+    expect(transaction.capturedAmount).toBe('40.0000')
+  })
+
   it('keeps fractional captures exact instead of accumulating floating-point drift', async () => {
     const transaction = makeTransaction('authorized')
     const { service, captureFn } = buildService(transaction, {})

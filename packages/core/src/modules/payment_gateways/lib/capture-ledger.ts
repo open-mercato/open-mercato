@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { UnifiedPaymentStatus } from '@open-mercato/shared/modules/payment_gateways/types'
 import { GatewayPaymentOperation, GatewayTransaction } from '../data/entities'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -174,6 +175,24 @@ export function settleCapturedAmount(
   if (actualUnits === reservedUnits) return
   const settledUnits = parseAmountUnits(transaction.capturedAmount) - reservedUnits + actualUnits
   transaction.capturedAmount = formatAmountUnits(settledUnits < 0n ? 0n : settledUnits)
+}
+
+/**
+ * Keeps the ledger honest for captures that happened outside the capture endpoint. A webhook or a
+ * status poll reports money that already moved but carries no captured amount, so only `captured`
+ * — the provider saying the whole authorization was taken — can be translated into a number: the
+ * full amount. The ledger is raised, never lowered, so an already recorded capture survives.
+ * `partially_captured` carries no recoverable amount, so it is left alone and the remainder stays
+ * capturable.
+ */
+export function alignCapturedAmountWithStatus(
+  transaction: GatewayTransaction,
+  status: UnifiedPaymentStatus,
+): void {
+  if (status !== 'captured') return
+  const authorizedUnits = parseAmountUnits(transaction.amount)
+  if (parseAmountUnits(transaction.capturedAmount) >= authorizedUnits) return
+  transaction.capturedAmount = formatAmountUnits(authorizedUnits)
 }
 
 /**
