@@ -168,7 +168,13 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
         />
       )}
 
-      <ErrorOutputHandle isConnectable={isConnectable} />
+      {/* Like the default source handle above, the floating error handle only
+          belongs on a node WITHOUT an outcome footer. When the footer renders,
+          error routing is already expressed there (the `error` disposition row
+          plus the "unhandled → error directive" inheritance note), so a second
+          floating red handle pinned at top:75% only overlaps the revealed
+          rows. */}
+      {!hasOutcomeFooter && <ErrorOutputHandle isConnectable={isConnectable} />}
     </div>
   )
 }

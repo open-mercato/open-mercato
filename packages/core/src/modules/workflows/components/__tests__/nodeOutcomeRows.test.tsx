@@ -155,6 +155,27 @@ describe('the footer never lets colour carry the meaning', () => {
     expect(onReveal).toHaveBeenCalledTimes(1)
   })
 
+  it('reveals in place without bubbling to the node click that opens the dialog', () => {
+    // Regression: the reveal control lives inside the React Flow node, so a
+    // click that bubbles reaches onNodeClick and opens the edit dialog instead
+    // of disclosing the rows on the card.
+    const onReveal = jest.fn()
+    const onNodeClick = jest.fn()
+    renderWithProviders(
+      <div onClick={onNodeClick}>
+        <NodeOutcomeRows
+          rows={buildAgentOutcomeRows([], agentStep)}
+          revealLabel="+ outcome"
+          onReveal={onReveal}
+        />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '+ outcome' }))
+    expect(onReveal).toHaveBeenCalledTimes(1)
+    expect(onNodeClick).not.toHaveBeenCalled()
+  })
+
   it('renders nothing at all when a node has no rows', () => {
     const { container } = renderWithProviders(<NodeOutcomeRows rows={[]} />)
     expect(container).toBeEmptyDOMElement()
@@ -214,6 +235,29 @@ describe('the default route is the footer last row, not a floating handle', () =
     ).toHaveLength(1)
     expect(
       document.querySelector(`[data-default-route-handle="${DEFAULT_SOURCE_HANDLE_ID}"]`),
+    ).not.toBeNull()
+  })
+
+  it('drops the floating error handle when the outcome footer renders, so nothing overlaps the rows', () => {
+    // Regression: the floating ErrorOutputHandle (pinned at top:75%) was
+    // rendered unconditionally, so once the footer grew — e.g. after revealing
+    // every outcome — the red handle covered the newly shown rows. The footer
+    // already expresses error routing (the `error` disposition row plus the
+    // inheritance note), so the floating handle must follow the default handle
+    // and stay off a footered node.
+    const props = {
+      id: agentStep,
+      data: { label: 'Assess request', outcomeRows: buildAllAgentOutcomeRows() },
+      isConnectable: true,
+      selected: false,
+    } as unknown as React.ComponentProps<typeof InvokeAgentNode>
+
+    renderWithProviders(<InvokeAgentNode {...props} />)
+
+    expect(document.querySelector('[data-testid="workflow-error-handle"]')).toBeNull()
+    // The error routing is still present as a footer row, not a floating dot.
+    expect(
+      document.querySelector(`[data-outcome-handle="${outcomeSourceHandleId('error')}"]`),
     ).not.toBeNull()
   })
 

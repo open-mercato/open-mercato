@@ -122,7 +122,14 @@ export function NodeOutcomeRows({
             variant="ghost"
             size="2xs"
             className="nodrag nopan"
-            onClick={onReveal}
+            onClick={(event) => {
+              // Reveal the remaining outcome rows in place. Without stopping
+              // propagation the click also bubbles to React Flow's onNodeClick,
+              // which opens the node edit dialog — the wrong surface for a
+              // canvas-local disclosure.
+              event.stopPropagation()
+              onReveal()
+            }}
           >
             {revealLabel}
           </Button>
