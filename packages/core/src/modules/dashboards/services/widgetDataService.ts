@@ -13,10 +13,14 @@ import {
   determineChangeDirection,
   isValidDateRangePreset,
 } from '@open-mercato/ui/backend/date-range'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   type AggregateFunction,
   type DateGranularity,
   buildAggregationQuery,
+  buildGroupSourceRowsQuery,
+  resolveGroupExpression,
 } from '../lib/aggregations'
 import type { AnalyticsRegistry } from './analyticsRegistry'
 
@@ -24,7 +28,16 @@ const WIDGET_DATA_CACHE_TTL = 120_000
 const WIDGET_DATA_SEGMENT_TTL = 86_400_000
 const WIDGET_DATA_SEGMENT_KEY = 'widget-data:__segment__'
 
+/**
+ * Encrypted group sources cannot be grouped by the database, so the rows are scanned and
+ * aggregated in application code. The cap keeps that scan bounded; overflowing it fails loudly
+ * instead of charting a silently truncated result (#4622).
+ */
+const ENCRYPTED_GROUP_SCAN_LIMIT = 20_000
+
 const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
+const logger = createLogger('dashboards').child({ component: 'widget-data' })
 
 export class WidgetDataValidationError extends Error {
   constructor(message: string) {
@@ -33,9 +46,67 @@ export class WidgetDataValidationError extends Error {
   }
 }
 
+export class WidgetDataScanLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'WidgetDataScanLimitError'
+  }
+}
+
+type EncryptedGroupSource = {
+  entityId: string
+  dbColumn: string
+  jsonPath: string | null
+}
+
 function assertSafeIdentifier(value: string, name: string): void {
   if (!SAFE_IDENTIFIER_PATTERN.test(value)) {
     throw new Error(`Invalid ${name}: ${value}`)
+  }
+}
+
+/**
+ * Encryption maps may register a field in either casing (`findKey` in the encryption service
+ * accepts both), so match the analytics column tolerantly rather than by exact snake_case.
+ */
+function matchesColumn(fieldName: string, dbColumn: string): boolean {
+  const normalize = (value: string) => value.replace(/_/g, '').toLowerCase()
+  return normalize(fieldName) === normalize(dbColumn)
+}
+
+function readJsonPath(value: unknown, path: string): unknown {
+  let current = value
+  for (const part of path.split('.')) {
+    if (current === null || typeof current !== 'object') return null
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
+
+type GroupBucket = {
+  /** Rows with a non-null metric column, mirroring SQL `COUNT(column)`. */
+  count: number
+  /** Numeric metric values, for the aggregates that need them. */
+  values: number[]
+}
+
+/** Mirrors the SQL semantics of `buildAggregateExpression` for application-side aggregation. */
+function aggregateBucket(aggregate: AggregateFunction, bucket: GroupBucket): number | null {
+  switch (aggregate) {
+    case 'count':
+      return bucket.count
+    case 'sum':
+      return bucket.values.reduce((sum, value) => sum + value, 0)
+    case 'avg':
+      return bucket.values.length === 0
+        ? 0
+        : bucket.values.reduce((sum, value) => sum + value, 0) / bucket.values.length
+    case 'min':
+      return bucket.values.length === 0 ? null : Math.min(...bucket.values)
+    case 'max':
+      return bucket.values.length === 0 ? null : Math.max(...bucket.values)
+    default:
+      return bucket.count
   }
 }
 
@@ -229,6 +300,13 @@ export class WidgetDataService {
     request: WidgetDataRequest,
     dateRange?: { start: Date; end: Date },
   ): Promise<{ value: number | null; data: WidgetDataItem[] }> {
+    if (request.groupBy) {
+      const encryptedSource = await this.resolveEncryptedGroupSource(request.entityType, request.groupBy)
+      if (encryptedSource) {
+        return this.executeEncryptedGroupQuery(request, encryptedSource, dateRange)
+      }
+    }
+
     const query = buildAggregationQuery({
       entityType: request.entityType,
       metric: request.metric,
@@ -264,6 +342,161 @@ export class WidgetDataService {
     return { value: singleValue, data: [] }
   }
 
+  /**
+   * Reports the encrypted column a groupBy field reads from, or null when the source is stored in
+   * plaintext and can be grouped by the database. Grouping over an encrypted column in SQL buckets
+   * ciphertext and renders it to the user (#4622).
+   */
+  private async resolveEncryptedGroupSource(
+    entityType: string,
+    groupBy: NonNullable<WidgetDataRequest['groupBy']>,
+  ): Promise<EncryptedGroupSource | null> {
+    const encryptionService = resolveTenantEncryptionService(this.em as any)
+    if (!encryptionService?.isEnabled()) return null
+
+    const resolved = resolveGroupExpression(this.registry, entityType, groupBy)
+    if (!resolved) return null
+
+    const tableName = this.registry.getEntityTypeConfig(entityType)?.tableName
+    if (!tableName) return null
+
+    const entityId = this.resolveEntityId(this.resolveEntityMetadata(tableName))
+    if (!entityId) return null
+
+    const organizationId = this.resolveOrganizationId()
+    let encryptedFields: string[]
+    try {
+      encryptedFields = await encryptionService.getEncryptedFieldNames(entityId, this.scope.tenantId, organizationId)
+    } catch (err) {
+      logger.warn('Failed to resolve encrypted fields for widget grouping', { err, entityId, entityType })
+      return null
+    }
+
+    if (!encryptedFields.some((field) => matchesColumn(field, resolved.dbColumn))) return null
+
+    if (resolved.jsonPath === null && groupBy.granularity) {
+      throw new WidgetDataValidationError(
+        `Cannot group encrypted field by granularity: ${groupBy.field}`,
+      )
+    }
+
+    return { entityId, dbColumn: resolved.dbColumn, jsonPath: resolved.jsonPath }
+  }
+
+  /**
+   * Aggregates an encrypted group source in application code: rows are scanned, the group column is
+   * decrypted, and only the resulting plaintext keys are grouped. Values that cannot be decrypted
+   * collapse into the null ("Unknown") bucket so ciphertext never reaches the response.
+   */
+  private async executeEncryptedGroupQuery(
+    request: WidgetDataRequest,
+    source: EncryptedGroupSource,
+    dateRange?: { start: Date; end: Date },
+  ): Promise<{ value: number | null; data: WidgetDataItem[] }> {
+    const query = buildGroupSourceRowsQuery({
+      entityType: request.entityType,
+      metric: request.metric,
+      dateRange: dateRange && request.dateRange ? { field: request.dateRange.field, ...dateRange } : undefined,
+      filters: request.filters,
+      scope: this.scope,
+      registry: this.registry,
+      groupColumn: source.dbColumn,
+      rowLimit: ENCRYPTED_GROUP_SCAN_LIMIT,
+    })
+
+    if (!query) {
+      throw new Error('Failed to build aggregation query')
+    }
+
+    const rows = await this.em.getConnection().execute(query.sql, query.params)
+    const results = Array.isArray(rows) ? rows : []
+
+    if (results.length > ENCRYPTED_GROUP_SCAN_LIMIT) {
+      throw new WidgetDataScanLimitError(
+        `Too many rows to group encrypted field ${request.groupBy?.field} (limit ${ENCRYPTED_GROUP_SCAN_LIMIT})`,
+      )
+    }
+
+    const encryptionService = resolveTenantEncryptionService(this.em as any)
+    const dek = encryptionService?.isEnabled() ? await encryptionService.getDek(this.scope.tenantId) : null
+
+    const buckets = new Map<string | null, GroupBucket>()
+    let undecryptableRows = 0
+
+    for (const row of results as Array<Record<string, unknown>>) {
+      const resolvedKey = this.resolveDecryptedGroupKey(row.group_source, source, dek?.key ?? null)
+      // An undecryptable source joins the null ("Unknown") bucket rather than being dropped, so the
+      // widget total still matches the underlying rows.
+      if (resolvedKey === undefined) undecryptableRows += 1
+      const groupKey = resolvedKey === undefined ? null : resolvedKey
+
+      let bucket = buckets.get(groupKey)
+      if (!bucket) {
+        bucket = { count: 0, values: [] }
+        buckets.set(groupKey, bucket)
+      }
+
+      const metricValue = row.metric_value
+      if (metricValue === null || metricValue === undefined) continue
+      bucket.count += 1
+      const numeric = Number(metricValue)
+      if (Number.isFinite(numeric)) bucket.values.push(numeric)
+    }
+
+    if (undecryptableRows > 0) {
+      logger.warn('Grouped rows with an undecryptable group source as unknown', {
+        entityId: source.entityId,
+        column: source.dbColumn,
+        rows: undecryptableRows,
+      })
+    }
+
+    let data: WidgetDataItem[] = Array.from(buckets.entries())
+      .map(([groupKey, bucket]) => ({ groupKey, value: aggregateBucket(request.metric.aggregate, bucket) }))
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+
+    if (request.groupBy?.limit && request.groupBy.limit > 0) {
+      data = data.slice(0, Math.min(request.groupBy.limit, 100))
+    }
+
+    if (request.groupBy?.resolveLabels) {
+      data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
+    }
+
+    const totalValue = data.reduce((sum: number, item: WidgetDataItem) => sum + (item.value ?? 0), 0)
+    return { value: totalValue, data }
+  }
+
+  /**
+   * Returns the plaintext group key for a scanned row, `null` for an empty/absent value, or
+   * `undefined` when the source is ciphertext that could not be decrypted.
+   */
+  private resolveDecryptedGroupKey(
+    rawValue: unknown,
+    source: EncryptedGroupSource,
+    dek: string | null,
+  ): string | null | undefined {
+    if (rawValue === null || rawValue === undefined) return null
+
+    let value: unknown = rawValue
+    if (typeof value === 'string' && this.isEncryptedPayload(value)) {
+      if (!dek) return undefined
+      const decrypted = this.decryptWithDek(value, dek)
+      if (decrypted === null) return undefined
+      value = parseDecryptedFieldValue(decrypted)
+    }
+
+    if (source.jsonPath !== null) {
+      value = readJsonPath(value, source.jsonPath)
+    }
+
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value === 'object') return null
+    const key = String(value)
+    // Defense in depth: a nested value that is itself ciphertext must never reach the response.
+    return this.isEncryptedPayload(key) ? undefined : key
+  }
+
   private async resolveGroupLabels(
     data: WidgetDataItem[],
     entityType: string,
@@ -272,10 +505,13 @@ export class WidgetDataService {
     const config = this.registry.getLabelResolverConfig(entityType, groupByField)
 
     if (!config) {
-      return data.map((item) => ({
-        ...item,
-        groupLabel: item.groupKey != null && item.groupKey !== '' ? String(item.groupKey) : undefined,
-      }))
+      return data.map((item) => {
+        if (item.groupKey == null || item.groupKey === '') return { ...item, groupLabel: undefined }
+        const label = String(item.groupKey)
+        // A ciphertext group key has no meaningful label; echoing it would render encrypted data
+        // into the chart legend (#4622).
+        return { ...item, groupLabel: this.isEncryptedPayload(label) ? undefined : label }
+      })
     }
 
     const ids = data
