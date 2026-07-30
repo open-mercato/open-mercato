@@ -23,6 +23,7 @@ type WebSearchHealth = {
   source: 'tenant' | 'instance'
   adapters: AdapterHealthRow[]
   problems: Array<{ id: string | null; packageName: string; reason: string }>
+  probed?: boolean
   checkedAt: string
 }
 
@@ -92,8 +93,14 @@ export function WebSearchHealthCard() {
     void load()
   }, [load])
 
+  // The overview must not call the adapters — a metered source bills for that on
+  // a page view — so an unprobed `ok` means "configured", never "working". Saying
+  // Healthy about something nobody contacted is a guess dressed as a fact.
   const statusLabel: Record<CardStatus, string> = {
-    ok: t('agent_orchestrator.overview.webSearch.status.ok', 'Healthy'),
+    ok:
+      health?.probed === false
+        ? t('agent_orchestrator.overview.webSearch.status.configured', 'Configured')
+        : t('agent_orchestrator.overview.webSearch.status.ok', 'Healthy'),
     degraded: t('agent_orchestrator.overview.webSearch.status.degraded', 'Degraded'),
     not_configured: t('agent_orchestrator.overview.webSearch.status.notConfigured', 'Not configured'),
     error: t('agent_orchestrator.overview.webSearch.status.error', 'Check failed'),

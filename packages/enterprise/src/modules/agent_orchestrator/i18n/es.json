@@ -734,6 +734,7 @@
   "agent_orchestrator.overview.webSearch.okHint": "La herramienta web_search del agente está lista.",
   "agent_orchestrator.overview.webSearch.provider": "Proveedor",
   "agent_orchestrator.overview.webSearch.recheck": "Volver a comprobar",
+  "agent_orchestrator.overview.webSearch.status.configured": "Configurado",
   "agent_orchestrator.overview.webSearch.status.degraded": "Degradado",
   "agent_orchestrator.overview.webSearch.status.error": "Comprobación fallida",
   "agent_orchestrator.overview.webSearch.status.notConfigured": "Sin configurar",
