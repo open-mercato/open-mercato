@@ -19,7 +19,7 @@ describe('customers import/export commands', () => {
 
   beforeEach(() => {
     mockEventBus = {
-      emitEvent: jest.fn().mockResolvedValue(undefined),
+      emitEvent: (jest.fn() as any).mockResolvedValue(undefined),
     }
 
     mockDb = {
@@ -48,7 +48,7 @@ describe('customers import/export commands', () => {
       }),
     }
 
-    ;(createRequestContainer as jest.Mock).mockResolvedValue(mockContainer)
+    ;(createRequestContainer as any).mockResolvedValue(mockContainer)
   })
 
   it('exports customers to JSON format', async () => {
@@ -157,11 +157,11 @@ describe('customers import/export commands', () => {
     const mockTrx = {
       insertInto: jest.fn().mockReturnThis(),
       values: jest.fn().mockReturnThis(),
-      execute: jest.fn().mockResolvedValue(undefined),
+      execute: (jest.fn() as any).mockResolvedValue(undefined),
     }
 
-    mockDb.transaction = jest.fn().mockReturnValue({
-      execute: jest.fn().mockImplementation((cb: any) => cb(mockTrx))
+    mockDb.transaction = (jest.fn() as any).mockReturnValue({
+      execute: (jest.fn() as any).mockImplementation((cb: any) => cb(mockTrx))
     })
 
     try {
