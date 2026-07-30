@@ -14,6 +14,7 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type AovKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'aov-kpi' })
@@ -118,6 +119,7 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
       loading={loading}
       error={error}
       formatValue={money.formatWithDecimals}
+      footer={<UnlabelledAmountNotice currency={currency} loading={loading} error={error} />}
       headerAction={
         <InlineDateRangeSelect
           value={hydrated.dateRange}

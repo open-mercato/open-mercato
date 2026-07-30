@@ -17,6 +17,7 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type TopProductsSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'top-products' })
@@ -181,6 +182,7 @@ const TopProductsWidget: React.FC<DashboardWidgetComponentProps<TopProductsSetti
           emptyMessage={t('dashboards.analytics.widgets.topProducts.empty', 'No product sales data for this period')}
         />
       </div>
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
     </div>
   )
 }

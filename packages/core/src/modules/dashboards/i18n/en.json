@@ -15,6 +15,8 @@
   "dashboards.analytics.comparison.vsWeekBefore": "vs week before",
   "dashboards.analytics.comparison.vsYearBefore": "vs year before",
   "dashboards.analytics.comparison.vsYesterday": "vs yesterday",
+  "dashboards.analytics.currency.unlabelled": "Amounts shown without a currency",
+  "dashboards.analytics.currency.unlabelledHint": "The rows behind this figure do not all share the base currency, so labelling the total with one would misstate it.",
   "dashboards.analytics.dateRange.last30Days": "Last 30 Days",
   "dashboards.analytics.dateRange.last7Days": "Last 7 Days",
   "dashboards.analytics.dateRange.last90Days": "Last 90 Days",

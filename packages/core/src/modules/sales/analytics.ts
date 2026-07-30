@@ -9,6 +9,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         tableName: 'sales_orders',
         dateField: 'placed_at',
         defaultScopeFields: ['tenant_id', 'organization_id'],
+        currencyField: 'currencyCode',
       },
       fieldMappings: {
         id: { dbColumn: 'id', type: 'uuid' },
@@ -64,6 +65,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         tableName: 'sales_quotes',
         dateField: 'created_at',
         defaultScopeFields: ['tenant_id', 'organization_id'],
+        currencyField: 'currencyCode',
       },
       fieldMappings: {
         id: { dbColumn: 'id', type: 'uuid' },

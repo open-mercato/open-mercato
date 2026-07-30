@@ -21,6 +21,7 @@ import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'revenue-trend' })
@@ -219,6 +220,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         colors={['blue']}
         emptyMessage={t('dashboards.analytics.widgets.revenueTrend.empty', 'No revenue data for this period')}
       />
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { DEFAULT_SETTINGS, hydrateSettings, type SalesByRegionSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'sales-by-region' })
@@ -109,19 +110,24 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
   }
 
   return (
-    <BarChart
-      data={data}
-      index="region"
-      categories={['Revenue']}
-      categoryLabels={{ Revenue: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue') }}
-      loading={loading}
-      error={error}
-      layout="horizontal"
-      valueFormatter={money.formatCompact}
-      colors={['cyan']}
-      showLegend={false}
-      emptyMessage={t('dashboards.analytics.widgets.salesByRegion.empty', 'No regional sales data for this period')}
-    />
+    <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0">
+        <BarChart
+          data={data}
+          index="region"
+          categories={['Revenue']}
+          categoryLabels={{ Revenue: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue') }}
+          loading={loading}
+          error={error}
+          layout="horizontal"
+          valueFormatter={money.formatCompact}
+          colors={['cyan']}
+          showLegend={false}
+          emptyMessage={t('dashboards.analytics.widgets.salesByRegion.empty', 'No regional sales data for this period')}
+        />
+      </div>
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
+    </div>
   )
 }
 
