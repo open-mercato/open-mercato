@@ -233,12 +233,27 @@ export type UserTaskAssigneeKind = z.infer<typeof userTaskAssigneeKindSchema>
 export const userTaskConfigSchema = z.object({
   // Support both custom fields array format and JSON Schema format
   formSchema: z.union([
-    // Custom format with fields array
+    // Custom format with fields array.
+    //
+    // `label` is OPTIONAL because every consumer already treats it that way:
+    // `lib/task-form-schema.ts` — the single pure mapper behind both form
+    // validation and rendering — declares `label?: string` and resolves
+    // `title: field.label ?? field.name`, and the editor's own list renders
+    // `field.label || field.name`. Requiring it here made the contract
+    // stricter than the code reading it, which rejected definitions the
+    // engine would have run: the AI draft schema (`lib/ai-authoring.ts`)
+    // and the `create_definition` MCP tool both emit an optional label, so
+    // a generated definition could 400 on a field the runtime renders fine.
+    //
+    // This is a WIDENING change — payloads rejected before are accepted now,
+    // and nothing previously accepted changes — so it needs no deprecation
+    // window. A missing label is an authoring-quality issue, and this module
+    // surfaces those through the Problems panel rather than a hard 400.
     z.object({
       fields: z.array(z.object({
         name: z.string().min(1),
         type: z.string().min(1),
-        label: z.string().min(1),
+        label: z.string().min(1).optional(),
         required: z.boolean().optional(),
         options: z.array(z.any()).optional(),
       }))

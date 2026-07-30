@@ -1562,3 +1562,41 @@ describe('Workflows Validators', () => {
     })
   })
 })
+
+describe('userTaskConfigSchema formSchema — label is optional (widening, 2026-07-30)', () => {
+  const stepWithFields = (fields: unknown[]) => ({
+    stepId: 'review',
+    stepName: 'Review',
+    stepType: 'USER_TASK' as const,
+    userTaskConfig: { formSchema: { fields } },
+  })
+
+  it('accepts a field with no label, because every consumer falls back to the name', () => {
+    const parsed = workflowStepSchema.parse(
+      stepWithFields([{ name: 'approved', type: 'boolean', required: true }]),
+    )
+    const [field] = (parsed.userTaskConfig?.formSchema as { fields: { name: string; label?: string }[] }).fields
+    expect(field.name).toBe('approved')
+    expect(field.label).toBeUndefined()
+  })
+
+  it('still keeps a label that is supplied', () => {
+    const parsed = workflowStepSchema.parse(
+      stepWithFields([{ name: 'approved', type: 'boolean', label: 'Approved' }]),
+    )
+    const [field] = (parsed.userTaskConfig?.formSchema as { fields: { label?: string }[] }).fields
+    expect(field.label).toBe('Approved')
+  })
+
+  it('still rejects an EMPTY label rather than silently accepting a blank one', () => {
+    expect(() => workflowStepSchema.parse(
+      stepWithFields([{ name: 'approved', type: 'boolean', label: '' }]),
+    )).toThrow()
+  })
+
+  it('still requires the field name, which is what the fallback resolves to', () => {
+    expect(() => workflowStepSchema.parse(
+      stepWithFields([{ type: 'boolean', label: 'Approved' }]),
+    )).toThrow()
+  })
+})

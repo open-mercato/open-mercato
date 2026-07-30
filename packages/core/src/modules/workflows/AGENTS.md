@@ -303,6 +303,25 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   §4.6's non-pointer requirement is met by the element rather than by a re-implementation, and every
   state it paints pairs its token with a glyph and an `sr-only` name.
 
+## User Task Forms (`formSchema`)
+
+- **`lib/task-form-schema.ts` is the ONE mapper** behind both form validation and rendering, and
+  its type mapping is the exact inverse of the editor's. Before it existed, `validateFormData`
+  walked the JSON-Schema shape while `TaskFormFields` walked `formSchema.properties`, so a
+  Studio-authored form (`{fields:[…]}`) rendered NOTHING at all — adding required-field validation
+  on its own would have made every Studio-authored task uncompletable.
+- **`fields[].label` is OPTIONAL** (widened 2026-07-30). Every consumer already treated it that
+  way — the mapper resolves `title: field.label ?? field.name` and the editor list renders
+  `field.label || field.name` — while `userTaskConfigSchema` required it, which made the contract
+  stricter than the code reading it. That rejected definitions the engine would have run: the AI
+  draft schema (`lib/ai-authoring.ts`) and the `create_definition` MCP tool both emit an optional
+  label, and the shared integration fixture never sent one, so five specs could never parse.
+  An EMPTY label is still rejected — `min(1).optional()`, not `optional()` alone — because a blank
+  string defeats the fallback instead of triggering it. A missing label is an authoring-quality
+  issue and belongs in the Problems panel, not in a 400.
+- Widening a request schema needs no deprecation window: payloads rejected before are accepted
+  now, and nothing previously accepted changes. MUST NOT be re-tightened without one.
+
 ## Route Kinds (the handle ↔ `kind` round trip)
 
 - **`lib/route-kinds.ts` (PURE) is the ONE place a non-normal route kind is registered.** It answers
