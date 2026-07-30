@@ -17,6 +17,10 @@ export const workflowDefinitionMetricsSchema = z.object({
   runsCompleted: z.number().int().nonnegative(),
   runsFailed: z.number().int().nonnegative(),
   runsCancelled: z.number().int().nonnegative(),
+  // Added 2026-07-30 with the run-outcome verdict. `.optional()` so a rollup row
+  // written before outcomes existed still parses; a reader MUST treat its
+  // absence as "this rollup has nothing to say about that metric", never as 0.
+  runsPartialFailure: z.number().int().nonnegative().optional(),
   successRate: z.number().min(0).max(1).nullable(),
   durationSampleCount: z.number().int().nonnegative(),
   avgDurationMs: z.number().nonnegative().nullable(),

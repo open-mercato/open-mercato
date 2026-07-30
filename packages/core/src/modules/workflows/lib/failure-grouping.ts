@@ -35,6 +35,8 @@ export type TriageInstanceInput = {
   errorMessage?: string | null
   /** `metadata.attention.reason` when the instance was parked by a directive. */
   attentionReason?: string | null
+  /** The run's verdict; a `partial_failure` carries no `errorMessage` of its own. */
+  outcome?: string | null
 }
 
 export type FailureGroup = {
@@ -67,6 +69,14 @@ export function normalizeFailureMessage(message: string): string {
 const UNCLASSIFIED_KEY = 'unclassified'
 const UNCLASSIFIED_LABEL = 'No error message recorded'
 
+/**
+ * Fallback shape for a run that reached END while tolerating a failure. It has
+ * no `errorMessage` — the run did not fail — and no attention marker, so
+ * without this every partial failure in the tenant would collapse into the one
+ * meaningless `unclassified` bucket next to genuinely unlabelled rows.
+ */
+const PARTIAL_FAILURE_LABEL = 'Completed with tolerated failures'
+
 function truncate(value: string): string {
   return value.length <= FAILURE_GROUP_LABEL_MAX ? value : `${value.slice(0, FAILURE_GROUP_LABEL_MAX - 1)}…`
 }
@@ -82,6 +92,7 @@ export function resolveFailureMessage(instance: TriageInstanceInput): string | n
   if (instance.attentionReason && instance.attentionReason.trim().length > 0) {
     return instance.attentionReason.trim()
   }
+  if (instance.outcome === 'partial_failure') return PARTIAL_FAILURE_LABEL
   return null
 }
 

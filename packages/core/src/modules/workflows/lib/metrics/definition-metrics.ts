@@ -21,7 +21,13 @@
  * 3. **A denominator is always reported next to a rate.** `successRate` without
  *    `runsTerminal` and `taskSlaHitRate` without `tasksWithDeadline` are both
  *    unreadable — 100% over one run is not the same claim as 100% over 4,000.
+ * 4. **A run that tolerated a failure is not a success.** `successRate` counts
+ *    the run's VERDICT, not its lifecycle status: a `partial_failure` reached
+ *    END but did not do everything it was asked to. It is reported as its own
+ *    number (`runsPartialFailure`) rather than folded into either bucket.
  */
+
+import type { WorkflowRunOutcome } from '../run-outcome'
 
 /** Rollup window lengths, mirroring `AgentMetricRollup`'s window vocabulary. */
 export const WORKFLOW_ROLLUP_WINDOW_MS = {
@@ -67,6 +73,13 @@ export type WorkflowTerminalStatus = (typeof WORKFLOW_TERMINAL_STATUSES)[number]
 /** One terminal run, already scoped and already dry-run filtered by the caller. */
 export type TerminalRunSample = {
   status: string
+  /**
+   * The run's VERDICT (`WorkflowInstance.outcome`), or null for a row written
+   * before outcomes existed. Null is NOT read as `success`: a pre-upgrade
+   * COMPLETED run counts exactly as it did before, so upgrading does not
+   * retroactively rewrite a window's history.
+   */
+  outcome?: WorkflowRunOutcome | null
   startedAt: Date | null
   /** `completedAt` for COMPLETED/FAILED, `cancelledAt` for CANCELLED. */
   terminalAt: Date | null
@@ -86,7 +99,21 @@ export type DefinitionMetrics = {
   runsCompleted: number
   runsFailed: number
   runsCancelled: number
-  /** `runsCompleted / runsTerminal`, or null when nothing terminated. */
+  /**
+   * COMPLETED runs whose verdict is `partial_failure` — they reached END while
+   * tolerating at least one activity or step failure.
+   *
+   * Its own number, folded into NEITHER bucket. It is not added to `runsFailed`
+   * (the run did reach END, and a failure-queue count that included it would
+   * disagree with the lifecycle) and it is excluded from `successRate`'s
+   * numerator (the work it skipped never happened). It stays in `runsTerminal`,
+   * so the denominators still add up.
+   */
+  runsPartialFailure: number
+  /**
+   * `(runsCompleted - runsPartialFailure) / runsTerminal`, or null when nothing
+   * terminated.
+   */
   successRate: number | null
   /** Terminal runs that also had a usable `startedAt` — the duration denominator. */
   durationSampleCount: number
@@ -106,6 +133,7 @@ export const EMPTY_DEFINITION_METRICS: DefinitionMetrics = {
   runsCompleted: 0,
   runsFailed: 0,
   runsCancelled: 0,
+  runsPartialFailure: 0,
   successRate: null,
   durationSampleCount: 0,
   avgDurationMs: null,
@@ -192,10 +220,14 @@ export function buildDefinitionMetrics(input: DefinitionMetricsInput): Definitio
   let runsCompleted = 0
   let runsFailed = 0
   let runsCancelled = 0
+  let runsPartialFailure = 0
   const durations: number[] = []
 
   for (const run of terminalRuns) {
-    if (run.status === 'COMPLETED') runsCompleted += 1
+    if (run.status === 'COMPLETED') {
+      runsCompleted += 1
+      if (run.outcome === 'partial_failure') runsPartialFailure += 1
+    }
     else if (run.status === 'FAILED') runsFailed += 1
     else if (run.status === 'CANCELLED') runsCancelled += 1
     const duration = runDurationMs(run)
@@ -213,7 +245,8 @@ export function buildDefinitionMetrics(input: DefinitionMetricsInput): Definitio
     runsCompleted,
     runsFailed,
     runsCancelled,
-    successRate: rateOf(runsCompleted, terminalRuns.length),
+    runsPartialFailure,
+    successRate: rateOf(runsCompleted - runsPartialFailure, terminalRuns.length),
     durationSampleCount: durations.length,
     avgDurationMs: meanOf(durations),
     p50DurationMs: percentileOf(durations, 0.5),

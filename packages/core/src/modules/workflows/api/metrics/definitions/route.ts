@@ -29,13 +29,13 @@ import { WorkflowDefinitionMetricRollup } from '../../../data/entities'
 import {
   workflowDefinitionMetricsQuerySchema,
   workflowDefinitionMetricsSchema,
+  type WorkflowDefinitionMetricsPayload,
 } from '../../../data/metrics-validators'
 import {
   WORKFLOW_ROLLUP_BUCKET_MS,
   WORKFLOW_ROLLUP_WINDOW_KEYS,
   WORKFLOW_ROLLUP_WINDOW_MS,
   floorToRollupBucket,
-  type DefinitionMetrics,
   type WorkflowRollupWindowKey,
 } from '../../../lib/metrics/definition-metrics'
 import {
@@ -71,7 +71,13 @@ type MetricsItem = {
   windowEnd: string
   computedAt: string
   source: 'rollup' | 'live'
-  metrics: DefinitionMetrics
+  /**
+   * The VALIDATED payload, not `DefinitionMetrics`: a rollup row written before
+   * a metric existed simply lacks that key, and the reader must see it absent
+   * rather than have a zero invented for it here. A live compute always carries
+   * every key, and is assignable to this wider shape.
+   */
+  metrics: WorkflowDefinitionMetricsPayload
 }
 
 function parseWorkflowIds(rawValue: string): string[] {

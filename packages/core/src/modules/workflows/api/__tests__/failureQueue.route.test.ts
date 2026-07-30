@@ -74,7 +74,7 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     expect(metadata.requireFeatures).toEqual(['workflows.instances.view'])
   })
 
-  test('selects the UNION of FAILED and attention-parked instances, tenant-scoped', async () => {
+  test('selects the UNION of FAILED, partial-failure and attention-parked instances, tenant-scoped', async () => {
     await listFailureQueue(new NextRequest('http://localhost/api/workflows/instances/failure-queue'))
 
     const where = mockEm.find.mock.calls[0][1]
@@ -83,8 +83,11 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     // The list route ANDs `status` and `attention`; the triage set is a union,
     // which is why this route exists at all.
     expect(Array.isArray(where.$or)).toBe(true)
-    expect(where.$or).toHaveLength(2)
+    expect(where.$or).toHaveLength(3)
     expect(where.$or[0]).toEqual({ status: 'FAILED' })
+    // A `partial_failure` reached END and was written COMPLETED, so neither of
+    // the other two arms reaches it.
+    expect(where.$or[1]).toEqual({ outcome: { $in: ['partial_failure'] } })
   })
 
   test('excludes dry runs, like every other run surface', async () => {

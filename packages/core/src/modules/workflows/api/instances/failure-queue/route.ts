@@ -23,6 +23,7 @@ import {
   matchesFailureGroup,
   type TriageInstanceInput,
 } from '../../../lib/failure-grouping'
+import { WORKFLOW_ATTENTION_OUTCOMES } from '../../../lib/run-outcome'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -55,6 +56,7 @@ function toTriageInput(instance: WorkflowInstance): TriageInstanceInput {
     status: instance.status,
     errorMessage: instance.errorMessage ?? null,
     attentionReason: instance.metadata?.attention?.reason ?? null,
+    outcome: instance.outcome ?? null,
   }
 }
 
@@ -92,7 +94,15 @@ export async function GET(request: NextRequest) {
       // REAL instance from a dry-run's context. The run list has excluded dry
       // runs by default since spec §8.2; this union missed the same filter.
       isDryRun: false,
-      $or: [{ status: 'FAILED' }, { [attentionPath]: { $ne: null } }],
+      // A `partial_failure` reached END and was written COMPLETED, so neither
+      // the status arm nor the attention arm reaches it — and a run nobody
+      // looks at because it said COMPLETED is exactly the failure the outcome
+      // verdict exists to remove. Third arm, same union.
+      $or: [
+        { status: 'FAILED' },
+        { outcome: { $in: [...WORKFLOW_ATTENTION_OUTCOMES] } },
+        { [attentionPath]: { $ne: null } },
+      ],
     }
     if (workflowId) where.workflowId = workflowId
 

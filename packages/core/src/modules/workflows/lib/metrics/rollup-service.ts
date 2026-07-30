@@ -159,12 +159,13 @@ export async function computeDefinitionMetrics(
     {
       orderBy: { startedAt: 'DESC' },
       limit: ROLLUP_DURATION_SAMPLE_LIMIT,
-      fields: ['id', 'status', 'startedAt', 'completedAt', 'cancelledAt'],
+      fields: ['id', 'status', 'outcome', 'startedAt', 'completedAt', 'cancelledAt'],
     },
   )
 
   const terminalRuns = terminalInstances.map((instance) => ({
     status: instance.status,
+    outcome: instance.outcome ?? null,
     startedAt: instance.startedAt ?? null,
     terminalAt: instance.completedAt ?? instance.cancelledAt ?? null,
   }))

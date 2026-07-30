@@ -19,6 +19,7 @@ import {
   startWorkflowInputSchema,
   type StartWorkflowApiInput,
   workflowInstanceStatusSchema,
+  workflowRunOutcomeSchema,
 } from '../../data/validators'
 import {
   workflowInstanceResponseSchema,
@@ -30,6 +31,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from '../../lib/find-definition'
 import { isComponentKind } from '../../lib/component-guard'
 import { buildStartedAtRange } from '../../lib/instance-date-filter'
+import { isWorkflowRunOutcome } from '../../lib/run-outcome'
 
 const logger = createLogger('workflows')
 
@@ -67,6 +69,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const workflowId = searchParams.get('workflowId')
     const status = searchParams.get('status')
+    const outcome = searchParams.get('outcome')
     const correlationKey = searchParams.get('correlationKey')
     const entityType = searchParams.get('entityType')
     const entityId = searchParams.get('entityId')
@@ -105,6 +108,27 @@ export async function GET(request: NextRequest) {
         where.status = statuses[0]
       } else if (statuses.length > 1) {
         where.status = { $in: statuses }
+      }
+    }
+
+    // Outcome (the run's VERDICT) filters independently of `status` — the two
+    // answer different questions and a caller narrowing by one must not have
+    // the other narrowed for them. An unrecognised value is a 400 rather than a
+    // dropped predicate: a filter that silently matches everything is the exact
+    // invisible-omission failure this column exists to remove.
+    if (outcome) {
+      const requested = outcome.split(',').map((value) => value.trim()).filter(Boolean)
+      const invalid = requested.filter((value) => !isWorkflowRunOutcome(value))
+      if (invalid.length > 0) {
+        return NextResponse.json(
+          { error: `Unknown outcome: ${invalid.join(', ')}` },
+          { status: 400 }
+        )
+      }
+      if (requested.length === 1) {
+        where.outcome = requested[0]
+      } else if (requested.length > 1) {
+        where.outcome = { $in: requested }
       }
     }
 
@@ -390,6 +414,7 @@ export const openApi = {
       query: z.object({
         workflowId: z.string().optional(),
         status: workflowInstanceStatusSchema.optional(),
+        outcome: workflowRunOutcomeSchema.optional().describe('Filter by the run VERDICT, independently of status. Comma-separated for several (e.g. partial_failure,failure). An unknown value is a 400.'),
         correlationKey: z.string().optional(),
         entityType: z.string().optional(),
         entityId: z.string().optional(),
@@ -412,7 +437,7 @@ export const openApi = {
         },
         {
           status: 400,
-          description: 'Invalid date range',
+          description: 'Invalid date range or unknown outcome',
           schema: z.object({ error: z.string() }),
         },
         {

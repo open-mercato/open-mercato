@@ -258,6 +258,41 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    test('filters by the run VERDICT, independently of status', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?outcome=partial_failure')
+      await listInstances(request)
+
+      const where = mockEm.findAndCount.mock.calls[0][1]
+      expect(where.outcome).toBe('partial_failure')
+      // The two answer different questions; narrowing one must not narrow the other.
+      expect(where.status).toBeUndefined()
+    })
+
+    test('accepts several outcomes, comma-separated', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?outcome=partial_failure,failure'
+      )
+      await listInstances(request)
+
+      expect(mockEm.findAndCount.mock.calls[0][1].outcome).toEqual({
+        $in: ['partial_failure', 'failure'],
+      })
+    })
+
+    test('rejects an unknown outcome with a 400 instead of a predicate that matches everything', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?outcome=COMPLETED')
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+    })
+
     test('should filter instances by correlationKey', async () => {
       mockEm.findAndCount.mockResolvedValue([[], 0])
 
@@ -967,6 +1002,56 @@ describe('Workflow Instances API', () => {
 
       expect(response.status).toBe(400)
       expect(data.error).toContain('Cannot retry workflow in RUNNING status')
+    })
+
+    test('refuses to retry a partial_failure as a whole run, naming rerun-from-step', async () => {
+      // It reached END, so replaying the graph would re-run every part that
+      // already succeeded (maintainer decision, 2026-07-30).
+      mockEm.findOne.mockResolvedValue({
+        id: testInstanceId,
+        status: 'COMPLETED',
+        outcome: 'partial_failure',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
+        method: 'POST',
+      })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
+      const data = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(data.code).toBe('WORKFLOW_RUN_OUTCOME_NOT_RETRYABLE')
+      expect(data.error).toContain('Rerun the specific failed step')
+      expect(workflowExecutor.executeWorkflow).not.toHaveBeenCalled()
+    })
+
+    test('a FAILED run whose verdict is failure is still retryable', async () => {
+      const mockInstance = {
+        id: testInstanceId,
+        status: 'FAILED',
+        outcome: 'failure',
+        retryCount: 0,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+      mockEm.findOne.mockResolvedValue(mockInstance)
+      ;(workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: {},
+        events: [],
+        executionTime: 1,
+      })
+
+      const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
+        method: 'POST',
+      })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
+
+      expect(response.status).toBe(200)
+      expect(mockInstance.retryCount).toBe(1)
     })
 
     test('should handle execution errors during retry', async () => {

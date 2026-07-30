@@ -473,12 +473,25 @@ export const workflowInstanceStatusEnumSchema = z.enum([
   'WAITING_FOR_ACTIVITIES',
 ])
 
+export const workflowRunOutcomeEnumSchema = z.enum([
+  'success',
+  'success_with_warnings',
+  'partial_failure',
+  'failure',
+  'cancelled',
+  'compensated',
+])
+
 export const workflowInstanceResponseSchema = z.object({
   id: z.string().uuid(),
   definitionId: z.string().uuid(),
   workflowId: z.string(),
   version: z.number().int(),
   status: workflowInstanceStatusEnumSchema,
+  // The run's VERDICT, additive alongside the lifecycle status. Null while the
+  // run is still going, and null for ever on a row written before outcomes
+  // existed — which means "ran before outcomes existed", never "success".
+  outcome: workflowRunOutcomeEnumSchema.nullable().optional(),
   currentStepId: z.string(),
   context: z.unknown(),
   correlationKey: z.string().nullable().optional(),

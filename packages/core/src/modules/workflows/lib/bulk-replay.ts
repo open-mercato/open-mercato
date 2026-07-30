@@ -18,6 +18,7 @@ import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { WorkflowInstance } from '../data/entities'
 import * as workflowExecutor from './workflow-executor'
+import { isRetryableRunOutcome, type WorkflowRunOutcome } from './run-outcome'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
 
 const logger = createLogger('workflows')
@@ -67,8 +68,27 @@ export function getBulkReplayQueue(): Queue<Record<string, unknown>> {
 const RETRYABLE_STATUSES = new Set(['FAILED', 'PAUSED'])
 const CANCELLABLE_STATUSES = new Set(['RUNNING', 'PAUSED', 'WAITING_FOR_ACTIVITIES', 'FORKED'])
 
-export function canApplyBulkReplay(action: BulkReplayAction, status: string): boolean {
-  return action === 'retry' ? RETRYABLE_STATUSES.has(status) : CANCELLABLE_STATUSES.has(status)
+/**
+ * `outcome` is optional so every existing caller keeps compiling; passing it is
+ * what makes the "a `partial_failure` is not retryable as a whole run" decision
+ * (maintainer, 2026-07-30) EXPLICIT here rather than incidental. A
+ * `partial_failure` is COMPLETED, so the status gate already refuses it — but a
+ * later widening of `RETRYABLE_STATUSES` must not silently start replaying a
+ * run whose successful half the replay would duplicate. Recovery is
+ * rerun-from-step on the specific failed step.
+ *
+ * A null outcome (still running, or a row written before outcomes existed) is
+ * never read as a refusal — only the status decides for those.
+ */
+export function canApplyBulkReplay(
+  action: BulkReplayAction,
+  status: string,
+  outcome?: WorkflowRunOutcome | null
+): boolean {
+  if (action === 'cancel') return CANCELLABLE_STATUSES.has(status)
+  if (!RETRYABLE_STATUSES.has(status)) return false
+  if (outcome != null && !isRetryableRunOutcome(outcome)) return false
+  return true
 }
 
 async function retryInstance(
@@ -130,7 +150,7 @@ export async function runBulkReplay(params: {
         organizationId: scope.organizationId,
       })
 
-      if (!instance || !canApplyBulkReplay(action, instance.status)) {
+      if (!instance || !canApplyBulkReplay(action, instance.status, instance.outcome ?? null)) {
         skippedCount += 1
       } else if (action === 'retry') {
         await retryInstance(em, container, instance)
