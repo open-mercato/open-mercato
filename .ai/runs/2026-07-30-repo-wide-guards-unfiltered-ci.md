@@ -109,7 +109,12 @@ PR: #4687
 
 ### Phase 2: Keep the enumeration honest
 
-- [x] 2.1 `scripts/__tests__/repo-wide-guards.test.mjs` — 8 cases, runs via `yarn test:scripts`
+- [x] 2.1 `scripts/__tests__/repo-wide-guards.test.mjs` — 9 cases, runs via `yarn test:scripts`
+- [x] 2.2 Review autofix (`om-auto-review-pr`): the runner now passes `--passWithNoTests=false`.
+  Every workspace jest config sets `passWithNoTests: true`, so a guard that stopped matching its
+  config's `testMatch` (moved out of `__tests__/`, renamed to `.spec.ts`) would have exited 0
+  having run nothing — the silent zero-match this runner exists to prevent. Pinned by the new
+  "the runner refuses to pass when a guard matches no test" case — ec83edfac
 
 ### Phase 3: Validation
 
