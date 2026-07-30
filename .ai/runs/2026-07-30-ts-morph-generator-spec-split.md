@@ -56,6 +56,8 @@ from `BACKWARD_COMPATIBILITY.md` still hold exactly as written. No blockers, no 
 
 ## Validation
 
+Re-verification base: `develop@7dad6df29` (the merge commit `2211a714e` on this branch), not the `ecc10b3db` the initial pass used.
+
 Runner: local. Diff is markdown-only under `.ai/specs/` and `.ai/runs/`; verified that no validation command or test reads either path, so no build/type/test surface is affected. `validation.commands` is entirely build/type/test work with no markdown-applicable member, so all eight were skipped locally and the GitHub checks are the gate — as they were for the previous review pass. It was green on the previous head, with `build:app` correctly scope-skipped for a docs-only diff.
 
 ## Labels requested
