@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "keys": {
+    "mockup.customers-people-list.people-header.title": {
+      "en": "People",
+      "pl": "Osoby",
+      "es": "Personas",
+      "de": "Personen"
+    },
+    "mockup.customers-people-list.kpi-active-people.title": {
+      "en": "Active people",
+      "pl": "Aktywne osoby",
+      "es": "Personas activas",
+      "de": "Aktive Personen"
+    },
+    "mockup.customers-people-list.kpi-active-people.comparisonLabel": {
+      "en": "vs. previous month",
+      "pl": "vs. poprzedni miesiąc",
+      "es": "vs. mes anterior",
+      "de": "ggü. Vormonat"
+    },
+    "mockup.customers-people-list.kpi-active-people.trend.direction": {
+      "en": "up",
+      "pl": "up",
+      "es": "up",
+      "de": "up"
+    },
+    "mockup.customers-people-list.kpi-new-this-week.title": {
+      "en": "New this week",
+      "pl": "Nowe w tym tygodniu",
+      "es": "Nuevas esta semana",
+      "de": "Neu diese Woche"
+    },
+    "mockup.customers-people-list.kpi-new-this-week.comparisonLabel": {
+      "en": "vs. previous week",
+      "pl": "vs. poprzedni tydzień",
+      "es": "vs. semana anterior",
+      "de": "ggü. Vorwoche"
+    },
+    "mockup.customers-people-list.kpi-new-this-week.trend.direction": {
+      "en": "up",
+      "pl": "up",
+      "es": "up",
+      "de": "up"
+    },
+    "mockup.customers-people-list.kpi-open-deal-value.title": {
+      "en": "Open deal value",
+      "pl": "Wartość otwartych szans",
+      "es": "Valor de oportunidades abiertas",
+      "de": "Wert offener Deals"
+    },
+    "mockup.customers-people-list.kpi-open-deal-value.comparisonLabel": {
+      "en": "across 87 open deals",
+      "pl": "w 87 otwartych szansach",
+      "es": "en 87 oportunidades abiertas",
+      "de": "über 87 offene Deals"
+    },
+    "mockup.customers-people-list.kpi-open-deal-value.prefix": {
+      "en": "€",
+      "pl": "€",
+      "es": "€",
+      "de": "€"
+    }
+  }
+}

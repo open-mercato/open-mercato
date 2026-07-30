@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "slug": "suppliers-directory",
+  "title": "Suppliers directory",
+  "description": "Purpose-built promotable fixture for the ds:mockups:promote golden test: a reviewed (non-draft) supplier directory whose table columns and form fields derive the exact scaffold --fields DSL. All sample data is fictional.",
+  "routeHint": "/backend/suppliers/contacts",
+  "width": "desktop",
+  "spec": ".ai/specs/2026-07-05-ds-live-mockup-composer.md",
+  "entity": "supplierContact",
+  "module": "suppliers",
+  "root": {
+    "type": "stack",
+    "id": "page",
+    "gap": 6,
+    "children": [
+      {
+        "type": "block",
+        "id": "directory-header",
+        "entry": "section-header",
+        "props": { "title": "Suppliers", "count": 12 },
+        "status": "implemented",
+        "userStory": "US-SUP-101"
+      },
+      {
+        "type": "block",
+        "id": "directory-kpi",
+        "entry": "kpi-card",
+        "props": {
+          "title": "Active suppliers",
+          "value": 12,
+          "comparisonLabel": "across 3 regions"
+        },
+        "status": "proposed",
+        "userStory": "US-SUP-103",
+        "note": "Not scaffoldable: KPI cards are bespoke dashboard work."
+      },
+      {
+        "type": "block",
+        "id": "directory-filters",
+        "entry": "filter-bar",
+        "variant": "stacked",
+        "status": "om-default",
+        "note": "Stock platform FilterBar; the scaffold provides it with --with-ui."
+      },
+      {
+        "type": "block",
+        "id": "directory-table",
+        "entry": "table",
+        "props": {
+          "columns": [
+            { "id": "name", "label": "Name" },
+            { "id": "email", "label": "Email" },
+            { "id": "status", "label": "Status", "type": "select", "options": ["active", "inactive"] },
+            { "id": "rating", "label": "Rating", "type": "number" },
+            { "id": "onboardedAt", "label": "Onboarded", "type": "date" },
+            { "id": "createdAt", "label": "Created", "type": "date" }
+          ],
+          "rows": [
+            {
+              "name": "Nordwind Supplies",
+              "email": "hello@nordwind.example.com",
+              "status": "active",
+              "rating": 4,
+              "onboardedAt": "2026-01-12",
+              "createdAt": "2026-01-10"
+            },
+            {
+              "name": "Baltic Crate Co.",
+              "email": "office@balticcrate.example.com",
+              "status": "inactive",
+              "rating": 3,
+              "onboardedAt": "2026-02-03",
+              "createdAt": "2026-02-01"
+            }
+          ],
+          "emptyState": {
+            "title": "No suppliers yet",
+            "actionLabel": "Add the first supplier"
+          }
+        },
+        "status": "implemented",
+        "userStory": "US-SUP-101",
+        "note": "Directory grid; createdAt is shown but scaffold-reserved, so promotion reports it as skipped."
+      },
+      {
+        "type": "block",
+        "id": "quick-add-name",
+        "entry": "form-field",
+        "props": { "name": "name", "label": "Name", "kind": "text", "required": true },
+        "status": "proposed",
+        "userStory": "US-SUP-102",
+        "note": "Duplicate of the table column on purpose: promotion folds it into the first occurrence and OR-merges required."
+      },
+      {
+        "type": "block",
+        "id": "quick-add-vip",
+        "entry": "form-field",
+        "props": { "name": "vip", "label": "VIP supplier", "kind": "checkbox" },
+        "status": "proposed",
+        "userStory": "US-SUP-102"
+      },
+      {
+        "type": "block",
+        "id": "quick-add-notes",
+        "entry": "form-field",
+        "props": {
+          "name": "notes",
+          "label": "Notes",
+          "kind": "textarea",
+          "placeholder": "Delivery windows, incoterms, contacts"
+        },
+        "status": "proposed",
+        "userStory": "US-SUP-102"
+      },
+      {
+        "type": "placeholder",
+        "id": "contract-panel",
+        "label": "Contract timeline side panel",
+        "status": "proposed",
+        "userStory": "US-SUP-103",
+        "note": "No registry entry yet; promotion lists it as not scaffolded."
+      }
+    ]
+  }
+}

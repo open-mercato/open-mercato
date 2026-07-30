@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "source": ".ai/specs/2026-07-05-ds-live-mockup-composer.md",
+  "entity": "person",
+  "module": "customers",
+  "screens": [
+    {
+      "slug": "customers-quick-add",
+      "purpose": "Quick-add a person",
+      "order": 1,
+      "states": ["initial", "validation-error", "success"],
+      "intents": [
+        {
+          "kind": "form",
+          "description": "Capture the new person with the minimum viable fields",
+          "userStory": "US-CRM-301",
+          "fields": [
+            { "name": "firstName", "type": "text", "required": true },
+            { "name": "lastName", "type": "text", "required": true },
+            { "name": "email", "type": "text" },
+            { "name": "segment", "type": "select", "options": ["retail", "wholesale"] },
+            { "name": "marketingOptIn", "type": "checkbox" },
+            { "name": "followUpOn", "type": "date" },
+            { "name": "notes", "type": "textarea" }
+          ]
+        },
+        {
+          "kind": "feedback",
+          "description": "Confirm the person was added and offer to open the profile",
+          "userStory": "US-CRM-301"
+        },
+        {
+          "kind": "navigation",
+          "description": "Return to the people list",
+          "userStory": "US-CRM-302"
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    { "from": "customers-quick-add", "to": "customers-people-list", "trigger": "save" }
+  ]
+}

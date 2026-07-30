@@ -1,0 +1,24 @@
+# Pattern card — the reusable record of a UX decision.
+# A card captures WHY / WHEN / UNDER WHAT CONDITIONS a pattern applies,
+# not just how it looks. All 18 fields are required; write "none known"
+# rather than deleting a field. Evidence must reference the source library
+# (references/sources.md) or product data — never an invented citation.
+
+name: "" # short, unique pattern name
+problem: "" # the user problem this pattern solves
+user_context: "" # who the user is and the situation they are in
+when_to_use: "" # conditions under which this pattern is the right choice
+when_not_to_use: "" # conditions under which it is the wrong choice
+anatomy: "" # the parts of the pattern and their roles
+interaction: "" # how the user operates it, including keyboard
+content_rules: "" # labels, messages, tone — what the words must do
+states: "" # which rows of the state matrix apply and how each renders
+accessibility: "" # semantics, focus, names, contrast, announcements
+platform_differences: "" # how the pattern shifts across web/desktop/touch
+risks: "" # known failure modes and misuse
+alternatives: "" # competing patterns and when they win
+evidence: "" # evidence level tag(s): product/standard/platform/research/heuristic
+source: "" # the specific citation(s) — link into references/sources.md entries
+acceptance_criteria: "" # observable pass/fail conditions for an implementation
+metrics: "" # how success is measured after shipping
+last_reviewed: "" # ISO date of the last evidence review

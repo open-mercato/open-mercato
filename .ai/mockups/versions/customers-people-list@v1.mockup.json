@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "slug": "customers-people-list",
+  "title": "Customers people list",
+  "description": "The customers people list page (the DS reference implementation) recomposed as a mockup: header, KPI row, filter bar, people table, a proposed saved-views switcher, and a proposed enrichment side panel placeholder. All sample data is fictional.",
+  "routeHint": "/backend/customers/people",
+  "width": "desktop",
+  "spec": ".ai/specs/2026-07-05-ds-live-mockup-composer.md",
+  "root": {
+    "type": "stack",
+    "id": "page",
+    "gap": 6,
+    "children": [
+      {
+        "type": "block",
+        "id": "people-header",
+        "entry": "section-header",
+        "props": { "title": "People", "count": 248 },
+        "status": "implemented",
+        "userStory": "US-CRM-101",
+        "note": "Header with the live people count; count updates with active filters."
+      },
+      {
+        "type": "columns",
+        "id": "kpi-row",
+        "weights": [1, 1, 1],
+        "children": [
+          {
+            "type": "block",
+            "id": "kpi-active-people",
+            "entry": "kpi-card",
+            "props": {
+              "title": "Active people",
+              "value": 1284,
+              "trend": { "value": 4.2, "direction": "up" },
+              "comparisonLabel": "vs. previous month"
+            },
+            "status": "implemented",
+            "userStory": "US-CRM-201"
+          },
+          {
+            "type": "block",
+            "id": "kpi-new-this-week",
+            "entry": "kpi-card",
+            "props": {
+              "title": "New this week",
+              "value": 37,
+              "trend": { "value": 8.1, "direction": "up" },
+              "comparisonLabel": "vs. previous week"
+            },
+            "status": "implemented",
+            "userStory": "US-CRM-201"
+          },
+          {
+            "type": "block",
+            "id": "kpi-open-deal-value",
+            "entry": "kpi-card",
+            "props": {
+              "title": "Open deal value",
+              "value": 96800,
+              "prefix": "€",
+              "comparisonLabel": "across 87 open deals"
+            },
+            "status": "implemented",
+            "userStory": "US-CRM-201"
+          }
+        ]
+      },
+      {
+        "type": "block",
+        "id": "people-table",
+        "entry": "table",
+        "variant": "default",
+        "status": "implemented",
+        "userStory": "US-CRM-101",
+        "note": "People grid with status badges; columns follow the customers reference implementation."
+      },
+      {
+        "type": "block",
+        "id": "people-filter-bar",
+        "entry": "filter-bar",
+        "variant": "trailing-items",
+        "status": "om-default",
+        "note": "Stock platform FilterBar with the standard export action."
+      },
+      {
+        "type": "placeholder",
+        "id": "export-banner",
+        "label": "Scheduled export banner",
+        "status": "proposed",
+        "userStory": "US-CRM-102",
+        "note": "Dropped after review — the export action moved into the filter bar."
+      },
+      {
+        "type": "placeholder",
+        "id": "enrichment-panel",
+        "label": "Person enrichment side panel",
+        "status": "proposed",
+        "userStory": "US-CRM-102",
+        "note": "No registry entry yet — side panel enriching a selected person with company and deal context."
+      }
+    ]
+  }
+}

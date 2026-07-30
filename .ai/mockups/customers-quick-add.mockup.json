@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "slug": "customers-quick-add",
+  "title": "Quick-add a person",
+  "description": "Generated draft from flow outline \".ai/specs/2026-07-05-ds-live-mockup-composer.md\" (review required, never auto-final). States to cover: initial, validation-error, success.",
+  "width": "desktop",
+  "spec": ".ai/specs/2026-07-05-ds-live-mockup-composer.md",
+  "draft": true,
+  "entity": "person",
+  "module": "customers",
+  "root": {
+    "type": "stack",
+    "id": "page",
+    "gap": 6,
+    "children": [
+      {
+        "type": "block",
+        "id": "i1-form-header",
+        "entry": "form-header",
+        "status": "proposed",
+        "userStory": "US-CRM-301",
+        "note": "Capture the new person with the minimum viable fields"
+      },
+      {
+        "type": "block",
+        "id": "i1-field-firstName",
+        "entry": "form-field",
+        "props": {
+          "name": "firstName",
+          "label": "First name",
+          "kind": "text",
+          "required": true
+        },
+        "status": "proposed",
+        "userStory": "US-CRM-301"
+      },
+      {
+        "type": "block",
+        "id": "i1-field-lastName",
+        "entry": "form-field",
+        "props": {
+          "name": "lastName",
+          "label": "Last name",
+          "kind": "text",
+          "required": true
+        },
+        "status": "proposed",
+        "userStory": "US-CRM-301"
+      },
+      {
+        "type": "block",
+        "id": "i1-field-email",
+        "entry": "form-field",
+        "props": {
+          "name": "email",
+          "label": "Email",
+          "kind": "text"
+        },
+        "status": "proposed",
+        "userStory": "US-CRM-301"
+      },
+      {
+        "type": "block",
+        "id": "i1-field-segment",
+        "entry": "form-field",
+        "props": {
+          "name": "segment",
+          "label": "Segment",
+          "kind": "select",
+          "options": [
+            "retail",
+            "wholesale"
+          ]
+        },
+        "status": "proposed",
+        "userStory": "US-CRM-301"
+      },
+      {
+        "type": "block",
+        "id": "i1-field-marketingOptIn",
+        "entry": "form-field",
+        "props": {
+          "name": "marketingOptIn",
+          "label": "Marketing opt in",
+          "kind": "checkbox"
+        },
+        "status": "proposed",
+        "userStory": "US-CRM-301"
+      },
+      {
+        "type": "block",
+        "id": "i1-field-followUpOn",
+        "entry": "form-field",
+        "props": {
+          "name": "followUpOn",
+          "label": "Follow up on",
+          "kind": "date"
+        },
+        "status": "proposed",
+        "userStory": "US-CRM-301"
+      },
+      {
+        "type": "block",
+        "id": "i1-field-notes",
+        "entry": "form-field",
+        "props": {
+          "name": "notes",
+          "label": "Notes",
+          "kind": "textarea"
+        },
+        "status": "proposed",
+        "userStory": "US-CRM-301"
+      },
+      {
+        "type": "block",
+        "id": "i1-form-footer",
+        "entry": "form-footer",
+        "status": "proposed",
+        "userStory": "US-CRM-301",
+        "note": "Standard form footer (save/cancel per DS conventions)."
+      },
+      {
+        "type": "block",
+        "id": "i2-feedback",
+        "entry": "empty-state",
+        "status": "proposed",
+        "userStory": "US-CRM-301",
+        "note": "Confirm the person was added and offer to open the profile"
+      },
+      {
+        "type": "placeholder",
+        "id": "i3-navigation",
+        "label": "Return to the people list",
+        "status": "proposed",
+        "userStory": "US-CRM-302",
+        "note": "no deterministic block mapping for \"navigation\" intents, compose by hand during review"
+      }
+    ]
+  }
+}

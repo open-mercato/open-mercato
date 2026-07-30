@@ -408,6 +408,7 @@ For the full migration workflow, ALWAYS:
 | **backend-ui-design** | Handles backend page implementation. DS Guardian validates the output. |
 | **code-review** | General code quality. DS Guardian adds DS-specific checks on top. |
 | **eslint-plugin-ds** (`@open-mercato/eslint-plugin-ds`) | Automated enforcement of the structural rules (empty state, page wrapper, raw tables, loading state, status badge, hardcoded colors) at `yarn lint` time. When a violation class keeps recurring, prefer strengthening the rule over re-running greps. |
+| **om-ux-product-design** (+ om-ux-heuristics, om-ux-copy) | The layer ABOVE this one: evidence-first UX decisions — user task, critical path, complete state matrix, content, validation plans — audited on mockup documents and flows, with findings written into the composer. DS Guardian owns tokens/primitives/code compliance; the UX system owns flow and state judgment. Shared concern to keep straight: empty states — the lint rule `require-empty-state` guards page CODE, while the UX state matrix guards the DESIGN (mockup) — both may fire on the same feature and that is correct, not a duplicate. A UX recommendation may never violate DS canon; when a pattern collides with canon, the UX system files a finding proposing a canon change instead of overriding it. |
 
 Key references:
 - `.ai/ds-rules.md` — token foundations and decision trees
