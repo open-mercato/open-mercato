@@ -217,6 +217,53 @@ export async function exitStep(
 }
 
 /**
+ * Mark a step instance FAILED and log `STEP_FAILED`.
+ *
+ * The ONE place a step row becomes FAILED, so a failure the run went on to
+ * tolerate leaves the same durable trace a fatal one does. Tolerating a failure
+ * is a routing decision, not a reason to forget it happened: without the row and
+ * the event there is nothing for the run verdict to be computed from, and
+ * rerun-from-step refuses the step it exists for because its latest attempt
+ * still reads ACTIVE.
+ *
+ * Idempotent — a second call on an already-FAILED row is a no-op, so a handler
+ * that reported the failure itself never produces two `STEP_FAILED` rows.
+ */
+export async function markStepInstanceFailed(
+  em: EntityManager,
+  stepInstance: StepInstance,
+  failure: {
+    error: string
+    details?: unknown
+    branchInstanceId?: string | null
+    userId?: string
+  }
+): Promise<void> {
+  if (stepInstance.status === 'FAILED') return
+
+  const now = new Date()
+  stepInstance.status = 'FAILED'
+  stepInstance.errorData = {
+    error: failure.error,
+    details: failure.details ?? undefined,
+  }
+  stepInstance.exitedAt = now
+  stepInstance.updatedAt = now
+  await em.flush()
+
+  await logStepEvent(em, {
+    workflowInstanceId: stepInstance.workflowInstanceId,
+    stepInstanceId: stepInstance.id,
+    ...(failure.branchInstanceId ? { branchInstanceId: failure.branchInstanceId } : {}),
+    eventType: 'STEP_FAILED',
+    eventData: { stepId: stepInstance.stepId, error: failure.error },
+    ...(failure.userId ? { userId: failure.userId } : {}),
+    tenantId: stepInstance.tenantId,
+    organizationId: stepInstance.organizationId,
+  })
+}
+
+/**
  * Execute a workflow step based on its type
  *
  * Main entry point for step execution. Handles:
@@ -283,6 +330,18 @@ export async function executeStep(
     // If step completed, exit it
     if (result.status === 'COMPLETED') {
       await exitStep(em, stepInstance, result.outputData)
+    } else if (result.status === 'FAILED') {
+      // A handler that REPORTS a failure (`handleAutomatedStep` returns
+      // `{status:'FAILED'}` for a failed sync activity) never reaches the catch
+      // below, so before this the row stayed ACTIVE for ever and no
+      // `STEP_FAILED` was logged — the failure existed only in a value the
+      // caller was free to tolerate. The row is now terminal on both paths.
+      await markStepInstanceFailed(em, stepInstance, {
+        error: result.error ?? 'Step execution failed',
+        details: result.outputData,
+        branchInstanceId: branch?.id ?? null,
+        userId: context.userId,
+      })
     }
 
     return result
@@ -299,22 +358,11 @@ export async function executeStep(
       })
 
       if (failedStepInstance) {
-        failedStepInstance.status = 'FAILED'
-        failedStepInstance.errorData = {
+        await markStepInstanceFailed(em, failedStepInstance, {
           error: errorMessage,
           details: error instanceof StepExecutionError ? error.details : undefined,
-        }
-        failedStepInstance.exitedAt = new Date()
-        failedStepInstance.updatedAt = new Date()
-        await em.flush()
-
-        await logStepEvent(em, {
-          workflowInstanceId: instance.id,
-          stepInstanceId: failedStepInstance.id,
-          eventType: 'STEP_FAILED',
-          eventData: { error: errorMessage },
-          tenantId: instance.tenantId,
-          organizationId: instance.organizationId,
+          branchInstanceId: branch?.id ?? null,
+          userId: context.userId,
         })
       }
     } catch (updateError) {
