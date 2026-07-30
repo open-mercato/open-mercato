@@ -39,6 +39,7 @@ import {
   createWorkflowDefinitionInputCheckedSchema,
   workflowDefinitionDataSchema,
 } from '../data/validators'
+import { workflowDraftGenerationSchema } from '../lib/ai-authoring'
 import { isComponentKind } from '../lib/component-guard'
 import {
   computeDefinitionContextLedger,
@@ -717,10 +718,78 @@ const startTestRunTool: WorkflowsAiToolDefinition<z.infer<typeof startTestRunInp
   },
 }
 
+// ===========================================================================
+// workflows.validate_workflow_definition
+// ===========================================================================
+
+/**
+ * Validate a DRAFT in the exact shape the in-Studio `workflows.workflow_author`
+ * agent emits, so that agent can self-correct inside its tool loop before a
+ * draft ever reaches the generate route.
+ *
+ * This mirrors `api/definitions/generate/route.ts` step for step — reshape the
+ * draft's `{ steps, transitions, contextSchema }` into a definition, parse it
+ * through the one `workflowDefinitionDataSchema`, then run the same
+ * `evaluateWorkflowDefinition` Problems pass — but is gated on
+ * `definitions.create` (what the draft path itself requires) rather than the
+ * broader `validate_definition` tool's `definitions.view`. It is READ-ONLY: it
+ * persists nothing and reads no tenant rows, so an author self-correcting a
+ * draft never touches data.
+ */
+const validateWorkflowDraftTool: WorkflowsAiToolDefinition<
+  z.infer<typeof workflowDraftGenerationSchema>
+> = {
+  name: 'workflows.validate_workflow_definition',
+  displayName: 'Validate a draft workflow definition',
+  description:
+    'Validate a DRAFT workflow (the {summary, steps, transitions, contextSchema} object you are authoring) without saving it. Returns the same structured {path, code, message, expected, got} issues and Problems-panel entries the generate route would. Call this before returning a draft and fix every error — in particular, an INVOKE_AGENT activity requires a string `config.agentId` and a `config.onResult`.',
+  inputSchema: workflowDraftGenerationSchema,
+  requiredFeatures: [DEFINITIONS_CREATE],
+  tags: ['read', 'workflows', 'authoring'],
+  isMutation: false,
+  handler: async (input, ctx) => {
+    const missing = missingFeatures(ctx, [DEFINITIONS_CREATE])
+    if (missing.length) return featureRefusal(missing)
+
+    const candidate: Record<string, unknown> = {
+      steps: input.steps,
+      transitions: input.transitions,
+      ...(input.contextSchema ? { contextSchema: input.contextSchema } : {}),
+    }
+
+    const parsed = workflowDefinitionDataSchema.safeParse(candidate)
+    if (!parsed.success) {
+      return failure(
+        ...parsed.error.issues.map((zodIssue) =>
+          issue(
+            [...zodIssue.path] as Array<string | number>,
+            zodIssue.code,
+            zodIssue.message,
+          ),
+        ),
+      )
+    }
+
+    const definitionData = asDefinitionData(parsed.data as Record<string, unknown>)
+    const ledger = await tryComputeLedger(ctx, definitionData)
+    const evaluation = evaluateWorkflowDefinition(definitionData, { ledger })
+
+    return {
+      ok: evaluation.valid,
+      issues: evaluation.issues,
+      problems: evaluation.problems,
+      valid: evaluation.valid,
+      errorCount: evaluation.errorCount,
+      warningCount: evaluation.warningCount,
+    }
+  },
+}
+
 export const workflowsAuthoringAiTools: WorkflowsAiToolDefinition<never, never>[] = [
   listActivityTypesTool,
   getContextSchemaTool,
   validateDefinitionTool,
+  validateWorkflowDraftTool,
   createDefinitionTool,
   updateDefinitionTool,
   startTestRunTool,
