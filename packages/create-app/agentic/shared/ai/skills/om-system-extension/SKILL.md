@@ -15,8 +15,8 @@ Route before reading: choose routes from the request and mechanism selector, the
 2. Resolve host entity/route/spot/component/event IDs from generated facts. Invoke `om-framework-context` only when facts omit the needed contract.
 3. Follow the selected branch in `references/extension-branches.md` for enricher, API/command interceptor, guard, widget/menu, extension entity, subscriber, or component replacement. For `entry.overrides`, load `references/unified-overrides.md` and select the exact domain/key.
 4. Invoke `om-data-model-design` only when the extension adds app-owned persistence; an enricher/interceptor/widget-only round trip does not need it.
-4. For editable additions, follow `references/read-write-roundtrip.md`; implement input, authenticated write, stored data, list/detail read, UI hydration, clear-to-null, and conflict behavior.
-5. Run `yarn generate`; verify host-present/absent, authorized/denied/wildcard, cache/search, and failure fallback using `references/verification.md`.
+5. For editable additions, follow `references/read-write-roundtrip.md`; implement input, authenticated write, stored data, list/detail read, UI hydration, clear-to-null, and conflict behavior. An editable addition that must survive reload is necessarily a persisted field: select `module-data`, read contracts, and invoke `om-data-model-design`.
+6. Run `yarn generate`; verify host-present/absent, authorized/denied/wildcard, cache/search, and failure fallback using `references/verification.md`.
 
 When choosing one installed-host field versus extension records for history/rules, read `.ai/skills/om-system-extension/references/mechanism-selector.md` and `.ai/skills/om-system-extension/references/extension-branches.md`. Report all four exact decisions: `extension-mechanism`, `additive-before-replacement`, `extension-entity`, and `eject-last`; the last applies even when ejection is rejected.
 

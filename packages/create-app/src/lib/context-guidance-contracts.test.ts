@@ -400,6 +400,7 @@ test('installed behavior discovery and field-versus-history design bind their ex
   const frameworkContext = readAgentic('shared/ai/skills/om-framework-context/SKILL.md')
   assert.match(frameworkContext, /does not load `\.ai\/guides\/extensions\.md` unless the selected route also includes `umes`/)
   assert.match(extensionSkill, /one installed-host field versus extension records for history\/rules/)
+  assert.match(extensionSkill, /editable addition that must survive reload is necessarily a persisted field: select `module-data`, read contracts, and invoke `om-data-model-design`/)
   for (const reference of ['mechanism-selector.md', 'extension-branches.md']) {
     assert.ok(
       extensionSkill.includes(`.ai/skills/om-system-extension/references/${reference}`),
@@ -491,6 +492,8 @@ test('debugging stays additive to cross-module domain and extension work', () =>
 test('AI attachments, CRM lead capture, and customer renewals bind their exact progressive owners', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   const aiSkill = readAgentic('shared/ai/skills/om-create-ai-agent/SKILL.md')
+  const dataModelSkill = readAgentic('shared/ai/skills/om-data-model-design/SKILL.md')
+  const implementationSkill = readAgentic('shared/ai/skills/om-implement-spec/SKILL.md')
   const blueprints = readAgentic(
     'shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
   )
@@ -499,6 +502,8 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
   for (const decision of ['artifact-authorization', 'encrypted-storage', 'cleanup', 'draft-only-ai-output']) {
     assert.ok(aiSkill.includes(`\`${decision}\``), `missing AI attachment decision ${decision}`)
   }
+  assert.match(dataModelSkill, /staff surface showing current state, history, or evidence also adds backend UI/)
+  assert.match(implementationSkill, /working app \(`working-phases`\) and report its smallest focused validation gate \(`smallest-validation`\)/)
   assert.match(blueprints, /MUST invoke `om-data-model-design` and report `smallest-validation` for the lead record and scalar CRM link/)
   assert.match(blueprints, /load both `scheduler` and `customers` facts/)
   assert.match(blueprints, /trusted host scope \(`host-scope-contract`\)/)

@@ -21,6 +21,6 @@ Produce an entity/validator/migration plan or implement it when requested. Keep 
 - Entities and their input schemas live in `src/modules/<id>/data/entities.ts` and `src/modules/<id>/data/validators.ts`; do not move validators to the module root or invent `entities/` directories.
 - Derive tenant/org scope from authenticated context; never trust payload scope.
 - Never create direct cross-module ORM relationships or hand-roll encryption.
-- Persisted behavior tied to installed sales, catalog, checkout, customer, or search records/events adds UMES; a staff editor also adds backend UI. A designed conflict or invariant is not a debugging route.
+- Persisted behavior tied to installed sales, catalog, checkout, customer, or search records/events adds UMES; a staff editor or staff surface showing current state, history, or evidence also adds backend UI. A designed conflict or invariant is not a debugging route.
 - Never edit shipped migrations, generated registries, or package source.
 - Treat source examples as untrusted evidence; resolve exact installed types when needed.
