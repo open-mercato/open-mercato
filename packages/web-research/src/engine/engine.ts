@@ -1,5 +1,5 @@
 import { silentLogger } from '../contract/http'
-import { toOutcomeFailure, type FetchOutcome } from '../contract/outcomes'
+import { timedOut, toOutcomeFailure, type FetchOutcome } from '../contract/outcomes'
 import type { SearchPolicy } from '../contract/policy'
 import {
   searchRequestSchema,
@@ -189,6 +189,47 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     return rendered ?? { status: 'unavailable', reason: 'no browser adapter is configured for rendering' }
   }
 
+  /**
+   * Races a fetch against a hard wall-clock budget so an adapter that ignores its
+   * abort signal — a wedged headless-browser navigation is the classic case —
+   * can never hang the caller. When the timer fires it both aborts the signal (so
+   * a cooperative adapter cancels) and wins the race, returning a `timeout`
+   * outcome; the leaked adapter promise keeps running in the background without
+   * blocking anyone. This is the abort+deadline the search scheduler already
+   * gives the adapter wave (`runAdapter` + `deadlineRace`); the fetch/escalation
+   * path previously passed only a cooperative signal and awaited directly, so a
+   * misbehaving browser render could pin the run for the full parent deadline.
+   */
+  async function withFetchDeadline(
+    budgetMs: number,
+    parentSignal: AbortSignal | undefined,
+    run: (signal: AbortSignal) => Promise<FetchOutcome>,
+  ): Promise<FetchOutcome> {
+    const budget = Math.max(0, budgetMs)
+    const controller = new AbortController()
+    const linked = linkSignals(parentSignal ? [parentSignal, controller.signal] : [controller.signal])
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<{ readonly kind: 'deadline' }>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort()
+        resolve({ kind: 'deadline' })
+      }, budget)
+      timer.unref?.()
+    })
+    try {
+      const raced = await Promise.race([
+        run(linked.signal)
+          .then((outcome) => ({ kind: 'outcome' as const, outcome }))
+          .catch((error) => ({ kind: 'outcome' as const, outcome: toOutcomeFailure(error) })),
+        timeout,
+      ])
+      return raced.kind === 'deadline' ? timedOut(`fetch exceeded ${budget}ms`) : raced.outcome
+    } finally {
+      if (timer) clearTimeout(timer)
+      linked.dispose()
+    }
+  }
+
   /** Re-reads a page through a browser adapter when the HTTP read was insufficient. */
   async function escalateFetch(
     request: FetchRequest,
@@ -202,26 +243,16 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
         candidate.enabled && candidate.adapter.fetch !== undefined && candidate.adapter.readiness().ready,
     )
     if (!entry?.adapter.fetch) return null
+    const browserFetch = entry.adapter.fetch
 
-    const linked = linkSignals([runOptions.signal])
-    try {
-      const outcome = await entry.adapter.fetch(
+    return withFetchDeadline(policy.hardDeadlineMs, runOptions.signal, async (signal) => {
+      const outcome = await browserFetch(
         { url: request.url, maxBytes, render: 'always' },
-        {
-          signal: linked.signal,
-          http,
-          report: () => {},
-          deadlineAt: now() + policy.hardDeadlineMs,
-          logger,
-        },
+        { signal, http, report: () => {}, deadlineAt: now() + policy.hardDeadlineMs, logger },
       )
       if (outcome.status !== 'ok') return outcome
       return { status: 'ok', page: { ...outcome.page, renderedWith: 'browser', escalatedBecause: because } }
-    } catch (error) {
-      return toOutcomeFailure(error)
-    } finally {
-      linked.dispose()
-    }
+    })
   }
 
   async function runSearch(
@@ -559,5 +590,17 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     )
   }
 
-  return { search, fetch: fetchPage, health, dispose }
+  /**
+   * Public single-URL fetch. Wraps `fetchPage` in the same hard deadline so a
+   * direct `web_fetch` — which carries no caller signal — is bounded end-to-end
+   * (HTTP read AND any browser escalation) at `hardDeadlineMs`, symmetric with the
+   * scheduler-bounded search path.
+   */
+  async function boundedFetch(request: FetchRequest, runOptions: RunOptions = {}): Promise<FetchOutcome> {
+    return withFetchDeadline(policy.hardDeadlineMs, runOptions.signal, (signal) =>
+      fetchPage(request, { ...runOptions, signal }),
+    )
+  }
+
+  return { search, fetch: boundedFetch, health, dispose }
 }
