@@ -351,6 +351,9 @@ test('every published case count states the shipped catalog or the portability s
     ['packages/create-app/README.md', readPackageDoc('README.md')],
     ['agentic/shared/ai/harness/README.md', read('shared/ai/harness/README.md')],
     ['agentic/shared/ai/harness/RELEASE.md', read('shared/ai/harness/RELEASE.md')],
+    ['agentic/shared/scripts/run-agent-harness-release.mjs', read('shared/scripts/run-agent-harness-release.mjs')],
+    ['om-evolve-harness/references/case-template.md', read('shared/ai/skills/om-evolve-harness/references/case-template.md')],
+    ['om-evolve-harness/references/case-workflow.md', read('shared/ai/skills/om-evolve-harness/references/case-workflow.md')],
   ]
 
   for (const [label, contents] of documents) {
