@@ -370,6 +370,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.54 Recover the exact backtick-quoted harness.read startup report without retrying arbitrary or safety violations — `a2101198c`
 - [x] 3.55 Resolve concrete organization scope and canonical suffixed command objects in complete-module writable proof — `4de8769ee`
 - [x] 3.56 Preserve the standalone module registry baseline during additive app-module activation — `b3f1dccdf`
+- [x] 3.57 Pin command snapshot metadata and composite uniqueness to their installed TypeScript contracts — `1d07c6395`
 
 ### Phase 4: Compatibility baseline
 
