@@ -84,7 +84,14 @@ Follow-up: #4603
       including the `relatedCases` that would otherwise point at #4529's different OMH-188/189. The
       byte-identical parent catalog reverted three measured budget widenings; the deterministic gate
       caught it and they are restored — 3af9024e7, 98988a512
-- [ ] 6.4 Full configured validation gate on the merge result
+- [x] 6.4 Full configured validation gate on the merge result, local runner: 7 of 8 green
+      (`build:packages` ×2, `generate` with no versioned drift, `i18n:check-sync`, `i18n:check-usage`,
+      `typecheck`, `build:app`). `yarn test` exits non-zero on a jest-worker `SIGSEGV` that killed
+      `core/src/modules/wms/components/backend/__tests__/CycleCountWizardDialog.lotRuntime.test.tsx`
+      before it could run — a WMS UI suite this delta does not touch — with zero assertion failures
+      (`core` 8280/8280 tests, 1085/1086 suites) and 3/3 for that suite in isolation. The `create-app`
+      package suite run serially is 389 tests / 384 pass / 0 fail / 5 skipped, and the deterministic
+      catalog gate is 201/201
 - [ ] 6.5 Republish the reviewable delta in the PR body, request the missing labels, and close #4556
       as superseded
 
