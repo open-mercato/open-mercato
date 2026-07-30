@@ -97,7 +97,7 @@ unfiltered at `ci.yml` (`yarn agents:check-budget`), so it stays where it is.
 
 ## Progress
 
-PR: (pending — filled in once the PR is opened)
+PR: #4687
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
