@@ -16,10 +16,11 @@
 | 1 | 1.3 | Wire agents list into generate route from optional `agentWorkflowBridge.listAgentOutcomeContracts?.()` | inline | done | b4bdcd5a9 |
 | 1 | 1.4 | Enable tool loop: `ai-agents.ts` (allowedTools/loop/header) + `ai-draft-runner.ts` `enableTools:true` + `yarn generate` | inline | done | b4bdcd5a9 |
 | 1 | 1.5 | Docs: module `AGENTS.md` AI note + draft doc-comments | inline | done | (next commit) |
-| 2a | 2.1 | ai-assistant: optional `onAgentAction` observer on `runAiAgentObject` (stream path) + unit test | inline | todo | |
-| 2b | 2.2 | enterprise: DI-resolved relay transport + publish `onAgentAction` in `nativeAgentRunner` + backpressure + tests | dispatch | todo | |
-| 2c | 2.3 | core: SSE endpoint `GET /api/workflows/instances/[id]/agent-stream` + tests | dispatch | todo | |
-| 2c | 2.4 | core: `useLiveAgentActions` hook + run-view "Agent activity" panel + i18n + tests | dispatch | todo | |
+| 2a | 2.1 | ~~ai-assistant `onAgentAction` observer~~ — OBSOLETE: steps+tools-only uses the EXISTING `runAiAgentObject` `loop.onStepFinish` (already forwarded into the tool loop); no ai-assistant change needed | inline | obsolete | — |
+| 2b | 2.2 | enterprise: emit `workflows.agent.action` per step from `nativeAgentRunner` via `loop.onStepFinish` + event bus (best-effort, workflow-runs-only) | inline | done | (this commit) |
+| 2c | 2.3 | ~~core SSE endpoint~~ — OBSOLETE: steps+tools events are low-frequency, so the existing DOM Event Bridge (`clientBroadcast`) carries them; no new SSE relay needed | inline | obsolete | — |
+| 2c | 2.3b | core: declare `workflows.agent.action` `clientBroadcast` event | inline | done | (this commit) |
+| 2c | 2.4 | core: `useLiveAgentActions` hook + `AgentActivityPanel` + i18n (en/pl/de/es) + mount in run detail | inline | done | (this commit) |
 
 > Convention: `todo` → `wip` → `done`. Append the commit SHA to the row when a Step lands. 1 Step = 1 commit.
 

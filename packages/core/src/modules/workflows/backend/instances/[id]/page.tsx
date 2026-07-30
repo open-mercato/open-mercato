@@ -24,6 +24,7 @@ import { RunStepInspector } from '../../../components/run/RunStepInspector'
 import { RunGantt } from '../../../components/run/RunGantt'
 import { RerunStepDialog } from '../../../components/run/RerunStepDialog'
 import { useLiveRunUpdates } from '../../../components/run/useLiveRunUpdates'
+import { AgentActivityPanel } from '../../../components/run/AgentActivityPanel'
 import { RunEventBadge, runEventBadgeClass } from '../../../components/run/RunEventBadge'
 import { InstanceStatusBadge, instanceStatusBadgeClass } from '../../../components/run/RunStatusBadge'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
@@ -793,6 +794,8 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                     )}
                   </div>
                 )}
+
+                <AgentActivityPanel instanceId={id ?? null} enabled={!!id} />
 
                 <div className="rounded-lg border bg-card p-4 md:p-6">
                   <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
