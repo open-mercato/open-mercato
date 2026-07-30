@@ -143,6 +143,11 @@ export class HybridQueryEngine implements QueryEngine {
   private sqlDebugEnabled: boolean | null = null
   private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
+  private autoReindexDebounceMs: number | null = null
+  // #4681: last time an auto-reindex was scheduled per (entityType, tenant, org).
+  // Collapses the stampede that fired a fresh fire-and-forget reindex on every
+  // query while coverage showed a gap.
+  private autoReindexScheduledAt = new Map<string, number>()
   private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
 
@@ -1973,6 +1978,17 @@ export class HybridQueryEngine implements QueryEngine {
       organizationId: organizationIdOverride ?? opts.organizationId ?? null,
       force: false,
     }
+    // #4681: debounce per scope so a burst of queries against an entity with a
+    // coverage gap schedules a single reindex per window instead of ~10 parallel
+    // full reindexes hammering the same entity type.
+    const debounceMs = this.getAutoReindexDebounceMs()
+    if (debounceMs > 0) {
+      const dedupeKey = [payload.entityType, payload.tenantId ?? '__tenant__', payload.organizationId ?? '__org__'].join('|')
+      const lastScheduledAt = this.autoReindexScheduledAt.get(dedupeKey)
+      const now = Date.now()
+      if (lastScheduledAt != null && now - lastScheduledAt < debounceMs) return
+      this.autoReindexScheduledAt.set(dedupeKey, now)
+    }
     const context = stats
       ? { entity, tenantId: payload.tenantId, organizationId: payload.organizationId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
       : { entity, tenantId: payload.tenantId, organizationId: payload.organizationId }
@@ -2040,6 +2056,14 @@ export class HybridQueryEngine implements QueryEngine {
     const parsed = parseBooleanToken(raw)
     this.autoReindexEnabled = parsed === null ? true : parsed
     return this.autoReindexEnabled
+  }
+
+  private getAutoReindexDebounceMs(): number {
+    if (this.autoReindexDebounceMs != null) return this.autoReindexDebounceMs
+    const raw = (process.env.OM_QUERY_INDEX_AUTO_REINDEX_DEBOUNCE_MS ?? '').trim()
+    const parsed = raw ? Number(raw) : NaN
+    this.autoReindexDebounceMs = Number.isFinite(parsed) && parsed >= 0 ? parsed : 30000
+    return this.autoReindexDebounceMs
   }
 
   private isCoverageOptimizationEnabled(): boolean {
