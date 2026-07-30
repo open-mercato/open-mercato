@@ -8,6 +8,7 @@ import {
   createWidgetDataService,
   type WidgetDataRequest,
   WidgetDataValidationError,
+  WidgetDataScanLimitError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
 import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
@@ -129,6 +130,10 @@ export async function POST(req: Request) {
     if (err instanceof WidgetDataValidationError) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
+    // The dataset is too large to group in application code; surface why rather than a masked 500.
+    if (err instanceof WidgetDataScanLimitError) {
+      return NextResponse.json({ error: err.message }, { status: 422 })
+    }
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
       { status: 500 },
@@ -156,6 +161,11 @@ const widgetDataPostDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid request payload', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    {
+      status: 422,
+      description: 'Too many rows to group an encrypted field in application code',
+      schema: dashboardsErrorSchema,
+    },
     { status: 403, description: 'Missing analytics.view feature', schema: dashboardsErrorSchema },
     { status: 500, description: 'Internal server error', schema: dashboardsErrorSchema },
   ],
