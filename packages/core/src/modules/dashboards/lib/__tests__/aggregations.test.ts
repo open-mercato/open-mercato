@@ -337,14 +337,14 @@ describe('aggregations', () => {
       })
 
       expect(query).not.toBeNull()
-      expect(query!.sql).toContain('SELECT DISTINCT currency_code AS code')
+      expect(query!.sql).toContain("SELECT DISTINCT UPPER(NULLIF(BTRIM(currency_code), '')) AS code")
       expect(query!.sql).toContain('FROM "sales_orders"')
       expect(query!.sql).toContain('tenant_id = ?')
       expect(query!.sql).toContain('organization_id = ANY(?::uuid[])')
       expect(query!.sql).toContain('deleted_at IS NULL')
       expect(query!.sql).toContain('placed_at >= ?')
       expect(query!.sql).toContain('placed_at <= ?')
-      expect(query!.sql).toContain('LIMIT 4')
+      expect(query!.sql).toContain('LIMIT 2')
       expect(query!.params[0]).toBe('tenant-1')
       expect(query!.params[1]).toBe('{org-1,org-2}')
     })
@@ -383,15 +383,15 @@ describe('aggregations', () => {
       expect(query).toBeNull()
     })
 
-    it('caps the number of codes it reads back', () => {
+    it('normalizes codes before limiting the distinct result', () => {
       const query = buildDistinctCurrencyQuery({
         entityType: 'sales:orders',
         scope: { tenantId: 'tenant-1' },
         registry: testRegistry,
-        limit: 999,
       })
 
-      expect(query!.sql).toContain('LIMIT 10')
+      expect(query!.sql).toContain("UPPER(NULLIF(BTRIM(currency_code), ''))")
+      expect(query!.sql).toContain('LIMIT 2')
     })
   })
 

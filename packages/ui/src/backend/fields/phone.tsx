@@ -55,7 +55,7 @@ function PhoneFieldDefEditor({
     <div className="mt-3 space-y-3 rounded border border-dashed border-muted-foreground/40 bg-muted/30 p-3">
       <div className="space-y-1">
         <label className="text-xs font-medium text-muted-foreground">
-          {t('ui.customFields.phone.defaultCountry', 'Default country')}
+          {t('entities.customFields.phone.defaultCountry', 'Default country')}
         </label>
         <Select
           value={selected || AUTO_COUNTRY_VALUE}
@@ -66,7 +66,7 @@ function PhoneFieldDefEditor({
           </SelectTrigger>
           <SelectContent align="start">
             <SelectItem value={AUTO_COUNTRY_VALUE}>
-              {t('ui.customFields.phone.defaultCountryAuto', 'Auto-detect from value')}
+              {t('entities.customFields.phone.defaultCountryAuto', 'Auto-detect from value')}
             </SelectItem>
             {PHONE_COUNTRIES.map((country) => (
               <SelectItem key={`${country.iso2}-${country.dialCode}`} value={country.iso2}>
@@ -81,7 +81,7 @@ function PhoneFieldDefEditor({
         </Select>
         <p className="text-xs text-muted-foreground">
           {t(
-            'ui.customFields.phone.defaultCountryHint',
+            'entities.customFields.phone.defaultCountryHint',
             'Pre-selects a country in the phone editor when the field is empty.',
           )}
         </p>

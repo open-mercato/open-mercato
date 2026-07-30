@@ -62,7 +62,7 @@ function isBaseCurrencyQuery(sql: string): boolean {
 }
 
 function isRowCurrencyQuery(sql: string): boolean {
-  return sql.includes('SELECT DISTINCT currency_code')
+  return sql.includes('SELECT DISTINCT UPPER(NULLIF(BTRIM(currency_code)')
 }
 
 function countAggregationCalls(execute: jest.Mock): number {
@@ -303,22 +303,22 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
     expect(response.metadata.currency).toBeNull()
   })
 
-  test('reads rows with no recorded currency as inheriting the base currency', async () => {
+  test('does not label a total whose rows have no recorded currency', async () => {
     const execute = createExecute(basePln, [{ code: null }])
     const service = createService(execute, scope, createCurrencyAwareRegistry())
 
     const response = await service.fetchWidgetData(request)
 
-    expect(response.metadata.currency).toBe('PLN')
+    expect(response.metadata.currency).toBeNull()
   })
 
-  test('keeps the label when unset currencies sit alongside rows carrying the base one', async () => {
+  test('does not label a total when an unset currency sits alongside the base one', async () => {
     const execute = createExecute(basePln, [{ code: null }, { code: '' }, { code: 'PLN' }])
     const service = createService(execute, scope, createCurrencyAwareRegistry())
 
     const response = await service.fetchWidgetData(request)
 
-    expect(response.metadata.currency).toBe('PLN')
+    expect(response.metadata.currency).toBeNull()
   })
 
   test('drops the label when an unset currency sits alongside a foreign one', async () => {
@@ -349,7 +349,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
     expect(call?.[0]).toContain('FROM "sales_orders"')
     expect(call?.[0]).toContain('deleted_at IS NULL')
     expect(call?.[0]).toContain('placed_at >= ?')
-    expect(call?.[0]).toContain('LIMIT 4')
+    expect(call?.[0]).toContain("UPPER(NULLIF(BTRIM(currency_code), ''))")
+    expect(call?.[0]).toContain('LIMIT 2')
     expect(call?.[1]?.[0]).toBe('tenant-1')
     expect(call?.[1]?.[1]).toBe('{org-1}')
   })

@@ -237,11 +237,8 @@ export class WidgetDataService {
    * Entities that declare no `currencyField` carry no per-row currency to contradict the
    * base one, so they pass. An empty range has nothing to mislabel and also passes.
    *
-   * Rows with no recorded currency are read as inheriting the scope's base currency, which
-   * is what an unset value means for a nullable currency column such as
-   * `customer_deals.value_currency`. Failing those closed would leave every tenant that
-   * never fills the column permanently unlabelled — indistinguishable from a broken widget,
-   * the very confusion this guard exists to remove.
+   * A missing currency cannot prove the row uses the scope's base currency, so it fails
+   * closed just like a conflicting code. An empty range has no row to mislabel and passes.
    */
   private async rowsShareCurrency(
     request: WidgetDataRequest,
@@ -264,7 +261,8 @@ export class WidgetDataService {
     const recordedCodes = new Set<string>()
     for (const row of resultRows) {
       const code = typeof row.code === 'string' ? row.code.trim().toUpperCase() : ''
-      if (code) recordedCodes.add(code)
+      if (!code) return false
+      recordedCodes.add(code)
     }
 
     if (recordedCodes.size === 0) return true

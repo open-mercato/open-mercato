@@ -16,7 +16,7 @@
   "dashboards.analytics.comparison.vsYearBefore": "vs año anterior",
   "dashboards.analytics.comparison.vsYesterday": "vs ayer",
   "dashboards.analytics.currency.unlabelled": "Importes mostrados sin moneda",
-  "dashboards.analytics.currency.unlabelledHint": "Las filas que componen esta cifra no comparten todas la misma moneda base, por lo que etiquetar el total con una la representaría de forma incorrecta.",
+  "dashboards.analytics.currency.unlabelledHint": "No se pudo determinar una moneda fiable, por lo que el importe se muestra sin moneda.",
   "dashboards.analytics.dateRange.last30Days": "Últimos 30 días",
   "dashboards.analytics.dateRange.last7Days": "Últimos 7 días",
   "dashboards.analytics.dateRange.last90Days": "Últimos 90 días",

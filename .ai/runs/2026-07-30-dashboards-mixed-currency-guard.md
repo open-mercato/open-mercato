@@ -44,7 +44,9 @@ deliberately left out of scope — it is a feature, not a correctness fix.
 3. `packages/core/src/modules/dashboards/lib/aggregations.ts` — the scope / date-range /
    filter WHERE building is extracted into a shared helper so the new
    `buildDistinctCurrencyQuery()` reads distinct row currencies over *exactly* the rows the
-   aggregation sums, capped at a handful of codes.
+   aggregation sums. It normalizes whitespace/case before `SELECT DISTINCT` and reads at
+   most two results — enough to distinguish one code from several without variants masking
+   a conflict.
 4. `packages/core/src/modules/dashboards/services/widgetDataService.ts` —
    `resolveCurrencyLabel()` keeps the base currency only when every aggregated range passes
    `rowsShareCurrency()`. The comparison range is checked too, so a mixed previous period
@@ -52,15 +54,13 @@ deliberately left out of scope — it is a feature, not a correctness fix.
    the unbounded-scope path costs nothing. Mixed codes, a lookup failure, or a single code
    disagreeing with the base all resolve to `null`.
 
-   Rows with **no recorded currency** are read as inheriting the base currency, not as a
-   violation. `customer_deals.value_currency` is nullable, so failing those closed would
-   leave every tenant that never fills the column permanently unlabelled — indistinguishable
-   from a broken widget, which is the confusion this guard exists to remove. The read-back
-   cap is 4 rather than 2 so those value-less rows (`NULL` and `''` are distinct to
-   `SELECT DISTINCT`) cannot mask a second real code.
+   Rows with **no recorded currency** fail closed because a nullable
+   `customer_deals.value_currency` does not prove that the amount uses the tenant base
+   currency. An empty range still passes because there is no row to mislabel.
 5. `packages/core/src/modules/dashboards/components/UnlabelledAmountNotice.tsx` — a shared
    muted hint the seven money widgets render when `metadata.currency` is `null`, so a bare
-   number reads as a deliberate omission rather than a broken widget. Copy added to all four
+   number reads as a deliberate omission rather than a broken widget. Cause-neutral copy
+   covers mixed rows, unresolved scope/configuration, and lookup failures in all four
    dashboards locale files.
 6. Tests — record-level cases in `services/__tests__/widgetDataService.test.ts` alongside the
    existing organization-level ones, plus query-builder cases in
@@ -76,9 +76,12 @@ deliberately left out of scope — it is a feature, not a correctness fix.
 - [x] `UnlabelledAmountNotice` wired into all seven money widgets
 - [x] i18n copy in `en` / `pl` / `de` / `es`
 - [x] Unit tests (service + query builder)
+- [x] Component tests for the shared unlabelled-amount notice
 - [x] `.ai/runs/2026-07-29-dashboards-base-currency-formatting.md` records the closed limitation
 - [x] Validation gate
 - [x] Self code review (`om-auto-review-pr --autofix`) — one major (two of the seven widgets uncovered) and one minor (silent catch) found and fixed
+- [x] Maintainer review autofix — missing row currencies now fail closed, SQL codes are
+  normalized before limiting, notice copy is cause-neutral, and the inline icon uses Lucide
 - [ ] Manual QA of the seven widgets (`needs-qa`)
 
 ## Validation
@@ -92,7 +95,7 @@ Runner: local (`yarn`, no compose `app` container running). The ordered
 | `yarn generate` | ✅ 87 artifacts refreshed |
 | `yarn build:packages` | ✅ 21/21 |
 | `yarn i18n:check-sync` | ✅ all four locales in sync |
-| `yarn i18n:check-usage` | ⚠️ 2 missing keys, both pre-existing in `packages/ui/src/backend/fields/phone.tsx` — a file this PR does not touch |
+| `yarn i18n:check-usage` | ✅ missing phone-field keys repaired in the entities locale |
 | `yarn typecheck` | ✅ 21/21 |
 | `yarn test` | ✅ 23/23 tasks |
 | `yarn build:app` | ✅ |

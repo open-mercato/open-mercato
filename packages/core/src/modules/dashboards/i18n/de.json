@@ -16,7 +16,7 @@
   "dashboards.analytics.comparison.vsYearBefore": "vs Jahr davor",
   "dashboards.analytics.comparison.vsYesterday": "vs gestern",
   "dashboards.analytics.currency.unlabelled": "Beträge ohne Währungsangabe",
-  "dashboards.analytics.currency.unlabelledHint": "Die dieser Kennzahl zugrunde liegenden Datensätze teilen nicht alle dieselbe Basiswährung; eine Währungsangabe würde die Summe falsch darstellen.",
+  "dashboards.analytics.currency.unlabelledHint": "Eine verlässliche Währung konnte nicht ermittelt werden, daher wird der Betrag ohne Währungsangabe angezeigt.",
   "dashboards.analytics.dateRange.last30Days": "Letzte 30 Tage",
   "dashboards.analytics.dateRange.last7Days": "Letzte 7 Tage",
   "dashboards.analytics.dateRange.last90Days": "Letzte 90 Tage",

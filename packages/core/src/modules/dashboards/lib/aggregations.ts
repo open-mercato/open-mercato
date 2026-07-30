@@ -191,14 +191,7 @@ function appendScopeWhereClauses(options: ScopedQueryOptions, params: unknown[])
   return { clauses }
 }
 
-export type BuildDistinctCurrencyQueryOptions = ScopedQueryOptions & {
-  /**
-   * Upper bound on the codes read back. Telling "one" from "several" needs two, plus room
-   * for the value-less rows a nullable currency column produces (`NULL` and `''` are
-   * distinct to `SELECT DISTINCT`) so they cannot mask a second real code.
-   */
-  limit?: number
-}
+export type BuildDistinctCurrencyQueryOptions = ScopedQueryOptions
 
 /**
  * Builds the query that reads the distinct per-row currencies of the rows an aggregation
@@ -220,13 +213,13 @@ export function buildDistinctCurrencyQuery(
   const tableName = config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
   const { clauses } = appendScopeWhereClauses(options, params)
   const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
-  const limit = Math.max(2, Math.min(options.limit ?? 4, 10))
+  const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyMapping.dbColumn}), ''))`
 
   const sql = [
-    `SELECT DISTINCT ${currencyMapping.dbColumn} AS code`,
+    `SELECT DISTINCT ${normalizedCurrencyExpression} AS code`,
     `FROM ${tableName}`,
     whereClause,
-    `LIMIT ${limit}`,
+    'LIMIT 2',
   ]
     .filter(Boolean)
     .join(' ')
