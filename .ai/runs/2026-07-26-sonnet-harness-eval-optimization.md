@@ -367,6 +367,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.51 Stabilize measured routing floors, correction declarations, and residual specialist owners — `56d36b252`
 - [x] 3.52 Bind final generative routing owners and measured case-local floors — `c359d83ed`
 - [x] 3.53 Close cross-runner generative residuals without weakening shared safety contracts — `b7a33ed1b`
+- [x] 3.54 Recover the exact backtick-quoted harness.read startup report without retrying arbitrary or safety violations — `a2101198c`
 
 ### Phase 4: Compatibility baseline
 
