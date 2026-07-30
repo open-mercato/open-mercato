@@ -389,3 +389,4 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 ### Phase 6: Final review remediation
 
 - [x] 6.1 Correct portability-count publication, preserve piped wizard skipping, clarify generated-guide cleanup, refresh the suite result, and merge current develop — `8e2ba27f8`
+- [x] 6.2 Align generated portability-lane guidance with the registry-derived release-coverage assertion — `4ff93cf22`
