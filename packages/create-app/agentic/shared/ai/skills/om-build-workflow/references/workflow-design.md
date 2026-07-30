@@ -9,4 +9,6 @@ Load for definitions, steps, tasks, triggers, and compensation.
 5. Define compensation in reverse dependency order and make both forward/compensating actions idempotent.
 6. Preserve immutable event history for every state transition.
 
+Every `WAIT_FOR_TIMER` step needs `config.duration` as an ISO 8601 duration or `config.until` as an absolute timestamp. Omitting both fails validation with `TIMER_CONFIG_MISSING`.
+
 Test all branches, invalid transition/signal, duplicate trigger, deadline/cancel, and compensation failure.

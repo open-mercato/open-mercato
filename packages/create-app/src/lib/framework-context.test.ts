@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -320,6 +321,47 @@ test('reports nested duplicate package installs while keeping app-root resolutio
   assert.equal(existsSync(join(root, '.ai', 'framework-context')), false)
 })
 
+test('installed package scans do not split newline-bearing manifest paths into outside operands', { skip: process.platform === 'win32' }, () => {
+  const originalRoot = createFixture()
+  const maliciousParent = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-manifest-path-')))
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-manifest-outside-')))
+  const root = join(maliciousParent, `app\n${outside}`)
+  mkdirSync(dirname(root), { recursive: true })
+  renameSync(originalRoot, root)
+  write(
+    join(outside, 'node_modules', '@open-mercato', 'core', 'package.json'),
+    JSON.stringify({
+      name: '@open-mercato/core',
+      version: '9.9.9-outside',
+      type: 'module',
+    }),
+  )
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--json', '--no-materialize'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const parsed = JSON.parse(result.stdout) as {
+      installedPackages: {
+        cohort: Array<{ name: string; version: string }>
+        duplicates: Array<{ name: string; installations: Array<{ version: string }> }>
+      }
+    }
+    assert.deepEqual(
+      parsed.installedPackages.cohort.map(({ name, version }) => ({ name, version })),
+      [{ name: '@open-mercato/core', version: '0.6.6' }],
+    )
+    assert.deepEqual(parsed.installedPackages.duplicates, [])
+    assert.doesNotMatch(result.stdout, /9\.9\.9-outside/)
+  } finally {
+    rmSync(maliciousParent, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+})
+
 test('fails closed for duplicate or ambiguous module declarations', () => {
   const duplicateRoot = createFixture()
   write(
@@ -462,6 +504,96 @@ test('materializes deterministic search output with one global match cap', () =>
   const lines = readFileSync(join(root, parsed.searchResult), 'utf8').trimEnd().split('\n')
   assert.equal(lines.length, 200)
   assert.equal(lines.some((line) => line.includes(`${join(moduleRoot, 'c.ts')}:`)), false)
+})
+
+test('never treats newline-bearing source paths as additional search operands', { skip: process.platform === 'win32' }, () => {
+  const root = createFixture()
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-newline-')))
+  const outsideFile = join(outside, 'outside.ts')
+  const moduleRoot = join(root, 'node_modules', '@open-mercato', 'core', 'src', 'modules', 'customers')
+  const prefix = join(moduleRoot, 'newline-prefix')
+  write(prefix, 'export const harmlessPrefix = true\n')
+  write(outsideFile, "export const outsideLeak = 'newline-boundary-probe'\n")
+  write(
+    `${prefix}\n${outsideFile}`,
+    "export const insideMatch = 'newline-boundary-probe'\n",
+  )
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--query', 'newline-boundary-probe', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const parsed = JSON.parse(result.stdout) as {
+      searchResult: string
+      boundedSearch: { matches: number }
+    }
+    const search = readFileSync(join(root, parsed.searchResult), 'utf8')
+    assert.ok(parsed.boundedSearch.matches >= 1)
+    assert.match(search, /insideMatch/)
+    assert.doesNotMatch(search, /outsideLeak/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('accepts contained package files through a symlinked node_modules root', { skip: process.platform === 'win32' }, () => {
+  const root = createFixture()
+  const controller = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-controller-')))
+  const controllerNodeModules = join(controller, 'node_modules')
+  renameSync(join(root, 'node_modules'), controllerNodeModules)
+  symlinkSync(controllerNodeModules, join(root, 'node_modules'), 'dir')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--query', 'Person', '--json'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const parsed = JSON.parse(result.stdout) as {
+      searchResult: string
+      boundedSearch: { matches: number }
+    }
+    assert.ok(parsed.boundedSearch.matches >= 1)
+    assert.match(readFileSync(join(root, parsed.searchResult), 'utf8'), /export class Person/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(controller, { recursive: true, force: true })
+  }
+})
+
+test('accepts contained package files through a symlinked node_modules root without ripgrep', { skip: process.platform === 'win32' }, () => {
+  const root = createFixture()
+  const controller = realpathSync(mkdtempSync(join(tmpdir(), 'om-framework-context-controller-')))
+  const controllerNodeModules = join(controller, 'node_modules')
+  renameSync(join(root, 'node_modules'), controllerNodeModules)
+  symlinkSync(controllerNodeModules, join(root, 'node_modules'), 'dir')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--query', 'Person', '--json'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, PATH: '', Path: '' },
+      },
+    )
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const parsed = JSON.parse(result.stdout) as {
+      searchResult: string
+      boundedSearch: { matches: number }
+    }
+    assert.ok(parsed.boundedSearch.matches >= 1)
+    assert.match(readFileSync(join(root, parsed.searchResult), 'utf8'), /export class Person/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(controller, { recursive: true, force: true })
+  }
 })
 
 test('uses bounded filesystem fallbacks when ripgrep is not installed', () => {

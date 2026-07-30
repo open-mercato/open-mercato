@@ -15,7 +15,7 @@ test('standalone template path aliases do not use the TypeScript 6 deprecated ba
   assert.deepEqual(tsconfig.compilerOptions.paths?.['@/*'], ['./src/*'])
 })
 
-test('standalone home page does not import the unpublished core autologin subpath', () => {
+test('standalone home page does not import an autologin subpath ahead of its dependency version', () => {
   const source = fs.readFileSync(homePagePath, 'utf8')
 
   assert.doesNotMatch(source, /@open-mercato\/core\/modules\/auth\/lib\/autologin/)

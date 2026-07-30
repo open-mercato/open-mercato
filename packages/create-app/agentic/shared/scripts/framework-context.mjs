@@ -364,13 +364,34 @@ function runRg(args, label, maxBuffer = 4 * 1024 * 1024) {
   return result
 }
 
+function nulDelimitedPaths(output) {
+  return output.split('\0').filter(Boolean)
+}
+
+function regularFileStrictlyBelow(root, candidate, label) {
+  const lexicalRoot = resolve(root)
+  const lexical = resolve(candidate)
+  const canonicalRoot = realpathSync(lexicalRoot)
+  try {
+    assertStrictlyInside(lexicalRoot, lexical, label)
+  } catch {
+    assertStrictlyInside(canonicalRoot, lexical, label)
+  }
+  const stat = lstatIfPresent(lexical)
+  if (!stat || stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error(`${label} must be a regular non-symbolic file below ${lexicalRoot}`)
+  }
+  const canonical = realpathSync(lexical)
+  assertStrictlyInside(canonicalRoot, canonical, label)
+  return canonical
+}
+
 function comparePaths(left, right) {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
 function fallbackRegularFiles(root, label) {
   const scanRoot = realpathSync(root)
-  assertInside(root, scanRoot, label)
   const pending = [scanRoot]
   const files = []
   let entriesVisited = 0
@@ -402,7 +423,6 @@ function fallbackRegularFiles(root, label) {
 
 function fallbackInstalledPackageManifests(nodeModulesRoot) {
   const scanRoot = realpathSync(nodeModulesRoot)
-  assertInside(nodeModulesRoot, scanRoot, 'installed package scan failed')
   const manifests = []
   const pendingNodeModules = [scanRoot]
   const visitedNodeModules = new Set()
@@ -555,6 +575,7 @@ function installedPackageDiagnostics(selectedPackage, selectedRoot) {
         '--no-ignore',
         '--hidden',
         '--files',
+        '--null',
         '--sort',
         'path',
         '--glob',
@@ -564,15 +585,20 @@ function installedPackageDiagnostics(selectedPackage, selectedRoot) {
       'installed package scan failed',
     )
     const manifests = packageScan
-      ? packageScan.stdout.split(/\r?\n/).filter(Boolean)
+      ? nulDelimitedPaths(packageScan.stdout)
       : fallbackInstalledPackageManifests(nodeModulesRoot)
     if (manifests.length > INSTALLED_PACKAGE_SCAN_LIMIT) {
       throw new Error(`installed package scan exceeded ${INSTALLED_PACKAGE_SCAN_LIMIT} manifests`)
     }
     for (const manifestPath of manifests) {
-      const packageName = `@open-mercato/${basename(dirname(manifestPath))}`
+      const safeManifestPath = regularFileStrictlyBelow(
+        nodeModulesRoot,
+        manifestPath,
+        'installed package manifest',
+      )
+      const packageName = `@open-mercato/${basename(dirname(safeManifestPath))}`
       if (!packageNameSet.has(packageName)) continue
-      const packageRoot = realpathSync(dirname(manifestPath))
+      const packageRoot = realpathSync(dirname(safeManifestPath))
       const record = packageRecord(packageName, packageRoot)
       installations.set(`${record.name}\0${record.root}`, record)
     }
@@ -614,7 +640,7 @@ function packageDiagnosticWarnings(diagnostics) {
 
 function runBoundedSearch(query, sourceRoot) {
   const fileSearch = runRg(
-    ['--no-ignore', '--hidden', '--files-with-matches', '--sort', 'path', '--', query, sourceRoot],
+    ['--no-ignore', '--hidden', '--files-with-matches', '--null', '--sort', 'path', '--', query, sourceRoot],
     'bounded search failed',
   )
   if (!fileSearch) return fallbackBoundedSearch(query, sourceRoot)
@@ -622,15 +648,14 @@ function runBoundedSearch(query, sourceRoot) {
     return { output: '', matches: 0, truncated: false, status: 'no-matches' }
   }
 
-  const matchingFiles = fileSearch.stdout
-    .split(/\r?\n/)
-    .filter(Boolean)
+  const matchingFiles = nulDelimitedPaths(fileSearch.stdout)
     .sort()
   const matches = []
 
   for (const file of matchingFiles.slice(0, SEARCH_MATCH_LIMIT + 1)) {
     const remaining = SEARCH_MATCH_LIMIT + 1 - matches.length
     if (remaining <= 0) break
+    const safeFile = regularFileStrictlyBelow(sourceRoot, file, 'bounded search candidate')
     const search = runRg(
       [
         '--no-ignore',
@@ -646,9 +671,9 @@ function runBoundedSearch(query, sourceRoot) {
         String(remaining),
         '--',
         query,
-        file,
+        safeFile,
       ],
-      `bounded search failed for ${file}`,
+      `bounded search failed for ${safeFile}`,
       512 * 1024,
     )
     if (!search) return fallbackBoundedSearch(query, sourceRoot)

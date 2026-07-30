@@ -26,7 +26,12 @@ Use the next contiguous `OMH-NNN` ID. Copy an adjacent case from `.ai/harness/ca
 }
 ```
 
-For `implementation` or `regression`, also declare `fixture`, `oracle`, and a narrow `allowedWrites`; add the ID to the writable registry/release matrix only when an executable disposable fixture exists. A regression oracle must fail before the edit and pass after it.
+Omit `decisionVocabulary` when every offered label is mandatory. Include it only
+for a contrastive case; it must contain every `requiredDecisions` label plus at
+least one plausible but unmandated distractor, for example
+`"decisionVocabulary": ["semantic-decision-id", "contrastive-distractor-id"]`.
+
+For `implementation` or `regression`, also declare `fixture`, `oracle`, and a narrow `allowedWrites`; add the ID to the writable registry/release matrix only when an executable disposable fixture exists. A regression oracle must fail before the edit and pass after it. When the task needs exact installed-package contracts, add one to three `frameworkContext` entries, each with exactly one `module` or `package` selector and one bounded `query`; the controller materializes and allowlists that evidence before the model runs. Queries must resolve to distinct package/version output roots.
 
 Update together:
 

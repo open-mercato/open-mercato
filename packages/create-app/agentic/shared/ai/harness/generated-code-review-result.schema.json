@@ -20,6 +20,7 @@
     "runner": { "enum": ["codex", "claude"] },
     "runnerVersion": { "type": "string", "maxLength": 200 },
     "model": { "type": "string", "maxLength": 200 },
+    "reasoningEffort": { "enum": ["minimal", "low", "medium", "high", "xhigh"] },
     "skill": {
       "type": "object",
       "additionalProperties": false,

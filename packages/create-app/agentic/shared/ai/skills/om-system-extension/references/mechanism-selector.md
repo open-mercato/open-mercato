@@ -21,3 +21,5 @@ Load this reference before choosing files.
 | Change unsupported internals | Eject only after explicit approval. |
 
 Resolve exact host tokens from facts/source. If multiple mechanisms are required (for example editable field = widget + enricher + interceptor), name one owner for each read/write/UI leg and test them as one round trip. Reactive notifications, messages/inbox, query/vector, integrations, and AI/workflow work also select their owning task route; UMES does not replace that specialist context.
+
+Prefer additive composition before replacement (`additive-before-replacement`). Ejection is the last resort after supported seams are proven insufficient and explicit approval is granted (`eject-last`).

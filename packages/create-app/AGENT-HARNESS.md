@@ -41,10 +41,13 @@ The release gate wraps this in a larger ordered sequence.
    macOS fails closed for any loopback (Playwright) lane
    (`execution-sandbox.mjs:132-135`). An unsupported host exits 2 **before any
    model runs**.
-2. **Catalog validation** — `validateCatalog()` runs; any schema error for the
-   selected case aborts with exit 1 *before* the model is invoked
+2. **Catalog validation** — the controller executes `cases.schema.json` and then
+   `validateCatalog()`; any schema or semantic catalog error for the selected case
+   aborts with exit 1 *before* the model is invoked
    (`evaluate-agent-harness.mjs:2348-2363`). Token-scanning validators and
-   non-trusted oracles are rejected outright (`:331-340`).
+   non-trusted oracles are rejected outright (`:331-340`). The package build test
+   also requires every emitted module fact sheet to be referenced by at least one
+   catalog case, preventing silent fact coverage drift.
 3. **Controller dependency fingerprint** is captured once and re-checked after the
    whole suite (`run-agent-harness-release.mjs:962-993, 1698-1715`).
 
@@ -59,31 +62,37 @@ The release gate wraps this in a larger ordered sequence.
    escapes `allowedWrites`, is unsafe, or would overwrite a file; seed writes use
    `O_EXCL | O_NOFOLLOW` (`:120-199`). Any preparer failure skips the writable +
    downstream steps.
+6. A writable case may declare one to three bounded `frameworkContext` queries. Before the
+   baseline snapshot, the trusted controller runs the emitted
+   `framework-context.mjs` against the target, rewrites its manifest and search
+   evidence to app-relative paths, and admits only that materialized output root to
+   the read allowlist. The model receives the exact manifest, search result, and
+   source root; direct `node_modules` reads remain forbidden.
 
 ### Phase C — Pre-edit verification & "before" oracle
-6. `verifyWritableTarget()` (`:1788-1836`) asserts the target is a real non-symlink
+7. `verifyWritableTarget()` (`:1788-1836`) asserts the target is a real non-symlink
    dir, `node_modules` is a symlink into the controller's real dependency tree, the
    `DISPOSABLE` marker matches this case, fixtures are seeded, and every writable
    anchor is symlink/special-file-free. Any error → exit 2.
-7. **Before snapshot** — `snapshot(runRoot)` hashes every file/dir/symlink and
+8. **Before snapshot** — `snapshot(runRoot)` hashes every file/dir/symlink and
    fingerprints protected roots (`.git`, `node_modules`, `.next`, `dist`,
    `.ai/harness/results`) separately (`:1589-1615`).
-8. **Before oracle runs** (`:2215`). **Fail-closed gate:** if the oracle already
+9. **Before oracle runs** (`:2215`). **Fail-closed gate:** if the oracle already
    *passes* before the edit, the run aborts — a code-gen/regression contract must
    genuinely fail first (`:2217`). Invalid oracle output → exit 2 (`:2216`).
 
 ### Phase D — The agent run (ephemeral, sandboxed, MCP-only)
-9. **Prompt** = `buildPrompt(case, runRoot, writable=true)` + an explicit
+10. **Prompt** = `buildPrompt(case, runRoot, writable=true)` + an explicit
    "implement only under these allowed app-relative paths: `<allowedWrites>`"
    suffix (`:2218`). The untrusted task text is fenced in `<UNTRUSTED_TASK>` and the
    model is told to use the write tool then re-read the file; network/env
    inspection, bulk globbing, and reading `.ai/harness/**` are forbidden
    (`buildPrompt:1423-1438`).
-10. **Read allowlist** = `caseReadAllowlist()` — `AGENTS.md`, `context.required` +
+11. **Read allowlist** = `caseReadAllowlist()` — `AGENTS.md`, `context.required` +
     `allowedExtra`, route-standard guides, each supporting skill's `SKILL.md` +
-    `references/**`, plus (writable) `allowedWrites` (`:1137-1151`). **Write
-    allowlist** = `allowedWrites`.
-11. `runAgentOnce()` (`:1503-1587`) launches **one fresh process per attempt**:
+    `references/**`, controller-materialized `frameworkContext`, plus (writable)
+    `allowedWrites` (`:1137-1151`). **Write allowlist** = `allowedWrites`.
+12. `runAgentOnce()` (`:1503-1587`) launches **one fresh process per attempt**:
     - The **only tool surface** is an evaluator-owned MCP file server launched with
       an empty env (`/usr/bin/env -i node agent-harness-tool-server.mjs …`,
       `:1440-1450`). It exposes exact-path `read` and (writable) atomic `write`,
@@ -115,12 +124,20 @@ The release gate wraps this in a larger ordered sequence.
     - Provider auth is copied into an isolated `HOME`/`CODEX_HOME`/
       `CLAUDE_CONFIG_DIR` and the secrets are remembered for redaction (`:1512-1541`).
     - The structured result is validated by `validateResponse` (shape) **and** the
-      JSON-Schema (`:1573-1575`). **Retry:** exactly one, only for
-      `invalid-structured-output` or a recognized transient Claude failure
-      (`:2225-2234`); `attempts ≤ 2`, `corrections ≤ 1`.
+      JSON-Schema (`:1573-1575`). **Retry:** exactly one for
+      `invalid-structured-output`, a recognized transient Claude failure, or a
+      read-only routing response whose failures are all correctable contract
+      assertions. Routing correction starts a fresh isolated process and receives
+      no case-specific expected answer. Trace/safety failures, runner-declared
+      violations, forbidden patterns, and writable runs are never assertion-retried;
+      `attempts ≤ 2`, `corrections ≤ 1`.
+    - Cases may supply a `decisionVocabulary` that contains the mandatory labels
+      plus contrastive distractors. Selecting a distractor is recorded as an
+      `unmandated decision`; cases without that field retain the prior exact
+      `requiredDecisions` behavior.
 
 ### Phase E — Trace / observation validation (fail-closed)
-12. `observedContext()` reconstructs exactly which files the model read from the
+13. `observedContext()` reconstructs exactly which files the model read from the
     runner's event stream (MCP `read` calls + any traced shell reads, `:1199-1295`).
     - No recognized tool event → `runner trace unavailable`; tool events but zero
       context reads → `runner trace contained no observed context reads`
@@ -131,7 +148,7 @@ The release gate wraps this in a larger ordered sequence.
       reads → specific `unsafe …` violations (`:1081-1099, :1258-1284`). Shell
       traces are constrained to bounded read/metadata commands; interpreters and
       env/process inspection are violations (`analyzeCommand:836-996`).
-13. `evaluateRouting()` (`:1344-1408`) grades the declared response: required
+14. `evaluateRouting()` (`:1344-1408`) grades the declared response: required
     routes/skills/decisions present, none invented, every selected context
     **actually observed**, every observed permitted-context path **declared**
     (`observed context not declared`, `:1382-1385`), forbidden-pattern regexes not
@@ -140,56 +157,56 @@ The release gate wraps this in a larger ordered sequence.
     Undeclared observed reads are **never merged** into declared context.
 
 ### Phase F — Post-edit snapshot & AST/behavior oracles ("after")
-14. **After snapshot** + `changedPaths`. Gates: writes to protected roots
+15. **After snapshot** + `changedPaths`. Gates: writes to protected roots
     (`:2263`), writes outside `allowedWrites` (`:2265`), or symlink/special/
     unreadable changed entries (`:2267`) each fail.
-15. If protected/unsafe changes occurred the **after oracle is skipped** with a
+16. If protected/unsafe changes occurred the **after oracle is skipped** with a
     failure note; otherwise the trusted oracles run **from the controller copy
     only** (`:1711-1749`) — a planted oracle inside the target is never executed.
-16. **AST oracle** `ai/harness/writable-ast-oracles.mjs` parses the case source
+17. **AST oracle** `ai/harness/writable-ast-oracles.mjs` parses the case source
     with the *target's* TypeScript, extracts structural facts, runs per-case checks,
     and in the **after** phase also runs `yarn typecheck` in a sandbox (`:1038-1102`).
     **Behavior oracle** `ai/harness/writable-behavior-oracles.mjs` runs for
     integration/workflow/regression/business families — it **compiles the exported
     seam and executes it inside a `vm` sandbox** against mocked `effects` (3 s
     worker timeout, 256 KiB source cap) to prove runtime invariants an AST cannot.
-17. **Post-oracle mutation guard:** a third snapshot detects whether the oracle run
+18. **Post-oracle mutation guard:** a third snapshot detects whether the oracle run
     itself changed the target → `oracle execution modified target` (`:2279-2281`).
-18. The `writable` result records `changedPaths`, `beforeOraclePassed` (must be
+19. The `writable` result records `changedPaths`, `beforeOraclePassed` (must be
     `false`), `afterOraclePassed` (must be `true`), and `targetFingerprint`.
 
 ### Phase G — Result persistence
-19. `status = violations.length ? 'fail' : 'pass'`. The result is recursively
+20. `status = violations.length ? 'fail' : 'pass'`. The result is recursively
     sanitized (paths, homedir, provider secrets, tokens redacted), **schema-validated
     before writing** (a schema-invalid result → exit 2, no artifact), and stored
     mode-`0600` under `.ai/harness/results/` (`:1838-1852`).
 
 ### Phase H — Target validation commands (release lane)
-20. After a passing writable result, release runs the **four-command gate**
+21. After a passing writable result, release runs the **four-command gate**
     `yarn generate / typecheck / lint / build` against an **isolated copy** of the
     target in a network-denied sandbox with a minimal rebuilt env (no secrets).
     Only declared output roots may change; the original target must stay
     byte-identical (`run-agent-harness-release.mjs:1195-1264`).
 
 ### Phase I — Generated tests (release lane, `OMH-163/164/165`)
-21. `runGeneratedTestStep()` resolves the Jest/Playwright CLI **from the protected
+22. `runGeneratedTestStep()` resolves the Jest/Playwright CLI **from the protected
     dependency tree** and runs it with a **fixed argv** (never package scripts /
     `npx`). Target is read-only; Jest = `network:none`, Playwright = isolated
     `loopback` only. The JSON report must show ≥1 passing test and **zero**
     skipped/todo/focused/flaky/unexpected tests (`:397-428, 1266-1337`).
 
 ### Phase J — Generated-code review (explicit, read-only, post-oracle)
-22. Review runs only against a *passing* writable result whose oracle evidence is
+23. Review runs only against a *passing* writable result whose oracle evidence is
     `beforeOraclePassed=false && afterOraclePassed=true` with zero violations, the
     prompt hash matches, and the target's **current fingerprint still equals** the
     reviewed one (else "writable target changed after the source result",
     `:2056-2084`).
-23. Changed files are copied as **line-numbered inert `.txt` snapshots** into a
+24. Changed files are copied as **line-numbered inert `.txt` snapshots** into a
     read-only review bundle with the pinned `om-code-review` skill (verified against
     provenance hashes — a modified installed skill → exit 2), a policy doc, and an
     evidence manifest. The reviewer runs read-only with an MCP `read` tool and may
     use **at most one** inspection command (`:2090-2141`).
-24. The review response is schema- and semantics-validated: `approve` cannot carry
+25. The review response is schema- and semantics-validated: `approve` cannot carry
     a `blocker`/`major` finding, `request changes` requires one, and the report must
     contain the fixed headings and every evidence id (`:646-677`). **Gate:** pass
     only if verdict is `approve` and there are no violations.
@@ -238,7 +255,7 @@ tying the reviewed artifact to the exact validated bytes.
 | Runner set (codex/claude) | `evaluate…:159`, `run…:22,104` | Fixed |
 | Model selector per runner | matrix `:30-31,88-89`; `evaluate…:2199` | Config-driven; global `--model` |
 | Model **per-lane / per-case** | — | **Not tunable** (one global `model`) |
-| Retry count & triggers | `evaluate…:2224-2234, 625-635` | Fixed: max 1, no assertion retry, no codex transient retry |
+| Retry count & triggers | `evaluate…:2224-2234, 625-635` | Fixed: max 1 correction; bounded read-only contract assertions, invalid output, and Claude transient failures only |
 | Context budgets | `evaluate…:1405-1407`; cases | **Per-case tunable**, capped by catalog maxima |
 | Initial-vs-progressive split | `evaluate…:1297-1302` | Fixed |
 | `allowedExtra` routing tolerance | `evaluate…:1348`; cases | **Per-case tunable** |
@@ -279,14 +296,12 @@ distinct `modelSelector` (the review lane already has its own `runners` block) s
 weak model can drive *routing* while the security-sensitive writable/review lanes
 keep the strong model. Low risk; never silently downgrade the writable/review lanes.
 
-**B. Capability-scaled retry (biggest single lever).** Add
-`profile.retry = { maxAttempts, retryAssertionFailures, retryTransientAllRunners }`.
-Weak: `maxAttempts: 3`, feed the prior violations back into the retry prompt (the
-loop already does this for invalid-output at `:2226-2228`), enable transient retry
-for codex too. Strong default: `maxAttempts: 1`, no assertion retry (identical to
-now). **Never retry a *safety* violation** even under a relaxed profile (gate on the
-existing violation categorizer, `run…:797-802`); cap attempts and keep recording
-`corrections` so the metric stays honest.
+**B. Capability-scaled retry.** The strict harness now includes one generic
+fresh-process correction for bounded read-only routing contract assertions. A
+future profile could raise the attempt count or enable transient retries for every
+runner, but must never retry a trace/safety failure, runner-declared violation,
+forbidden pattern, or writable attempt. Attempts and corrections remain recorded
+so first-pass and corrected rates stay distinguishable.
 
 **C. Capability-scaled context budgets + a real step ceiling.** Add
 `profile.budgetMultiplier` (applied before the `:1405-1407` comparison, still clamped
@@ -405,10 +420,10 @@ their required set, with zero tolerance for one extra read. Across successive ru
 those cases moved between different violations under monotonically clearer guidance,
 which is the signature of run-to-run variance rather than a missing rule.
 
-That is the population Part 2's retry lever (B) is for, and it remains **untaken**
-here: retrying an assertion failure changes what the metric means, so it should be an
-explicit reviewed decision. The result schema already records `attempts` and
-`corrections` so a first-pass rate and a corrected rate stay distinguishable.
+That is the population Part 2's retry lever (B) is for. It is now implemented as
+one generic fresh-process correction for correctable read-only routing assertions;
+the result schema records `attempts` and `corrections` so a first-pass rate and a
+corrected rate stay distinguishable.
 
 ### 3.6 One catalog inconsistency, recorded rather than papered over
 

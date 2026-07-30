@@ -2,7 +2,7 @@
 
 ## Goal
 
-Optimize the standalone AI development harness so the complete current evaluation catalog passes with the Claude runner on the `sonnet` model selector and the Codex runner (`modelSelector: "default"`). The catalog started at 184 cases and is now 187 after adding the complete-library, cache, and queue contracts requested during this run.
+Optimize the standalone AI development harness so the complete current evaluation catalog passes with the Claude runner on the `sonnet` model selector and the Codex runner (`modelSelector: "default"`). The catalog started at 184 cases and is now 192 after adding complete-library, cache, queue, four field-tested generative regressions, and the combined CRM/library contract requested during this run.
 
 Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 Depends on: #4483 (`feat/standalone-app-ai-harness`), stacked from its head `e6c38e0be`.
@@ -29,6 +29,7 @@ Sibling follow-up: #4528 (`feat/kimi-cli-runner-harness-evals`) adds a third run
 - Verify create-mercato-app still exposes and runs the shared-skill installation/update flow used on the base branch (including the generated `npx skills`/installer-facing command where applicable). Ensure new apps can intentionally refresh to the current `open-mercato/skills` source while retaining ownership/provenance checks and deterministic pinned installs for harness release evidence.
 - Document the framework-owned cache and queue paths without forcing agents back into source archaeology: cache key/scope/TTL ownership, explicit invalidation after committed writes, and durable queue registration, enqueue/worker boundaries, retries, idempotency, tenant context, and observable failure handling. Add generative routing cases for cache invalidation and queue-backed work for both supported models.
 - Add or strengthen semantic catalog coverage for real gaps above. Preserve progressive disclosure and the fail-closed gates; modest per-case file/byte quota increases and limited WIP catalog compatibility changes are allowed only when both runner traces justify them and the final measurements disclose them.
+- Merge Zielivia's field-tested OMH-188–191 cases without renumbering them, fix their shared oracle defect, and add OMH-192 for the combined Kimi/Codex CRM-library findings. Require trusted runtime scope, scalar cross-module linkage with snapshots, command-local atomic/undo behavior, concurrent checkout/idempotency, executable Jest coverage with explicit globals, and matching generated-code review checks.
 
 ## Non-goals
 
@@ -160,7 +161,7 @@ The hardest-18 set is the accumulated failure list, so it is a deliberately pess
 ### Resume procedure
 
 1. Worktree: `git worktree add <dir> origin/feat/sonnet-harness-eval-optimization`, then `yarn install && yarn build:packages && yarn generate && yarn build:packages`.
-2. Controller: copy `packages/create-app/template`, resolve `{{APP_NAME}}`/`{{PACKAGE_VERSION}}`, then `runAgenticSetup(dir, async () => 'skip', { tool: 'claude-code,codex,cursor' })` from the built CLI. Confirm `node scripts/evaluate-agent-harness.mjs --all` → 184/184.
+2. Controller: scaffold through the real built entry point, never by copying and substituting the template manually: `node packages/create-app/dist/index.js <temp-parent>/controller --agents claude-code,codex,cursor --no-shell`. On macOS put `<temp-parent>` under `/private/tmp` because `/tmp` resolves through a symlink; on Linux use `mktemp -d /tmp/omh-controller-XXXXXX`. To refresh an existing controller, run its real `yarn mercato agentic:init --force` path. Install its dependencies, then confirm `node scripts/evaluate-agent-harness.mjs --all` → 187/187.
 3. **Run exactly one sweep per runner and confirm nothing else is running first** (`pgrep -f sweep.mjs`). Concurrent runs across providers are fine; concurrent runs of the *same* lane are what corrupted the last measurement.
 4. Re-run the union of failures, fix in the smallest shared owner, re-emit, repeat.
 
@@ -322,6 +323,48 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior — `0dff12ef3`
 - [x] 3.8 Verify and, if needed, restore shared `open-mercato/skills` install/update parity for generated apps — `4e9ed542c`
 - [x] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage — `4ab32d393`; OMH-186/187 pass on both models
+- [x] 3.10 Merge field-tested OMH-188–191 and add the combined scoped CRM/library OMH-192 regression with executable oracles, Jest, and review rules — `9675e5678`
+- [x] 3.11 Pin reproducible Codex reasoning effort for the requested gpt-5.4-mini comparison and strengthen durable-workflow progressive routing — `e7654fec8`
+- [x] 3.12 Keep debugging additive to cross-module domain/extension work and remove negated-label routing ambiguity — `1a34781da`
+- [x] 3.13 Route multi-seam domain fixes through the blueprint/API scaffold references and pin trusted public-schema scope — `68d7645a2`
+- [x] 3.14 Keep the Codex MCP discovery gate available for gpt-5.4-mini while denying every model-authored capability — `a97a3e8bb`
+- [x] 3.15 Name the exact harness MCP tools under isolated Codex and remove ambiguous OMH-192 counterfactual labels — `962f042e8`
+- [x] 3.16 Reject module facts absent from the emitted controller and keep the standalone routing contract within its byte budget — `632bfe8d3`
+- [x] 3.17 Retry one trace-free read-only routing startup without retrying safety violations — `829babd95`
+- [x] 3.18 Diagnose one semantic routing correction without leaking oracle answers, then allow one independent trace-start recovery — `574924d33`
+- [x] 3.19 Abort a matrix when Claude reports an expired OAuth session inside its terminal result event — `63f62ae62`
+- [x] 3.20 Prioritize scalar-ID/snapshot fix routing to UMES plus the data-model and system-extension skills — `7314d448d`
+- [x] 3.21 Recover once from the exact model-reported `harness.read`-unavailable startup without retrying arbitrary model or safety violations — `72a7cf0ce`
+- [x] 3.22 Recognize the equivalent `Harness read tool is unavailable` startup wording observed on the current Codex CLI — `b19da559a`
+- [x] 3.23 Bind retried integration callbacks to the existing `subscriber-idempotency` decision label — `132d8e634`
+- [x] 3.24 Bind successful cursor commits and bounded transient retries to their existing decision labels — `700ee18ea`
+- [x] 3.25 Bind safe working-stage specifications to the existing `integration-coverage` decision label within the root budget — `a0d8ce447`
+- [x] 3.26 Bind the required debugging regression oracle to the existing `unit-regression-oracle` decision label — `e3dcacb86`
+- [x] 3.27 Make the integration skill's three existing provider contract references non-skippable for provider implementations — `732c61ce5`
+- [x] 3.28 Clarify that plan-only spec work includes integration coverage but no implementation-domain routes — `3f8f14f87`
+- [x] 3.29 Bind provider repair, multi-seam persistence, verification, and compatibility work to their progressive references — `5725cca14`
+- [x] 3.30 Bind installed customer-success response, event, and ID extensions to the compatibility snapshot — `65f481756`
+- [x] 3.31 Align the CLI scaffold integration expectation with the intentionally removed unreachable package guides — `58216de54`
+- [x] 3.32 Stabilize measured high-effort mini timeouts, exact unavailable-read startup recovery, installed-contract UMES routing, callback inbox claiming, and observed context floors — `13d13ab6a`
+- [x] 3.33 Recover once from a successful routing startup with no observed context reads while keeping untraceable commands fail-closed — `06156c8bf`
+- [x] 3.34 Tighten measured runner floors, exact residual owner contracts, and contradictory catalog expectations without weakening compatibility or trace safety — `dd2c172e8`
+- [x] 3.35 Bind repeated installed-import, workflow-state, optional-provider, OAuth-health, and explicit-testing decisions at their existing owners — `90a89d017`
+- [x] 3.36 Merge current develop and cover its default WMS module fact without renumbering the 192-case catalog — `5d4b20e8d`
+- [x] 3.37 Bind installed behavior discovery and field-versus-history design to their exact existing owners — `789e010e3`
+- [x] 3.38 Bind installed table actions and mutation-guard consistency to their exact existing owners — `df6fa2938`
+- [x] 3.39 Bind spreadsheet imports, renewal schedules, host-state workflows, and customer-record AI to their exact domain owners — `aedcb6ff1`
+- [x] 3.40 Bind carrier provider-neutrality, absence safety, and requested-test context to their exact owners — `bb75087d8`
+- [x] 3.41 Bind storage authorization/lifecycle and honest provider-test decisions to their exact owners — `c7ee2b604`
+- [x] 3.42 Bind requested one-shot PR delivery without replacing implementation task routes — `74c176d40`
+- [x] 3.43 Bind field-versus-history architecture and explicit eject-last reporting to their exact owners — `d9c14fac1`
+- [x] 3.44 Bind installed-host workflow ownership and new-account setup hooks to their exact owner — `c183ffca7`
+- [x] 3.45 Bind AI files, storage cleanup, ephemeral provider tests, ready-PR delivery, read-only installed context, injected tables, and mutation guards to their exact owners — `f18f75485`
+- [x] 3.46 Bind residual attachment, delivery, CRM, renewal, and bounded installed-context routing to their exact owners — `972547781`
+- [x] 3.47 Separate AI-file, lead-validation, read-only context, injected-table, and host-status guard owners — `f14910224`
+- [x] 3.48 Strengthen selected attachment, testing, and installed-guard context obligations — `aa101f99c`
+- [x] 3.49 Keep AI consumption of existing files out of transport/storage routing — `58fb0f50d`
+- [x] 3.50 Bind AI attachment work to every named domain-record fact — `2b12bcd20`
+- [x] 3.51 Stabilize measured routing floors, correction declarations, and residual specialist owners — `56d36b252`
 
 ### Phase 4: Compatibility baseline
 

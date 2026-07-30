@@ -33,16 +33,17 @@ Use the smallest relevant set. Broad: `yarn generate && yarn typecheck && yarn l
 
 ## Three-Axis Context Assembler
 
-Routes are additive, never exclusive: ownership says WHOSE code changes, the rest say WHAT changes. Select every match, then stop.
+Routes are additive: ownership says WHO; other axes say WHAT. Select every match.
 
-Combine matches: lifecycle reaction = `module-data` + `umes`; convergence bug adds `debugging`; registry drift adds `module-data` + `architecture` + `debugging`. `framework-context` only for an unresolved contract.
+`debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
-`debugging` = reported bug/security/drift; designed failure UI is not. Specs/delivery = `spec-pr` + integration coverage; spec-only work reads root + `om-spec-writing` + config, implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; an editable or save/reload/clear round-trip surface adds `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = reported bug/security/drift, not designed failure UI. Specs use `spec-pr`; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
-Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Persistent multi-stage business state that waits/cancels/survives restarts is durable; one-step reminders are `module-data`.
+Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
 
-Authoring, restyling, replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not. Do not load contracts or `module-scaffold` unless changing data/API/command/ACL/setup.
-Staff preview/report/bulk actions add `backend-ui` unless API-only.
+`backend-ui`: replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
+Staff UI preview/report/bulk = `backend-ui`.
+Existing installed form/table fields, filters, row/bulk actions without app persistence = `umes` + `backend-ui` only: read `crud-surfaces` + `quality-states`; do not load contracts, module-scaffold, or page/navigation.
 
 `backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `frontend-and-design-system.md`.
 
@@ -50,15 +51,15 @@ Staff preview/report/bulk actions add `backend-ui` unless API-only.
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Capability/ownership choice, boundary investigation, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
+| `architecture` | Capability/ownership/field-vs-history choice, boundary, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
 | `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
-| `integration` | External email/shipping/payment/sync/webhook/storage/file/import/export provider | `.ai/guides/integrations.md`; excludes installed-sender use, workflow `CALL_API`, downloads, AI storage |
+| `integration` | Provider, spreadsheet/CSV/file I/O, sync/webhook/storage | `.ai/guides/integrations.md`; imports = `integration`; AI consuming files = `ai-workflow`, NEVER `integration` unless transport/storage changes |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Location never decides the route: app code changing an installed module's records, commands, events, pages, agents, or tools is `module-data` + `umes`; reading its facts is not. Reusable providers are published dependencies, never `packages/*`.
+API/command/record/status/event/UI changes/guards = `umes`; app persistence = `module-data`; installed guard without app persistence = `umes` only, so do not load contracts; read-only behavior/auth/dependents/customization = `framework-context` (alone: no extensions guide; report `installed-version`). Facts do not. Providers are published, never `packages/*`.
 
 ### Axis 2 — Work Units
 
@@ -67,8 +68,8 @@ Match every work-unit row; OPEN its skill before selection.
 | Route | Work unit | Skill/context |
 |---|---|---|
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
-| `module-data` | Business outcome or vertical slice | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
-| `spec-pr` | Spec or plan in safe working stages | Axis 3 skill; deployable phases |
+| `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
+| `spec-pr` | Spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
 | `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |
@@ -77,24 +78,24 @@ Match every work-unit row; OPEN its skill before selection.
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
 | `umes` | Fields/extension entities/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
-| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
+| `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/AI file or content drafting/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
-| `testing` | REQUEST says test/coverage/prove, or verify by exercising API/browser/screen sizes/keyboard/screen-reader—not a fix's implicit regression duty or review/audit/config check | testing/debugging; MUST load external `om-integration-tests` for integration/E2E/app exercise |
+| `testing` | REQUEST says test/coverage/prove, or verify by exercising API/browser/screen sizes/keyboard/screen-reader—not a fix's implicit regression duty or review/audit/config check | MUST read `.ai/guides/testing-debugging.md` + external `om-integration-tests` for integration/E2E/app tests |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging |
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-“Installed contract(s)” alone does not select `framework-context`; “inspect exact installed contracts first” or exact response/error identity does. Otherwise use guides/facts and invoke it only for one named unresolved detail.
+`framework-context`: skip for “installed contracts” alone; require for exact contract/response/error identity or current behavior, authorization, dependents, and safest customization seam. Otherwise resolve one named unknown from facts.
 
 ### Axis 3 — SDLC and Delivery
 
-Delivery skills come from pinned `open-mercato/skills` (`yarn install-skills`; intentionally refresh and re-pin current `main` with `yarn install-skills --update`). Read them at `.agents/skills/<id>/SKILL.md`; MUST also apply any matching `.ai/skills/<id>/SKILL.md` override.
+Pinned delivery skills: `yarn install-skills` (refresh: `--update`). Read BOTH `.agents/skills/<id>/SKILL.md` and a matching `.ai/skills/<id>/SKILL.md` override. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
 | `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) + exact `.ai/agentic.config.json` for its specs-directory setting |
 | `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
-| `spec-pr` | Ship whole spec / one-shot PR / tracker issue / review | `om-auto-implement-spec` / `om-auto-create-pr` (resume `om-auto-continue-pr`) / `om-auto-fix-issue` / `om-auto-review-pr`, which invokes `om-code-review` |
+| `spec-pr` | Whole-spec / commit+ready PR / issue / review | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
 | `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
 | — | No PR/spec workflow requested | Do not load delivery skills |
 
@@ -118,7 +119,7 @@ Load facts for every named/targeted module, not incidental use. Mechanisms: even
 
 ## Working Sequence
 
-1. `spec-pr`: list `.ai/specs` one level; open one non-template match; plan-only skips specs.
+1. `spec-pr`: list `.ai/specs` once; open one match; plan-only skips specs.
 2. Route; load only matched guides/skills/facts.
 3. Implement the smallest complete slice through real call sites.
 4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.

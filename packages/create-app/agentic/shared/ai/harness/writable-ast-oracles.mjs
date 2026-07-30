@@ -310,6 +310,49 @@ const WRITABLE_CASES = Object.freeze({
       'src/modules/order_risk/i18n/en.json',
     ],
   },
+  'OMH-188': {
+    family: 'booking-overlap',
+    sources: ['src/modules/room_bookings', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/room_bookings/index.ts',
+      'src/modules/room_bookings/data/entities.ts',
+      'src/modules/room_bookings/data/validators.ts',
+      'src/modules/room_bookings/migrations/**',
+      'src/modules/room_bookings/commands/**',
+      'src/modules/room_bookings/api/bookings/route.ts',
+      'src/modules.ts',
+    ],
+  },
+  'OMH-189': {
+    family: 'provider-transport',
+    moduleId: 'room_calendar_sync',
+    healthService: 'roomCalendarSyncHealth',
+    sources: ['src/modules/room_calendar_sync', 'src/modules.ts'],
+    artifacts: [
+      'src/modules/room_calendar_sync/index.ts',
+      'src/modules/room_calendar_sync/integration.ts',
+      'src/modules/room_calendar_sync/di.ts',
+      'src/modules/room_calendar_sync/lib/**',
+      'src/modules.ts',
+    ],
+  },
+  'OMH-190': {
+    family: 'response-enricher',
+    sources: ['src/modules/room_bookings/data/enrichers.ts'],
+    artifacts: ['src/modules/room_bookings/data/enrichers.ts'],
+  },
+  'OMH-191': {
+    family: 'durable-workflow',
+    sources: ['src/modules/room_bookings/workflows.ts'],
+    artifacts: ['src/modules/room_bookings/workflows.ts'],
+  },
+  'OMH-192': {
+    family: 'crm-library-regression',
+    sources: ['src/modules/library/commands/crm-loans.ts', 'src/modules/library/api/schemas.ts', 'src/modules/library/commands/__tests__/crm-loans.test.ts'],
+    schemaSource: 'src/modules/library/api/schemas.ts',
+    testSource: 'src/modules/library/commands/__tests__/crm-loans.test.ts',
+    artifacts: ['src/modules/library/commands/crm-loans.ts', 'src/modules/library/api/schemas.ts', 'src/modules/library/commands/__tests__/crm-loans.test.ts'],
+  },
   'OMH-185': {
     family: 'complete-module',
     sources: ['src/modules/library', 'src/modules.ts'],
@@ -332,7 +375,7 @@ const WRITABLE_CASES = Object.freeze({
   },
 })
 
-export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES))
+export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES).sort())
 
 function parseArgs(argv) {
   const options = { root: undefined, caseId: undefined, phase: undefined, json: false }
@@ -510,7 +553,9 @@ function newFacts() {
     declarations: new Set(),
     decorators: new Set(),
     exportedFunctions: new Map(),
+    exportedObjectFacts: new Map(),
     exportedVariables: new Set(),
+    functionFacts: new Map(),
     functions: new Set(),
     finallyBlocks: 0,
     importedBindings: new Map(),
@@ -610,7 +655,7 @@ function collectFunctionFact(ts, node) {
     }
     ts.forEachChild(current, visit)
   }
-  if (node.body) visit(node.body)
+  visit(node.body ?? node)
   return fact
 }
 
@@ -618,6 +663,29 @@ function addCall(facts, name, optionNames = []) {
   facts.calls.set(name, (facts.calls.get(name) ?? 0) + 1)
   if (!facts.callOptions.has(name)) facts.callOptions.set(name, [])
   facts.callOptions.get(name).push(new Set(optionNames))
+}
+
+function classMemberNames(ts, member) {
+  const names = new Set()
+  const identifier = propertyName(ts, member.name)
+  if (identifier) names.add(identifier)
+  const decorators = typeof ts.getDecorators === 'function' && ts.canHaveDecorators(member)
+    ? ts.getDecorators(member) ?? []
+    : []
+  for (const decorator of decorators) {
+    if (!ts.isCallExpression(decorator.expression)) continue
+    if (expressionName(ts, decorator.expression.expression) !== 'Property') continue
+    for (const argument of decorator.expression.arguments) {
+      if (!ts.isObjectLiteralExpression(argument)) continue
+      for (const option of argument.properties) {
+        if (!ts.isPropertyAssignment(option)) continue
+        const optionName = propertyName(ts, option.name)
+        if (!['name', 'fieldName'].includes(optionName) || !ts.isStringLiteralLike(option.initializer)) continue
+        names.add(option.initializer.text)
+      }
+    }
+  }
+  return names
 }
 
 function collectFacts(ts, sourceFiles) {
@@ -646,7 +714,7 @@ function collectFacts(ts, sourceFiles) {
       if (ts.isImportEqualsDeclaration(node) || ts.isExportDeclaration(node)) return
 
       if (ts.isClassDeclaration(node)) {
-        const members = new Set(node.members.map((member) => propertyName(ts, member.name)).filter(Boolean))
+        const members = new Set(node.members.flatMap((member) => [...classMemberNames(ts, member)]))
         const decorators = typeof ts.getDecorators === 'function' && ts.canHaveDecorators(node)
           ? (ts.getDecorators(node) ?? []).map((decorator) => expressionName(ts, decorator.expression.expression ?? decorator.expression)).filter(Boolean)
           : []
@@ -655,9 +723,11 @@ function collectFacts(ts, sourceFiles) {
         for (const decorator of decorators) facts.decorators.add(decorator)
       }
       if (ts.isFunctionDeclaration(node) && node.name) {
+        const functionFact = collectFunctionFact(ts, node)
         facts.functions.add(node.name.text)
         facts.declarations.add(node.name.text)
-        if (isExportedFunction(ts, node)) facts.exportedFunctions.set(node.name.text, collectFunctionFact(ts, node))
+        facts.functionFacts.set(node.name.text, functionFact)
+        if (isExportedFunction(ts, node)) facts.exportedFunctions.set(node.name.text, functionFact)
       }
       if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) {
         facts.declarations.add(node.name.text)
@@ -667,6 +737,7 @@ function collectFacts(ts, sourceFiles) {
         if (isExportedVariable(ts, node)) facts.exportedVariables.add(node.name.text)
         const properties = new Set()
         if (node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
+          if (isExportedVariable(ts, node)) facts.exportedObjectFacts.set(node.name.text, collectFunctionFact(ts, node.initializer))
           for (const property of node.initializer.properties) {
             const name = propertyName(ts, property.name)
             if (name) properties.add(name)
@@ -785,13 +856,45 @@ function hasObjectVariable(facts, variableName, required) {
   return Boolean(properties && required.every((name) => properties.has(name)))
 }
 
-function hasString(facts, value) {
-  return [...facts.strings].some((entry) => entry === value || entry.startsWith(value))
+export function hasExactString(facts, value) {
+  return facts.strings.has(value)
+}
+
+// SQL migrations arrive as one template-literal string, so containment is the
+// only way to assert a clause without hard-coding the author's formatting.
+function hasStringIncluding(facts, ...fragments) {
+  return [...facts.strings].some((entry) => fragments.every((fragment) => entry.includes(fragment)))
+}
+
+function hasStringPrefix(facts, value) {
+  return [...facts.strings].some((entry) => entry.startsWith(value))
+}
+
+function factReachesCalls(facts, start, requiredCalls) {
+  if (!start) return false
+  const reached = new Set(start.calls)
+  const pending = [...start.calls]
+  const visited = new Set()
+  while (pending.length) {
+    const name = pending.pop()
+    if (visited.has(name)) continue
+    visited.add(name)
+    const local = facts.functionFacts.get(name)
+    if (!local) continue
+    for (const call of local.calls) {
+      reached.add(call)
+      pending.push(call)
+    }
+  }
+  return requiredCalls.every((name) => reached.has(name))
 }
 
 function exportedFunctionCalls(facts, functionName, requiredCalls) {
-  const fact = facts.exportedFunctions.get(functionName)
-  return Boolean(fact && requiredCalls.every((name) => fact.calls.has(name)))
+  return factReachesCalls(facts, facts.exportedFunctions.get(functionName), requiredCalls)
+}
+
+function exportedObjectCalls(facts, variableName, requiredCalls) {
+  return factReachesCalls(facts, facts.exportedObjectFacts.get(variableName), requiredCalls)
 }
 
 function exportedFunctionHasCallOptions(facts, functionName, callName, requiredOptions) {
@@ -842,7 +945,7 @@ function check(id, passed, requirement) {
   return { id, passed: Boolean(passed), requirement }
 }
 
-function caseChecks(ts, caseId, facts) {
+function caseChecks(ts, caseId, facts, root) {
   const definition = WRITABLE_CASES[caseId]
   if (definition.family === 'complete-module') {
     const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
@@ -851,23 +954,100 @@ function caseChecks(ts, caseId, facts) {
       check('module.activation', facts.moduleEntries.some((entry) => entry.id === 'library' && entry.from === '@app') && facts.moduleEntries.some((entry) => entry.id === 'directory' && entry.from === '@open-mercato/core') && facts.moduleEntries.some((entry) => entry.id === 'example' && entry.from === '@app'), 'src/modules.ts preserves statically discoverable baseline entries and activates library from @app'),
       check('module.entity', scopedEntity, 'a scoped editable @Entity includes tenant_id, organization_id, and updated_at'),
       check('module.validator', hasCall(facts, 'z.object', 'object'), 'the book input boundary uses a concrete validator object'),
-      check('module.acl', facts.exportedVariables.has('features') && hasString(facts, 'library.books.view') && hasString(facts, 'library.books.manage'), 'acl.ts exports stable view/manage features'),
+      check('module.acl', facts.exportedVariables.has('features') && hasExactString(facts, 'library.books.view') && hasExactString(facts, 'library.books.manage'), 'acl.ts exports stable view/manage features'),
       check('module.setup', facts.exportedVariables.has('setup') && facts.objectProperties.has('defaultRoleFeatures'), 'setup.ts grants module features through defaultRoleFeatures'),
-      check('module.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer', 'enrichers']) && hasString(facts, 'library:book'), 'the scoped CRUD route publishes aligned indexer and enricher hosts for library:book'),
-      check('module.crud-actions', hasCall(facts, 'registerCommand') && ['library.books.create', 'library.books.update', 'library.books.delete'].every((id) => hasString(facts, id)) && ['create', 'update', 'delete'].every((name) => facts.objectProperties.has(name)), 'create, update, and delete actions are backed by aligned registered commands'),
+      check('module.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer', 'enrichers']) && hasExactString(facts, 'library:book'), 'the scoped CRUD route publishes aligned indexer and enricher hosts for library:book'),
+      check('module.crud-actions', hasCall(facts, 'registerCommand') && ['library.books.create', 'library.books.update', 'library.books.delete'].every((id) => hasExactString(facts, id)) && ['create', 'update', 'delete'].every((name) => facts.objectProperties.has(name)), 'create, update, and delete actions are backed by aligned registered commands'),
       check('module.api-metadata', ['GET', 'POST', 'PUT', 'DELETE', 'requireAuth', 'requireFeatures'].every((name) => facts.objectProperties.has(name)), 'CRUD API metadata declares per-method auth and features'),
       check('module.openapi', facts.exportedVariables.has('openApi'), 'the CRUD API exports OpenAPI documentation separately'),
-      check('module.command-atomic', hasCallOptions(facts, 'withAtomicFlush', ['transaction']) && hasCall(facts, 'enforceCommandOptimisticLock'), 'commands use transactional withAtomicFlush and command-level optimistic locking'),
-      check('module.command-undo', hasCall(facts, 'extractUndoPayload') && hasCall(facts, 'buildCustomFieldResetMap') && hasCall(facts, 'emitCrudSideEffects') && hasCall(facts, 'emitCrudUndoSideEffects'), 'commands capture and restore custom fields with symmetric forward/undo side effects'),
-      check('module.encryption-map', facts.exportedVariables.has('defaultEncryptionMaps') && hasString(facts, 'library:book'), 'encryption.ts exports a library:book defaultEncryptionMaps entry'),
+      check('module.command-atomic', exportedObjectCalls(facts, 'createBook', ['withAtomicFlush'])
+        && ['updateBook', 'deleteBook'].every((name) => exportedObjectCalls(facts, name, ['withAtomicFlush', 'enforceCommandOptimisticLock'])),
+      'each declared create/update/delete command reaches its own transaction seam, and update/delete each enforce their own optimistic lock'),
+      check('module.command-undo', exportedObjectCalls(facts, 'createBook', ['extractUndoPayload', 'emitCrudUndoSideEffects'])
+        && ['updateBook', 'deleteBook'].every((name) => exportedObjectCalls(facts, name, ['extractUndoPayload', 'buildCustomFieldResetMap', 'emitCrudUndoSideEffects']))
+        && hasCall(facts, 'emitCrudSideEffects'),
+      'each declared create/update/delete command owns concrete undo behavior; update/delete restore custom fields and all commands retain forward side effects'),
+      check('module.encryption-map', facts.exportedVariables.has('defaultEncryptionMaps') && hasExactString(facts, 'library:book'), 'encryption.ts exports a library:book defaultEncryptionMaps entry'),
       check('module.encrypted-read', ['findWithDecryption', 'findOneWithDecryption', 'findAndCountWithDecryption'].some((name) => hasCall(facts, name)) && [...facts.importSources].includes('@open-mercato/shared/lib/encryption/find'), 'read paths use a scoped framework decryption helper'),
       check('module.search', facts.exportedVariables.has('searchConfig') && ['fieldPolicy', 'checksumSource', 'formatResult'].every((name) => facts.objectProperties.has(name)), 'search.ts defines policy, checksum, and presentation contracts'),
-      check('module.table', facts.jsxTags.has('DataTable') && facts.jsxTags.has('RowActions') && facts.jsxAttributes.has('extensionTableId') && hasString(facts, '/backend/library/books/create') && [...facts.strings].some((value) => value === 'edit' || value.endsWith('.edit')) && [...facts.strings].some((value) => value === 'delete' || value.endsWith('.delete')), 'the extensible DataTable list exposes add, linked edit, and guarded delete actions'),
+      check('module.table', facts.jsxTags.has('DataTable') && facts.jsxTags.has('RowActions') && facts.jsxAttributes.has('extensionTableId') && hasExactString(facts, '/backend/library/books/create') && [...facts.strings].some((value) => value === 'edit' || value.endsWith('.edit')) && [...facts.strings].some((value) => value === 'delete' || value.endsWith('.delete')), 'the extensible DataTable list exposes add, linked edit, and guarded delete actions'),
       check('module.list-query', facts.jsxAttributes.has('searchValue') && facts.jsxAttributes.has('onSearchChange') && ['search', 'buildFilters'].every((name) => facts.objectProperties.has(name)), 'the DataTable and scoped CRUD list connect server search and filters'),
       check('module.form', facts.jsxTags.has('CrudForm') && facts.jsxAttributes.has('initialValues') && (facts.jsxAttributes.has('entityId') || facts.objectProperties.has('entityIds')) && ['createCrud', 'updateCrud', 'deleteCrud'].every((name) => hasCall(facts, name)), 'CrudForm create/edit/delete binds the stable custom-field entity identity and initial values'),
       check('module.custom-fields', hasCall(facts, 'collectCustomFieldValues') && hasCall(facts, 'buildCustomFieldResetMap'), 'UI submission and command undo preserve custom fields'),
       check('module.sidebar', ['pageTitleKey', 'pageGroupKey', 'pagePriority', 'pageOrder', 'icon', 'breadcrumb'].every((name) => facts.objectProperties.has(name)), 'the Books list page metadata publishes localized main-sidebar navigation'),
       check('module.localized-ui', hasCall(facts, 'useT') && hasCall(facts, 't') && uiFailures.length === 0, `rendered UI uses i18n and shared design-system policy${uiFailures.length ? ` (${uiFailures.join(', ')})` : ''}`),
+    ]
+  }
+  if (definition.family === 'booking-overlap') {
+    const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
+    return [
+      check('overlap.exclusion-constraint', hasStringIncluding(facts, 'btree_gist') && hasStringIncluding(facts, 'exclude using gist', 'tstzrange', "'[)'"), 'the migration guards overlaps with a btree_gist exclusion constraint over a half-open tstzrange'),
+      check('overlap.constraint-scope', hasStringIncluding(facts, 'exclude using gist', 'room_id', 'tenant_id', 'organization_id'), 'the exclusion constraint scopes by room and tenant/organization, not by period alone'),
+      check('overlap.constraint-liveness', hasStringIncluding(facts, 'exclude using gist', 'deleted_at', 'cancelled'), 'cancelled and soft-deleted rows are excluded so they do not block the slot'),
+      check('overlap.conflict-mapping', hasExactString(facts, '23P01') && facts.newCalls.has('CrudHttpError'), 'the command recognises the exclusion violation (SQLSTATE 23P01) and maps it to a conflict error instead of a 500'),
+      check('overlap.entity-id-source', [...facts.importSources].includes('@/.mercato/generated/entities.ids.generated'), 'entity IDs come from the generated E map through the app alias, never hand-written strings'),
+      check('overlap.scoped-entity', scopedEntity, 'the booking entity carries tenant_id, organization_id, and updated_at'),
+      check('overlap.command-atomic', hasCallOptions(facts, 'withAtomicFlush', ['transaction']), 'booking writes flush inside a transaction so the constraint decides atomically'),
+      check('overlap.command-undo', hasCall(facts, 'extractUndoPayload') && hasCall(facts, 'emitCrudSideEffects'), 'commands persist undo evidence and emit post-commit side effects'),
+      check('overlap.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer']), 'the bookings CRUD route wires metadata, scoped ORM, list, command actions, and indexer'),
+    ]
+  }
+  if (definition.family === 'provider-transport') {
+    const guard = facts.exportedFunctions.get('assertSafeEndpoint')
+    const client = facts.exportedFunctions.get('createRoomCalendarClient')
+    return [
+      check('provider.paired-exports', ['integration', 'integrations', 'bundle', 'bundles'].every((name) => facts.exportedVariables.has(name)), 'integration.ts declares all four paired exports the generated module registry reads'),
+      check('provider.credential-schema', hasObjectVariable(facts, 'integration', ['id', 'credentials', 'healthCheck']) && hasExactString(facts, 'secret') && hasExactString(facts, 'url'), 'the integration declares typed credential fields including a secret and the endpoint URL'),
+      check('provider.health-di', hasExactString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} service declared by integration.ts`),
+      check('provider.ssrf-guard', Boolean(guard && guard.throws > 0) && hasExactString(facts, 'https:'), 'exported assertSafeEndpoint rejects non-HTTPS and unsafe endpoints on every call'),
+      check('provider.idempotency-key', hasExactString(facts, 'idempotency-key'), 'every remote mutation carries a stable idempotency key header'),
+      check('provider.redirect-refusal', hasExactString(facts, 'manual'), 'the transport refuses to follow redirects'),
+      check('provider.bounded-retry', Boolean(client && client.loops > 0), 'exported createRoomCalendarClient retries through a bounded loop'),
+      check('provider.unconfigured-degraded', hasExactString(facts, 'unconfigured'), 'a missing configuration reports a degraded state instead of failing'),
+    ]
+  }
+  if (definition.family === 'response-enricher') {
+    return [
+      check('enricher.dot-target', hasExactString(facts, 'customers.person') && !hasExactString(facts, 'customers:person'), 'targetEntity uses the dot form customers.person; the colon-form ID never matches and is silently skipped'),
+      check('enricher.batched', facts.objectProperties.has('enrichMany') && facts.objectProperties.has('enrichOne'), 'the enricher implements both enrichOne and batched enrichMany'),
+      check('enricher.namespaced', facts.objectProperties.has('_room_bookings'), 'added fields live under the module underscore namespace'),
+      check('enricher.resilience', ['fallback', 'timeout', 'cacheableOnListHit'].every((name) => facts.objectProperties.has(name)), 'the enricher declares fallback, timeout, and conservative list-cache behaviour'),
+      check('enricher.acl', hasExactString(facts, 'room_bookings.bookings.view'), 'the enricher gates on the owning module feature'),
+      check('enricher.registration', facts.exportedVariables.has('enrichers') && facts.importedBindings.get('ResponseEnricher') === '@open-mercato/shared/lib/crud/response-enricher', 'the typed enricher list is exported for discovery'),
+    ]
+  }
+  if (definition.family === 'durable-workflow') {
+    return [
+      check('workflow.timer-config', hasExactString(facts, 'WAIT_FOR_TIMER') && facts.objectProperties.has('config') && facts.objectProperties.has('duration') && hasStringPrefix(facts, 'PT'), 'the WAIT_FOR_TIMER step declares an ISO 8601 duration; without one the instance fails with TIMER_CONFIG_MISSING after it is already paused'),
+      check('workflow.safe-commands', hasCall(facts, 'registerWorkflowSafeCommands') && facts.objectProperties.has('requiredFeatures') && hasExactString(facts, 'room_bookings.bookings.update'), 'the dispatched command is allowlisted with the features it is authorised against'),
+      check('workflow.builder', hasCall(facts, 'defineWorkflow') && hasCall(facts, 'createWorkflowsModuleConfig') && facts.exportedVariables.has('workflowsConfig'), 'the definition uses the typed builder and exports the discovered workflowsConfig'),
+      check('workflow.terminal-graph', hasExactString(facts, 'START') && hasExactString(facts, 'END'), 'the graph declares an explicit start and a reachable end'),
+      check('workflow.confirmation-beats-expiry', hasExactString(facts, 'signal') && hasExactString(facts, 'timer'), 'confirmation arrives as a signal transition competing with the expiry timer'),
+      check('workflow.dispatch-update-entity', hasExactString(facts, 'UPDATE_ENTITY'), 'the release path cancels the hold through an UPDATE_ENTITY activity, not a direct mutation'),
+    ]
+  }
+  if (definition.family === 'crm-library-regression') {
+    const schemaFacts = collectFacts(ts, collectSourceFiles(root, [definition.schemaSource]))
+    const testFacts = collectFacts(ts, collectSourceFiles(root, [definition.testSource]))
+    const scopedActions = ['createBook', 'undoCreateBook', 'deleteBook', 'undoDeleteBook', 'checkoutBook', 'returnLoan', 'renewLoan', 'markLoanLost']
+    return [
+      check('crm-library.exports', scopedActions.every((name) => facts.exportedFunctions.has(name)), 'the stable lifecycle, checkout, return, renew, and mark-lost seams remain exported'),
+      check('crm-library.trusted-scope', scopedActions.every((name) => exportedFunctionCalls(facts, name, ['requireTrustedScope'])), 'every mutating seam fails closed through the same trusted tenant/organization scope guard'),
+      check('crm-library.lifecycle', exportedFunctionCalls(facts, 'createBook', ['effects.createBook'])
+        && exportedFunctionCalls(facts, 'undoCreateBook', ['effects.softDeleteBook'])
+        && exportedFunctionCalls(facts, 'deleteBook', ['effects.softDeleteBook'])
+        && exportedFunctionCalls(facts, 'undoDeleteBook', ['effects.restoreBook']),
+      'create undo soft-deletes, delete soft-deletes, and delete undo restores through explicit scoped effects'),
+      check('crm-library.crm-checkout', exportedFunctionCalls(facts, 'checkoutBook', ['effects.resolveCustomer', 'effects.claimCheckout'])
+        && !hasExactString(facts, 'memberId'), 'checkout resolves an existing CRM customer and reaches the atomic claim seam without a duplicate local member'),
+      check('crm-library.loan-scope', ['returnLoan', 'renewLoan', 'markLoanLost'].every((name) => exportedFunctionCalls(facts, name, ['effects.findLoan', 'effects.updateLoan'])), 'every loan action performs both lookup and mutation through scoped effects'),
+      check('crm-library.public-schema', !schemaFacts.objectProperties.has('tenantId') && !schemaFacts.objectProperties.has('organizationId')
+        && schemaFacts.exportedVariables.has('createBookRequestSchema') && schemaFacts.exportedVariables.has('checkoutBookRequestSchema'),
+      'public create/checkout request schemas omit tenantId and organizationId because runtime scope is server-derived'),
+      check('crm-library.jest-import', [...testFacts.importSources].includes('@jest/globals') && hasOnlyEnabledTests(testFacts), 'generated Jest coverage imports its globals explicitly and contains no disabled/focused/expected-failure modifiers'),
+      check('crm-library.semantic-tests', ['createBook', 'undoCreateBook', 'deleteBook', 'undoDeleteBook', 'returnLoan', 'renewLoan', 'markLoanLost'].every((name) => hasCall(testFacts, name))
+        && (testFacts.calls.get('checkoutBook') ?? 0) >= 3 && hasCall(testFacts, 'Promise.all'),
+      'generated tests exercise lifecycle undo, every scoped loan action, concurrent checkout, and deterministic retry'),
     ]
   }
   if (definition.family === 'business-command') {
@@ -890,10 +1070,10 @@ function caseChecks(ts, caseId, facts) {
     const fact = facts.exportedFunctions.get(definition.seam)
     const onExecute = facts.propertyIdentifiers.get('onExecute')
     return [
-      check('business.table-filter-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:filters']) && hasString(facts, 'order_risk.injection.order-risk-filter'), 'the exact sales.orders filters host loads the order-risk filter widget'),
-      check('business.table-bulk-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:bulk-actions']) && hasString(facts, 'order_risk.injection.order-risk-review'), 'the exact sales.orders bulk-actions host loads the order-risk review widget'),
-      check('business.table-filter', facts.exportedVariables.has('orderRiskFilterWidget') && hasObjectVariable(facts, 'orderRiskFilterWidget', ['metadata', 'filters']) && ['order-risk', 'order_risk.filters.risk.label', 'server', 'risk'].every((value) => hasString(facts, value)), 'an exported localized server-backed order-risk filter is registered'),
-      check('business.table-bulk-action', facts.exportedVariables.has('orderRiskReviewWidget') && hasObjectVariable(facts, 'orderRiskReviewWidget', ['metadata', 'bulkActions']) && hasString(facts, 'review-order-risk') && onExecute?.has(definition.seam), `the exported bulk action links onExecute directly to ${definition.seam}`),
+      check('business.table-filter-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:filters']) && hasExactString(facts, 'order_risk.injection.order-risk-filter'), 'the exact sales.orders filters host loads the order-risk filter widget'),
+      check('business.table-bulk-host', hasObjectVariable(facts, 'injectionTable', ['data-table:sales.orders:bulk-actions']) && hasExactString(facts, 'order_risk.injection.order-risk-review'), 'the exact sales.orders bulk-actions host loads the order-risk review widget'),
+      check('business.table-filter', facts.exportedVariables.has('orderRiskFilterWidget') && hasObjectVariable(facts, 'orderRiskFilterWidget', ['metadata', 'filters']) && ['order-risk', 'order_risk.filters.risk.label', 'server', 'risk'].every((value) => hasExactString(facts, value)), 'an exported localized server-backed order-risk filter is registered'),
+      check('business.table-bulk-action', facts.exportedVariables.has('orderRiskReviewWidget') && hasObjectVariable(facts, 'orderRiskReviewWidget', ['metadata', 'bulkActions']) && hasExactString(facts, 'review-order-risk') && onExecute?.has(definition.seam), `the exported bulk action links onExecute directly to ${definition.seam}`),
       check('business.table-safe-seam', exportedFunctionCalls(facts, definition.seam, ['effects.authorize', 'effects.checkVersion', 'effects.surfaceConflict', 'effects.execute']) && (fact?.loops ?? 0) > 0 && (fact?.throws ?? 0) > 0, `exported ${definition.seam} authorizes and version-checks every selected order before execution`),
       check('business.table-ui-policy', uiPolicyFailures(facts).length === 0, 'the injected table extension avoids raw UI, inline SVG/style, hard-coded copy/colors, arbitrary Tailwind, and manual dark overrides'),
     ]
@@ -923,14 +1103,14 @@ function caseChecks(ts, caseId, facts) {
       check('business.provider-seam', exportedFunctionCalls(facts, definition.seam, ['effects.findExisting', 'effects.request', 'effects.reconcile', 'effects.redact']), `exported ${definition.seam} uses idempotency, provider, reconciliation, and redaction seams`),
       check('business.provider-retry', (fact?.loops ?? 0) > 0 && (fact?.throws ?? 0) > 0, `exported ${definition.seam} bounds retries and redacts terminal failure`),
       check('business.provider-integration', facts.importedBindings.get('IntegrationDefinition') === '@open-mercato/shared/modules/integrations/types' && facts.exportedVariables.has('integration') && facts.exportedVariables.has('integrations') && hasObjectVariable(facts, 'integration', ['id', 'category', 'providerKey', 'credentials', 'healthCheck']), 'integration.ts exports typed IntegrationDefinition metadata, credentials, and health'),
-      check('business.provider-secret', hasString(facts, 'secret'), 'integration credentials include a secret-bearing field type'),
-      check('business.provider-health', hasString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} health service declared by integration.ts`),
+      check('business.provider-secret', hasExactString(facts, 'secret'), 'integration credentials include a secret-bearing field type'),
+      check('business.provider-health', hasExactString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} health service declared by integration.ts`),
       check('business.provider-activation', facts.moduleEntries.some((entry) => entry.id === definition.moduleId && entry.from === '@app'), `src/modules.ts activates ${definition.moduleId} from @app`),
     ]
     if (definition.providerKind === 'transactional-email') {
       checks.push(
         check('business.provider-transactional-di', hasObjectVariable(facts, 'smtpEmailService', ['send']) && facts.propertyIdentifiers.get('send')?.has(definition.seam), 'DI-facing SMTP sender delegates to the tested transactional client seam'),
-        check('business.provider-not-mailbox', !hasString(facts, 'communication_channels') && !facts.importedBindings.has('ChannelAdapter'), 'transactional SMTP does not claim the mailbox ChannelAdapter contract'),
+        check('business.provider-not-mailbox', !hasExactString(facts, 'communication_channels') && !facts.importedBindings.has('ChannelAdapter'), 'transactional SMTP does not claim the mailbox ChannelAdapter contract'),
       )
     }
     if (definition.providerKind === 'payment') {
@@ -955,7 +1135,7 @@ function caseChecks(ts, caseId, facts) {
     }
     if (definition.providerKind === 'payment' || definition.providerKind === 'shipping') {
       checks.push(
-        check('business.provider-acl', facts.exportedVariables.has('features') && hasString(facts, `${definition.moduleId}.view`) && hasString(facts, `${definition.moduleId}.configure`), 'provider acl.ts exports stable view/configure features'),
+        check('business.provider-acl', facts.exportedVariables.has('features') && hasExactString(facts, `${definition.moduleId}.view`) && hasExactString(facts, `${definition.moduleId}.configure`), 'provider acl.ts exports stable view/configure features'),
         check('business.provider-setup', facts.exportedVariables.has('setup') && hasObjectVariable(facts, 'setup', ['defaultRoleFeatures']), 'provider setup.ts grants its features through defaultRoleFeatures'),
       )
     }
@@ -981,7 +1161,7 @@ function caseChecks(ts, caseId, facts) {
       check('business.test-api-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
       check('business.test-api-enabled', hasOnlyEnabledTests(facts), 'generated API coverage contains no disabled, focused-only, todo, or expected-failure tests or suites'),
       check('business.test-api-http', ['request.post', 'request.patch', 'request.delete'].every((name) => hasCall(facts, name)), 'real HTTP creation, stale update, and cleanup requests are executed'),
-      check('business.test-api-scope-conflict', hasString(facts, 'x-organization-id') && hasString(facts, 'if-match') && (facts.calls.get('toBe') ?? 0) >= 4, 'organization denial and optimistic conflict statuses are asserted'),
+      check('business.test-api-scope-conflict', hasExactString(facts, 'x-organization-id') && hasExactString(facts, 'if-match') && (facts.calls.get('toBe') ?? 0) >= 4, 'organization denial and optimistic conflict statuses are asserted'),
       check('business.test-api-lifecycle', allServersBindLoopback(facts) && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'every ephemeral server listen call binds the literal host 127.0.0.1 and is closed in finally'),
     ]
   }
@@ -990,7 +1170,7 @@ function caseChecks(ts, caseId, facts) {
       check('business.test-browser-runner', facts.importedBindings.get('test') === '@playwright/test' && facts.importedBindings.get('expect') === '@playwright/test', 'the module-local spec uses the Playwright test runner'),
       check('business.test-browser-enabled', hasOnlyEnabledTests(facts), 'generated browser coverage contains no disabled, focused-only, todo, or expected-failure tests or suites'),
       check('business.test-browser-real-page', hasCall(facts, 'page.goto') && hasCall(facts, 'page.getByRole') && hasCall(facts, 'click'), 'a real browser navigates loopback HTTP and interacts through semantic roles'),
-      check('business.test-browser-coverage', hasString(facts, '/portal/orders/forbidden') && hasString(facts, '/api/backend/quotes/quote-1') && hasCall(facts, 'toHaveText', 'toContainText', 'toBe'), 'direct-route denial, stale conflict, and backend state are asserted'),
+      check('business.test-browser-coverage', hasExactString(facts, '/portal/orders/forbidden') && hasExactString(facts, '/api/backend/quotes/quote-1') && hasCall(facts, 'toHaveText', 'toContainText', 'toBe'), 'direct-route denial, stale conflict, and backend state are asserted'),
       check('business.test-browser-lifecycle', allServersBindLoopback(facts) && hasCall(facts, 'close') && facts.finallyBlocks > 0, 'every ephemeral server listen call binds the literal host 127.0.0.1 and is closed in finally'),
     ]
   }
@@ -1023,13 +1203,13 @@ function caseChecks(ts, caseId, facts) {
       ]
     case 'OMH-026':
       return [
-        check('umes.form-spot', hasString(facts, 'crud-form:'), 'a concrete crud-form:* spot ID literal'),
+        check('umes.form-spot', hasStringPrefix(facts, 'crud-form:'), 'a concrete crud-form:* spot ID literal'),
         check('umes.enricher', hasCall(facts, 'enrichMany'), 'an enrichMany call'),
         check('umes.interceptor', hasObjectVariable(facts, 'interceptors', []) || facts.declarations.has('interceptors'), 'an interceptors declaration'),
       ]
     case 'OMH-027':
       return [
-        check('umes.table-spot', hasString(facts, 'data-table:'), 'a concrete data-table:* spot ID literal'),
+        check('umes.table-spot', hasStringPrefix(facts, 'data-table:'), 'a concrete data-table:* spot ID literal'),
         check('umes.table-id', facts.objectProperties.has('extensionTableId') || facts.jsxAttributes.has('extensionTableId'), 'an extensionTableId option or JSX attribute'),
       ]
     case 'OMH-029':
@@ -1055,9 +1235,9 @@ function caseChecks(ts, caseId, facts) {
       return [check('ai.agent', hasCallOptions(facts, 'defineAiAgent', ['provider', 'model', 'allowedTools', 'requiredFeatures']), 'defineAiAgent called with provider, model, allowedTools, and requiredFeatures options')]
     case 'OMH-054':
       return [
-        check('workflow.activity', facts.functions.has('callApiActivity') && hasString(facts, 'CALL_API'), 'a callApiActivity declaration and CALL_API literal'),
+        check('workflow.activity', facts.functions.has('callApiActivity') && hasExactString(facts, 'CALL_API'), 'a callApiActivity declaration and CALL_API literal'),
         check('workflow.transaction', hasCall(facts, 'transaction', 'transactional'), 'a transaction/transactional call'),
-        check('workflow.idempotency', (hasCall(facts, 'fetch', 'fetchImpl') && facts.objectProperties.has('headers') && hasString(facts, 'Idempotency-Key')), 'a fetch call with headers and an Idempotency-Key literal'),
+        check('workflow.idempotency', (hasCall(facts, 'fetch', 'fetchImpl') && facts.objectProperties.has('headers') && hasExactString(facts, 'Idempotency-Key')), 'a fetch call with headers and an Idempotency-Key literal'),
       ]
     case 'OMH-057':
     case 'OMH-171':
@@ -1154,7 +1334,7 @@ export function evaluateWritableAstOracle({ root: requestedRoot, caseId, phase }
   const checks = definition.artifacts.map((artifact) => check(`artifact:${artifact}`, artifactExists(root, artifact), `artifact ${artifact} exists`))
   const sourceFiles = collectSourceFiles(root, definition.sources)
   checks.push(check('source.present', sourceFiles.length > 0, 'at least one case-owned TypeScript source file'))
-  if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles)))
+  if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles), root))
   if (phase === 'after') checks.push(runTargetTypecheck(root))
   const failures = checks.filter((entry) => !entry.passed).map((entry) => `${entry.id}: ${entry.requirement}`)
   return { passed: failures.length === 0, failures, checks }

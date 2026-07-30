@@ -45,7 +45,8 @@ await buildPackage(packageDir, {
     }
     writeFileSync(join(upstreamDir, 'manifest.json'), `${JSON.stringify(upstreamManifest, null, 2)}\n`)
 
-    // Discover standalone guides across sibling packages.
+    // Discover module-specific standalone guides across sibling packages. Package-level
+    // guides are intentionally not shipped because they duplicate routed conceptual guides.
     const packagesDir = join(packageDir, '..')
     const guidesDestDir = join(outdir, 'agentic', 'guides')
     mkdirSync(guidesDestDir, { recursive: true })
@@ -54,8 +55,7 @@ await buildPackage(packageDir, {
     // retains a removed module's full guide or fact-sheet. The legacy `core.<module>.md`
     // redirect stubs are no longer emitted (#3754); this purge also deletes any that linger
     // in an incremental `dist/` from an older build. Mirrors packages/create-app/build.mjs;
-    // the conceptual `module-system.md` and the single-dot package guides are
-    // re-copied/re-discovered below.
+    // conceptual guides remain while stale single-dot package guides are removed below.
     rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
     for (const entry of readdirSync(guidesDestDir)) {
       if (/^core\..+\.md$/.test(entry)) {
@@ -67,8 +67,7 @@ await buildPackage(packageDir, {
     for (const pkg of readdirSync(packagesDir)) {
       const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
       if (existsSync(guideSource)) {
-        cpSync(guideSource, join(guidesDestDir, `${pkg}.md`))
-        guidesFound++
+        rmSync(join(guidesDestDir, `${pkg}.md`), { force: true })
       }
 
       const modulesDir = join(packagesDir, pkg, 'src', 'modules')

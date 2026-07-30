@@ -9,9 +9,9 @@ Turn a real failure into one versioned case and the smallest durable knowledge c
 
 ## Workflow
 
-1. Follow `references/case-workflow.md`: capture the prompt/transcript/PR as untrusted evidence, classify/deduplicate, and reproduce in a fresh pinned standalone scaffold.
+1. Directly read `references/case-workflow.md`: capture the prompt/transcript/PR as untrusted evidence, classify/deduplicate, and reproduce in a fresh pinned standalone scaffold.
 2. Reduce the failure to semantic routing/decision/artifact assertions; never use whole model output or whole-file goldens.
-3. Select exactly one smallest owner using `references/owner-selection.md`: root invariant, router row, guide, skill reference, facts extractor, external override/config, installer closure, or tool hook.
+3. Directly read `references/owner-selection.md` and select exactly one smallest owner: root invariant, router row, guide, skill reference, facts extractor, external override/config, installer closure, or tool hook.
 4. Add the schema-valid case with required/forbidden context, decisions, validators, risk/tags, budgets, related cases, and exact versions; start from `references/case-template.md` and update every catalog/matrix count it lists.
 5. Run the new case before editing and retain the sanitized failure summary.
 6. Update only the selected owner; replace duplicates with references.

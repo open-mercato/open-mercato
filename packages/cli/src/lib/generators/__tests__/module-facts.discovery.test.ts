@@ -113,4 +113,20 @@ describe('module-facts discovery (T1)', () => {
       expect(sources[0].moduleRoot).toBe(path.join(pkgB, 'src', 'modules', 'shared'))
     }
   })
+
+  it('explains that an omitted provider implicitly selects core', () => {
+    const pkgA = path.join(tmp, 'implicit-a')
+    writeModule(path.join(pkgA, 'src', 'modules'), 'shared', 'index.ts')
+    const pkgB = path.join(tmp, 'implicit-b')
+    writeModule(path.join(pkgB, 'src', 'modules'), 'shared', 'index.ts')
+
+    const packages = [
+      { name: '@open-mercato/dup-a', path: pkgA, modulesPath: path.join(pkgA, 'src', 'modules') },
+      { name: '@open-mercato/dup-b', path: pkgB, modulesPath: path.join(pkgB, 'src', 'modules') },
+    ]
+
+    expect(() => discoverPackageModuleSources(makeResolver(packages, [{ id: 'shared' }]))).toThrow(
+      'src/modules.ts omits "from", which defaults to @open-mercato/core',
+    )
+  })
 })
