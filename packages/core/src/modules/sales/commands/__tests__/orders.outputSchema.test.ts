@@ -1,9 +1,10 @@
 /** @jest-environment node */
 
 /**
- * `sales.orders.update` is the only command `registerWorkflowSafeCommands`
- * declares in production, so it is the one command whose `outputSchema` an
- * `UPDATE_ENTITY` activity can actually surface to a workflow author today.
+ * `sales.orders.update` is the one workflow-safe command that is ON for a
+ * tenant which never opened the settings page (the `defaultEnabled` grandfather
+ * clause), so it is the command whose `outputSchema` an `UPDATE_ENTITY`
+ * activity surfaces to a workflow author out of the box.
  * These tests pin the declared shapes and then prove the payoff end to end:
  * that the shipped `sales.order-approval` definition's ledger advertises the
  * real typed order keys at the steps downstream of each update activity.

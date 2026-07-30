@@ -2,11 +2,12 @@
 
 /**
  * Product commands are named high-value by
- * `.ai/specs/2026-07-26-workflows-ux-redesign.md`, but none of them is declared
- * workflow-safe yet, so their contracts buy nothing until
- * `registerWorkflowSafeCommands` lists one. These tests pin the declared shapes
- * and assert that the flattener would turn them into a pickable ledger entry —
- * the check that fails loudly if a future schema flattens to nothing useful.
+ * `.ai/specs/2026-07-26-workflows-ux-redesign.md`. `catalog.products.update` is
+ * now declared workflow-safe (`catalog/workflows.ts`) and is therefore tickable
+ * per tenant, so its contract finally reaches an author; create and delete stay
+ * undeclared on purpose. These tests pin the declared shapes and assert that the
+ * flattener turns them into a pickable ledger entry — the check that fails
+ * loudly if a future schema flattens to nothing useful.
  */
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({

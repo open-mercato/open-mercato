@@ -2780,5 +2780,8 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Aufgaben aktualisiert",
   "customers.workPlan.customerTodos.table.state.empty": "Noch keine Kundenaufgaben.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Keine Aufgaben entsprechen den Filtern.",
-  "customers.workPlan.customerTodos.table.title": "Kundenbezogene Aufgaben"
+  "customers.workPlan.customerTodos.table.title": "Kundenbezogene Aufgaben",
+  "customers.workflows.commands.companies.update": "Unternehmen aktualisieren",
+  "customers.workflows.commands.deals.update": "Deal aktualisieren",
+  "customers.workflows.commands.people.update": "Person aktualisieren"
 }

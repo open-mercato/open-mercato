@@ -2780,5 +2780,8 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Tareas actualizadas",
   "customers.workPlan.customerTodos.table.state.empty": "Aún no hay tareas de clientes.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Ninguna tarea coincide con tus filtros.",
-  "customers.workPlan.customerTodos.table.title": "Tareas relacionadas con clientes"
+  "customers.workPlan.customerTodos.table.title": "Tareas relacionadas con clientes",
+  "customers.workflows.commands.companies.update": "Actualizar empresa",
+  "customers.workflows.commands.deals.update": "Actualizar oportunidad",
+  "customers.workflows.commands.people.update": "Actualizar persona"
 }
