@@ -160,4 +160,18 @@ for review finding 3, so only the drift guard survives from that work.
       `release-matrix.json` now pins 45 IDs — f9d584589
 - [x] 5.7 Re-measure the coverage claim against the merged catalog and record that it no longer holds
       as originally written — see Evidence
-- [ ] 5.8 Full configured `validation.commands` gate on the merge result
+- [x] 5.8 Full configured `validation.commands` gate on the merge result, local runner: 6 of 8 green
+      (`build:packages` ×2, `generate` with no versioned drift, `i18n:check-sync`, `typecheck`,
+      `build:app`). `i18n:check-usage` is red for a regression that pre-exists on `develop`
+      (#4147 references two undefined `ui.customFields.phone.*` keys — tracked as #4607 with fix PR
+      #4608 open). `yarn test` went red on two different unrelated flakes across two runs — a
+      concurrency collision in create-app's own `node build.mjs` helper, then a jest-worker SIGSEGV in
+      `@open-mercato/search` — while the `create-app` package suite run in isolation is
+      **376 tests / 371 pass / 0 fail / 5 skipped**, covering both new cases, the drift guard and the
+      corrected canary. Drift guard re-verified negatively after the merge: restoring the pre-merge id
+      pattern fails with `OMH-193: schema id pattern rejects a shipped case`, and deleting the pattern
+      fails with `schema must declare a case id pattern; an absent one would make this guard vacuous`
+- [x] 5.9 Fix the schema-enforcement canary in `agent-harness-evaluator.test.ts`, which pins the last
+      shipped case ID and legitimately broke on the two appended cases — 8b12947b0. Caught by the full
+      gate; a package-scoped run would have caught it too, but only because it happens to live in the
+      same package
