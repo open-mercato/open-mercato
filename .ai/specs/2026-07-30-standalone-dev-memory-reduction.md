@@ -478,6 +478,7 @@ one equivalent `yarn dev` page/HMR smoke is required.
 - `packages/create-app/AGENTS.md`
 - `packages/create-app/template/AGENTS.md`
 - `packages/cli/AGENTS.md`
+- `packages/shared/AGENTS.md`
 - `.ai/docs/agent-instructions.md`
 - `BACKWARD_COMPATIBILITY.md`
 
@@ -492,6 +493,7 @@ one equivalent `yarn dev` page/HMR smoke is required.
 | `packages/create-app/AGENTS.md` | Mirror app-shell/runtime changes into the template | Compliant | Mandatory implementation constraint and explicit risk mitigation. |
 | `packages/create-app/template/AGENTS.md` | Preserve generated files and standalone dev workflow | Compliant | The intervention moves diagnostic runtime snapshots only; generated registry paths and hot reload remain unchanged. |
 | `packages/cli/AGENTS.md` | Preserve generator output and standalone contracts | Compliant | Generator output was inspected but is not modified by the selected intervention. |
+| `packages/shared/AGENTS.md` | Keep shared infrastructure contracts narrow and domain-independent | Compliant | The selected intervention preserves `resource-usage.ts`, its public environment override, snapshot format, and cross-process aggregation; managed dev wrappers supply a different default without changing shared package code or imports. |
 | `BACKWARD_COMPATIBILITY.md` | Preserve stable and frozen contract surfaces | Compliant | No contract removal or rename is permitted. |
 | `packages/create-app/AGENTS.md` | Validate monorepo and Verdaccio-backed standalone environments | Pending Task 3/4 | Both smokes and the full create-app gate are now explicit acceptance criteria. |
 | Data, API, commands, cache, security, and design-system rules | Apply when those surfaces change | N/A | No entity, API, mutation, cache, or product UI change is selected. |
