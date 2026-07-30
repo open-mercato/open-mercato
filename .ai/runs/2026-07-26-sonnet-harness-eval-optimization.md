@@ -384,4 +384,4 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 
 - [x] 5.1 Add regression coverage and run targeted suites — 9 new regression tests; full create-app suite green
 - [x] 5.2 Update spec, harness, and operator documentation with measured evidence — `86ac9b4bf`
-- [ ] 5.3 Run the configured gate, complete review/autofix, and publish PR evidence
+- [x] 5.3 Run the configured gate, complete review/autofix, and publish PR evidence — `ce310e8c3`
