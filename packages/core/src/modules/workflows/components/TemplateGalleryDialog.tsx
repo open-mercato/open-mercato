@@ -4,12 +4,14 @@ import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { AlarmClock, CircleCheck, Route, SquareDashed, Webhook, Workflow } from 'lucide-react'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -60,8 +62,11 @@ function resolveTemplateIcon(icon: string): LucideIcon {
  * host decides whether to navigate (definitions list) or apply the template
  * to the open canvas (visual editor).
  *
- * Keyboard: Escape cancels (Radix default), Cmd/Ctrl+Enter selects the
- * active card (blank canvas until a card is focused or hovered).
+ * A Drawer rather than a modal: the gallery opens over the definitions list
+ * and over the canvas, and a card grid is exactly the content the maintainer
+ * wants room for. Keyboard unchanged: Escape cancels (Radix default),
+ * Cmd/Ctrl+Enter selects the active card (blank canvas until a card is focused
+ * or hovered).
  */
 export function TemplateGalleryDialog({ open, onOpenChange, onSelect }: TemplateGalleryDialogProps) {
   const t = useT()
@@ -123,14 +128,19 @@ export function TemplateGalleryDialog({ open, onOpenChange, onSelect }: Template
   )
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{t('workflows.templates.gallery.title', 'Choose a template')}</DialogTitle>
-          <DialogDescription>
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent
+        data-testid="workflow-template-gallery-drawer"
+        className="w-full max-w-none sm:w-3/5"
+        closeAriaLabel={t('workflows.templates.gallery.close', 'Close template gallery')}
+      >
+        <DrawerHeader>
+          <DrawerTitle>{t('workflows.templates.gallery.title', 'Choose a template')}</DrawerTitle>
+          <DrawerDescription>
             {t('workflows.templates.gallery.description', 'Start from a ready-made workflow or a blank canvas.')}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
+        <DrawerBody className="py-4">
         {isLoading ? (
           <LoadingMessage label={t('workflows.templates.gallery.loading', 'Loading templates...')} />
         ) : loadError ? (
@@ -144,7 +154,7 @@ export function TemplateGalleryDialog({ open, onOpenChange, onSelect }: Template
             )}
           />
         ) : (
-          <div className="grid max-h-[60svh] grid-cols-1 gap-3 overflow-y-auto sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <button
               type="button"
               data-testid="template-card-blank"
@@ -188,7 +198,8 @@ export function TemplateGalleryDialog({ open, onOpenChange, onSelect }: Template
             })}
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+        </DrawerBody>
+      </DrawerContent>
+    </Drawer>
   )
 }

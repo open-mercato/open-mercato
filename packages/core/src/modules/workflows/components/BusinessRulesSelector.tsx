@@ -2,7 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@open-mercato/ui/primitives/dialog'
+import {
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -206,12 +214,16 @@ export function BusinessRulesSelector({
 
   return (
     <>
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-5xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+    <Drawer open={isOpen} onOpenChange={(next) => { if (!next) handleClose() }}>
+      <DrawerContent
+        data-testid="workflow-business-rules-selector-drawer"
+        className="w-full max-w-none sm:w-3/5"
+        closeAriaLabel={t('workflows.selectors.businessRule.close')}
+      >
+        <DrawerHeader>
+          <DrawerTitle>{title}</DrawerTitle>
+          <DrawerDescription>{description}</DrawerDescription>
+        </DrawerHeader>
 
         {/* Search Input */}
         <div className="px-6">
@@ -226,7 +238,7 @@ export function BusinessRulesSelector({
         </div>
 
         {/* Rules List */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-[400px]">
+        <DrawerBody className="py-4">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -343,9 +355,9 @@ export function BusinessRulesSelector({
               </div>
             </>
           )}
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
+        <DrawerFooter>
           {!disableInlineCreate && (
             <Button
               type="button"
@@ -361,11 +373,11 @@ export function BusinessRulesSelector({
             variant="outline"
             onClick={handleClose}
           >
-            Cancel
+            {t('common.cancel', 'Cancel')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
     {!disableInlineCreate && (
       <InlineRuleEditor
         open={isInlineEditorOpen}

@@ -4,13 +4,14 @@ import * as React from 'react'
 import { CircleAlert, Sparkles, TriangleAlert } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -203,9 +204,11 @@ export function WorkflowAiDraftDialog({
   const isGenerating = state.kind === 'generating'
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="sm:max-w-2xl"
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent
+        data-testid="workflow-ai-draft-drawer"
+        className="w-full max-w-none sm:w-3/5"
+        closeAriaLabel={t('workflows.aiDraft.close', 'Close AI draft panel')}
         onKeyDown={(event) => {
           if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
           event.preventDefault()
@@ -213,17 +216,17 @@ export function WorkflowAiDraftDialog({
           else if (!isGenerating) void handleGenerate()
         }}
       >
-        <DialogHeader>
-          <DialogTitle>{t('workflows.aiDraft.title', 'Draft a workflow with AI')}</DialogTitle>
-          <DialogDescription>
+        <DrawerHeader>
+          <DrawerTitle>{t('workflows.aiDraft.title', 'Draft a workflow with AI')}</DrawerTitle>
+          <DrawerDescription>
             {t(
               'workflows.aiDraft.description',
               'Describe the process in plain language. The draft is authored against this installation\'s real activities, commands and events, lands on the canvas as a single undoable step, and is never saved or enabled for you.',
             )}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
-        <div className="flex flex-col gap-4">
+        <DrawerBody className="flex flex-col gap-4 py-2">
           <div>
             <label
               htmlFor="workflow-ai-draft-prompt"
@@ -333,9 +336,9 @@ export function WorkflowAiDraftDialog({
               )}
             </section>
           )}
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
+        <DrawerFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel', 'Cancel')}
           </Button>
@@ -361,8 +364,8 @@ export function WorkflowAiDraftDialog({
           >
             {t('workflows.aiDraft.apply', 'Apply to canvas')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   )
 }

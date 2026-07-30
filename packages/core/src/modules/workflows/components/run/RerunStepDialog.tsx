@@ -2,13 +2,14 @@
 
 import * as React from 'react'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -73,27 +74,29 @@ export function RerunStepDialog({
   }, [patchText, onConfirm, t])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent
+        data-testid="workflow-rerun-step-drawer"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault()
             submit()
           }
         }}
+        closeAriaLabel={t('workflows.rerunStep.close', 'Close rerun panel')}
       >
-        <DialogHeader>
-          <DialogTitle>{t('workflows.rerunStep.title', 'Rerun from this step')}</DialogTitle>
-          <DialogDescription>
+        <DrawerHeader>
+          <DrawerTitle>{t('workflows.rerunStep.title', 'Rerun from this step')}</DrawerTitle>
+          <DrawerDescription>
             {t(
               'workflows.rerunStep.description',
               'The run continues from {step}. The previous attempt is kept in the history, and the rerun is recorded in the audit log.',
               { step: stepLabel || stepId || '' }
             )}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
-        <div className="space-y-2">
+        <DrawerBody className="space-y-2">
           <label className="text-sm font-medium text-foreground" htmlFor="workflow-rerun-context-patch">
             {t('workflows.rerunStep.patchLabel', 'Context patch (optional JSON)')}
           </label>
@@ -112,18 +115,18 @@ export function RerunStepDialog({
             )}
           </p>
           {parseError ? <p className="text-xs text-status-error-text">{parseError}</p> : null}
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
+        <DrawerFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             {t('common.cancel')}
           </Button>
           <Button type="button" onClick={submit} disabled={isSubmitting || !stepId}>
             {t('workflows.rerunStep.confirm', 'Rerun step')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   )
 }
 

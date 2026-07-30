@@ -4,13 +4,14 @@ import * as React from 'react'
 import type { Node } from '@xyflow/react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
@@ -35,8 +36,13 @@ export interface AnnotationEditDialogProps {
  * Inspector for a sticky note or a named group (spec section 4.5).
  *
  * Notes and groups carry no step configuration, so they deliberately do not go
- * through the step inspector: this dialog edits the two fields an annotation
+ * through the step inspector: this panel edits the two fields an annotation
  * actually has and nothing else.
+ *
+ * It is a Drawer, not a modal, for the same reason the step and route
+ * inspectors are rails: an annotation is written ABOUT a region of the canvas,
+ * so covering that region while it is edited hides the thing being described.
+ * Keyboard contract unchanged — Cmd/Ctrl+Enter saves, Escape cancels.
  */
 export function AnnotationEditDialog({ node, isOpen, onClose, onSave, onDelete }: AnnotationEditDialogProps) {
   const t = useT()
@@ -69,30 +75,31 @@ export function AnnotationEditDialog({ node, isOpen, onClose, onSave, onDelete }
   if (!node || (!isNote && !isGroup)) return null
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent
-        className="sm:max-w-lg"
+    <Drawer open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DrawerContent
+        data-testid="workflow-annotation-drawer"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault()
             handleSave()
           }
         }}
+        closeAriaLabel={t('workflows.annotations.close', 'Close annotation editor')}
       >
-        <DialogHeader>
-          <DialogTitle>
+        <DrawerHeader>
+          <DrawerTitle>
             {isNote
               ? t('workflows.annotations.note.dialogTitle', 'Edit note')
               : t('workflows.annotations.group.dialogTitle', 'Edit group')}
-          </DialogTitle>
-          <DialogDescription>
+          </DrawerTitle>
+          <DrawerDescription>
             {isNote
               ? t('workflows.annotations.note.dialogDescription', 'Notes document the workflow for the people editing it. They are never executed.')
               : t('workflows.annotations.group.dialogDescription', 'Groups label a region of the canvas. Collapsing one changes nothing the engine runs.')}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
-        <div className="space-y-3 px-1 py-2">
+        <DrawerBody className="space-y-3 py-2">
           {isNote ? (
             <div className="space-y-1">
               <Label htmlFor="annotation-markdown" className="text-xs">
@@ -130,20 +137,21 @@ export function AnnotationEditDialog({ node, isOpen, onClose, onSave, onDelete }
               </div>
             </>
           )}
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
+        <DrawerFooter leading={(
           <Button type="button" variant="destructive-outline" onClick={handleDelete}>
             {t('common.delete', 'Delete')}
           </Button>
+        )}>
           <Button type="button" variant="outline" onClick={onClose}>
             {t('common.cancel', 'Cancel')}
           </Button>
           <Button type="button" onClick={handleSave}>
             {t('workflows.common.save', 'Save')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   )
 }

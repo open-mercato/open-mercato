@@ -109,13 +109,14 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { ConfirmDialog, useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -2931,13 +2932,26 @@ export default function VisualEditorPage() {
         variant="destructive"
         onConfirm={confirmClear}
       />
-      <Dialog open={startOpen} onOpenChange={setStartOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('workflows.startInstance.title')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 px-1 py-2">
-            <p className="text-xs text-muted-foreground">{t('workflows.startInstance.description')}</p>
+      {/* Starting a run is a FORM — a context payload, saved fixtures and two
+          run-mode switches — authored against the canvas it will execute, so it
+          is a rail rather than a modal that hides the graph. */}
+      <Drawer open={startOpen} onOpenChange={setStartOpen}>
+        <DrawerContent
+          data-testid="workflow-start-instance-drawer"
+          closeAriaLabel={t('workflows.startInstance.close')}
+          onKeyDown={(event) => {
+            if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
+            event.preventDefault()
+            event.stopPropagation()
+            if (starting) return
+            void handleStartInstance()
+          }}
+        >
+          <DrawerHeader>
+            <DrawerTitle>{t('workflows.startInstance.title')}</DrawerTitle>
+            <DrawerDescription>{t('workflows.startInstance.description')}</DrawerDescription>
+          </DrawerHeader>
+          <DrawerBody className="space-y-3 py-2">
 
             {startFixtureList.length > 0 ? (
               <div className="space-y-1">
@@ -2976,12 +2990,6 @@ export default function VisualEditorPage() {
               rows={9}
               spellCheck={false}
               className="font-mono text-sm"
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                  e.preventDefault()
-                  void handleStartInstance()
-                }
-              }}
             />
 
             <div className="flex items-end gap-2">
@@ -3026,17 +3034,17 @@ export default function VisualEditorPage() {
               </div>
               <p className="text-xs text-muted-foreground">{t('workflows.startInstance.stepThroughHint')}</p>
             </div>
-          </div>
-          <DialogFooter>
+          </DrawerBody>
+          <DrawerFooter>
             <Button variant="outline" onClick={() => setStartOpen(false)} disabled={starting}>
               {t('workflows.startInstance.cancel')}
             </Button>
             <Button onClick={() => void handleStartInstance()} disabled={starting}>
               {starting ? <Spinner className="h-4 w-4" /> : t('workflows.startInstance.start')}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </>
   )
 

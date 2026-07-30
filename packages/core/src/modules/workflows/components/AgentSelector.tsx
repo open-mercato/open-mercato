@@ -4,13 +4,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -49,10 +50,12 @@ function normalizeAgents(items: AgentListItem[] | undefined): AgentListItem[] {
 }
 
 /**
- * AgentSelector - Searchable dialog for picking an agent from the registry.
+ * AgentSelector - Searchable rail for picking an agent from the registry.
  *
  * Mirrors WorkflowSelector: client-side search over id, label and description,
- * card list with runtime/result-kind badges, loading and empty states.
+ * card list with runtime/result-kind badges, loading and empty states — a
+ * record browser rather than a tiny picker, hence a Drawer and not a Popover.
+ * Escape cancels; selection IS the primary action.
  */
 export function AgentSelector({ isOpen, onClose, onSelect, title, description }: AgentSelectorProps) {
   const t = useT()
@@ -92,14 +95,18 @@ export function AgentSelector({ isOpen, onClose, onSelect, title, description }:
     : agents
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>{title ?? t('workflows.fieldEditors.agentSelector.selectAgent')}</DialogTitle>
-          <DialogDescription>
+    <Drawer open={isOpen} onOpenChange={(next) => { if (!next) handleClose() }}>
+      <DrawerContent
+        data-testid="workflow-agent-selector-drawer"
+        className="w-full max-w-none sm:w-3/5"
+        closeAriaLabel={t('workflows.selectors.agent.close')}
+      >
+        <DrawerHeader>
+          <DrawerTitle>{title ?? t('workflows.fieldEditors.agentSelector.selectAgent')}</DrawerTitle>
+          <DrawerDescription>
             {description ?? t('workflows.fieldEditors.agentSelector.selectAgentDescription')}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
         <div className="px-6">
           <Input
@@ -112,7 +119,7 @@ export function AgentSelector({ isOpen, onClose, onSelect, title, description }:
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-[320px]">
+        <DrawerBody className="py-4">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="size-10 animate-spin text-primary mb-4" />
@@ -180,14 +187,14 @@ export function AgentSelector({ isOpen, onClose, onSelect, title, description }:
               ))}
             </div>
           )}
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
+        <DrawerFooter>
           <Button type="button" variant="outline" onClick={handleClose}>
             {t('workflows.common.cancel')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   )
 }

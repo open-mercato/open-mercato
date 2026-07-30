@@ -16,18 +16,23 @@
  * Free-text assignee and role fields mirror the Studio's own task inspector
  * (`workflows.tasks.inspector.when.reassignTo`); the platform has no shared user
  * picker to reuse yet.
+ *
+ * A rail rather than a modal: this is a secondary FORM filled against the task
+ * it moves, and the reviewer reads the task body to decide who should own it.
+ * Keyboard contract unchanged — Cmd/Ctrl+Enter submits, Escape cancels.
  */
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -92,8 +97,8 @@ export function ReassignTaskDialog({
   }, [assignedTo, onSubmit, reason, roles])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent
         data-testid="task-reassign-dialog"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -101,15 +106,16 @@ export function ReassignTaskDialog({
             handleSubmit()
           }
         }}
+        closeAriaLabel={t('workflows.tasks.detail.reassign.close')}
       >
-        <DialogHeader>
-          <DialogTitle>{t('workflows.tasks.detail.reassign.title')}</DialogTitle>
-          <DialogDescription>
+        <DrawerHeader>
+          <DrawerTitle>{t('workflows.tasks.detail.reassign.title')}</DrawerTitle>
+          <DrawerDescription>
             {t('workflows.tasks.detail.reassign.description')}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
-        <div className="space-y-4 px-1 py-2">
+        <DrawerBody className="space-y-4 py-2">
           <div className="space-y-1">
             <Label htmlFor="task-reassign-assignee">
               {t('workflows.tasks.detail.reassign.assigneeLabel')}
@@ -167,15 +173,18 @@ export function ReassignTaskDialog({
               {t('workflows.tasks.detail.reassign.targetRequired')}
             </p>
           ) : null}
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
-          <span className="mr-auto hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
-            <KbdShortcut keys={['⌘', 'Enter']} />
-            <span>{t('workflows.tasks.detail.reassign.submitHint')}</span>
-            <Kbd>Esc</Kbd>
-            <span>{t('workflows.tasks.detail.reassign.cancelHint')}</span>
-          </span>
+        <DrawerFooter
+          leading={(
+            <span className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
+              <KbdShortcut keys={['⌘', 'Enter']} />
+              <span>{t('workflows.tasks.detail.reassign.submitHint')}</span>
+              <Kbd>Esc</Kbd>
+              <span>{t('workflows.tasks.detail.reassign.cancelHint')}</span>
+            </span>
+          )}
+        >
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
@@ -187,8 +196,8 @@ export function ReassignTaskDialog({
           >
             {t('workflows.tasks.actions.reassign')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   )
 }

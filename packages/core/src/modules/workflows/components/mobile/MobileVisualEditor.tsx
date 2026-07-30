@@ -4,11 +4,12 @@ import { useState } from 'react'
 import type { Node, Edge, Connection } from '@xyflow/react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Save, MoreVertical, FileText, Trash2, CircleQuestionMark, Play } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_LABELS } from '../../lib/node-type-icons'
@@ -165,12 +166,18 @@ export function MobileVisualEditor({
         )}
       </div>
 
-      <Dialog open={showMoreActions} onOpenChange={setShowMoreActions}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('workflows.mobile.moreActions', 'More Actions')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
+      {/* An action sheet, so it rises from the bottom edge the thumb is at
+          rather than centring a modal over the canvas. Escape closes it. */}
+      <Drawer open={showMoreActions} onOpenChange={setShowMoreActions}>
+        <DrawerContent
+          side="bottom"
+          data-testid="workflow-mobile-actions-drawer"
+          closeAriaLabel={t('workflows.mobile.closeActions', 'Close actions')}
+        >
+          <DrawerHeader>
+            <DrawerTitle>{t('workflows.mobile.moreActions', 'More Actions')}</DrawerTitle>
+          </DrawerHeader>
+          <DrawerBody className="space-y-2 pb-5">
             <button
               onClick={() => { onLoadExample(); setShowMoreActions(false) }}
               className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted"
@@ -195,9 +202,9 @@ export function MobileVisualEditor({
               <Trash2 className="h-4 w-4" />
               {t('workflows.mobile.clear', 'Clear')}
             </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
 
     </div>
   )

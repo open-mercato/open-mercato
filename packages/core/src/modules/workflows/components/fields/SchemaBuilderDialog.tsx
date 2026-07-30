@@ -3,13 +3,14 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { PortFieldArrayEditor } from './PortFieldArrayEditor'
@@ -36,7 +37,10 @@ export interface SchemaBuilderDialogProps {
  * always shown (the affected-connection count arrives with breaking-change
  * detection in a later phase).
  *
- * Dialog UX contract: `Cmd/Ctrl+Enter` submits, `Escape` cancels.
+ * A rail rather than a modal — two port lists plus a warning banner are a
+ * secondary FORM, and the sub-workflow node whose contract is being declared
+ * stays readable behind it. UX contract unchanged: `Cmd/Ctrl+Enter` submits,
+ * `Escape` cancels.
  */
 export function SchemaBuilderDialog({
   open,
@@ -70,16 +74,20 @@ export function SchemaBuilderDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-w-2xl" onKeyDown={handleKeyDown}>
-        <DialogHeader>
-          <DialogTitle>{t('workflows.ports.title')}</DialogTitle>
-          <DialogDescription>
+    <Drawer open={open} onOpenChange={(next) => { if (!next) onClose() }}>
+      <DrawerContent
+        data-testid="workflow-schema-builder-drawer"
+        onKeyDown={handleKeyDown}
+        closeAriaLabel={t('workflows.ports.close')}
+      >
+        <DrawerHeader>
+          <DrawerTitle>{t('workflows.ports.title')}</DrawerTitle>
+          <DrawerDescription>
             {workflowName ? `${workflowName} — ${t('workflows.ports.description')}` : t('workflows.ports.description')}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
-        <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1">
+        <DrawerBody className="space-y-5 py-2">
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
               <span className="size-2 rounded-full bg-primary" aria-hidden="true" />
@@ -115,17 +123,17 @@ export function SchemaBuilderDialog({
               {t('workflows.ports.breakingWarning')}
             </AlertDescription>
           </Alert>
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
+        <DrawerFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             {t('workflows.ports.cancel')}
           </Button>
           <Button type="button" onClick={handleSave} disabled={disabled}>
             {t('workflows.ports.save')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   )
 }

@@ -16,13 +16,14 @@ import {
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
@@ -387,13 +388,17 @@ export function DefinitionTriggersEditor({
         )}
       </div>
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent
-          className="max-w-2xl max-h-[90vh] overflow-y-auto"
-          // Cmd/Ctrl+Enter submits — the project-wide dialog rule this dialog
-          // never implemented. It also stops the keystroke here so it cannot
-          // bubble to the details drawer and save the whole workflow from a
+      {/* Create/Edit rail. It opens ON TOP of the definition metadata drawer
+          that hosts this editor, so it slides in over it rather than centring a
+          modal on a page whose left half is already a panel. */}
+      <Drawer open={showDialog} onOpenChange={setShowDialog}>
+        <DrawerContent
+          data-testid="workflow-trigger-drawer"
+          className="w-full max-w-none sm:w-3/5"
+          closeAriaLabel={t('workflows.triggers.dialog.close', 'Close trigger editor')}
+          // Cmd/Ctrl+Enter submits — the project-wide rule this surface never
+          // implemented. It also stops the keystroke here so it cannot bubble
+          // to the details drawer and save the whole workflow from a
           // half-filled trigger form.
           onKeyDown={(event) => {
             if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
@@ -403,19 +408,19 @@ export function DefinitionTriggersEditor({
             handleSubmit()
           }}
         >
-          <DialogHeader>
-            <DialogTitle>
+          <DrawerHeader>
+            <DrawerTitle>
               {editingTrigger
                 ? t('workflows.triggers.dialog.edit.title', 'Edit Event Trigger')
                 : t('workflows.triggers.dialog.create.title', 'Create Event Trigger')
               }
-            </DialogTitle>
-            <DialogDescription>
+            </DrawerTitle>
+            <DrawerDescription>
               {t('workflows.triggers.dialog.description', 'Configure when this workflow should be automatically started based on system events.')}
-            </DialogDescription>
-          </DialogHeader>
+            </DrawerDescription>
+          </DrawerHeader>
 
-          <div className="space-y-4 py-4">
+          <DrawerBody className="space-y-4 py-4">
             {/* Basic Info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
@@ -641,9 +646,9 @@ export function DefinitionTriggersEditor({
                 </p>
               </div>
             </div>
-          </div>
+          </DrawerBody>
 
-          <DialogFooter>
+          <DrawerFooter>
             <Button variant="outline" onClick={handleCloseDialog}>
               {t('common.cancel', 'Cancel')}
             </Button>
@@ -656,9 +661,9 @@ export function DefinitionTriggersEditor({
                 : t('common.create', 'Create')
               }
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
 
       {/* Removing a trigger is a yes/no interruption, so it stays a blocking
           confirmation rather than becoming a rail. */}

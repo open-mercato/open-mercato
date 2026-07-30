@@ -96,6 +96,34 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   DialogDescription: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
 }))
 
+// The reassign form is a rail now, so the drawer primitive is the one this
+// page renders it through. Keep `closeAriaLabel` off the DOM node — it is a
+// DrawerContent prop, not an attribute.
+jest.mock('@open-mercato/ui/primitives/drawer', () => ({
+  Drawer: ({ open, children }: { open?: boolean; children?: React.ReactNode }) =>
+    open ? <div data-testid="drawer">{children}</div> : null,
+  DrawerContent: ({
+    children,
+    closeAriaLabel: _closeAriaLabel,
+    side: _side,
+    hideCloseButton: _hideCloseButton,
+    ...rest
+  }: {
+    children?: React.ReactNode
+    closeAriaLabel?: string
+    side?: string
+    hideCloseButton?: boolean
+  }) => <div {...rest}>{children}</div>,
+  DrawerHeader: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  DrawerBody: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  DrawerFooter: ({ leading, children }: { leading?: React.ReactNode; children?: React.ReactNode }) => (
+    <div>{leading}{children}</div>
+  ),
+  DrawerTitle: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
+  DrawerDescription: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
+  DrawerClose: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}))
+
 jest.mock('@open-mercato/ui/primitives/input', () => ({
   Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }))
