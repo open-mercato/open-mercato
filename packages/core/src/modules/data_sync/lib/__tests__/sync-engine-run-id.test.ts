@@ -27,7 +27,7 @@ jest.mock('../../../query_index/lib/coverage', () => ({
 }))
 
 import { createSyncEngine } from '../sync-engine'
-import { SyncRunCursorConflictError } from '../sync-run-service'
+import { SyncRunOwnershipConflictError } from '../sync-run-service'
 
 function createScope() {
   return {
@@ -401,6 +401,7 @@ describe('data sync engine forwards run context to adapters', () => {
       direction: 'import' as const,
       status: 'running' as const,
       cursor: 'checkpoint-1',
+      batchesCompleted: 4,
       progressJobId: null,
     }
     const syncRunService = {
@@ -439,7 +440,7 @@ describe('data sync engine forwards run context to adapters', () => {
       expect.objectContaining({ updatedCount: 1, batchesCompleted: 1 }),
       'checkpoint-2',
       createScope(),
-      'checkpoint-1',
+      4,
     )
   })
 })
@@ -490,7 +491,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
     })
   }
 
-  it('chains each commit to the cursor it last committed, so a stale delivery cannot skip a window', async () => {
+  it('chains each commit to the batch count it last committed, so a stale delivery cannot skip a window', async () => {
     const run = {
       id: 'run-chain',
       integrationId: 'sync_excel',
@@ -498,6 +499,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
       direction: 'import' as const,
       status: 'pending' as const,
       cursor: null,
+      batchesCompleted: 0,
       progressJobId: null,
     }
     const commitBatchProgress = jest.fn(async () => run)
@@ -517,12 +519,42 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
     await buildEngine(syncRunService).runImport('run-chain', 100, createScope())
 
     expect(commitBatchProgress.mock.calls.map((call) => [call[2], call[4]])).toEqual([
-      ['c1', null],
-      ['c2', 'c1'],
+      ['c1', 0],
+      ['c2', 1],
     ])
   })
 
-  it('yields the run instead of failing it when the cursor was advanced by another worker', async () => {
+  it('chains on the batch count even when the adapter repeats a cursor between batches', async () => {
+    const run = {
+      id: 'run-repeat',
+      integrationId: 'sync_excel',
+      entityType: 'catalog.product',
+      direction: 'import' as const,
+      status: 'pending' as const,
+      cursor: null,
+      batchesCompleted: 0,
+      progressJobId: null,
+    }
+    const commitBatchProgress = jest.fn(async () => run)
+    const syncRunService = {
+      getRun: jest.fn(async () => run),
+      markStatus: jest.fn(async () => ({ ...run, status: 'running' })),
+      commitBatchProgress,
+    } as unknown as SyncRunService
+
+    mockGetDataSyncAdapter.mockReturnValue(
+      createImportAdapter([
+        { cursor: 'same', batchIndex: 1 },
+        { cursor: 'same', batchIndex: 2 },
+      ]),
+    )
+
+    await buildEngine(syncRunService).runImport('run-repeat', 100, createScope())
+
+    expect(commitBatchProgress.mock.calls.map((call) => call[4])).toEqual([0, 1])
+  })
+
+  it('yields the run instead of failing it when another worker already advanced it', async () => {
     const run = {
       id: 'run-conflict',
       integrationId: 'sync_excel',
@@ -530,6 +562,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
       direction: 'import' as const,
       status: 'running' as const,
       cursor: 'checkpoint-1',
+      batchesCompleted: 1,
       progressJobId: null,
     }
     const markStatus = jest.fn(async () => ({ ...run, status: 'running' }))
@@ -537,7 +570,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
       getRun: jest.fn(async () => run),
       markStatus,
       commitBatchProgress: jest.fn(async () => {
-        throw new SyncRunCursorConflictError('run-conflict', 'checkpoint-1', 'checkpoint-2')
+        throw new SyncRunOwnershipConflictError('run-conflict', 1)
       }),
     } as unknown as SyncRunService
 
@@ -548,5 +581,88 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
     const requestedStatuses = markStatus.mock.calls.map((call) => call[1])
     expect(requestedStatuses).not.toContain('failed')
     expect(requestedStatuses).not.toContain('completed')
+  })
+
+  it('does not report a failure for a run another delivery already completed', async () => {
+    const run = {
+      id: 'run-displaced',
+      integrationId: 'sync_excel',
+      entityType: 'catalog.product',
+      direction: 'import' as const,
+      status: 'running' as const,
+      cursor: 'checkpoint-5',
+      batchesCompleted: 5,
+      progressJobId: 'job-displaced',
+    }
+    // The winning delivery finalized the run while this one was still streaming,
+    // so `markStatus` refuses `completed -> failed` and returns the row as it
+    // stands. Nothing downstream may fire off that refusal.
+    const markStatus = jest.fn(async (_runId: string, status: string) => (
+      status === 'running'
+        ? { ...run, status: 'running' }
+        : { ...run, status: 'completed' }
+    ))
+    const progressService = createProgressService()
+    const integrationLogService = {
+      write: jest.fn(async () => undefined),
+    } as unknown as IntegrationLogService
+    const syncRunService = {
+      getRun: jest.fn(async () => run),
+      markStatus,
+      commitBatchProgress: jest.fn(async () => run),
+    } as unknown as SyncRunService
+
+    mockGetDataSyncAdapter.mockReturnValue({
+      ...createImportAdapter([]),
+      streamImport: jest.fn(async function* () {
+        throw new Error('upstream timed out after the run was taken over')
+      }),
+    })
+
+    const engine = createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService,
+      integrationCredentialsService: {
+        resolve: jest.fn(async () => ({ uploadId: 'upload-1' })),
+      } as unknown as CredentialsService,
+      integrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
+      progressService,
+    })
+
+    await engine.runImport('run-displaced', 100, createScope())
+
+    expect(markStatus).toHaveBeenCalledWith('run-displaced', 'failed', createScope(), expect.any(String))
+    expect(progressService.failJob).not.toHaveBeenCalled()
+    expect(mockEmitDataSyncEvent.mock.calls.map((call) => call[0])).not.toContain('data_sync.run.failed')
+  })
+
+  it('marks a resumed run as such so consumers can tell a restart from a start', async () => {
+    const run = {
+      id: 'run-resumed-event',
+      integrationId: 'sync_excel',
+      entityType: 'catalog.product',
+      direction: 'import' as const,
+      status: 'running' as const,
+      cursor: 'checkpoint-1',
+      batchesCompleted: 1,
+      progressJobId: null,
+    }
+    const syncRunService = {
+      getRun: jest.fn(async () => run),
+      markStatus: jest.fn(async (_runId: string, status: string) => ({ ...run, status })),
+      commitBatchProgress: jest.fn(async () => run),
+    } as unknown as SyncRunService
+
+    mockGetDataSyncAdapter.mockReturnValue(createImportAdapter([]))
+
+    await buildEngine(syncRunService).runImport('run-resumed-event', 100, createScope())
+
+    expect(mockEmitDataSyncEvent).toHaveBeenCalledWith(
+      'data_sync.run.started',
+      expect.objectContaining({ resumed: true }),
+    )
   })
 })

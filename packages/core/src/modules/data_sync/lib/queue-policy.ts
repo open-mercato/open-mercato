@@ -20,9 +20,9 @@ export const DATA_SYNC_QUEUE_ATTEMPTS = 3
  * stalls more than this many times, and at the default of 1 a single stall
  * during a long backfill discards the run permanently. 10 buys enough
  * redeliveries to survive a rolling restart. Raising it is only safe because a
- * duplicate delivery can no longer corrupt the run: the cursor compare-and-swap
- * in `commitBatchProgress` lets exactly one worker advance a run, and every
- * other delivery aborts on its first commit. A job that genuinely poisons its
+ * duplicate delivery can no longer corrupt the run: the ownership
+ * compare-and-swap in `commitBatchProgress` lets exactly one worker advance a
+ * run, and every other delivery aborts on its first commit. A job that poisons its
  * worker still dies — after 10 stalls, with the run left `running` and its
  * cursor unmoved, which is the state the admin runs list surfaces.
  */

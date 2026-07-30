@@ -9,7 +9,7 @@ import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
 import { getDataSyncAdapter } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
-import { SyncRunCursorConflictError } from './sync-run-service'
+import { SyncRunOwnershipConflictError } from './sync-run-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
@@ -237,6 +237,21 @@ export function createSyncEngine(deps: EngineDeps) {
       return
     }
 
+    if (run.status !== status) {
+      // `markStatus` refuses a terminal -> different-terminal transition and
+      // returns the row unchanged, so the run is already finished under another
+      // delivery of this job. Everything below — the progress job, the
+      // operational log and the lifecycle event — would describe the wrong
+      // outcome, and `data_sync.run.failed` is dispatched to tenant webhooks.
+      // A displaced worker stays silent instead.
+      logger.warn('Skipping finalization of a sync run another worker already finalized', {
+        runId,
+        requestedStatus: status,
+        actualStatus: run.status,
+      })
+      return
+    }
+
     if (run.progressJobId) {
       if (status === 'completed') {
         await progressService.completeJob(
@@ -409,6 +424,10 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`Integration ${run.integrationId} is missing credentials`)
       }
 
+      // A run already `running` means a stalled job was redelivered, so this is
+      // a resume rather than a first start. Consumers see one `started` event per
+      // delivery either way; the flag is what lets them tell the two apart.
+      const resumed = run.status === 'running'
       const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
       if (!activeRun || activeRun.status !== 'running') {
         return
@@ -418,6 +437,7 @@ export function createSyncEngine(deps: EngineDeps) {
         integrationId: run.integrationId,
         entityType: run.entityType,
         direction: run.direction,
+        resumed,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       })
@@ -453,7 +473,7 @@ export function createSyncEngine(deps: EngineDeps) {
       const mapping = await resolveMapping(adapter, run.entityType, scope)
       let processedCount = 0
       let totalCount: number | null = null
-      let committedCursor: string | null = run.cursor ?? null
+      let committedBatches = activeRun.batchesCompleted ?? 0
 
       try {
         for await (const batch of adapter.streamImport({
@@ -483,9 +503,9 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
-            committedCursor,
+            committedBatches,
           )
-          committedCursor = batch.cursor
+          committedBatches += 1
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
           await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
@@ -511,10 +531,10 @@ export function createSyncEngine(deps: EngineDeps) {
           })
         }
       } catch (error) {
-        if (error instanceof SyncRunCursorConflictError) {
-          logger.warn('Yielding import run to a concurrent worker that already advanced the cursor', {
+        if (error instanceof SyncRunOwnershipConflictError) {
+          logger.warn('Yielding import run to a concurrent worker that already advanced it', {
             runId: run.id,
-            expectedCursor: error.expectedCursor,
+            expectedBatchesCompleted: error.expectedBatchesCompleted,
           })
           return
         }
@@ -564,6 +584,10 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`Integration ${run.integrationId} is missing credentials`)
       }
 
+      // A run already `running` means a stalled job was redelivered, so this is
+      // a resume rather than a first start. Consumers see one `started` event per
+      // delivery either way; the flag is what lets them tell the two apart.
+      const resumed = run.status === 'running'
       const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
       if (!activeRun || activeRun.status !== 'running') {
         return
@@ -573,6 +597,7 @@ export function createSyncEngine(deps: EngineDeps) {
         integrationId: run.integrationId,
         entityType: run.entityType,
         direction: run.direction,
+        resumed,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       })
@@ -607,7 +632,7 @@ export function createSyncEngine(deps: EngineDeps) {
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
       let processedCount = 0
-      let committedCursor: string | null = run.cursor ?? null
+      let committedBatches = activeRun.batchesCompleted ?? 0
 
       try {
         for await (const batch of adapter.streamExport({
@@ -638,9 +663,9 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
-            committedCursor,
+            committedBatches,
           )
-          committedCursor = batch.cursor
+          committedBatches += 1
           await updateProgress(run.progressJobId, processedCount, null, scope)
           await logExportItemFailures(run.id, run.integrationId, batch.results, scope)
 
@@ -661,10 +686,10 @@ export function createSyncEngine(deps: EngineDeps) {
           })
         }
       } catch (error) {
-        if (error instanceof SyncRunCursorConflictError) {
-          logger.warn('Yielding export run to a concurrent worker that already advanced the cursor', {
+        if (error instanceof SyncRunOwnershipConflictError) {
+          logger.warn('Yielding export run to a concurrent worker that already advanced it', {
             runId: run.id,
-            expectedCursor: error.expectedCursor,
+            expectedBatchesCompleted: error.expectedBatchesCompleted,
           })
           return
         }
