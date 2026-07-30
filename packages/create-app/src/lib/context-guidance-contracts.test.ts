@@ -79,7 +79,11 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(integrity, /ctx\.selectedOrganizationId/)
   assert.match(integrity, /ctx\.organizationScope\?\.selectedId/)
   assert.match(integrity, /`ctx\.organizationScope` is an object/)
-  assert.match(integrity, /Capture undo state through `prepare`\/`captureAfter`/)
+  assert.match(integrity, /`prepare` returns exactly `\{ before: snapshot \}`/)
+  assert.match(integrity, /`captureAfter` returns the after-snapshot value directly/)
+  assert.match(integrity, /`snapshots\.before`\/`snapshots\.after`/)
+  assert.match(integrity, /Never invent `snapshots\.snapshot`/)
+  assert.match(integrity, /nest payload under `\{ metadata: \{ payload \} \}`/)
   assert.match(integrity, /never cast or mutate `ctx`/)
   assert.match(integrity, /Type command helpers as `\(ctx: CommandRuntimeContext\)`/)
   assert.match(integrity, /do not use `as const` for mutable `cacheAliases`/)
@@ -313,6 +317,13 @@ test('data-model skill pins validators beside entities for generated discovery',
   assert.match(skill, /src\/modules\/<id>\/data\/entities\.ts/)
   assert.match(skill, /src\/modules\/<id>\/data\/validators\.ts/)
   assert.match(skill, /do not move validators to the module root/)
+
+  const schemaDesign = readAgentic(
+    'shared/ai/skills/om-data-model-design/references/schema-design.md',
+  )
+  assert.match(schemaDesign, /@mikro-orm\/decorators\/legacy/)
+  assert.match(schemaDesign, /@Unique\(\{ name, properties: \[\.\.\.\] \}\)/)
+  assert.match(schemaDesign, /@Index\(\{ unique: true \}\)/)
 })
 
 test('progressive references pin reviewed standalone runtime contracts', () => {
