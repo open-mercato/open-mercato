@@ -80,7 +80,9 @@ describe('catalog settings route', () => {
     const response = await PUT(makePutRequest(false))
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ unitPriceDisplayEnabled: false })
+    // The response gained an additive `omnibus` key (EU Omnibus config shares this route);
+    // `{}` is the unset config. A PUT that omits `omnibus` must leave it untouched.
+    await expect(response.json()).resolves.toEqual({ unitPriceDisplayEnabled: false, omnibus: {} })
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
       expect.objectContaining({

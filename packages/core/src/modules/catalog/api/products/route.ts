@@ -39,6 +39,9 @@ import {
   type PricingContext,
   type PriceRow,
 } from "../../lib/pricing";
+import { resolvePresentedPrice } from "../../lib/omnibusPresentation";
+import type { CatalogOmnibusService } from "../../services/catalogOmnibusService";
+import type { OmnibusResolutionContext } from "../../lib/omnibusTypes";
 import type { CatalogPricingService } from "../../services/catalogPricingService";
 import { fieldsetCodeRegex } from "@open-mercato/core/modules/entities/data/validators";
 import { SalesChannel } from "@open-mercato/core/modules/sales/data/entities";
@@ -376,7 +379,120 @@ type ProductListItem = Record<string, unknown> & {
   categories?: Array<Record<string, unknown>>;
   categoryIds?: string[];
   tags?: string[];
+  pricing?: Record<string, unknown> | null;
+  omnibus?: Record<string, unknown> | null;
+  isPersonalized?: boolean;
+  personalizationReason?: string | null;
+  first_listed_at?: string | Date | null;
+  omnibus_exempt?: boolean | null;
 };
+
+// Kept deliberately separate from the pricing/unit-conversion enrichment above: folding it into
+// that try/catch would report an Omnibus failure as a unit-conversion error and hide a
+// compliance-relevant fault. A failure here degrades `omnibus` to null and never fails the list.
+async function decorateProductsWithOmnibus(
+  payload: { items?: ProductListItem[] },
+  ctx: CrudCtx & { query: ProductsQuery },
+): Promise<void> {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (!items.length) return;
+
+  const tenantId = ctx.auth?.tenantId ?? null;
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null;
+  if (!tenantId || !organizationId) return;
+
+  try {
+    const omnibusService = ctx.container.resolve(
+      "catalogOmnibusService",
+    ) as CatalogOmnibusService;
+    const config = await omnibusService.getConfig({ tenantId, organizationId });
+    if (!config.enabled) return;
+
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const channelId = resolveOmnibusChannelId(ctx);
+
+    const targets = items
+      .map((item) => {
+        const pricing = item.pricing as Record<string, unknown> | null | undefined;
+        if (!pricing) return null;
+        const priceKindId = typeof pricing.price_kind_id === "string" ? pricing.price_kind_id : null;
+        const currencyCode = typeof pricing.currency_code === "string" ? pricing.currency_code : null;
+        const productId = typeof item.id === "string" ? item.id : null;
+        if (!priceKindId || !currencyCode || !productId) return null;
+        return { item, productId, priceKindId, currencyCode };
+      })
+      .filter((target): target is NonNullable<typeof target> => target !== null);
+
+    if (!targets.length) return;
+
+    const results = await Promise.all(
+      targets.map(async (target) => {
+        const resolutionCtx: OmnibusResolutionContext = {
+          tenantId,
+          organizationId,
+          productId: target.productId,
+          variantId: null,
+          offerId: null,
+          priceKindId: target.priceKindId,
+          currencyCode: target.currencyCode,
+          channelId,
+          isStorefront: false,
+          firstListedAt: toOptionalDate(target.item.first_listed_at),
+          omnibusExempt: target.item.omnibus_exempt === true ? true : null,
+        };
+        const presented = await resolvePresentedPrice(em, resolutionCtx, config);
+        const block = await omnibusService.resolveOmnibusBlock(
+          em,
+          resolutionCtx,
+          presented.presentedEntry,
+          presented.priceKindIsPromotion,
+        );
+        return { item: target.item, block };
+      }),
+    );
+
+    for (const { item, block } of results) {
+      item.omnibus = block;
+      // Authoritative contract: top-level camelCase. Never nested snake_case under `pricing`.
+      const personalization = detectOmnibusPersonalization(ctx);
+      item.isPersonalized = personalization.isPersonalized;
+      item.personalizationReason = personalization.personalizationReason;
+    }
+  } catch (error) {
+    logger.error('decorateProductsAfterList Failed to resolve Omnibus reference prices', { err: error });
+  }
+}
+
+function resolveOmnibusChannelId(ctx: CrudCtx & { query: ProductsQuery }): string | null {
+  const raw = (ctx.query as Record<string, unknown>).channelId;
+  return typeof raw === "string" && raw.length ? raw : null;
+}
+
+function toOptionalDate(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" && value.length) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+// Art. 6(1)(ea) disclosure. The signal set is intentionally minimal for now: a price is
+// "personalized" when it was selected for a specific customer or customer group rather than
+// offered to the general public. Expanding this (profiling-driven pricing, A/B buckets) is
+// tracked in the spec's Known Gaps.
+function detectOmnibusPersonalization(
+  ctx: CrudCtx & { query: ProductsQuery },
+): { isPersonalized: boolean; personalizationReason: string | null } {
+  const query = ctx.query as Record<string, unknown>;
+  if (typeof query.customerId === "string" && query.customerId.length) {
+    return { isPersonalized: true, personalizationReason: "customer_specific_price" };
+  }
+  if (typeof query.customerGroupId === "string" && query.customerGroupId.length) {
+    return { isPersonalized: true, personalizationReason: "customer_group_price" };
+  }
+  return { isPersonalized: false, personalizationReason: null };
+}
 
 async function decorateProductsAfterList(
   payload: { items?: ProductListItem[] },
@@ -763,6 +879,8 @@ async function decorateProductsAfterList(
     logger.error('decorateProductsAfterList Failed to load unit conversions', { err: error });
   }
 
+  await decorateProductsWithOmnibus(payload, ctx);
+
   const searchTerm = ctx.query.search ? sanitizeSearchTerm(ctx.query.search) : null;
   if (searchTerm && !ctx.query.sortField && Array.isArray(payload.items)) {
     const needle = searchTerm.toLowerCase();
@@ -856,6 +974,8 @@ const crud = makeCrudRoute({
       "order_qty_increment",
       "requires_shipping",
       "is_quote_only",
+      "omnibus_exempt",
+      "first_listed_at",
       "seo_title",
       "seo_description",
       "canonical_url",
@@ -1027,6 +1147,8 @@ const productListItemSchema = z.object({
   order_qty_increment: z.number().nullable().optional(),
   requires_shipping: z.boolean().nullable().optional(),
   is_quote_only: z.boolean().nullable().optional(),
+  omnibus_exempt: z.boolean().nullable().optional(),
+  first_listed_at: z.string().nullable().optional(),
   seo_title: z.string().nullable().optional(),
   seo_description: z.string().nullable().optional(),
   canonical_url: z.string().nullable().optional(),
@@ -1041,6 +1163,9 @@ const productListItemSchema = z.object({
   categoryIds: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   pricing: z.record(z.string(), z.unknown()).nullable().optional(),
+  omnibus: z.record(z.string(), z.unknown()).nullable().optional(),
+  isPersonalized: z.boolean().optional(),
+  personalizationReason: z.string().nullable().optional(),
 });
 
 export const openApi = createCatalogCrudOpenApi({

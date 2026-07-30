@@ -433,6 +433,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             taxRates={taxRates}
             showHeader={false}
             embedded
+            productId={currentProductId}
+            variantId={isCreateSentinel ? null : variantId}
           />
         ),
       },
@@ -479,7 +481,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     })
 
     return list
-  }, [optionDefinitions, priceKinds, t, taxRates])
+  }, [currentProductId, isCreateSentinel, optionDefinitions, priceKinds, t, taxRates, variantId])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `catalog.variant` + id

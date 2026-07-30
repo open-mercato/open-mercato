@@ -265,6 +265,8 @@ const productBaseSchema = scoped.extend({
   orderQtyIncrement: z.coerce.number().int().min(1).nullable().optional(),
   requiresShipping: z.boolean().optional(),
   isQuoteOnly: z.boolean().optional(),
+  omnibusExempt: z.boolean().optional(),
+  firstListedAt: z.coerce.date().optional(),
   seoTitle: z.string().trim().min(1).max(255).nullable().optional(),
   seoDescription: z.string().trim().min(1).max(1000).nullable().optional(),
   canonicalUrl: z
@@ -355,6 +357,7 @@ const variantBaseSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  omnibusExempt: z.boolean().optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   weightValue: z.coerce.number().min(0).optional(),
@@ -501,6 +504,73 @@ export const categoryUpdateSchema = z
   })
   .merge(categoryCreateSchema.partial())
 
+export const priceHistoryQuerySchema = z.object({
+  productId: uuid().optional(),
+  variantId: uuid().optional(),
+  priceKindId: uuid().optional(),
+  channelId: uuid().optional(),
+  currencyCode: currencyCodeSchema.optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().trim().min(1).optional(),
+  includeTotal: z.boolean().default(false),
+})
+
+// At least one scope id is required. Without this a scope-less request would scan the whole
+// tenant's history and cache the result under a `product:none` key, colliding across scopes.
+export const omnibusPreviewQuerySchema = z
+  .object({
+    productId: uuid().optional(),
+    variantId: uuid().optional(),
+    offerId: uuid().optional(),
+    priceKindId: uuid(),
+    currencyCode: currencyCodeSchema,
+    channelId: uuid().optional(),
+  })
+  .refine((value) => Boolean(value.productId || value.variantId || value.offerId), {
+    message: 'Provide at least one of productId, variantId or offerId.',
+    path: ['productId'],
+  })
+
+const countryCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .length(2)
+  // 'EU' is not a country: accepting it would silently enable every member state at once.
+  .refine((value) => value !== 'EU', { message: 'Use individual ISO 3166-1 alpha-2 country codes, not "EU".' })
+
+const omnibusMinimizationAxisSchema = z.enum(['gross', 'net'])
+
+export const omnibusChannelConfigSchema = z.object({
+  presentedPriceKindId: uuid().optional(),
+  countryCode: countryCodeSchema.optional(),
+  lookbackDays: z.coerce.number().int().min(1).max(365).optional(),
+  minimizationAxis: omnibusMinimizationAxisSchema.optional(),
+  progressiveReductionRule: z.boolean().optional(),
+  progressiveMaxGapDays: z.coerce.number().int().min(1).max(365).default(7).optional(),
+  perishableGoodsRule: z.enum(['standard', 'exempt', 'last_price']).optional(),
+  newArrivalRule: z.enum(['standard', 'shorter_window']).optional(),
+  newArrivalsLookbackDays: z.coerce.number().int().min(1).max(365).nullable().optional(),
+})
+
+export const omnibusBackfillCoverageSchema = z.object({
+  completedAt: z.string(),
+  lookbackDays: z.coerce.number().int().min(1).max(365),
+})
+
+export const omnibusConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  enabledCountryCodes: z.array(countryCodeSchema).optional(),
+  noChannelMode: z.enum(['best_effort', 'require_channel']).optional(),
+  lookbackDays: z.coerce.number().int().min(1).max(365).optional(),
+  minimizationAxis: omnibusMinimizationAxisSchema.optional(),
+  defaultPresentedPriceKindId: uuid().optional(),
+  backfillCoverage: z.record(z.string(), omnibusBackfillCoverageSchema).optional(),
+  channels: z.record(z.string(), omnibusChannelConfigSchema).optional(),
+})
+
 export const productUnitConversionCreateSchema = scoped.extend({
   productId: uuid(),
   unitCode: z.string().trim().min(1).max(50),
@@ -538,3 +608,7 @@ export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>
 export type ProductUnitConversionCreateInput = z.infer<typeof productUnitConversionCreateSchema>
 export type ProductUnitConversionUpdateInput = z.infer<typeof productUnitConversionUpdateSchema>
 export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConversionDeleteSchema>
+export type PriceHistoryQueryInput = z.infer<typeof priceHistoryQuerySchema>
+export type OmnibusPreviewQueryInput = z.infer<typeof omnibusPreviewQuerySchema>
+export type OmnibusChannelConfig = z.infer<typeof omnibusChannelConfigSchema>
+export type OmnibusConfig = z.infer<typeof omnibusConfigSchema>
