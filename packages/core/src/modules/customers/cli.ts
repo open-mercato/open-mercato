@@ -1,6 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { randomUUID } from 'crypto'
+import fs from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -3237,7 +3238,436 @@ const interactionsBackfill: ModuleCli = {
   },
 }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill]
+const exportCustomersCommand: ModuleCli = {
+  command: 'customers:export',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    const format = String(args.format ?? 'json').toLowerCase()
+    const outputPath = String(args.output ?? '')
+
+    if (!tenantId || !organizationId || !outputPath) {
+      console.error('Usage: mercato customers customers:export --tenant <tenantId> --org <organizationId> --format <json|xml> --output <outputPath>')
+      return
+    }
+
+    if (format !== 'json' && format !== 'xml') {
+      console.error('Error: Format must be either "json" or "xml".')
+      return
+    }
+
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const db = em.getKysely<any>() as any
+
+    console.log(`[export] Exporting customers to ${outputPath} (format: ${format})...`)
+
+    const writeStream = fs.createWriteStream(outputPath, { encoding: 'utf8' })
+
+    if (format === 'json') {
+      writeStream.write('[\n')
+    } else {
+      writeStream.write('<?xml version="1.0" encoding="UTF-8"?>\n<customers>\n')
+    }
+
+    let offset = 0
+    const limit = 1000
+    let exportedCount = 0
+    let firstRecord = true
+
+    while (true) {
+      const entities = await db
+        .selectFrom('customer_entities as ce')
+        .leftJoin('customer_companies as cc', 'cc.entity_id', 'ce.id')
+        .leftJoin('customer_people as cp', 'cp.entity_id', 'ce.id')
+        .select([
+          'ce.id',
+          'ce.display_name',
+          'ce.description',
+          'ce.kind',
+          'ce.primary_email',
+          'ce.primary_phone',
+          'ce.status',
+          'ce.lifecycle_stage',
+          'ce.source',
+          'ce.is_active',
+          'ce.created_at',
+          'ce.updated_at',
+          'cc.legal_name',
+          'cc.brand_name',
+          'cc.domain',
+          'cc.website_url',
+          'cc.industry',
+          'cc.size_bucket',
+          'cc.annual_revenue',
+          'cp.first_name',
+          'cp.last_name',
+          'cp.preferred_name',
+          'cp.job_title',
+          'cp.department',
+          'cp.seniority',
+          'cp.timezone',
+          'cp.linked_in_url',
+          'cp.twitter_url',
+          'cp.company_entity_id',
+        ])
+        .where('ce.tenant_id', '=', tenantId)
+        .where('ce.organization_id', '=', organizationId)
+        .where('ce.deleted_at', 'is', null)
+        .orderBy('ce.id', 'asc')
+        .offset(offset)
+        .limit(limit)
+        .execute()
+
+      if (entities.length === 0) break
+
+      const entityIds = entities.map((e: any) => e.id)
+      
+      const customFieldRows = await db
+        .selectFrom('custom_field_values')
+        .select(['record_id', 'field_key', 'value_text', 'value_multiline', 'value_int', 'value_float', 'value_bool'])
+        .where('record_id', 'in', entityIds)
+        .where('tenant_id', '=', tenantId)
+        .where('organization_id', '=', organizationId)
+        .where('deleted_at', 'is', null)
+        .execute()
+
+      const customFieldsMap = new Map<string, Array<{ key: string; value: any }>>()
+      for (const row of customFieldRows) {
+        const val = row.value_bool !== null ? row.value_bool :
+                    row.value_int !== null ? row.value_int :
+                    row.value_float !== null ? row.value_float :
+                    row.value_multiline !== null ? row.value_multiline : row.value_text
+        if (!customFieldsMap.has(row.record_id)) {
+          customFieldsMap.set(row.record_id, [])
+        }
+        customFieldsMap.get(row.record_id)!.push({ key: row.field_key, value: val })
+      }
+
+      for (const entity of entities) {
+        const record: any = {
+          id: entity.id,
+          displayName: entity.display_name,
+          description: entity.description,
+          kind: entity.kind,
+          primaryEmail: entity.primary_email,
+          primaryPhone: entity.primary_phone,
+          status: entity.status,
+          lifecycleStage: entity.lifecycle_stage,
+          source: entity.source,
+          isActive: entity.is_active,
+          createdAt: entity.created_at,
+          updatedAt: entity.updated_at,
+        }
+
+        if (entity.kind === 'company') {
+          record.companyProfile = {
+            legalName: entity.legal_name,
+            brandName: entity.brand_name,
+            domain: entity.domain,
+            websiteUrl: entity.website_url,
+            industry: entity.industry,
+            sizeBucket: entity.size_bucket,
+            annualRevenue: entity.annual_revenue,
+          }
+        } else if (entity.kind === 'person') {
+          record.personProfile = {
+            firstName: entity.first_name,
+            lastName: entity.last_name,
+            preferredName: entity.preferred_name,
+            jobTitle: entity.job_title,
+            department: entity.department,
+            seniority: entity.seniority,
+            timezone: entity.timezone,
+            linkedInUrl: entity.linked_in_url,
+            twitter_url: entity.twitter_url,
+            companyEntityId: entity.company_entity_id,
+          }
+        }
+
+        const fields = customFieldsMap.get(entity.id)
+        if (fields && fields.length > 0) {
+          record.customFields = fields.reduce((acc: any, f: any) => {
+            acc[f.key] = f.value
+            return acc
+          }, {})
+        }
+
+        if (format === 'json') {
+          const prefix = firstRecord ? '  ' : ',\n  '
+          writeStream.write(prefix + JSON.stringify(record))
+          firstRecord = false
+        } else {
+          const toXml = (obj: any, indent = '  '): string => {
+            let xml = ''
+            for (const [key, value] of Object.entries(obj)) {
+              if (value === null || value === undefined) continue
+              if (typeof value === 'object' && !(value instanceof Date)) {
+                xml += `${indent}<${key}>\n${toXml(value, indent + '  ')}${indent}</${key}>\n`
+              } else {
+                const valStr = value instanceof Date ? value.toISOString() : String(value)
+                const escaped = valStr
+                  .replace(/&/g, '&amp;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;')
+                  .replace(/'/g, '&apos;')
+                xml += `${indent}<${key}>${escaped}</${key}>\n`
+              }
+            }
+            return xml
+          }
+          writeStream.write(`  <customer>\n${toXml(record, '    ')}  </customer>\n`)
+        }
+        exportedCount++
+      }
+
+      offset += limit
+    }
+
+    if (format === 'json') {
+      writeStream.write('\n]\n')
+    } else {
+      writeStream.write('</customers>\n')
+    }
+
+    writeStream.end()
+
+    await new Promise((resolve) => writeStream.on('finish', resolve))
+    console.log(`[export] Successfully exported ${exportedCount} customer records.`)
+  }
+}
+
+const importCustomersCommand: ModuleCli = {
+  command: 'customers:import',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    const format = String(args.format ?? 'json').toLowerCase()
+    const inputPath = String(args.input ?? '')
+
+    if (!tenantId || !organizationId || !inputPath) {
+      console.error('Usage: mercato customers customers:import --tenant <tenantId> --org <organizationId> --format <json|xml> --input <inputPath>')
+      return
+    }
+
+    if (format !== 'json' && format !== 'xml') {
+      console.error('Error: Format must be either "json" or "xml".')
+      return
+    }
+
+    if (!fs.existsSync(inputPath)) {
+      console.error(`Error: File not found at ${inputPath}`)
+      return
+    }
+
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const db = em.getKysely<any>() as any
+
+    console.log(`[import] Importing customers from ${inputPath}...`)
+
+    const content = fs.readFileSync(inputPath, 'utf8')
+    let parsedRecords: any[] = []
+
+    if (format === 'json') {
+      parsedRecords = JSON.parse(content)
+    } else {
+      const customerMatches = content.match(/<customer>([\s\S]*?)<\/customer>/g) || []
+      const parseXmlNode = (xmlStr: string): any => {
+        const result: any = {}
+        const regex = /<([^>]+)>([\s\S]*?)<\/\1>/g
+        let match
+        while ((match = regex.exec(xmlStr)) !== null) {
+          const key = match[1]
+          const val = match[2].trim()
+          if (val.includes('<') && val.includes('>')) {
+            result[key] = parseXmlNode(val)
+          } else {
+            const unescaped = val
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&apos;/g, "'")
+            
+            if (unescaped === 'true') result[key] = true
+            else if (unescaped === 'false') result[key] = false
+            else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(unescaped)) result[key] = new Date(unescaped)
+            else if (/^\d+$/.test(unescaped)) result[key] = parseInt(unescaped, 10)
+            else if (/^\d+\.\d+$/.test(unescaped)) result[key] = parseFloat(unescaped)
+            else result[key] = unescaped
+          }
+        }
+        return result
+      }
+
+      for (const customerXml of customerMatches) {
+        parsedRecords.push(parseXmlNode(customerXml))
+      }
+    }
+
+    console.log(`[import] Parsed ${parsedRecords.length} records. Performing native SQL bulk insert...`)
+
+    const batchSize = 1000
+    let importedCount = 0
+
+    const customerEntityRows: any[] = []
+    const companyProfileRows: any[] = []
+    const personProfileRows: any[] = []
+    const customFieldInsertRows: any[] = []
+
+    const flushBatch = async () => {
+      if (customerEntityRows.length === 0) return
+      await db.transaction().execute(async (trx: any) => {
+        await trx.insertInto('customer_entities').values(customerEntityRows).execute()
+        
+        if (companyProfileRows.length > 0) {
+          await trx.insertInto('customer_companies').values(companyProfileRows).execute()
+        }
+        if (personProfileRows.length > 0) {
+          await trx.insertInto('customer_people').values(personProfileRows).execute()
+        }
+        if (customFieldInsertRows.length > 0) {
+          await trx.insertInto('custom_field_values').values(customFieldInsertRows).execute()
+        }
+      })
+
+      customerEntityRows.length = 0
+      companyProfileRows.length = 0
+      personProfileRows.length = 0
+      customFieldInsertRows.length = 0
+    }
+
+    for (const record of parsedRecords) {
+      const entityId = record.id || randomUUID()
+      const now = new Date()
+
+      customerEntityRows.push({
+        id: entityId,
+        organization_id: organizationId,
+        tenant_id: tenantId,
+        kind: record.kind,
+        display_name: record.displayName,
+        description: record.description || null,
+        owner_user_id: record.ownerUserId || null,
+        primary_email: record.primaryEmail || null,
+        primary_phone: record.primaryPhone || null,
+        status: record.status || null,
+        lifecycle_stage: record.lifecycleStage || null,
+        source: record.source || null,
+        is_active: record.isActive !== undefined ? record.isActive : true,
+        created_at: record.createdAt ? new Date(record.createdAt) : now,
+        updated_at: record.updatedAt ? new Date(record.updatedAt) : now,
+        deleted_at: null,
+      })
+
+      if (record.kind === 'company' && record.companyProfile) {
+        companyProfileRows.push({
+          id: randomUUID(),
+          organization_id: organizationId,
+          tenant_id: tenantId,
+          entity_id: entityId,
+          legal_name: record.companyProfile.legalName || null,
+          brand_name: record.companyProfile.brandName || null,
+          domain: record.companyProfile.domain || null,
+          website_url: record.companyProfile.websiteUrl || null,
+          industry: record.companyProfile.industry || null,
+          size_bucket: record.companyProfile.sizeBucket || null,
+          annual_revenue: record.companyProfile.annualRevenue || null,
+          created_at: record.createdAt ? new Date(record.createdAt) : now,
+          updated_at: record.updatedAt ? new Date(record.updatedAt) : now,
+        })
+      } else if (record.kind === 'person' && record.personProfile) {
+        personProfileRows.push({
+          id: randomUUID(),
+          organization_id: organizationId,
+          tenant_id: tenantId,
+          entity_id: entityId,
+          company_entity_id: record.personProfile.companyEntityId || null,
+          first_name: record.personProfile.firstName || null,
+          last_name: record.personProfile.lastName || null,
+          preferred_name: record.personProfile.preferredName || null,
+          job_title: record.personProfile.jobTitle || null,
+          department: record.personProfile.department || null,
+          seniority: record.personProfile.seniority || null,
+          timezone: record.personProfile.timezone || null,
+          linked_in_url: record.personProfile.linkedInUrl || null,
+          twitter_url: record.personProfile.twitterUrl || null,
+          created_at: record.createdAt ? new Date(record.createdAt) : now,
+          updated_at: record.updatedAt ? new Date(record.updatedAt) : now,
+        })
+      }
+
+      if (record.customFields) {
+        for (const [fieldKey, value] of Object.entries(record.customFields)) {
+          const customFieldRow: any = {
+            entity_id: record.kind === 'company' ? CoreEntities.customers.customer_company_profile : CoreEntities.customers.customer_person_profile,
+            record_id: entityId,
+            organization_id: organizationId,
+            tenant_id: tenantId,
+            field_key: fieldKey,
+            created_at: now,
+            deleted_at: null,
+          }
+
+          if (typeof value === 'boolean') {
+            customFieldRow.value_bool = value
+          } else if (typeof value === 'number') {
+            if (Number.isInteger(value)) customFieldRow.value_int = value
+            else customFieldRow.value_float = value
+          } else {
+            customFieldRow.value_text = String(value)
+          }
+
+          customFieldInsertRows.push(customFieldRow)
+        }
+      }
+
+      importedCount++
+      if (importedCount % batchSize === 0) {
+        await flushBatch()
+      }
+    }
+
+    await flushBatch()
+
+    try {
+      const eventBus = (container.resolve('eventBus') as any)
+      const coverageEntities = [
+        CoreEntities.customers.customer_entity,
+        CoreEntities.customers.customer_person_profile,
+        CoreEntities.customers.customer_company_profile,
+      ]
+      await Promise.all(
+        coverageEntities.map(async (entityType) => {
+          await eventBus.emitEvent('query_index.coverage.refresh', {
+            entityType,
+            tenantId,
+            organizationId,
+            delayMs: 0,
+          })
+        })
+      )
+      console.log('[import] Refreshed query index coverage.')
+    } catch (err) {
+      console.warn('[import] Failed to refresh query index coverage after import', err)
+    }
+
+    console.log(`[import] Successfully imported ${importedCount} records.`)
+  }
+}
+
+const customersCliCommands = [
+  seedDictionaries,
+  seedExamples,
+  seedStressTest,
+  interactionsBackfill,
+  exportCustomersCommand,
+  importCustomersCommand,
+]
 
 export default customersCliCommands
 export async function ensureCustomerCustomFieldDefinitions(
