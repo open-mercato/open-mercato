@@ -65,6 +65,8 @@ import { calculateWaitDelayMs, parseDuration } from './duration'
 
 export { calculateWaitDelayMs } from './duration'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
+import { isWorkflowCommandEnabled } from './workflow-command-enablement'
+import { resolveWorkflowCommandPolicyForContainer } from './workflow-command-settings'
 import { resolveAgentReview, toAgentDispositionReview } from './agent-review'
 import type { AgentDispositionReview } from './agent-disposition-task'
 
@@ -956,9 +958,21 @@ export async function executeUpdateEntity(
     throw new Error('UPDATE_ENTITY requires "commandId" field (e.g., "sales.documents.update")')
   }
 
+  // Gate 1 — the CODE declares this command possible.
   const workflowSafeCommand = getWorkflowSafeCommand(commandId)
   if (!workflowSafeCommand) {
     throw new Error('UPDATE_ENTITY command is not allowed')
+  }
+
+  // Gate 2 — this TENANT switched it on. A tenant that never saved the setting
+  // resolves to the grandfathered set, so this is byte-identical to the
+  // pre-setting behaviour for every existing tenant.
+  const commandPolicy = await resolveWorkflowCommandPolicyForContainer(
+    container,
+    context.workflowInstance.tenantId,
+  )
+  if (!isWorkflowCommandEnabled(workflowSafeCommand, commandPolicy)) {
+    throw new Error('UPDATE_ENTITY command is not enabled for this tenant')
   }
 
   if (!input || typeof input !== 'object') {

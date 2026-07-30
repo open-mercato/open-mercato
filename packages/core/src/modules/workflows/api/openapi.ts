@@ -687,10 +687,29 @@ export const sendSignalByCorrelationResponseSchema = z.object({
 export const workflowSafeCommandSchema = z.object({
   commandId: z.string().min(1).describe('Command bus id allowlisted for UPDATE_ENTITY activities'),
   requiredFeatures: z.array(z.string()).min(1).describe('ACL features the workflow actor must hold to run the command'),
+  labelKey: z.string().nullable().optional().describe('i18n key for a human label, supplied by the declaring module'),
+  enabled: z.boolean().optional().describe('Whether this tenant has switched the command on'),
+  defaultEnabled: z.boolean().optional().describe('Whether the declaration carries the grandfather clause, i.e. it is on for a tenant that never saved the setting'),
 })
 
 export const workflowSafeCommandListResponseSchema = z.object({
   items: z.array(workflowSafeCommandSchema),
+})
+
+export const workflowCommandSettingsResponseSchema = z.object({
+  configured: z.boolean().describe('False when the tenant has never saved the setting and the answers are the grandfathered defaults'),
+  items: z.array(workflowSafeCommandSchema),
+})
+
+export const workflowCommandSettingsPutBodySchema = z.object({
+  enabledCommandIds: z
+    .array(z.string().min(1))
+    .max(500)
+    .describe('The complete set of catalogue command ids to enable for this tenant'),
+})
+
+export const workflowCommandSettingsPutResponseSchema = workflowCommandSettingsResponseSchema.extend({
+  ok: z.boolean(),
 })
 
 // ---------------------------------------------------------------------------

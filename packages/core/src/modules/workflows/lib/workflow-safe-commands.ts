@@ -1,6 +1,37 @@
+/**
+ * Tier 1 of the UPDATE_ENTITY authorization model: what the CODE declares
+ * possible.
+ *
+ * A registration is a CANDIDATE, not a grant. `lib/workflow-command-enablement.ts`
+ * is tier 2 — the tenant setting that decides which candidates are switched on —
+ * and the actor's own ACL features are the third gate at execution time.
+ *
+ * `requiredFeatures` stays in code because only the owning module can state it
+ * correctly, and a candidate that declares none can never be enabled: there
+ * would be nothing left to check.
+ */
 export type WorkflowSafeCommandDefinition = {
   commandId: string
   requiredFeatures: readonly [string, ...string[]]
+  /**
+   * i18n key for a human label, resolved from the OWNING module's locale files.
+   * Optional; consumers fall back to the command id.
+   */
+  labelKey?: string
+  /**
+   * GRANDFATHER CLAUSE — reserved for commands that were already reachable
+   * before the tenant enablement setting existed.
+   *
+   * A tenant that has never saved the setting resolves to exactly the entries
+   * carrying this flag, which is what makes shipping the gate byte-identical
+   * for every existing tenant. A NEW candidate MUST omit it: fail-closed for
+   * new capability is the whole point of tier 2, and a module that sets it on
+   * a new declaration is handing itself the tenant's decision.
+   *
+   * Third-party modules that registered a command before this flag existed set
+   * it to preserve their behaviour — see UPGRADE_NOTES.md.
+   */
+  defaultEnabled?: boolean
 }
 
 const workflowSafeCommands = new Map<string, WorkflowSafeCommandDefinition>()
@@ -26,7 +57,13 @@ export function registerWorkflowSafeCommands(commands: readonly WorkflowSafeComm
     if (!commandId || !requiredFeatures) {
       throw new Error('[internal] Workflow-safe commands require a commandId and requiredFeatures')
     }
-    workflowSafeCommands.set(commandId, { commandId, requiredFeatures })
+    const labelKey = typeof command.labelKey === 'string' ? command.labelKey.trim() : ''
+    workflowSafeCommands.set(commandId, {
+      commandId,
+      requiredFeatures,
+      ...(labelKey ? { labelKey } : {}),
+      ...(command.defaultEnabled === true ? { defaultEnabled: true } : {}),
+    })
   }
 }
 

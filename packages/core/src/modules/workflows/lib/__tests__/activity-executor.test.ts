@@ -464,7 +464,10 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // `defaultEnabled` mirrors the real sales registration: this is the one
+        // command that predates the tenant enablement gate, so it stays
+        // reachable for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
 
       mockContainer.resolve.mockImplementation((name: string) => {
@@ -552,7 +555,10 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // `defaultEnabled` mirrors the real sales registration: this is the one
+        // command that predates the tenant enablement gate, so it stays
+        // reachable for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
       mockContainer.resolve.mockReturnValue(mockCommandBus as any)
 
@@ -587,7 +593,10 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // `defaultEnabled` mirrors the real sales registration: this is the one
+        // command that predates the tenant enablement gate, so it stays
+        // reachable for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
       mockContainer.resolve.mockImplementation((name: string) => {
         if (name === 'rbacService') return mockRbacService as any
@@ -617,13 +626,181 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(mockCommandBus.execute).not.toHaveBeenCalled()
     })
 
+    // ------------------------------------------------------------------
+    // Tenant enablement gate (tier 2)
+    // ------------------------------------------------------------------
+
+    describe('tenant enablement gate', () => {
+      const buildActivity = (commandId: string): ActivityDefinition => ({
+        activityId: 'activity-enablement',
+        activityName: 'Update Entity',
+        activityType: 'UPDATE_ENTITY',
+        config: { commandId, input: { id: 'record-1' } },
+      })
+
+      /**
+       * `getValue` returns `undefined` for a tenant with no stored row, which is
+       * exactly what `ModuleConfigService` answers when neither a tenant-scoped
+       * nor a global row exists.
+       */
+      const useTenantSettings = (options: {
+        storedByTenant?: Record<string, unknown>
+        grantedFeatures?: string[]
+        commandBus?: unknown
+      }) => {
+        const getValue = jest.fn(async (_moduleId: string, _name: string, opts?: any) => {
+          const tenantId = opts?.scope?.tenantId ?? null
+          return options.storedByTenant?.[String(tenantId)]
+        })
+        const commandBus = options.commandBus ?? {
+          execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: { id: 'log-1' } }),
+        }
+        mockContainer.resolve.mockImplementation((name: string) => {
+          if (name === 'moduleConfigService') return { getValue, setValue: jest.fn() } as any
+          if (name === 'rbacService') {
+            return {
+              getGrantedFeatures: jest
+                .fn()
+                .mockResolvedValue(options.grantedFeatures ?? ['sales.orders.manage', 'customers.deals.manage']),
+            } as any
+          }
+          if (name === 'commandBus') return commandBus as any
+          throw new Error(`Unexpected service: ${name}`)
+        })
+        return { getValue, commandBus: commandBus as { execute: jest.Mock } }
+      }
+
+      test('an absent tenant setting keeps today behaviour: the grandfathered command still runs', async () => {
+        registerWorkflowSafeCommands([
+          { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
+        ])
+        const { commandBus } = useTenantSettings({ storedByTenant: {} })
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          buildActivity('sales.orders.update'),
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(commandBus.execute).toHaveBeenCalledWith('sales.orders.update', expect.anything())
+      })
+
+      test('an absent tenant setting leaves a NEWLY declared candidate off', async () => {
+        registerWorkflowSafeCommands([
+          { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] },
+        ])
+        const { commandBus } = useTenantSettings({ storedByTenant: {} })
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          buildActivity('customers.deals.update'),
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('not enabled for this tenant')
+        expect(commandBus.execute).not.toHaveBeenCalled()
+      })
+
+      test('a ticked candidate runs', async () => {
+        registerWorkflowSafeCommands([
+          { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] },
+        ])
+        const { commandBus } = useTenantSettings({
+          storedByTenant: { [testTenantId]: ['customers.deals.update'] },
+        })
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          buildActivity('customers.deals.update'),
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(commandBus.execute).toHaveBeenCalledWith('customers.deals.update', expect.anything())
+      })
+
+      test('a command enabled for the tenant is still refused when the ACTOR lacks its features', async () => {
+        registerWorkflowSafeCommands([
+          { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] },
+        ])
+        const { commandBus } = useTenantSettings({
+          storedByTenant: { [testTenantId]: ['customers.deals.update'] },
+          grantedFeatures: ['customers.deals.view'],
+        })
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          buildActivity('customers.deals.update'),
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('command is not authorized')
+        expect(commandBus.execute).not.toHaveBeenCalled()
+      })
+
+      test('a stored id outside the catalogue can never be enabled', async () => {
+        registerWorkflowSafeCommands([
+          { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
+        ])
+        const { commandBus } = useTenantSettings({
+          storedByTenant: { [testTenantId]: ['auth.users.delete'] },
+        })
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          buildActivity('auth.users.delete'),
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('command is not allowed')
+        expect(commandBus.execute).not.toHaveBeenCalled()
+      })
+
+      test('enablement is per tenant: another tenant ticking it does not enable it here', async () => {
+        registerWorkflowSafeCommands([
+          { commandId: 'customers.deals.update', requiredFeatures: ['customers.deals.manage'] },
+        ])
+        const { getValue, commandBus } = useTenantSettings({
+          storedByTenant: { 'other-tenant-id': ['customers.deals.update'] },
+        })
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          buildActivity('customers.deals.update'),
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('not enabled for this tenant')
+        expect(commandBus.execute).not.toHaveBeenCalled()
+        expect(getValue).toHaveBeenCalledWith(
+          'workflows',
+          'update_entity_enabled_commands',
+          expect.objectContaining({ scope: { tenantId: testTenantId } })
+        )
+      })
+    })
+
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
       const mockRbacService = {
         getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // `defaultEnabled` mirrors the real sales registration: this is the one
+        // command that predates the tenant enablement gate, so it stays
+        // reachable for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
       mockContainer.resolve.mockImplementation((name: string) => {
         if (name === 'rbacService') return mockRbacService as any
@@ -2307,12 +2484,20 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // `defaultEnabled` mirrors the real sales registration: this is the one
+        // command that predates the tenant enablement gate, so it stays
+        // reachable for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
-      mockContainer.resolve
-        .mockReturnValueOnce(mockEventBus) // First activity
-        .mockReturnValueOnce(mockRbacService) // Second activity authz
-        .mockReturnValueOnce(mockCommandBus) // Second activity command dispatch
+      // Resolved BY NAME rather than by call order: UPDATE_ENTITY now also
+      // resolves `moduleConfigService` for the tenant enablement gate, and an
+      // ordered sequence would silently hand it the rbac mock.
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'eventBus') return mockEventBus as any
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
 
       const activities: ActivityDefinition[] = [
         {
