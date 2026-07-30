@@ -79,6 +79,26 @@ The component:
 - On save, calls the same API endpoint with the draft, surfaces validation errors as flash messages or inline banners.
 - On cancel, navigates back (or fires `onSaved`/`onCanceled` callback so the page decides).
 
+#### Group-level visibility toggle
+
+Each group header carries a visibility `Switch` beside its reorder buttons, so a whole group can be
+hidden in one action instead of toggling every item inside it.
+
+- **Semantics** — off means every item in the group (including nested descendants) is hidden; on clears
+  all of them. `AppShell` already drops a group once all its items are hidden, so this is what removes
+  the group from the sidebar.
+- **Three states** — `visible` (nothing hidden), `hidden` (everything hidden, with the existing
+  "Hidden" badge shown), `partial` (some hidden). The switch reads as on for `partial`, and its
+  label/tooltip says so, since the design system's `Switch` has no indeterminate state.
+- **No new persisted shape** — the toggle writes exactly the `hiddenItemIds` keys the per-item switches
+  write. Settings reached this way are indistinguishable from toggling each item by hand, so
+  `SidebarPreferencesSettings.hiddenItems` is unchanged and no migration is required.
+- **Nested items** — the existing per-item `ancestorHidden` cascade is untouched; child switches stay
+  disabled while their parent is hidden.
+- **Logic placement** — `collectGroupItemKeys`, `resolveGroupVisibility` and `applyGroupHidden` live in
+  `customization-helpers.ts` as pure functions, keeping the reducer logic testable without rendering
+  the editor.
+
 ### Page contract — `/backend/sidebar-customization`
 
 ```typescript
@@ -449,3 +469,4 @@ When picked up, the follow-up will live at `.ai/specs/{date}-ds-sidebar-icon-cus
 - **2026-04-27 (addendum)** — Multi-variant management appended: API extension (`?roleId` on GET, `scope` discriminator on PUT, new DELETE), editor variant switcher with dirty-state confirm, "Delete variant" affordance, kept "Apply to roles" as user-scope secondary action. No DB or new ACL feature; reuses `RoleSidebarPreference` + `auth.sidebar.manage`.
 - **2026-04-27 (deferral)** — Multi-variant implementation **deferred to a follow-up PR** per reviewer decision. Current PR ships only the extraction + UX polish (reset-to-default per field, "Hidden" badge, "Default: {original}" hint when modified). Addendum stays in this spec as the design source of truth for the follow-up; implementation order from the addendum (API → switcher → polish) carries over verbatim. Icon customization remains deferred to its own future spec as documented above.
 - **2026-04-27 (re-scoped — multi-variant in current PR)** — Reviewer reversed the deferral and asked to ship multi-variant in the current PR (icons stay deferred). All three implementation phases landed locally on `refactor/ds-sidebar-restyle`: (Step A) API route — `?roleId` on GET, `scope` discriminator on PUT (rejecting `applyToRoles`/`clearRoleIds` when role-scoped), new DELETE method, cross-tenant guard via `findRoleInScope`, OpenAPI updated; (Step B) editor — `EditingScope` discriminated union state, variant `Select` switcher, `useConfirmDialog` for dirty-state switch and destructive variant deletion, `Trash2` "Delete variant" inline button when role scope has an existing preference, "Apply to roles" Card hidden in role scope, dirty tracking gates Save and the switch confirm; (Step C) i18n — 13 new keys (`appShell.sidebarCustomization{Default,DeleteVariant*,Group,HiddenBadge,OrderHeading,OrderDescription,Preview,ResetField,Scope*,SwitchConfirm*,VariantLabel}`) with EN + PL translations, German + Spanish + create-app template locales not yet synced (TBD via standard i18n process). Validation: typecheck UI + core clean, 347/347 UI tests passing, 3241/3241 core tests passing, full package build OK, `yarn generate` re-emits OpenAPI bundle with new DELETE method. Bug fix included: editor previously raced the BackendChromeProvider payload (mounted with empty groups, never re-loaded); now guarded by `hasInitializedRef` + `sourceGroups.length` dep so the load fires once when chrome data arrives.
+- **2026-07-30 (group-level visibility toggle)** — Added a group header `Switch` that hides or shows every item in a group at once, closing the gap where "hide this module from the sidebar" required clicking through every item individually. Reported from a downstream app that had to hand its owner a click-through-N-items instruction. Three-state resolution (`visible` / `hidden` / `partial`) with the existing "Hidden" badge reused; pure helpers (`collectGroupItemKeys`, `resolveGroupVisibility`, `applyGroupHidden`) added to `customization-helpers.ts` with 14 unit tests. No change to `SidebarPreferencesSettings` and no migration — the toggle writes the same `hiddenItems` keys as the per-item switches, so the persisted result is identical to toggling each item by hand. Two i18n keys added (`appShell.sidebarCustomization{ShowGroup,HideGroupPartial}`) across EN/PL/DE/ES in both `apps/mercato` and the create-app template, closing the DE/ES sync gap noted in the 2026-04-27 re-scope entry for these two keys.
