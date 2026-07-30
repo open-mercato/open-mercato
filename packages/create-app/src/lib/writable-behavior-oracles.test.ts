@@ -282,6 +282,47 @@ test('corrected fixtures pass the fixed after-phase behavior probes', { skip: pr
   }
 })
 
+test('OMH-189 behavior-probes the exported endpoint guard against private networks', { skip: process.platform === 'win32' }, () => {
+  const root = stageTarget('OMH-057')
+  const client = path.join(root, 'src/modules/room_calendar_sync/lib/transport.ts')
+  fs.mkdirSync(path.dirname(client), { recursive: true })
+  try {
+    fs.writeFileSync(client, `
+export function assertSafeEndpoint(endpoint: string) {
+  const url = new URL(endpoint)
+  if (url.protocol !== 'https:') throw new Error('unsafe endpoint')
+}
+`)
+    const insecure = runOracle(root, 'OMH-189', 'after')
+    assert.equal(insecure.status, 1, `${insecure.stdout}\n${insecure.stderr}`)
+    assert.equal(insecure.parsed?.checks.find((check) => check.id === 'rejects-non-https-and-private-endpoints')?.passed, false)
+
+    fs.writeFileSync(client, `
+import { lookup } from 'node:dns/promises'
+
+export const assertSafeEndpoint = (async (endpoint: string) => {
+  const url = new URL(endpoint)
+  const hostname = url.hostname.toLowerCase()
+  const resolved = await lookup(hostname)
+  const privateIpv4 = /^(?:10\\.|127\\.|192\\.168\\.|169\\.254\\.|172\\.(?:1[6-9]|2\\d|3[01])\\.)/
+  if (url.protocol !== 'https:' || hostname === 'localhost' || hostname === '[::1]' || privateIpv4.test(hostname) || privateIpv4.test(resolved.address)) {
+    throw new Error('unsafe endpoint')
+  }
+}) satisfies (endpoint: string) => Promise<void>
+`)
+    fs.writeFileSync(path.join(path.dirname(client), 'index.ts'), `
+// export function assertSafeEndpoint() is implemented by transport.ts
+export { assertSafeEndpoint } from './transport'
+`)
+    const secure = runOracle(root, 'OMH-189', 'after')
+    assert.equal(secure.status, 0, `${secure.stdout}\n${secure.stderr}`)
+    assert.equal(secure.parsed?.passed, true)
+    assert.ok(secure.parsed?.checks.every((check) => check.passed))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('OMH-045 uses inert dependency stubs for trusted imported helpers', { skip: process.platform === 'win32' }, () => {
   const caseId = 'OMH-045'
   const definition = cases[caseId]

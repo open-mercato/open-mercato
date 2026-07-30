@@ -68,7 +68,7 @@
     "oracle.business.ai-safe-agent": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
     "oracle.business.provider-adapter": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
     "oracle.business.booking-overlap": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
-    "oracle.business.provider-transport": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.business.provider-transport": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
     "oracle.umes.response-enricher": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
     "oracle.workflow.durable-timer": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
     "oracle.regression.crm-library": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },

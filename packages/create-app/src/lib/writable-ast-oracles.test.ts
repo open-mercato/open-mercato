@@ -258,6 +258,268 @@ describe('CRM loans', () => {
   }
 })
 
+test('the generative business oracles reject disconnected vocabulary and accept connected contracts', () => {
+  const scenarios = [
+    {
+      caseId: 'OMH-188',
+      file: 'src/modules/room_bookings/commands/bookings.ts',
+      checkIds: ['overlap.conflict-mapping', 'overlap.command-atomic', 'overlap.command-undo'],
+      disconnected: `
+function withAtomicFlush() {}
+function extractUndoPayload() {}
+function emitCrudSideEffects() {}
+function emitCrudUndoSideEffects() {}
+function registerCommand(_command: unknown) {}
+function makeCrudRoute(_options: unknown) {}
+class CrudHttpError {}
+withAtomicFlush({}, [], { transaction: true })
+extractUndoPayload()
+emitCrudSideEffects()
+emitCrudUndoSideEffects()
+new CrudHttpError()
+const code = '23P01'
+const createBooking = { id: 'room_bookings.bookings.create', execute() {}, undo() {} }
+const updateBooking = { id: 'room_bookings.bookings.update', execute() {}, undo() {} }
+const deleteBooking = { id: 'room_bookings.bookings.delete', execute() {}, undo() {} }
+registerCommand(createBooking)
+registerCommand(updateBooking)
+registerCommand(deleteBooking)
+makeCrudRoute({
+  metadata: {}, orm: {}, list: {}, indexer: {},
+  actions: {
+    create: { commandId: 'room_bookings.bookings.decoy-create' },
+    update: { commandId: 'room_bookings.bookings.decoy-update' },
+    delete: { commandId: 'room_bookings.bookings.decoy-delete' },
+  },
+})
+`,
+      connected: `
+function withAtomicFlush(_em: unknown, _records: unknown[], _options: { transaction: boolean }) {}
+function extractUndoPayload() {}
+function emitCrudSideEffects() {}
+function emitCrudUndoSideEffects() {}
+function registerCommand(_command: unknown) {}
+function makeCrudRoute(_options: unknown) {}
+class CrudHttpError {}
+const mapBookingError = (error: { code?: string }) => {
+  if (error.code === '23P01') throw new CrudHttpError()
+  throw error
+}
+const executeBooking = () => {
+  try {
+    withAtomicFlush({}, [], { transaction: true })
+    emitCrudSideEffects()
+  } catch (error) {
+    mapBookingError(error as { code?: string })
+  }
+}
+const undoBooking = () => { extractUndoPayload(); emitCrudUndoSideEffects() }
+const createBooking = ({ id: 'room_bookings.bookings.create', execute: executeBooking, undo: undoBooking }) satisfies Record<string, unknown>
+const updateBooking = ({ id: 'room_bookings.bookings.update', execute: executeBooking, undo: undoBooking }) as Record<string, unknown>
+const deleteBooking = { id: 'room_bookings.bookings.delete', execute: executeBooking, undo: undoBooking }
+registerCommand(createBooking)
+registerCommand(updateBooking)
+registerCommand(deleteBooking)
+makeCrudRoute({
+  metadata: {}, orm: {}, list: {}, indexer: {},
+  actions: {
+    create: { commandId: 'room_bookings.bookings.create' },
+    update: { commandId: 'room_bookings.bookings.update' },
+    delete: { commandId: 'room_bookings.bookings.delete' },
+  },
+})
+`,
+    },
+    {
+      caseId: 'OMH-189',
+      file: 'src/modules/room_calendar_sync/lib/client.ts',
+      checkIds: ['provider.ssrf-guard', 'provider.idempotency-key', 'provider.redirect-refusal', 'provider.bounded-retry'],
+      disconnectedCheckIds: ['provider.ssrf-guard', 'provider.idempotency-key', 'provider.redirect-refusal'],
+      disconnected: `
+export function assertSafeEndpoint(value: string) {
+  if (!value.startsWith('https:')) throw new Error('unsafe')
+}
+export function createRoomCalendarClient() {
+  const disconnectedRequest = () => {
+    assertSafeEndpoint('https://calendar.example')
+    return fetch('https://calendar.example', { redirect: 'manual', headers: { 'idempotency-key': 'decoy' } })
+  }
+  void disconnectedRequest
+  for (let attempt = 0; attempt < 2; attempt += 1) void attempt
+}
+`,
+      connected: `
+export const assertSafeEndpoint = ((value: string) => {
+  if (!value.startsWith('https:')) throw new Error('unsafe')
+}) satisfies (value: string) => void
+async function request(endpoint: string, key: string) {
+  return fetch(endpoint, { redirect: 'manual', headers: { 'idempotency-key': key } })
+}
+export const createRoomCalendarClient = (endpoint: string, key: string) => {
+  return {
+    async pushBooking() {
+      assertSafeEndpoint(endpoint)
+      for (let attempt = 0; attempt < 2; attempt += 1) await request(endpoint, key)
+    },
+  }
+}
+`,
+    },
+    {
+      caseId: 'OMH-190',
+      file: 'src/modules/room_bookings/data/enrichers.ts',
+      checkIds: ['enricher.dot-target', 'enricher.batched', 'enricher.namespaced', 'enricher.resilience', 'enricher.acl'],
+      disconnected: `
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+const decoy: ResponseEnricher = {
+  targetEntity: 'customers.person',
+  features: ['room_bookings.bookings.view'],
+  fallback: { _room_bookings: { confirmed: 0 } },
+  timeout: 100,
+  cacheableOnListHit: false,
+  enrichOne(record: Record<string, unknown>) { return { ...record, _room_bookings: { confirmed: 0 } } },
+  enrichMany(records: Array<Record<string, unknown>>) {
+    return records.map((record) => ({ ...record, _room_bookings: { confirmed: 0 } }))
+  },
+}
+void decoy
+export const enrichers = [] satisfies ResponseEnricher[]
+`,
+      connected: `
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+const bookingSummary = ({
+  targetEntity: 'customers.person',
+  features: ['room_bookings.bookings.view'],
+  fallback: { _room_bookings: { confirmed: 0 } },
+  timeout: 100,
+  cacheableOnListHit: false,
+  enrichOne(record: Record<string, unknown>) { return { ...record, _room_bookings: { confirmed: 0 } } },
+  async enrichMany(records: Array<Record<string, unknown>>, context: { em: { fork(): { find(entity: string, where: unknown): Promise<unknown[]> } } }) {
+    const customerIds = records.map((record) => record.id)
+    await context.em.fork().find('RoomBooking', { customerId: { $in: customerIds } })
+    return records.map((record) => ({ ...record, _room_bookings: { confirmed: 0 } }))
+  },
+}) satisfies ResponseEnricher
+export const enrichers = ([bookingSummary] as const) satisfies readonly ResponseEnricher[]
+`,
+    },
+    {
+      caseId: 'OMH-191',
+      file: 'src/modules/room_bookings/workflows.ts',
+      checkIds: ['workflow.timer-config', 'workflow.safe-commands', 'workflow.terminal-graph', 'workflow.confirmation-beats-expiry', 'workflow.dispatch-update-entity'],
+      disconnectedCheckIds: ['workflow.safe-commands', 'workflow.terminal-graph', 'workflow.confirmation-beats-expiry', 'workflow.dispatch-update-entity'],
+      disconnected: `
+declare function defineWorkflow(value: unknown): unknown
+declare function registerWorkflowSafeCommands(value: unknown): void
+declare function createWorkflowsModuleConfig(value: unknown): unknown
+const workflow = defineWorkflow({
+  steps: [
+    { id: 'START' },
+    { id: 'expiry', stepType: 'WAIT_FOR_TIMER', config: { duration: 'PT15M' } },
+    { id: 'release', activity: 'UPDATE_ENTITY', config: { commandId: 'room_bookings.bookings.update' } },
+    { id: 'END' },
+  ],
+  transitions: [
+    { from: 'START', to: 'expiry', trigger: 'timer' },
+    { from: 'expiry', to: 'END', trigger: 'signal' },
+  ],
+})
+registerWorkflowSafeCommands([
+  { commandId: 'room_bookings.bookings.update' },
+  { commandId: 'decoy', requiredFeatures: ['room_bookings.bookings.update'] },
+])
+export const workflowsConfig = createWorkflowsModuleConfig([workflow])
+`,
+      connected: `
+declare function defineWorkflow(value: unknown): unknown
+declare function registerWorkflowSafeCommands(value: unknown): void
+declare function createWorkflowsModuleConfig(value: unknown): unknown
+const workflowDefinition = ({
+  steps: [
+    { stepId: 'start', stepName: 'Start', stepType: 'START' },
+    { stepId: 'held', stepName: 'Held', stepType: 'WAIT_FOR_TIMER', config: { duration: 'PT15M' } },
+    { stepId: 'end', stepName: 'End', stepType: 'END' },
+  ] as const,
+  transitions: [
+    { transitionId: 'start-held', fromStepId: 'start', toStepId: 'held', trigger: 'auto', priority: 100 },
+    { transitionId: 'confirm', fromStepId: 'held', toStepId: 'end', trigger: 'signal', priority: 100 },
+    {
+      transitionId: 'expire',
+      fromStepId: 'held',
+      toStepId: 'end',
+      trigger: 'timer',
+      priority: 10,
+      activities: [{
+        activityId: 'release',
+        activityName: 'Release booking',
+        activityType: 'UPDATE_ENTITY',
+        config: { commandId: 'room_bookings.bookings.update', input: {} },
+      }],
+    },
+  ],
+}) as const satisfies Record<string, unknown>
+const workflow = defineWorkflow(workflowDefinition)
+const safeCommands = ([{
+  commandId: 'room_bookings.bookings.update',
+  requiredFeatures: ['room_bookings.bookings.manage'],
+}] as const) satisfies readonly unknown[]
+registerWorkflowSafeCommands(safeCommands)
+export const workflowsConfig = createWorkflowsModuleConfig([workflow])
+`,
+    },
+  ] as const
+
+  for (const scenario of scenarios) {
+    const disconnectedRoot = stageTarget(scenario.file, scenario.disconnected)
+    try {
+      const result = runOracle(disconnectedRoot, 'before', process.env, scenario.caseId)
+      assert.notEqual(result.status, 2, `${scenario.caseId}: ${result.parsed.failures.join('\n')}`)
+      for (const checkId of ('disconnectedCheckIds' in scenario ? scenario.disconnectedCheckIds : scenario.checkIds)) {
+        assert.equal(result.parsed.checks.find((entry) => entry.id === checkId)?.passed, false, `${scenario.caseId} ${checkId}`)
+      }
+    } finally {
+      fs.rmSync(disconnectedRoot, { recursive: true, force: true })
+    }
+
+    const connectedRoot = stageTarget(scenario.file, scenario.connected)
+    try {
+      const result = runOracle(connectedRoot, 'before', process.env, scenario.caseId)
+      for (const checkId of scenario.checkIds) {
+        assert.equal(result.parsed.checks.find((entry) => entry.id === checkId)?.passed, true, `${scenario.caseId} ${checkId}`)
+      }
+    } finally {
+      fs.rmSync(connectedRoot, { recursive: true, force: true })
+    }
+  }
+})
+
+test('OMH-190 rejects a registered constant-map placeholder without a booking read', () => {
+  const root = stageTarget('src/modules/room_bookings/data/enrichers.ts', `
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+const placeholder: ResponseEnricher = {
+  id: 'room_bookings.summary',
+  targetEntity: 'customers.person',
+  features: ['room_bookings.bookings.view'],
+  fallback: { _room_bookings: { confirmed: 0 } },
+  timeout: 100,
+  cacheableOnListHit: false,
+  async enrichOne(record: Record<string, unknown>) {
+    return { ...record, _room_bookings: { confirmed: 0 } }
+  },
+  async enrichMany(records: Array<Record<string, unknown>>) {
+    return records.map((record) => ({ ...record, _room_bookings: { confirmed: 0 } }))
+  },
+}
+export const enrichers = [placeholder]
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-190')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'enricher.batched')?.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the complete module oracle rejects activation that hides baseline entries in computed spreads', () => {
   const root = stageTarget('src/modules.ts', `
 export const enabledModules = [

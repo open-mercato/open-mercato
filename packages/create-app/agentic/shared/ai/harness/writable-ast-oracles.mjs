@@ -548,14 +548,18 @@ function jsxTagName(ts, tag) {
 function newFacts() {
   return {
     calls: new Map(),
+    callArgumentFacts: new Map(),
+    callArgumentExpressions: new Map(),
     callOptions: new Map(),
     classes: [],
     declarations: new Set(),
     decorators: new Set(),
     exportedFunctions: new Map(),
+    exportedFunctionNodes: new Map(),
     exportedObjectFacts: new Map(),
     exportedVariables: new Set(),
     functionFacts: new Map(),
+    functionNodes: new Map(),
     functions: new Set(),
     finallyBlocks: 0,
     importedBindings: new Map(),
@@ -570,11 +574,14 @@ function newFacts() {
     newCalls: new Set(),
     nullNodes: 0,
     objectProperties: new Set(),
+    referencedFunctions: new Set(),
+    objectFacts: new Map(),
     propertyIdentifiers: new Map(),
     propertyAccesses: new Set(),
     strings: new Set(),
     throwStatements: 0,
     variables: new Map(),
+    variableExpressions: new Map(),
     assignments: new Set(),
     awaitedCalls: new Set(),
     moduleEntries: [],
@@ -604,7 +611,7 @@ function jsxAttributeLiteral(ts, attribute) {
   return undefined
 }
 
-function collectFunctionFact(ts, node) {
+function collectFunctionFact(ts, node, { skipNestedDeclarations = false, skipNestedFunctions = false } = {}) {
   const fact = {
     binaryOperators: new Set(),
     calls: new Set(),
@@ -617,10 +624,16 @@ function collectFunctionFact(ts, node) {
     jsxText: [],
     loops: 0,
     nullNodes: 0,
+    newCalls: new Set(),
+    objectProperties: new Set(),
+    referencedFunctions: new Set(),
     strings: new Set(),
     throws: 0,
   }
+  const root = node.body ?? node
   const visit = (current) => {
+    if (skipNestedFunctions && current !== root && ts.isFunctionLike(current)) return
+    if (skipNestedDeclarations && current !== root && ts.isFunctionDeclaration(current)) return
     if (ts.isImportDeclaration(current) || ts.isImportEqualsDeclaration(current) || ts.isExportDeclaration(current)) return
     if (ts.isCallExpression(current)) {
       const names = [expressionName(ts, current.expression), fullExpressionName(ts, current.expression)].filter(Boolean)
@@ -632,6 +645,21 @@ function collectFunctionFact(ts, node) {
         if (!fact.callOptions.has(name)) fact.callOptions.set(name, [])
         fact.callOptions.get(name).push(new Set(optionNames))
       }
+      for (const argument of current.arguments) {
+        const resolved = unwrapExpression(ts, argument)
+        if (resolved && ts.isIdentifier(resolved)) fact.referencedFunctions.add(resolved.text)
+      }
+    }
+    if (ts.isNewExpression(current)) {
+      const name = expressionName(ts, current.expression)
+      if (name) fact.newCalls.add(name)
+    }
+    if (ts.isObjectLiteralElementLike(current)) {
+      const name = propertyName(ts, current.name)
+      if (name) fact.objectProperties.add(name)
+    }
+    if (ts.isPropertyAssignment(current) && ts.isIdentifier(current.initializer)) {
+      fact.referencedFunctions.add(current.initializer.text)
     }
     if (ts.isThrowStatement(current)) fact.throws += 1
     if (ts.isBinaryExpression(current)) fact.binaryOperators.add(current.operatorToken.kind)
@@ -655,7 +683,7 @@ function collectFunctionFact(ts, node) {
     }
     ts.forEachChild(current, visit)
   }
-  visit(node.body ?? node)
+  visit(root)
   return fact
 }
 
@@ -663,6 +691,20 @@ function addCall(facts, name, optionNames = []) {
   facts.calls.set(name, (facts.calls.get(name) ?? 0) + 1)
   if (!facts.callOptions.has(name)) facts.callOptions.set(name, [])
   facts.callOptions.get(name).push(new Set(optionNames))
+}
+
+function unwrapExpression(ts, node) {
+  let current = node
+  while (current && (
+    ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isNonNullExpression(current)
+    || (typeof ts.isSatisfiesExpression === 'function' && ts.isSatisfiesExpression(current))
+  )) {
+    current = current.expression
+  }
+  return current
 }
 
 function classMemberNames(ts, member) {
@@ -727,7 +769,11 @@ function collectFacts(ts, sourceFiles) {
         facts.functions.add(node.name.text)
         facts.declarations.add(node.name.text)
         facts.functionFacts.set(node.name.text, functionFact)
-        if (isExportedFunction(ts, node)) facts.exportedFunctions.set(node.name.text, functionFact)
+        facts.functionNodes.set(node.name.text, node)
+        if (isExportedFunction(ts, node)) {
+          facts.exportedFunctions.set(node.name.text, functionFact)
+          facts.exportedFunctionNodes.set(node.name.text, node)
+        }
       }
       if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) {
         facts.declarations.add(node.name.text)
@@ -736,9 +782,23 @@ function collectFacts(ts, sourceFiles) {
         facts.declarations.add(node.name.text)
         if (isExportedVariable(ts, node)) facts.exportedVariables.add(node.name.text)
         const properties = new Set()
-        if (node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
-          if (isExportedVariable(ts, node)) facts.exportedObjectFacts.set(node.name.text, collectFunctionFact(ts, node.initializer))
-          for (const property of node.initializer.properties) {
+        const initializer = node.initializer ? unwrapExpression(ts, node.initializer) : undefined
+        if (initializer) facts.variableExpressions.set(node.name.text, initializer)
+        if (initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))) {
+          const functionFact = collectFunctionFact(ts, initializer)
+          facts.functions.add(node.name.text)
+          facts.functionFacts.set(node.name.text, functionFact)
+          facts.functionNodes.set(node.name.text, initializer)
+          if (isExportedVariable(ts, node)) {
+            facts.exportedFunctions.set(node.name.text, functionFact)
+            facts.exportedFunctionNodes.set(node.name.text, initializer)
+          }
+        }
+        if (initializer && ts.isObjectLiteralExpression(initializer)) {
+          const objectFact = collectFunctionFact(ts, initializer)
+          facts.objectFacts.set(node.name.text, objectFact)
+          if (isExportedVariable(ts, node)) facts.exportedObjectFacts.set(node.name.text, objectFact)
+          for (const property of initializer.properties) {
             const name = propertyName(ts, property.name)
             if (name) properties.add(name)
           }
@@ -781,6 +841,20 @@ function collectFacts(ts, sourceFiles) {
         const optionNames = node.arguments.flatMap((argument) => ts.isObjectLiteralExpression(argument)
           ? argument.properties.map((property) => propertyName(ts, property.name)).filter(Boolean)
           : [])
+        if (name) {
+          const expressions = facts.callArgumentExpressions.get(name) ?? []
+          expressions.push(...node.arguments)
+          facts.callArgumentExpressions.set(name, expressions)
+          const argumentFacts = node.arguments
+            .map((argument) => unwrapExpression(ts, argument))
+            .filter((argument) => ts.isObjectLiteralExpression(argument) || ts.isArrayLiteralExpression(argument))
+            .map((argument) => collectFunctionFact(ts, argument))
+          if (argumentFacts.length > 0) {
+            const existing = facts.callArgumentFacts.get(name) ?? []
+            existing.push(...argumentFacts)
+            facts.callArgumentFacts.set(name, existing)
+          }
+        }
         if (name) addCall(facts, name, optionNames)
         if (fullName && fullName !== name) addCall(facts, fullName, optionNames)
         if (node.parent && ts.isAwaitExpression(node.parent) && name) facts.awaitedCalls.add(name)
@@ -873,7 +947,7 @@ function hasStringPrefix(facts, value) {
 function factReachesCalls(facts, start, requiredCalls) {
   if (!start) return false
   const reached = new Set(start.calls)
-  const pending = [...start.calls]
+  const pending = [...start.calls, ...start.referencedFunctions]
   const visited = new Set()
   while (pending.length) {
     const name = pending.pop()
@@ -885,8 +959,208 @@ function factReachesCalls(facts, start, requiredCalls) {
       reached.add(call)
       pending.push(call)
     }
+    for (const reference of local.referencedFunctions) pending.push(reference)
   }
   return requiredCalls.every((name) => reached.has(name))
+}
+
+function reachableFunctionFacts(facts, start) {
+  if (!start) return []
+  const reached = [start]
+  const pending = [...start.calls, ...start.referencedFunctions]
+  const visited = new Set()
+  while (pending.length) {
+    const name = pending.pop()
+    if (visited.has(name)) continue
+    visited.add(name)
+    const local = facts.functionFacts.get(name)
+    if (!local) continue
+    reached.push(local)
+    for (const call of local.calls) pending.push(call)
+    for (const reference of local.referencedFunctions) pending.push(reference)
+  }
+  return reached
+}
+
+function factReachesContract(facts, start, predicate) {
+  return reachableFunctionFacts(facts, start).some(predicate)
+}
+
+function callHasArgumentContract(facts, callName, predicate) {
+  return (facts.callArgumentFacts.get(callName) ?? []).some(predicate)
+}
+
+function resolveExpression(ts, facts, node, seen = new Set()) {
+  const expression = unwrapExpression(ts, node)
+  if (!expression || !ts.isIdentifier(expression) || seen.has(expression.text)) return expression
+  const target = facts.variableExpressions.get(expression.text)
+  if (!target) return expression
+  const nextSeen = new Set(seen)
+  nextSeen.add(expression.text)
+  return resolveExpression(ts, facts, target, nextSeen)
+}
+
+function objectProperty(ts, object, name) {
+  if (!object || !ts.isObjectLiteralExpression(object)) return undefined
+  return object.properties.find((property) => propertyName(ts, property.name) === name)
+}
+
+function propertyExpression(ts, facts, object, name) {
+  const property = objectProperty(ts, object, name)
+  if (!property) return undefined
+  if (ts.isPropertyAssignment(property)) return resolveExpression(ts, facts, property.initializer)
+  if (ts.isShorthandPropertyAssignment(property)) return resolveExpression(ts, facts, property.name)
+  return undefined
+}
+
+function propertyFunction(ts, facts, object, name) {
+  const property = objectProperty(ts, object, name)
+  if (!property) return undefined
+  if (ts.isMethodDeclaration(property)) return property
+  if (!ts.isPropertyAssignment(property)) return undefined
+  const expression = resolveExpression(ts, facts, property.initializer)
+  return expression && (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression))
+    ? expression
+    : undefined
+}
+
+function stringValue(ts, facts, node) {
+  const expression = resolveExpression(ts, facts, node)
+  return expression && ts.isStringLiteralLike(expression) ? expression.text : undefined
+}
+
+function booleanValue(ts, facts, node) {
+  const expression = resolveExpression(ts, facts, node)
+  if (!expression) return undefined
+  if (expression.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (expression.kind === ts.SyntaxKind.FalseKeyword) return false
+  return undefined
+}
+
+function numberValue(ts, facts, node) {
+  const expression = resolveExpression(ts, facts, node)
+  return expression && ts.isNumericLiteral(expression) ? Number(expression.text) : undefined
+}
+
+function arrayElements(ts, facts, node) {
+  const expression = resolveExpression(ts, facts, node)
+  return expression && ts.isArrayLiteralExpression(expression)
+    ? expression.elements.map((element) => resolveExpression(ts, facts, element)).filter(Boolean)
+    : []
+}
+
+function objectPropertyString(ts, facts, object, name) {
+  return stringValue(ts, facts, propertyExpression(ts, facts, object, name))
+}
+
+function objectPropertyObject(ts, facts, object, name) {
+  const expression = propertyExpression(ts, facts, object, name)
+  return expression && ts.isObjectLiteralExpression(expression) ? expression : undefined
+}
+
+function objectPropertyArray(ts, facts, object, name) {
+  return arrayElements(ts, facts, propertyExpression(ts, facts, object, name))
+}
+
+function resolvedCallArguments(ts, facts, callName) {
+  return (facts.callArgumentExpressions.get(callName) ?? [])
+    .map((argument) => resolveExpression(ts, facts, argument))
+    .filter(Boolean)
+}
+
+function functionContractFacts(ts, facts, node, options) {
+  const direct = collectFunctionFact(ts, node, { skipNestedDeclarations: true, ...options })
+  if (options?.skipNestedFunctions) {
+    const reached = [direct]
+    const pending = [...direct.calls, ...direct.referencedFunctions]
+    const visited = new Set()
+    while (pending.length) {
+      const name = pending.pop()
+      if (visited.has(name)) continue
+      visited.add(name)
+      const target = facts.functionNodes.get(name)
+      if (!target) continue
+      const local = collectFunctionFact(ts, target, { skipNestedDeclarations: true, ...options })
+      reached.push(local)
+      for (const call of local.calls) pending.push(call)
+      for (const reference of local.referencedFunctions) pending.push(reference)
+    }
+    return reached
+  }
+  return reachableFunctionFacts(facts, direct)
+}
+
+function returnedObjectFunctions(ts, facts, node) {
+  const returned = []
+  const root = node.body ?? node
+  const collectObjectMethods = (expression) => {
+    const object = resolveExpression(ts, facts, expression)
+    if (!object || !ts.isObjectLiteralExpression(object)) return
+    for (const property of object.properties) {
+      const name = propertyName(ts, property.name)
+      const method = name ? propertyFunction(ts, facts, object, name) : undefined
+      if (method) returned.push(method)
+    }
+  }
+  if (ts.isObjectLiteralExpression(root)) collectObjectMethods(root)
+  const visit = (current) => {
+    if (current !== root && ts.isFunctionLike(current)) return
+    if (ts.isReturnStatement(current) && current.expression) {
+      collectObjectMethods(current.expression)
+      return
+    }
+    ts.forEachChild(current, visit)
+  }
+  visit(root)
+  return returned
+}
+
+function functionContractCalls(ts, facts, node, requiredCalls) {
+  const reached = functionContractFacts(ts, facts, node)
+  const calls = new Set(reached.flatMap((fact) => [...fact.calls]))
+  return requiredCalls.every((name) => calls.has(name))
+}
+
+function functionContractMatches(ts, facts, node, predicate) {
+  return functionContractFacts(ts, facts, node).some(predicate)
+}
+
+function functionHasLiteralTrueOption(ts, facts, node, callName, optionName) {
+  const functionNodes = [node]
+  const pending = [...collectFunctionFact(ts, node, { skipNestedDeclarations: true }).calls]
+  const visited = new Set()
+  while (pending.length) {
+    const name = pending.pop()
+    if (visited.has(name)) continue
+    visited.add(name)
+    const target = facts.functionNodes.get(name)
+    if (!target) continue
+    functionNodes.push(target)
+    for (const call of collectFunctionFact(ts, target, { skipNestedDeclarations: true }).calls) pending.push(call)
+  }
+  return functionNodes.some((functionNode) => {
+    let matched = false
+    const root = functionNode.body ?? functionNode
+    const visit = (current) => {
+      if (matched) return
+      if (current !== root && ts.isFunctionDeclaration(current)) return
+      if (ts.isCallExpression(current) && expressionName(ts, current.expression) === callName) {
+        for (const argument of current.arguments) {
+          const object = resolveExpression(ts, facts, argument)
+          const value = object && ts.isObjectLiteralExpression(object)
+            ? propertyExpression(ts, facts, object, optionName)
+            : undefined
+          if (booleanValue(ts, facts, value) === true) {
+            matched = true
+            return
+          }
+        }
+      }
+      ts.forEachChild(current, visit)
+    }
+    visit(root)
+    return matched
+  })
 }
 
 function exportedFunctionCalls(facts, functionName, requiredCalls) {
@@ -984,50 +1258,181 @@ function caseChecks(ts, caseId, facts, root) {
   }
   if (definition.family === 'booking-overlap') {
     const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
+    const route = resolvedCallArguments(ts, facts, 'makeCrudRoute')
+      .find((argument) => ts.isObjectLiteralExpression(argument) && objectProperty(ts, argument, 'actions'))
+    const actions = route && ts.isObjectLiteralExpression(route)
+      ? objectPropertyObject(ts, facts, route, 'actions')
+      : undefined
+    const routeCommandIds = actions
+      ? ['create', 'update', 'delete'].map((action) => {
+        const actionConfig = objectPropertyObject(ts, facts, actions, action)
+        return actionConfig ? objectPropertyString(ts, facts, actionConfig, 'commandId') : undefined
+      })
+      : []
+    const registeredCommands = resolvedCallArguments(ts, facts, 'registerCommand')
+      .filter((argument) => ts.isObjectLiteralExpression(argument))
+    const connectedCommands = routeCommandIds.map((commandId) =>
+      registeredCommands.find((command) => objectPropertyString(ts, facts, command, 'id') === commandId))
+    const commandFunctions = connectedCommands.map((command) => ({
+      execute: command ? propertyFunction(ts, facts, command, 'execute') : undefined,
+      undo: command ? propertyFunction(ts, facts, command, 'undo') : undefined,
+    }))
+    const allCommandsConnected = routeCommandIds.length === 3
+      && routeCommandIds.every((commandId) => typeof commandId === 'string')
+      && new Set(routeCommandIds).size === 3
+      && connectedCommands.every(Boolean)
+      && commandFunctions.every(({ execute, undo }) => execute && undo)
+    const commandsAtomic = allCommandsConnected && commandFunctions.every(({ execute }) =>
+      functionContractCalls(ts, facts, execute, ['withAtomicFlush', 'emitCrudSideEffects'])
+      && functionHasLiteralTrueOption(ts, facts, execute, 'withAtomicFlush', 'transaction'))
+    const commandsUndoable = allCommandsConnected && commandFunctions.every(({ undo }) =>
+      functionContractCalls(ts, facts, undo, ['extractUndoPayload', 'emitCrudUndoSideEffects']))
+    const conflictMapped = allCommandsConnected && commandFunctions.slice(0, 2).every(({ execute }) =>
+      functionContractMatches(ts, facts, execute, (reachable) =>
+        reachable.strings.has('23P01') && reachable.newCalls.has('CrudHttpError')))
     return [
       check('overlap.exclusion-constraint', hasStringIncluding(facts, 'btree_gist') && hasStringIncluding(facts, 'exclude using gist', 'tstzrange', "'[)'"), 'the migration guards overlaps with a btree_gist exclusion constraint over a half-open tstzrange'),
       check('overlap.constraint-scope', hasStringIncluding(facts, 'exclude using gist', 'room_id', 'tenant_id', 'organization_id'), 'the exclusion constraint scopes by room and tenant/organization, not by period alone'),
       check('overlap.constraint-liveness', hasStringIncluding(facts, 'exclude using gist', 'deleted_at', 'cancelled'), 'cancelled and soft-deleted rows are excluded so they do not block the slot'),
-      check('overlap.conflict-mapping', hasExactString(facts, '23P01') && facts.newCalls.has('CrudHttpError'), 'the command recognises the exclusion violation (SQLSTATE 23P01) and maps it to a conflict error instead of a 500'),
+      check('overlap.conflict-mapping', conflictMapped, 'the route-connected create and update commands each map SQLSTATE 23P01 to a conflict error'),
       check('overlap.entity-id-source', [...facts.importSources].includes('@/.mercato/generated/entities.ids.generated'), 'entity IDs come from the generated E map through the app alias, never hand-written strings'),
       check('overlap.scoped-entity', scopedEntity, 'the booking entity carries tenant_id, organization_id, and updated_at'),
-      check('overlap.command-atomic', hasCallOptions(facts, 'withAtomicFlush', ['transaction']), 'booking writes flush inside a transaction so the constraint decides atomically'),
-      check('overlap.command-undo', hasCall(facts, 'extractUndoPayload') && hasCall(facts, 'emitCrudSideEffects'), 'commands persist undo evidence and emit post-commit side effects'),
-      check('overlap.crud-host', hasCallOptions(facts, 'makeCrudRoute', ['metadata', 'orm', 'list', 'actions', 'indexer']), 'the bookings CRUD route wires metadata, scoped ORM, list, command actions, and indexer'),
+      check('overlap.command-atomic', commandsAtomic, 'the route-connected create/update/delete commands each reach transactional flush and post-commit side effects'),
+      check('overlap.command-undo', commandsUndoable, 'the route-connected create/update/delete commands each reach undo evidence and undo side effects'),
+      check('overlap.crud-host', Boolean(route)
+        && ['metadata', 'orm', 'list', 'actions', 'indexer'].every((name) => objectProperty(ts, route, name)), 'the bookings CRUD route wires metadata, scoped ORM, list, command actions, and indexer'),
     ]
   }
   if (definition.family === 'provider-transport') {
     const guard = facts.exportedFunctions.get('assertSafeEndpoint')
     const client = facts.exportedFunctions.get('createRoomCalendarClient')
+    const clientNode = facts.exportedFunctionNodes.get('createRoomCalendarClient')
+    const clientTree = clientNode
+      ? [clientNode, ...returnedObjectFunctions(ts, facts, clientNode)]
+        .flatMap((node) => functionContractFacts(ts, facts, node, { skipNestedFunctions: true }))
+      : []
+    const clientStrings = new Set(clientTree.flatMap((fact) => [...fact.strings]))
+    const clientCalls = new Set(clientTree.flatMap((fact) => [...fact.calls]))
     return [
       check('provider.paired-exports', ['integration', 'integrations', 'bundle', 'bundles'].every((name) => facts.exportedVariables.has(name)), 'integration.ts declares all four paired exports the generated module registry reads'),
       check('provider.credential-schema', hasObjectVariable(facts, 'integration', ['id', 'credentials', 'healthCheck']) && hasExactString(facts, 'secret') && hasExactString(facts, 'url'), 'the integration declares typed credential fields including a secret and the endpoint URL'),
       check('provider.health-di', hasExactString(facts, definition.healthService) && hasCall(facts, 'container.register'), `DI registers the exact ${definition.healthService} service declared by integration.ts`),
-      check('provider.ssrf-guard', Boolean(guard && guard.throws > 0) && hasExactString(facts, 'https:'), 'exported assertSafeEndpoint rejects non-HTTPS and unsafe endpoints on every call'),
-      check('provider.idempotency-key', hasExactString(facts, 'idempotency-key'), 'every remote mutation carries a stable idempotency key header'),
-      check('provider.redirect-refusal', hasExactString(facts, 'manual'), 'the transport refuses to follow redirects'),
-      check('provider.bounded-retry', Boolean(client && client.loops > 0), 'exported createRoomCalendarClient retries through a bounded loop'),
+      check('provider.ssrf-guard', Boolean(guard)
+        && clientCalls.has('assertSafeEndpoint')
+        && (clientCalls.has('fetch') || clientCalls.has('fetchImpl') || clientCalls.has('request')), 'exported createRoomCalendarClient reaches both the behavior-probed guard and request seam'),
+      check('provider.idempotency-key', clientStrings.has('idempotency-key'), 'the client request path carries a stable idempotency-key header'),
+      check('provider.redirect-refusal', clientStrings.has('manual'), 'the client request path refuses to follow redirects'),
+      check('provider.bounded-retry', clientTree.some((fact) => fact.loops > 0), 'exported createRoomCalendarClient retries through a bounded local call tree'),
       check('provider.unconfigured-degraded', hasExactString(facts, 'unconfigured'), 'a missing configuration reports a degraded state instead of failing'),
     ]
   }
   if (definition.family === 'response-enricher') {
+    const enrichersExpression = facts.exportedVariables.has('enrichers')
+      ? facts.variableExpressions.get('enrichers')
+      : undefined
+    const registeredEnrichers = arrayElements(ts, facts, enrichersExpression)
+      .filter((entry) => ts.isObjectLiteralExpression(entry))
+    const enricher = registeredEnrichers.find((entry) =>
+      objectPropertyString(ts, facts, entry, 'targetEntity') === 'customers.person'
+      && objectPropertyArray(ts, facts, entry, 'features')
+        .some((feature) => stringValue(ts, facts, feature) === 'room_bookings.bookings.view'))
+    const enrichOne = enricher ? propertyFunction(ts, facts, enricher, 'enrichOne') : undefined
+    const enrichMany = enricher ? propertyFunction(ts, facts, enricher, 'enrichMany') : undefined
+    const fallback = enricher ? objectPropertyObject(ts, facts, enricher, 'fallback') : undefined
+    const enrichOneNamespaced = Boolean(enrichOne) && (
+      functionContractMatches(ts, facts, enrichOne, (fact) => fact.objectProperties.has('_room_bookings'))
+      || functionContractCalls(ts, facts, enrichOne, ['enrichMany'])
+    )
+    const enrichManyFacts = enrichMany ? functionContractFacts(ts, facts, enrichMany) : []
+    const enrichManyNamespaced = enrichManyFacts.some((fact) => fact.objectProperties.has('_room_bookings'))
+    const batchReadCalls = new Set(['find', 'findWithDecryption', 'findAndCountWithDecryption', 'query', 'selectFrom'])
+    const enrichManyReadsBookings = enrichManyFacts.some((fact) =>
+      [...fact.calls].some((call) => batchReadCalls.has(call)))
+    const enrichManyBatched = enrichManyFacts.some((fact) =>
+      fact.loops > 0 || fact.calls.has('map') || fact.calls.has('Promise.all'))
+      && enrichManyReadsBookings
+    const resilient = Boolean(enricher && fallback)
+      && Boolean(objectProperty(ts, fallback, '_room_bookings'))
+      && (numberValue(ts, facts, propertyExpression(ts, facts, enricher, 'timeout')) ?? 0) > 0
+      && booleanValue(ts, facts, propertyExpression(ts, facts, enricher, 'cacheableOnListHit')) === false
     return [
-      check('enricher.dot-target', hasExactString(facts, 'customers.person') && !hasExactString(facts, 'customers:person'), 'targetEntity uses the dot form customers.person; the colon-form ID never matches and is silently skipped'),
-      check('enricher.batched', facts.objectProperties.has('enrichMany') && facts.objectProperties.has('enrichOne'), 'the enricher implements both enrichOne and batched enrichMany'),
-      check('enricher.namespaced', facts.objectProperties.has('_room_bookings'), 'added fields live under the module underscore namespace'),
-      check('enricher.resilience', ['fallback', 'timeout', 'cacheableOnListHit'].every((name) => facts.objectProperties.has(name)), 'the enricher declares fallback, timeout, and conservative list-cache behaviour'),
-      check('enricher.acl', hasExactString(facts, 'room_bookings.bookings.view'), 'the enricher gates on the owning module feature'),
+      check('enricher.dot-target', Boolean(enricher) && !hasExactString(facts, 'customers:person'), 'one connected enricher object uses the exact dot-form customers.person target; the colon-form ID never matches'),
+      check('enricher.batched', Boolean(enrichMany) && enrichManyBatched, 'the registered enricher batch-reads persisted booking data before mapping list results'),
+      check('enricher.namespaced', enrichOneNamespaced && enrichManyNamespaced, 'the registered enricher constructs _room_bookings in detail and list paths'),
+      check('enricher.resilience', resilient, 'the registered enricher declares a namespaced fallback, positive timeout, and cacheableOnListHit false'),
+      check('enricher.acl', Boolean(enricher), 'that same enricher gates on room_bookings.bookings.view'),
       check('enricher.registration', facts.exportedVariables.has('enrichers') && facts.importedBindings.get('ResponseEnricher') === '@open-mercato/shared/lib/crud/response-enricher', 'the typed enricher list is exported for discovery'),
     ]
   }
   if (definition.family === 'durable-workflow') {
+    const workflow = resolvedCallArguments(ts, facts, 'defineWorkflow')
+      .find((argument) => ts.isObjectLiteralExpression(argument)
+        && objectProperty(ts, argument, 'steps') && objectProperty(ts, argument, 'transitions'))
+    const steps = workflow && ts.isObjectLiteralExpression(workflow)
+      ? objectPropertyArray(ts, facts, workflow, 'steps').filter((step) => ts.isObjectLiteralExpression(step))
+      : []
+    const transitions = workflow && ts.isObjectLiteralExpression(workflow)
+      ? objectPropertyArray(ts, facts, workflow, 'transitions').filter((transition) => ts.isObjectLiteralExpression(transition))
+      : []
+    const stepById = new Map(steps.map((step) => [objectPropertyString(ts, facts, step, 'stepId'), step]).filter(([id]) => id))
+    const start = steps.find((step) => objectPropertyString(ts, facts, step, 'stepType') === 'START')
+    const end = steps.find((step) => objectPropertyString(ts, facts, step, 'stepType') === 'END')
+    const timerStep = steps.find((step) => {
+      if (objectPropertyString(ts, facts, step, 'stepType') !== 'WAIT_FOR_TIMER') return false
+      const config = objectPropertyObject(ts, facts, step, 'config')
+      return config && objectPropertyString(ts, facts, config, 'duration') === 'PT15M'
+    })
+    const startId = start ? objectPropertyString(ts, facts, start, 'stepId') : undefined
+    const endId = end ? objectPropertyString(ts, facts, end, 'stepId') : undefined
+    const timerId = timerStep ? objectPropertyString(ts, facts, timerStep, 'stepId') : undefined
+    const parsedTransitions = transitions.map((transition) => ({
+      node: transition,
+      from: objectPropertyString(ts, facts, transition, 'fromStepId'),
+      to: objectPropertyString(ts, facts, transition, 'toStepId'),
+      trigger: objectPropertyString(ts, facts, transition, 'trigger'),
+      priority: numberValue(ts, facts, propertyExpression(ts, facts, transition, 'priority')) ?? 0,
+    }))
+    const endpointsValid = parsedTransitions.length > 0
+      && parsedTransitions.every(({ from, to }) => stepById.has(from) && stepById.has(to))
+    const reachable = new Set(startId ? [startId] : [])
+    const pending = startId ? [startId] : []
+    while (pending.length) {
+      const current = pending.pop()
+      for (const transition of parsedTransitions.filter(({ from }) => from === current)) {
+        if (reachable.has(transition.to)) continue
+        reachable.add(transition.to)
+        pending.push(transition.to)
+      }
+    }
+    const signalTransition = parsedTransitions.find(({ from, trigger }) => from === timerId && trigger === 'signal')
+    const timerTransition = parsedTransitions.find(({ from, trigger }) => from === timerId && trigger === 'timer')
+    const updateActivity = timerTransition
+      ? objectPropertyArray(ts, facts, timerTransition.node, 'activities')
+        .find((activity) => {
+          if (!ts.isObjectLiteralExpression(activity)
+            || objectPropertyString(ts, facts, activity, 'activityType') !== 'UPDATE_ENTITY') return false
+          const config = objectPropertyObject(ts, facts, activity, 'config')
+          return config && objectPropertyString(ts, facts, config, 'commandId') === 'room_bookings.bookings.update'
+        })
+      : undefined
+    const safeCommand = resolvedCallArguments(ts, facts, 'registerWorkflowSafeCommands')
+      .flatMap((argument) => arrayElements(ts, facts, argument))
+      .find((entry) => ts.isObjectLiteralExpression(entry)
+        && objectPropertyString(ts, facts, entry, 'commandId') === 'room_bookings.bookings.update'
+        && objectPropertyArray(ts, facts, entry, 'requiredFeatures')
+          .some((feature) => Boolean(stringValue(ts, facts, feature))))
+    const workflowGraph = Boolean(startId && endId && timerId)
+      && endpointsValid && reachable.has(endId)
+    const confirmationWins = Boolean(signalTransition && timerTransition
+      && signalTransition.priority > timerTransition.priority
+      && reachable.has(signalTransition.to) && reachable.has(timerTransition.to))
     return [
-      check('workflow.timer-config', hasExactString(facts, 'WAIT_FOR_TIMER') && facts.objectProperties.has('config') && facts.objectProperties.has('duration') && hasStringPrefix(facts, 'PT'), 'the WAIT_FOR_TIMER step declares an ISO 8601 duration; without one the instance fails with TIMER_CONFIG_MISSING after it is already paused'),
-      check('workflow.safe-commands', hasCall(facts, 'registerWorkflowSafeCommands') && facts.objectProperties.has('requiredFeatures') && hasExactString(facts, 'room_bookings.bookings.update'), 'the dispatched command is allowlisted with the features it is authorised against'),
+      check('workflow.timer-config', Boolean(timerStep), 'the WAIT_FOR_TIMER step owns the exact PT15M duration'),
+      check('workflow.safe-commands', Boolean(safeCommand), 'registerWorkflowSafeCommands pairs the dispatched command with its required features'),
       check('workflow.builder', hasCall(facts, 'defineWorkflow') && hasCall(facts, 'createWorkflowsModuleConfig') && facts.exportedVariables.has('workflowsConfig'), 'the definition uses the typed builder and exports the discovered workflowsConfig'),
-      check('workflow.terminal-graph', hasExactString(facts, 'START') && hasExactString(facts, 'END'), 'the graph declares an explicit start and a reachable end'),
-      check('workflow.confirmation-beats-expiry', hasExactString(facts, 'signal') && hasExactString(facts, 'timer'), 'confirmation arrives as a signal transition competing with the expiry timer'),
-      check('workflow.dispatch-update-entity', hasExactString(facts, 'UPDATE_ENTITY'), 'the release path cancels the hold through an UPDATE_ENTITY activity, not a direct mutation'),
+      check('workflow.terminal-graph', workflowGraph, 'the same graph declares explicit START and END steps'),
+      check('workflow.confirmation-beats-expiry', confirmationWins, 'the signal confirmation has higher priority than the competing expiry timer'),
+      check('workflow.dispatch-update-entity', Boolean(updateActivity), 'the timer release transition owns an UPDATE_ENTITY activity for the booking update command'),
     ]
   }
   if (definition.family === 'crm-library-regression') {
