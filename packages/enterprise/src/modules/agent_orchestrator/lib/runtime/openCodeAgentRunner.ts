@@ -106,10 +106,14 @@ const OUTCOME_POLL_MS = 750
  * or a silently-dropped stream can leave both pending forever — which would pin
  * the run and defer the per-run session token's revocation to its 120m TTL. This
  * deadline guarantees the run always terminates and reaches the `finally` cleanup.
- * Override with `OM_OPENCODE_RUN_TIMEOUT_MS` (ms); defaults to 5 minutes.
+ * Override with `OM_OPENCODE_RUN_TIMEOUT_MS` (ms); defaults to 5 minutes. A caller
+ * may also pass a per-run override (`ctx.runTimeoutMs`) which wins when valid —
+ * delegated sub-agent runs use this to bound a hung sub-agent well below the
+ * top-level budget.
  */
 const DEFAULT_RUN_TIMEOUT_MS = 5 * 60_000
-function resolveRunTimeoutMs(): number {
+function resolveRunTimeoutMs(overrideMs?: number): number {
+  if (typeof overrideMs === 'number' && Number.isFinite(overrideMs) && overrideMs > 0) return overrideMs
   const raw = Number.parseInt(process.env.OM_OPENCODE_RUN_TIMEOUT_MS ?? '', 10)
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RUN_TIMEOUT_MS
 }
@@ -302,6 +306,7 @@ export class OpenCodeAgentRunner {
         store,
         toolCallSink: capturedToolCalls,
         onProgress: emitProgress,
+        runTimeoutMs: resolveRunTimeoutMs(ctx.runTimeoutMs),
       })
 
       if (capturedOutcome === NO_OUTCOME) {
@@ -516,14 +521,16 @@ export class OpenCodeAgentRunner {
     store: AgentRunSessionStore
     toolCallSink: CapturedToolCall[]
     onProgress?: (transition: CapturedTransition) => void
+    /** Wall-clock budget for this run (already resolved by the caller). */
+    runTimeoutMs: number
   }): Promise<unknown | typeof NO_OUTCOME> {
     const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress)
-    const deadline = createDeadline(resolveRunTimeoutMs())
+    const deadline = createDeadline(args.runTimeoutMs)
     // The send is synchronous server-side (holds until the loop finishes), so use
     // the long run deadline as its timeout — aborting at the 30s chat default
     // would CANCEL the OpenCode run. Completion is driven by the store/SSE, never
     // the HTTP response, so fire-and-forget (errors only logged).
-    const sendTimeoutMs = resolveRunTimeoutMs()
+    const sendTimeoutMs = args.runTimeoutMs
     const read = () => args.store.readOutcome(args.sessionToken)
     try {
       this.client

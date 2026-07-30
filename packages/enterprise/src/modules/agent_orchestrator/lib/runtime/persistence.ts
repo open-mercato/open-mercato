@@ -26,6 +26,14 @@ export type AgentRunCtx = {
    */
   parentRunId?: string
   /**
+   * Per-run wall-clock deadline override (ms). Delegated sub-agent runs pass a
+   * SHORT budget here (see the `delegate_agent` tool) so a hung sub-agent tool
+   * fails fast and cleanly, rather than blocking its parent orchestrator for the
+   * full top-level run timeout. Undefined for top-level runs, which use
+   * `OM_OPENCODE_RUN_TIMEOUT_MS` / the default.
+   */
+  runTimeoutMs?: number
+  /**
    * On-behalf-of attribution (Agent Identity & On-Behalf-Of, Wave 4 P2). When the
    * run executes under a provisioned agent principal, this carries the agent's
    * `auth.User` id (the actor stamped on every write) and the invoking human's
