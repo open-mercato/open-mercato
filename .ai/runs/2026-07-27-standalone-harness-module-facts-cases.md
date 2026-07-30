@@ -3,8 +3,9 @@
 Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 Status: complete
 
-Stacked on #4529 (`305c68fce`). `packages/create-app/agentic/shared/ai/harness/cases.json` does not
-exist on `develop`, so this work cannot be branched independently — the same stacking pattern #4528 uses.
+Stacked on #4529 (merged head `d92261b34`, re-aligned 2026-07-30 from the original `305c68fce`).
+`packages/create-app/agentic/shared/ai/harness/cases.json` does not exist on `develop`, so this work
+cannot be branched independently — the same stacking pattern #4528 uses.
 
 ## Goal
 
@@ -16,8 +17,11 @@ generated facts ship with the scaffold but are referenced by no case at all.
 Two new routing cases that assert the agent consults an installed module's generated facts instead of
 designing a new module for a capability the app already has:
 
-- `OMH-188` — editable per-organization value lists (`dictionaries`)
-- `OMH-189` — unattended, revocable partner API access (`api_keys`)
+- `OMH-193` — editable per-organization value lists (`dictionaries`)
+- `OMH-194` — unattended, revocable partner API access (`api_keys`)
+
+They shipped as `OMH-188`/`OMH-189` and were renumbered on 2026-07-30 because the stacked parent #4529
+independently claimed those two IDs for writable cases of its own — see Phase 5.
 
 Both are `facts`-owner cases. They shipped with empty `requiredSkills` to keep the assertion on routing,
 observed context and decisions rather than a guessed skill chain; the #4556 review (finding 6) showed
@@ -44,6 +48,16 @@ Measured on a controller scaffolded from `create-mercato-app@0.6.7-canary.317.1.
 The two modules picked here are the ones whose absence is most likely to produce real duplicated work:
 an agent that does not know `dictionaries` exists will scaffold a bespoke value-list module, and one that
 does not know `api_keys` exists will invent a bespoke token mechanism.
+
+**This measurement is against the original stacked base `305c68fce` and no longer describes the catalog.**
+Re-measured on the 2026-07-30 merge of #4529's `d92261b34`, all ten of those module facts files now appear
+somewhere: `OMH-087` requires `api_keys`, `configs`, `dictionaries`, `gateway_stripe`, `perspectives`,
+`resources` and `sync_akeneo`, and `api_docs`, `inbox_ops` and `planner` are reachable through
+`allowedExtra` on `OMH-011`, `OMH-098` and `OMH-100`. The gap these two cases close is therefore narrower
+than originally stated, and it is a different one: `OMH-087` reads those facts while mapping a module brief
+onto the discovery surface, whereas `OMH-193`/`OMH-194` are the only cases in the catalog that make a
+module-facts file the *knowledge owner* (`owner.kind: "facts"`) and assert the installed-versus-new routing
+decision. Nothing else in the 194-case catalog owns a facts surface.
 
 ## Implementation Plan
 
@@ -121,3 +135,29 @@ four commits. They are raised on #4529 instead of being patched from a stacked b
       deterministic gate over the committed bytes is 189/189 on the same controller. This is the run the
       earlier live evidence could not provide: it predated 28603a4e4, when both cases still declared an
       empty `requiredSkills` and asserted only one of the two scope/ACL decisions each.
+
+### Phase 5: Re-alignment onto the current #4529 head (2026-07-30)
+
+The stacked parent advanced 265 commits past `305c68fce` and independently claimed `OMH-188` and
+`OMH-189` for two writable cases of its own (room-booking overlap rejection, calendar provider
+transport). Left alone, this branch would have shipped duplicate case IDs the moment #4529 merged.
+The parent had also independently applied the same `oracle.validatorIds` correction this branch made
+for review finding 3, so only the drift guard survives from that work.
+
+- [x] 5.1 Merge #4529's `d92261b34` into this branch, taking the parent's side for all eight
+      conflicting harness/doc/spec/test files rather than rewriting this branch's history
+- [x] 5.2 Re-apply both cases as `OMH-193` (`dictionaries`) and `OMH-194` (`api_keys`), byte-identical
+      to their reviewed form apart from the IDs and OMH-194's relation to OMH-193 — 13cd68379
+- [x] 5.3 Re-pin the catalog contract to 194: `validators.json` `expectedCaseCount`, the schema's
+      `minItems`/`maxItems`, and its `id`/`relatedCases` patterns — 13cd68379
+- [x] 5.4 Re-align the documented counts the two extra cases invalidate: harness `README`/`RELEASE`,
+      `packages/create-app/README`, the spec's normative claims, gate table, acceptance criteria,
+      case list and changelog; the writable share becomes 45/194 = 23.2% — 13cd68379
+- [x] 5.5 Re-apply the schema drift guard and the renumbered semantic assertions to
+      `agent-surface-coverage.test.ts`; the parent still has no guard binding the shipped catalog to
+      its published schema — 13cd68379
+- [x] 5.6 Correct the portability sample size in the three references this branch had set to 40:
+      `release-matrix.json` now pins 45 IDs — f9d584589
+- [x] 5.7 Re-measure the coverage claim against the merged catalog and record that it no longer holds
+      as originally written — see Evidence
+- [ ] 5.8 Full configured `validation.commands` gate on the merge result
