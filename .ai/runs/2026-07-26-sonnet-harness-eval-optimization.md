@@ -369,6 +369,7 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 - [x] 3.53 Close cross-runner generative residuals without weakening shared safety contracts — `b7a33ed1b`
 - [x] 3.54 Recover the exact backtick-quoted harness.read startup report without retrying arbitrary or safety violations — `a2101198c`
 - [x] 3.55 Resolve concrete organization scope and canonical suffixed command objects in complete-module writable proof — `4de8769ee`
+- [x] 3.56 Preserve the standalone module registry baseline during additive app-module activation — `b3f1dccdf`
 
 ### Phase 4: Compatibility baseline
 
