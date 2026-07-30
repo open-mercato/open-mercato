@@ -37,10 +37,11 @@ The engine addresses each of those directly:
 
 | Package | id | Notes |
 |---|---|---|
-| `@open-mercato/web-research-model` | `model-native` | Uses the agent's own LLM with its native web search. No extra key, no extra vendor. **Enabled by default.** |
+| `@open-mercato/web-research-model` | `model-native` | Uses the agent's own LLM with its native web search. No extra key, no extra vendor. **Enabled by default.** Works on Anthropic, OpenAI and Azure OpenAI / Foundry. |
 | `@open-mercato/web-research-serp` | `serp-html` | Our own crawler over public SERP HTML. Free, no key, no dependencies. **Off by default** — enabling it is the operator's decision. |
 | `@open-mercato/web-research-firecrawl` | `firecrawl` | Keyed API that returns page content inline. |
 | `@open-mercato/web-research-tavily` | `tavily` | Keyed API oriented at LLM consumption. |
+| `@open-mercato/web-research-exa` | `exa` | Keyed API with an embeddings index. Filters by domain and publication date natively, and returns the passages it judged relevant rather than a page preview. Priced per call and reports the cost of each search in the live step feed. |
 | `@open-mercato/web-research-searxng` | `searxng` | Client for an instance **you** run. SearXNG is AGPL-3.0, so we ship the client only. |
 | `@open-mercato/web-research-browser` | `browser` | Renders blocked SERPs and JavaScript-only pages in a Playwright sidecar. Ships Playwright as a dependency and downloads the Chromium binary on first use, so installing the package is the only step. |
 
@@ -86,6 +87,29 @@ OM_WEB_SEARCH_DENY_DOMAINS=
 OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS=              # empty = every private address refused
 ```
 
+### Azure OpenAI and Foundry
+
+Azure exposes `web_search` as a **Responses API** built-in, and `model-native`
+picks it up automatically once the agent's provider is `azure`. Two things follow
+from how Azure implements it, and both are worth a deliberate decision rather
+than a discovery:
+
+- It is **Grounding with Bing Search** underneath. It is billed on the Bing APIs
+  price list, on top of tokens.
+- Microsoft states that the **Data Protection Addendum does not apply** to data
+  sent to Grounding with Bing, and that the data **flows outside your compliance
+  and geo boundary**. If you run on Azure specifically for data residency, that is
+  the trade-off you are accepting by enabling web search. The adapter's health row
+  says so in the settings page.
+
+An admin can also block the tool for a whole subscription
+(`az feature register --name OpenAI.BlockedTools.web_search …`), in which case the
+adapter reports `unavailable` rather than a transient error.
+
+Azure is configured with `AZURE_OPENAI_API_KEY` plus either
+`AZURE_OPENAI_RESOURCE_NAME` (preferred — the SDK assembles the endpoint) or
+`AZURE_OPENAI_BASE_URL` pointing at the `/openai` prefix.
+
 ## Tools agents see
 
 `agent_orchestrator.web_search` returns ranked results with snippets, confidence
@@ -126,6 +150,17 @@ themselves — that would bypass every control below in a single step.
   landing mid-codepoint does not corrupt the tail.
 - **Per-run and per-tenant rate ceilings**, with separate budgets for search and
   fetch so a page-reading loop cannot starve discovery.
+- **A per-adapter hourly call ceiling**, because the same tool costs nothing on a
+  free SERP and real money on a model doing its own web search. Set it per adapter
+  in the settings page. It is charged from what actually ran, not what was
+  planned — quorum usually settles before the expensive adapter is reached — and
+  once spent the adapter sits searches out, **including as `lastResort`**, which
+  otherwise bypasses `enabled` on exactly the short runs the ceiling exists for.
+- **The browser tier keeps Chromium's sandbox.** It renders pages chosen by a
+  search engine or a model, so the renderer parses hostile input by definition. If
+  the sandbox cannot start the adapter refuses to launch and says how to fix the
+  container, rather than quietly falling back; `OM_WEB_RESEARCH_BROWSER_NO_SANDBOX=1`
+  is the explicit, logged opt-out for environments that genuinely cannot.
 
 ## Live status
 

@@ -53,6 +53,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ai-sdk/azure@npm:^4.0.0":
+  version: 4.0.24
+  resolution: "@ai-sdk/azure@npm:4.0.24"
+  dependencies:
+    "@ai-sdk/deepseek": "npm:3.0.15"
+    "@ai-sdk/openai": "npm:4.0.23"
+    "@ai-sdk/provider": "npm:4.0.4"
+    "@ai-sdk/provider-utils": "npm:5.0.14"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/6ebea1fad9f77658cbf18bffc28dcd1854f60609f1caad920089220aad4e4f6781b540f9febcbfc2ec46f07eb7ed9dded8d1d9c72f844bc365e4173a8709e8ca
+  languageName: node
+  linkType: hard
+
 "@ai-sdk/cohere@npm:^4.0.1":
   version: 4.0.5
   resolution: "@ai-sdk/cohere@npm:4.0.5"
@@ -62,6 +76,18 @@ __metadata:
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
   checksum: 10/d1f7205c8d8090271f6a8fca2f86c04cd7d4c997af276fe6e6e15c879edbc24f853aaca83a5de88723ae9683456e9eaff7402916bdda9b0b96d68e888c2e0eba
+  languageName: node
+  linkType: hard
+
+"@ai-sdk/deepseek@npm:3.0.15":
+  version: 3.0.15
+  resolution: "@ai-sdk/deepseek@npm:3.0.15"
+  dependencies:
+    "@ai-sdk/provider": "npm:4.0.4"
+    "@ai-sdk/provider-utils": "npm:5.0.14"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/c8265be6f23596547007e4c8fa8a4b1ee98eafefd59694e3cdcba5e8d1305efb47e9a5629cd8950b4095489d3a96f87965f8956a7d70f0f6dd6f414112d6947c
   languageName: node
   linkType: hard
 
@@ -102,6 +128,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ai-sdk/openai@npm:4.0.23":
+  version: 4.0.23
+  resolution: "@ai-sdk/openai@npm:4.0.23"
+  dependencies:
+    "@ai-sdk/provider": "npm:4.0.4"
+    "@ai-sdk/provider-utils": "npm:5.0.14"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/e1b2a2e7f4217813a71c768c9f2975b76c30ab11c2bebacc679fe1384ba3621e8dc51712be012cdbe9280142d195693cae2eae20c017b5794eccd35f01f1749b
+  languageName: node
+  linkType: hard
+
 "@ai-sdk/openai@npm:4.0.7, @ai-sdk/openai@npm:^4.0.2":
   version: 4.0.7
   resolution: "@ai-sdk/openai@npm:4.0.7"
@@ -125,6 +163,20 @@ __metadata:
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
   checksum: 10/c36cc4009ef1a305522ef6e8c6e3d6699d6be6284232f7b5407708bfe526de51c5abd837a258dcbbdc7fa82c6e13c597f2feb22aad90be6c4ca8d36de47462dd
+  languageName: node
+  linkType: hard
+
+"@ai-sdk/provider-utils@npm:5.0.14":
+  version: 5.0.14
+  resolution: "@ai-sdk/provider-utils@npm:5.0.14"
+  dependencies:
+    "@ai-sdk/provider": "npm:4.0.4"
+    "@standard-schema/spec": "npm:^1.1.0"
+    "@workflow/serde": "npm:4.1.0"
+    eventsource-parser: "npm:^3.0.8"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/19f13ce4a927e572915d5fe1519bf8ea174dd556fffe2128e10a6cb8781fb15885bf980df501f0431df4bf00fe29156fddbebbe13b61431e295c2ef70f18e873
   languageName: node
   linkType: hard
 
@@ -157,6 +209,15 @@ __metadata:
   dependencies:
     json-schema: "npm:^0.4.0"
   checksum: 10/f7587421ab32aaa3ccf00fc54b59bdf458faed8a341970afe272c4825c9ff87f78ba4246325e7c10c057f8c43f176cee26c61e6929c25f2e682223e0195b4c94
+  languageName: node
+  linkType: hard
+
+"@ai-sdk/provider@npm:4.0.4":
+  version: 4.0.4
+  resolution: "@ai-sdk/provider@npm:4.0.4"
+  dependencies:
+    json-schema: "npm:^0.4.0"
+  checksum: 10/f1b814b729cb46e97e6743fd593abdc392457b89fef0b5458c9fc6ad00f8d6416ad1ea789751226936ebdc56a03247d4ee5b97a68cec272ed88e388f011817d8
   languageName: node
   linkType: hard
 
@@ -7414,6 +7475,7 @@ __metadata:
   resolution: "@open-mercato/ai-assistant@workspace:packages/ai-assistant"
   dependencies:
     "@ai-sdk/anthropic": "npm:^4.0.1"
+    "@ai-sdk/azure": "npm:^4.0.0"
     "@ai-sdk/google": "npm:^4.0.2"
     "@ai-sdk/openai": "npm:^4.0.2"
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
@@ -8056,6 +8118,24 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/web-research-exa@workspace:packages/web-research-exa":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/web-research-exa@workspace:packages/web-research-exa"
+  dependencies:
+    "@open-mercato/web-research": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.0.1"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+    zod: "npm:^4.4.3"
+  peerDependencies:
+    "@open-mercato/web-research": ^0.6.0
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/web-research-firecrawl@workspace:packages/web-research-firecrawl":
   version: 0.0.0-use.local
   resolution: "@open-mercato/web-research-firecrawl@workspace:packages/web-research-firecrawl"
@@ -8079,6 +8159,7 @@ __metadata:
   resolution: "@open-mercato/web-research-model@workspace:packages/web-research-model"
   dependencies:
     "@ai-sdk/anthropic": "npm:^4.0.1"
+    "@ai-sdk/azure": "npm:^4.0.0"
     "@ai-sdk/openai": "npm:^4.0.2"
     "@open-mercato/web-research": "workspace:*"
     "@types/jest": "npm:^30.0.0"
@@ -8092,11 +8173,14 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@ai-sdk/anthropic": ^4.0.1
+    "@ai-sdk/azure": ^4.0.0
     "@ai-sdk/openai": ^4.0.2
     "@open-mercato/web-research": ^0.6.0
     ai: ^7.0.4
   peerDependenciesMeta:
     "@ai-sdk/anthropic":
+      optional: true
+    "@ai-sdk/azure":
       optional: true
     "@ai-sdk/openai":
       optional: true

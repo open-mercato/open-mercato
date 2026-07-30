@@ -121,6 +121,17 @@ export async function launchChromium(
   try {
     return await browserType.launch(options)
   } catch (error) {
+    // Deliberately not retried without the sandbox. Falling back silently would
+    // mean the security posture depends on whether a container happened to be
+    // configured, with nobody told which one they got.
+    if (isSandboxFailure(error)) {
+      throw new SidecarError(
+        `Chromium could not start its sandbox, and this adapter renders untrusted pages so it will not run without one. ` +
+          `Fix the container (run as a non-root user, or grant SYS_ADMIN, or enable user namespaces), ` +
+          `or accept the risk explicitly with ${SANDBOX_OPT_OUT_ENV}=1. Underlying: ${error instanceof Error ? error.message : String(error)}`,
+        'init',
+      )
+    }
     if (!isMissingBrowserError(error)) throw error
     const onProgress = deps.onProgress ?? (() => {})
     onProgress('chromium binary missing, running `npx playwright install chromium` (one-time, ~150MB)')
@@ -201,12 +212,54 @@ export async function installNavigationGuard(
  * Launch flags aimed at not announcing automation. Playwright's defaults set
  * `navigator.webdriver` and a headless UA, which the SERP endpoints this adapter
  * exists to reach specifically look for.
+ *
+ * `--disable-dev-shm-usage` is a sizing workaround, not a security control: it
+ * makes Chromium write shared memory to /tmp instead of a container's small
+ * /dev/shm. The sandbox is deliberately NOT disabled here — see
+ * {@link resolveLaunchArgs}.
  */
 export const LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
   '--disable-dev-shm-usage',
-  '--no-sandbox',
 ]
+
+export const SANDBOX_OPT_OUT_ENV = 'OM_WEB_RESEARCH_BROWSER_NO_SANDBOX'
+
+/**
+ * Launch flags for this process, sandbox included unless an operator opted out.
+ *
+ * This adapter exists to render pages chosen by a search engine or a model, so
+ * the renderer is by definition parsing hostile input. `--no-sandbox` turns a
+ * renderer compromise into code running as whatever user the app runs as, which
+ * is the one mitigation Chromium provides for exactly this threat.
+ *
+ * It used to be on unconditionally because the sandbox needs privileges a
+ * root-in-Docker container does not grant by default. That is a container
+ * problem with container fixes (run as a non-root user, or grant `SYS_ADMIN`, or
+ * enable user namespaces); silently shipping every deployment the insecure
+ * variant to spare those is the wrong trade. The opt-out stays available for
+ * environments that genuinely cannot, and it is loud.
+ */
+export function resolveLaunchArgs(env: NodeJS.ProcessEnv = process.env): string[] {
+  return env[SANDBOX_OPT_OUT_ENV] === '1' ? [...LAUNCH_ARGS, '--no-sandbox'] : [...LAUNCH_ARGS]
+}
+
+export function isSandboxDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[SANDBOX_OPT_OUT_ENV] === '1'
+}
+
+/**
+ * Chromium's refusal when it cannot set up its sandbox. The wording differs
+ * between the root check and the namespace failure, so both shapes are matched.
+ */
+export function isSandboxFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return (
+    /running as root without --no-sandbox/i.test(error.message) ||
+    /No usable sandbox/i.test(error.message) ||
+    /clone helper|namespace sandbox|SUID sandbox/i.test(error.message)
+  )
+}
 
 export const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'

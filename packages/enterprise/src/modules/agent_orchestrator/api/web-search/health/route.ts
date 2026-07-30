@@ -28,6 +28,8 @@ type AdapterHealthRow = {
   ok: boolean
   detail: string | null
   latencyMs: number | null
+  /** False when the row reports configuration only, with no call made. */
+  probed: boolean
 }
 
 type WebSearchHealthResponse = {
@@ -44,6 +46,13 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Opening a settings screen must not spend money. A live probe calls the
+  // adapter — a metered source burns a real search credit and the browser tier
+  // spawns a process — so it happens only when an operator asks for it. Without
+  // it the rows still report readiness, which is what "is this configured"
+  // actually needs and is synchronous and free.
+  const probe = new URL(req.url).searchParams.get('probe') === '1'
+
   const container = await createRequestContainer()
   const tenantId = auth.tenantId ?? null
   const settings = await resolveWebSearchSettings(container, tenantId)
@@ -56,7 +65,7 @@ export async function GET(req: Request) {
   // tier spawns a sidecar to answer `ping`), so every probe must hand them back.
   let reports
   try {
-    reports = await engine.health()
+    reports = await engine.health({ probe })
   } finally {
     await engine.dispose().catch(() => undefined)
   }
@@ -67,6 +76,7 @@ export async function GET(req: Request) {
     ok: report.ok,
     detail: report.detail ?? null,
     latencyMs: report.latencyMs ?? null,
+    probed: probe && report.ready,
   }))
 
   const enabled = adapters.filter((row) => row.enabled)
@@ -100,6 +110,7 @@ const healthSchema = z.object({
       ok: z.boolean(),
       detail: z.string().nullable(),
       latencyMs: z.number().nullable(),
+      probed: z.boolean(),
     }),
   ),
   problems: z.array(
@@ -115,7 +126,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Report every installed web-search adapter and its health',
       description:
-        'Builds the tenant-resolved adapter set and calls healthCheck() on each. Returns a per-adapter row plus any adapter packages that failed to load. Gated by agent_orchestrator.proposals.view.',
+        'Builds the tenant-resolved adapter set and reports one row per installed adapter. Reports configuration readiness only unless `probe=1`, because a live check calls the adapter and costs a real search credit on a metered source. Gated by agent_orchestrator.proposals.view.',
       responses: [{ status: 200, description: 'Web-search adapter health', schema: healthSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },

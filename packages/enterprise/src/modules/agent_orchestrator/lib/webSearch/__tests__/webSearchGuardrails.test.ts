@@ -1,6 +1,12 @@
 import type { AwilixContainer } from 'awilix'
 import { MODEL_ADAPTER_TIMEOUT_MS, resolvePolicy } from '@open-mercato/web-research'
-import { chargeWebFetchBudget, enforceWebSearchRateLimit, resolveRunId } from '../guardrails'
+import {
+  chargeAdapterCalls,
+  chargeWebFetchBudget,
+  enforceWebSearchRateLimit,
+  resolveRunId,
+  resolveSpentAdapterBudgets,
+} from '../guardrails'
 import {
   hostnameOf,
   isHostAllowed,
@@ -201,6 +207,55 @@ describe('chargeWebFetchBudget', () => {
   it('never throws when accounting is unavailable', async () => {
     const container = containerWith({ limiterThrows: true })
     await expect(chargeWebFetchBudget(container, 'run-1', guardrails, 2)).resolves.toBeUndefined()
+  })
+})
+
+describe('adapter call ceilings', () => {
+  const budgeted = [
+    { id: 'model-native', maxCallsPerHour: 100 },
+    { id: 'serp-html' },
+  ]
+
+  it('reports an adapter whose ceiling is spent', async () => {
+    const limiter = {
+      consume: jest.fn(async () => ({ allowed: true })),
+      get: jest.fn(async (key: string) => (key.includes('model-native') ? { allowed: false } : null)),
+    }
+    const spent = await resolveSpentAdapterBudgets(
+      containerWith({ limiter: limiter as never }),
+      'tenant-1',
+      budgeted,
+    )
+    expect([...spent]).toEqual(['model-native'])
+  })
+
+  it('never asks about an adapter with no ceiling', async () => {
+    const limiter = { consume: jest.fn(), get: jest.fn(async () => null) }
+    await resolveSpentAdapterBudgets(containerWith({ limiter: limiter as never }), 'tenant-1', budgeted)
+    expect(limiter.get).toHaveBeenCalledTimes(1)
+    expect(limiter.get.mock.calls[0][0]).toContain('model-native')
+  })
+
+  it('charges only adapters that actually ran and carry a ceiling', async () => {
+    // Quorum often settles before the expensive adapter is reached; billing for a
+    // call that never happened would exhaust a ceiling that cost nothing.
+    const limiter = { consume: jest.fn(async () => ({ allowed: true })), get: jest.fn() }
+    await chargeAdapterCalls(containerWith({ limiter: limiter as never }), 'tenant-1', budgeted, [
+      'serp-html',
+      'model-native',
+    ])
+    expect(limiter.consume).toHaveBeenCalledTimes(1)
+    expect(limiter.consume.mock.calls[0][0]).toBe('agentweb:adapter:tenant-1:model-native')
+  })
+
+  it('fails open when no limiter is registered', async () => {
+    const container = {
+      hasRegistration: () => false,
+      resolve: () => {
+        throw new Error('nope')
+      },
+    } as unknown as AwilixContainer
+    await expect(resolveSpentAdapterBudgets(container, 't', budgeted)).resolves.toEqual(new Set())
   })
 })
 

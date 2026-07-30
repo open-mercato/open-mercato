@@ -46,7 +46,14 @@ import { WebSearchPreview } from './WebSearchPreview'
 const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
 const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
 
-type AdapterEntry = { id: string; enabled: boolean; order: number; weight: number; timeoutMs?: number }
+type AdapterEntry = {
+  id: string
+  enabled: boolean
+  order: number
+  weight: number
+  timeoutMs?: number
+  maxCallsPerHour?: number
+}
 
 type Policy = {
   settleMode: 'race' | 'quorum' | 'exhaustive'
@@ -81,6 +88,30 @@ type SettingsResponse = {
 
 type AdapterOptions = Record<string, Record<string, unknown>>
 
+/** One Save button's worth of settings. `adapter:<id>` is a single adapter card. */
+type SectionId = 'adapters' | 'tuning' | `adapter:${string}`
+
+/** Top-level keys of the stored document, as the PUT accepts them. */
+type Baseline = Record<string, unknown>
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+}
+
+/**
+ * The list card owns the roster — which adapters run, and in what order. Each
+ * adapter's own card owns its tuning. Splitting them this way is what lets one
+ * edit light exactly one Save button instead of two.
+ */
+function rosterOf(entries: readonly AdapterEntry[]): unknown {
+  return entries.map((entry) => ({ id: entry.id, enabled: entry.enabled, order: entry.order }))
+}
+
+function tuningOf(entry: AdapterEntry | undefined): unknown {
+  if (!entry) return null
+  return { weight: entry.weight, timeoutMs: entry.timeoutMs ?? null, maxCallsPerHour: entry.maxCallsPerHour ?? null }
+}
+
 function isSettings(value: unknown): value is SettingsResponse {
   return typeof value === 'object' && value !== null && 'policy' in value
 }
@@ -107,12 +138,12 @@ function mergeAdapters(policy: Policy, installed: InstalledAdapter[]): AdapterEn
  */
 function HeaderStatus({
   activeCount,
-  saveState,
+  hasUnsaved,
   isRefreshing,
   onRefresh,
 }: {
   activeCount: number
-  saveState: 'idle' | 'saving' | 'saved' | 'error'
+  hasUnsaved: boolean
   isRefreshing: boolean
   onRefresh: () => void
 }) {
@@ -121,7 +152,13 @@ function HeaderStatus({
     <Button
       variant="outline"
       size="sm"
-      aria-label={t('agent_orchestrator.settings.webSearch.recheck', 'Re-check adapters')}
+      // A live probe calls each adapter, which spends a real search credit on a
+      // metered source, so it is a deliberate press rather than a page load.
+      title={t(
+        'agent_orchestrator.settings.webSearch.recheckHint',
+        'Calls each enabled adapter. Metered sources bill for this.',
+      )}
+      aria-label={t('agent_orchestrator.settings.webSearch.recheck', 'Test adapters')}
       disabled={isRefreshing}
       onClick={onRefresh}
     >
@@ -129,14 +166,9 @@ function HeaderStatus({
     </Button>
   )
   const badge =
-    saveState === 'saving' ? (
-      <span className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Spinner className="size-3.5" />
-        {t('agent_orchestrator.settings.webSearch.saving', 'Saving…')}
-      </span>
-    ) : saveState === 'error' ? (
-      <StatusBadge variant="error" dot>
-        {t('agent_orchestrator.settings.webSearch.saveFailed', 'Not saved')}
+    hasUnsaved ? (
+      <StatusBadge variant="warning" dot>
+        {t('agent_orchestrator.settings.webSearch.unsaved', 'Unsaved changes')}
       </StatusBadge>
     ) : activeCount > 0 ? (
       <StatusBadge variant="success" dot>
@@ -200,6 +232,38 @@ function NumberField({
   )
 }
 
+/**
+ * Per-section Save.
+ *
+ * The screen used to autosave on every keystroke, which left an operator unable
+ * to tell whether anything had been written, or to abandon a half-typed value.
+ * A section states plainly whether it differs from what is stored.
+ */
+function SectionSave({
+  dirty,
+  saving,
+  onSave,
+}: {
+  dirty: boolean
+  saving: boolean
+  onSave: () => void
+}) {
+  const t = useT()
+  return (
+    <div className="flex items-center justify-end gap-3 border-t border-border pt-3">
+      {dirty ? (
+        <span className="text-xs text-muted-foreground">
+          {t('agent_orchestrator.settings.webSearch.unsavedHint', 'Not saved yet')}
+        </span>
+      ) : null}
+      <Button size="sm" disabled={!dirty || saving} onClick={onSave}>
+        {saving ? <Spinner className="size-4" /> : null}
+        {t('agent_orchestrator.settings.webSearch.save', 'Save')}
+      </Button>
+    </div>
+  )
+}
+
 function ToggleRow({
   label,
   hint,
@@ -232,11 +296,10 @@ export default function WebSearchSettingsPage() {
   const [source, setSource] = React.useState<'tenant' | 'instance'>('instance')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
-  const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [savingSection, setSavingSection] = React.useState<SectionId | null>(null)
+  // What the server currently holds, so a section can say whether it differs.
+  const [baseline, setBaseline] = React.useState<Baseline>({})
   const { runMutation } = useGuardedMutation({ contextId: 'agent_orchestrator.web_search.settings' })
-  // Nothing is persisted until the first load has populated state, otherwise the
-  // mount would immediately write the instance defaults back as a tenant override.
-  const hydrated = React.useRef(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -257,9 +320,24 @@ export default function WebSearchSettingsPage() {
       setAdapterOptions(Object.fromEntries(adapters.map((adapter) => [adapter.id, { ...adapter.options }])))
       setSource(next.source)
       setGuardrails(next.guardrails)
-      setPolicy({ ...next.policy, adapters: mergeAdapters(next.policy, adapters) })
+      const mergedAdapters = mergeAdapters(next.policy, adapters)
+      setPolicy({ ...next.policy, adapters: mergedAdapters })
+      setBaseline({
+        adapters: mergedAdapters,
+        settleMode: next.policy.settleMode,
+        concurrency: next.policy.concurrency,
+        minResults: next.policy.minResults,
+        minConfidence: next.policy.minConfidence,
+        lastResort: next.policy.lastResort,
+        softDeadlineMs: next.policy.softDeadlineMs,
+        hardDeadlineMs: next.policy.hardDeadlineMs,
+        cacheTtlMs: next.policy.cacheTtlMs,
+        escalateToBrowser: next.policy.escalateToBrowser,
+        content: next.policy.content,
+        guardrails: next.guardrails,
+        adapterOptions: Object.fromEntries(adapters.map((adapter) => [adapter.id, { ...adapter.options }])),
+      })
       setLoadError(null)
-      hydrated.current = true
     } catch {
       setLoadError(t('agent_orchestrator.settings.webSearch.loadError', 'Could not load web search settings.'))
     } finally {
@@ -269,10 +347,15 @@ export default function WebSearchSettingsPage() {
 
   const [isRefreshing, setIsRefreshing] = React.useState(false)
 
-  const loadHealth = React.useCallback(async () => {
+  /**
+   * `probe` calls each adapter for real. A metered source bills for that, so the
+   * page load asks for configuration status only and the refresh button is what
+   * spends anything.
+   */
+  const loadHealth = React.useCallback(async (probe = false) => {
     setIsRefreshing(true)
     try {
-      const call = await apiCall<{ adapters?: AdapterHealth[] }>(HEALTH_URL)
+      const call = await apiCall<{ adapters?: AdapterHealth[] }>(`${HEALTH_URL}${probe ? '?probe=1' : ''}`)
       if (call.ok && Array.isArray(call.result?.adapters)) setHealth(call.result.adapters)
     } catch {
       // Health is advisory; a failed probe must not break the settings screen.
@@ -285,6 +368,143 @@ export default function WebSearchSettingsPage() {
     void load()
     void loadHealth()
   }, [load, loadHealth])
+
+  /**
+   * Saves one section's fields and nothing else.
+   *
+   * The PUT is a partial update, so a section submits only what it owns. That is
+   * what makes per-section Save honest: pressing Save under Timing cannot quietly
+   * write a half-edited adapter list from another card.
+   */
+  const saveSection = React.useCallback(
+    async (
+      section: SectionId,
+      patch: Record<string, unknown>,
+      /**
+       * What the baseline becomes on success. Separate from the wire patch because
+       * an adapter card sends only its own entry, while the baseline must keep the
+       * whole `adapterOptions` record — folding the partial in directly would make
+       * every other adapter read as unsaved.
+       */
+      nextBaseline: Record<string, unknown> = patch,
+    ) => {
+      setSavingSection(section)
+      await runMutation({
+        context: { contextId: 'agent_orchestrator.web_search.settings' },
+        operation: async () => {
+          const call = await apiCall(SETTINGS_URL, { method: 'PUT', body: JSON.stringify(patch) })
+          if (!call.ok) {
+            flash(
+              t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
+              'error',
+            )
+            return
+          }
+          setSource('tenant')
+          // Moves only for what was actually written, so every other card keeps
+          // showing its own unsaved changes.
+          setBaseline((current) => ({ ...current, ...nextBaseline }))
+          flash(t('agent_orchestrator.settings.webSearch.saved', 'Saved.'), 'success')
+        },
+      })
+      setSavingSection(null)
+    },
+    [runMutation, t],
+  )
+
+  /** The fields a section owns, in the shape the PUT accepts. */
+  const sectionPatch = React.useCallback(
+    (section: SectionId): Record<string, unknown> => {
+      if (!policy) return {}
+      const savedAdapters = (baseline.adapters ?? []) as AdapterEntry[]
+      if (section.startsWith('adapter:')) {
+        const id = section.slice('adapter:'.length)
+        const edited = policy.adapters.find((entry) => entry.id === id)
+        // Only this row moves: every other entry, and every position, comes from
+        // what is already stored, so saving one adapter cannot commit a reorder
+        // or another row's toggle that the operator has not finished.
+        return {
+          adapters: savedAdapters.map((saved) =>
+            saved.id === id && edited
+              ? {
+                  ...saved,
+                  weight: edited.weight,
+                  ...(edited.timeoutMs === undefined ? {} : { timeoutMs: edited.timeoutMs }),
+                  ...(edited.maxCallsPerHour === undefined ? {} : { maxCallsPerHour: edited.maxCallsPerHour }),
+                }
+              : saved,
+          ),
+          adapterOptions: { [id]: adapterOptions[id] ?? {} },
+        }
+      }
+      switch (section) {
+        case 'adapters':
+          // Conversely the roster card carries only enablement and order, taking
+          // each row's tuning from what is stored.
+          return {
+            adapters: policy.adapters.map((entry) => {
+              const saved = savedAdapters.find((candidate) => candidate.id === entry.id)
+              return { ...(saved ?? entry), enabled: entry.enabled, order: entry.order }
+            }),
+          }
+        case 'tuning':
+          return {
+            settleMode: policy.settleMode,
+            concurrency: policy.concurrency,
+            minResults: policy.minResults,
+            minConfidence: policy.minConfidence,
+            lastResort: policy.lastResort,
+            softDeadlineMs: policy.softDeadlineMs,
+            hardDeadlineMs: policy.hardDeadlineMs,
+            cacheTtlMs: policy.cacheTtlMs,
+            escalateToBrowser: policy.escalateToBrowser,
+            content: policy.content,
+            ...(guardrails ? { guardrails } : {}),
+          }
+        default:
+          return {}
+      }
+    },
+    [policy, guardrails, adapterOptions],
+  )
+
+  const isDirty = React.useCallback(
+    (section: SectionId): boolean => {
+      const savedAdapters = (baseline.adapters ?? []) as AdapterEntry[]
+      if (section.startsWith('adapter:')) {
+        const id = section.slice('adapter:'.length)
+        const savedOptions = (baseline.adapterOptions ?? {}) as AdapterOptions
+        const tuningChanged = !sameValue(
+          tuningOf(policy?.adapters.find((entry) => entry.id === id)),
+          tuningOf(savedAdapters.find((entry) => entry.id === id)),
+        )
+        return tuningChanged || !sameValue(adapterOptions[id], savedOptions[id])
+      }
+      if (section === 'adapters') {
+        return !sameValue(rosterOf(policy?.adapters ?? []), rosterOf(savedAdapters))
+      }
+      return Object.entries(sectionPatch(section)).some(([key, value]) => !sameValue(value, baseline[key]))
+    },
+    [sectionPatch, baseline, adapterOptions, policy],
+  )
+
+  const saveSectionNow = React.useCallback(
+    (section: SectionId) => {
+      const patch = sectionPatch(section)
+      if (section.startsWith('adapter:')) {
+        void saveSection(section, patch, {
+          adapters: patch.adapters,
+          adapterOptions: {
+            ...((baseline.adapterOptions ?? {}) as AdapterOptions),
+            ...((patch.adapterOptions ?? {}) as AdapterOptions),
+          },
+        })
+        return
+      }
+      void saveSection(section, patch)
+    },
+    [sectionPatch, saveSection, baseline],
+  )
 
   const update = (patch: Partial<Policy>) => {
     setPolicy((current) => (current ? { ...current, ...patch } : current))
@@ -310,6 +530,11 @@ export default function WebSearchSettingsPage() {
     })
   }
 
+  const SECTIONS: readonly SectionId[] = ['adapters', 'tuning']
+  const hasUnsavedChanges =
+    SECTIONS.some((section) => isDirty(section)) ||
+    installed.some((adapter) => isDirty(`adapter:${adapter.id}`))
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
@@ -326,50 +551,6 @@ export default function WebSearchSettingsPage() {
       return { ...current, adapters: adapters.map((entry, index) => ({ ...entry, order: index })) }
     })
   }
-
-  const persist = React.useCallback(
-    async (nextPolicy: Policy, nextOptions: AdapterOptions, nextGuardrails: Guardrails | null) => {
-      setSaveState('saving')
-      await runMutation({
-        context: { contextId: 'agent_orchestrator.web_search.settings' },
-        operation: async () => {
-          const call = await apiCall(SETTINGS_URL, {
-            method: 'PUT',
-            body: JSON.stringify({
-              ...nextPolicy,
-              adapterOptions: nextOptions,
-              ...(nextGuardrails ? { guardrails: nextGuardrails } : {}),
-            }),
-          })
-          if (!call.ok) {
-            setSaveState('error')
-            flash(
-              t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
-              'error',
-            )
-            return
-          }
-          setSource('tenant')
-          setSaveState('saved')
-          // Enabling or reordering changes what is actually live, so re-probe
-          // rather than leaving stale badges on the rows.
-          void loadHealth()
-        },
-      })
-    },
-    [runMutation, t, loadHealth],
-  )
-
-  // Autosave: these are independent knobs, not a form with cross-field validation,
-  // so an explicit Save button only adds a step you can forget. Debounced so a
-  // typed number or key is written once, when you stop, rather than per keystroke.
-  React.useEffect(() => {
-    if (!hydrated.current || !policy) return
-    const timer = setTimeout(() => {
-      void persist(policy, adapterOptions, guardrails)
-    }, 700)
-    return () => clearTimeout(timer)
-  }, [policy, adapterOptions, guardrails, persist])
 
   if (isLoading) {
     return (
@@ -406,9 +587,9 @@ export default function WebSearchSettingsPage() {
         actions={
           <HeaderStatus
             activeCount={enabledCount}
-            saveState={saveState}
+            hasUnsaved={hasUnsavedChanges}
             isRefreshing={isRefreshing}
-            onRefresh={() => void loadHealth()}
+            onRefresh={() => void loadHealth(true)}
           />
         }
       />
@@ -420,7 +601,7 @@ export default function WebSearchSettingsPage() {
             <CardDescription>
               {t(
                 'agent_orchestrator.settings.webSearch.adaptersDragHint',
-                'Drag to set the order they are tried in. {count} of {total} enabled.',
+                'Drag to set the order they are tried in, and open one to tune it. {count} of {total} enabled.',
                 { count: String(enabledCount), total: String(policy.adapters.length) },
               )}
             </CardDescription>
@@ -447,12 +628,17 @@ export default function WebSearchSettingsPage() {
                         enabled={entry.enabled}
                         weight={entry.weight}
                         timeoutMs={entry.timeoutMs}
+                        maxCallsPerHour={entry.maxCallsPerHour}
                         meta={installed.find((adapter) => adapter.id === entry.id)}
                         health={health.find((report) => report.id === entry.id)}
                         options={adapterOptions[entry.id] ?? {}}
                         onToggle={(enabled) => updateAdapter(entry.id, { enabled })}
                         onWeight={(weight) => updateAdapter(entry.id, { weight })}
                         onTimeout={(timeoutMs) => updateAdapter(entry.id, { timeoutMs })}
+                        onMaxCalls={(maxCallsPerHour) => updateAdapter(entry.id, { maxCallsPerHour })}
+                        optionsDirty={isDirty(`adapter:${entry.id}`)}
+                        optionsSaving={savingSection === `adapter:${entry.id}`}
+                        onSaveOptions={() => saveSectionNow(`adapter:${entry.id}`)}
                         onOption={(field, value) => updateOption(entry.id, field, value)}
                       />
                     ))}
@@ -460,6 +646,13 @@ export default function WebSearchSettingsPage() {
                 </SortableContext>
               </DndContext>
             )}
+            <div className="mt-4">
+              <SectionSave
+                dirty={isDirty('adapters')}
+                saving={savingSection === 'adapters'}
+                onSave={() => saveSectionNow('adapters')}
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -637,6 +830,12 @@ export default function WebSearchSettingsPage() {
                 </p>
               </div>
             </FieldGroup>
+
+            <SectionSave
+              dirty={isDirty('tuning')}
+              saving={savingSection === 'tuning'}
+              onSave={() => saveSectionNow('tuning')}
+            />
           </CardContent>
         </Card>
 

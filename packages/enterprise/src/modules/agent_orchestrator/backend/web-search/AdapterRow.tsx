@@ -15,6 +15,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -44,6 +45,8 @@ export type AdapterHealth = {
   ok: boolean
   detail: string | null
   latencyMs: number | null
+  /** False when the row reports configuration only, with no call made. */
+  probed?: boolean
 }
 
 export const SECRET_PLACEHOLDER = '__om_secret_unchanged__'
@@ -158,13 +161,20 @@ export type AdapterRowProps = {
   weight: number
   /** Per-adapter budget; falls back to the policy-wide one when unset. */
   timeoutMs?: number
+  /** Hourly call ceiling for this tenant; empty means no ceiling. */
+  maxCallsPerHour?: number
   meta?: InstalledAdapter
   health?: AdapterHealth
   options: Record<string, unknown>
   onToggle: (enabled: boolean) => void
   onWeight: (weight: number) => void
   onTimeout: (timeoutMs: number | undefined) => void
+  onMaxCalls: (maxCallsPerHour: number | undefined) => void
   onOption: (field: string, value: unknown) => void
+  /** True when this adapter's options differ from what is stored. */
+  optionsDirty?: boolean
+  optionsSaving?: boolean
+  onSaveOptions?: () => void
 }
 
 export function AdapterRow({
@@ -172,12 +182,17 @@ export function AdapterRow({
   enabled,
   weight,
   timeoutMs,
+  maxCallsPerHour,
   meta,
   health,
   options,
   onToggle,
   onWeight,
   onTimeout,
+  onMaxCalls,
+  optionsDirty = false,
+  optionsSaving = false,
+  onSaveOptions,
   onOption,
 }: AdapterRowProps) {
   const t = useT()
@@ -221,7 +236,7 @@ export function AdapterRow({
               <span className="text-xs text-status-warning-text">
                 {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
               </span>
-            ) : enabled && health ? (
+            ) : enabled && health?.probed ? (
               <span
                 className={
                   health.ok ? 'text-xs text-status-success-text' : 'text-xs text-status-warning-text'
@@ -230,6 +245,12 @@ export function AdapterRow({
                 {health.ok
                   ? t('agent_orchestrator.settings.webSearch.healthOk', 'Healthy')
                   : t('agent_orchestrator.settings.webSearch.healthProblem', 'Problem')}
+              </span>
+            ) : enabled ? (
+              // Configured is not the same claim as working. Saying "Healthy" for
+              // an adapter nobody called would be a guess dressed as a fact.
+              <span className="text-xs text-muted-foreground">
+                {t('agent_orchestrator.settings.webSearch.healthUntested', 'Not tested')}
               </span>
             ) : null}
           </div>
@@ -240,68 +261,114 @@ export function AdapterRow({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <Label className="text-xs text-muted-foreground">
-            {t('agent_orchestrator.settings.webSearch.weight', 'Weight')}
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            max={10}
-            step={0.5}
-            autoComplete="off"
-            value={weight}
-            className="h-8 w-16"
-            onChange={(event) => onWeight(Number(event.target.value) || 0)}
-          />
-          {/* Latency is not uniform across kinds: a SERP read finishes in about a
-              second while a model running its own web search takes tens of them.
-              Without this the shared budget silently times the slow one out. */}
-          <Label className="text-xs text-muted-foreground">
-            {t('agent_orchestrator.settings.webSearch.timeout', 'Timeout')}
-          </Label>
-          <Input
-            type="number"
-            min={250}
-            max={120000}
-            step={1000}
-            autoComplete="off"
-            value={timeoutMs ?? ''}
-            placeholder={t('agent_orchestrator.settings.webSearch.timeoutDefault', 'default')}
-            title={t(
-              'agent_orchestrator.settings.webSearch.timeoutHint',
-              'Milliseconds this adapter alone may take. Leave empty to use the policy-wide budget.',
-            )}
-            className="h-8 w-24"
-            onChange={(event) => {
-              const raw = event.target.value.trim()
-              onTimeout(raw === '' ? undefined : Number(raw))
-            }}
-          />
-          {fields.length > 0 ? (
-            <Button variant="ghost" size="sm" onClick={() => setOpen((current) => !current)}>
-              {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              {t('agent_orchestrator.settings.webSearch.showConfig', 'Configure')}
-            </Button>
-          ) : null}
+          {/* Always available: an adapter has engine-level knobs even when its
+              package exposes no options of its own. */}
+          <Button variant="ghost" size="sm" onClick={() => setOpen((current) => !current)}>
+            {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            {t('agent_orchestrator.settings.webSearch.showConfig', 'Configure')}
+          </Button>
         </div>
       </div>
 
-      {open && fields.length > 0 ? (
-        <div className="grid grid-cols-1 gap-4 border-t border-border p-4 sm:grid-cols-2">
-          {fields.map((field) => (
-            <div key={field.name} className="space-y-1.5">
-              <Label>
-                {humanizeFieldName(field.name)}
-                {field.required ? <span className="ml-0.5 text-status-error-text">*</span> : null}
-              </Label>
-              <OptionInput
-                field={field}
-                value={options[field.name]}
-                savedHint={t('agent_orchestrator.settings.webSearch.secretSaved', 'Saved - type to replace')}
-                onChange={(next) => onOption(field.name, next)}
+      {open ? (
+        <div className="space-y-4 border-t border-border p-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>{t('agent_orchestrator.settings.webSearch.weight', 'Weight')}</Label>
+              <Input
+                type="number"
+                min={0}
+                max={10}
+                step={0.5}
+                autoComplete="off"
+                value={weight}
+                onChange={(event) => onWeight(Number(event.target.value) || 0)}
               />
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.weightHint',
+                  'How much this source pulls in the merged ranking.',
+                )}
+              </p>
             </div>
-          ))}
+            <div className="space-y-1.5">
+              <Label>{t('agent_orchestrator.settings.webSearch.timeout', 'Timeout')}</Label>
+              <Input
+                type="number"
+                min={250}
+                max={120000}
+                step={1000}
+                autoComplete="off"
+                value={timeoutMs ?? ''}
+                placeholder={t('agent_orchestrator.settings.webSearch.timeoutDefault', 'default')}
+                onChange={(event) => {
+                  const raw = event.target.value.trim()
+                  onTimeout(raw === '' ? undefined : Number(raw))
+                }}
+              />
+              {/* Latency is not uniform across kinds: a SERP read finishes in about
+                  a second while a model running its own web search takes tens. */}
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.timeoutHint',
+                  'Milliseconds this adapter alone may take. Leave empty to use the policy-wide budget.',
+                )}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t('agent_orchestrator.settings.webSearch.maxCalls', 'Calls/h')}</Label>
+              <Input
+                type="number"
+                min={1}
+                step={10}
+                autoComplete="off"
+                value={maxCallsPerHour ?? ''}
+                placeholder={t('agent_orchestrator.settings.webSearch.maxCallsDefault', 'unlimited')}
+                onChange={(event) => {
+                  const raw = event.target.value.trim()
+                  onMaxCalls(raw === '' ? undefined : Number(raw))
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.maxCallsHint',
+                  'Most calls this adapter may make per hour for this tenant. Once reached it sits searches out, including as last resort. Leave empty for no ceiling.',
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {fields.map((field) => (
+              <div key={field.name} className="space-y-1.5">
+                <Label>
+                  {humanizeFieldName(field.name)}
+                  {field.required ? <span className="ml-0.5 text-status-error-text">*</span> : null}
+                </Label>
+                <OptionInput
+                  field={field}
+                  value={options[field.name]}
+                  savedHint={t('agent_orchestrator.settings.webSearch.secretSaved', 'Saved - type to replace')}
+                  onChange={(next) => onOption(field.name, next)}
+                />
+              </div>
+            ))}
+          </div>
+          {/* A credential half-typed into an autosaving field was written on every
+              keystroke; this card owns when its own values are committed. */}
+          {onSaveOptions ? (
+            <div className="flex items-center justify-end gap-3 border-t border-border pt-3">
+              {optionsDirty ? (
+                <span className="text-xs text-muted-foreground">
+                  {t('agent_orchestrator.settings.webSearch.unsavedHint', 'Not saved yet')}
+                </span>
+              ) : null}
+              <Button size="sm" disabled={!optionsDirty || optionsSaving} onClick={onSaveOptions}>
+                {optionsSaving ? <Spinner className="size-4" /> : null}
+                {t('agent_orchestrator.settings.webSearch.save', 'Save')}
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

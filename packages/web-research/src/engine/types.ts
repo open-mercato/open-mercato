@@ -101,9 +101,21 @@ export type RunOptions = {
   readonly includeAdapterResults?: boolean
 }
 
+export type HealthOptions = RunOptions & {
+  /**
+   * Whether to actually call `healthCheck()` on each adapter.
+   *
+   * Off means readiness only, which is synchronous and I/O-free. A live probe is
+   * not free for every adapter — a metered source spends a real search credit and
+   * the browser tier spawns a process — so a screen that merely displays status
+   * must be able to ask without billing anyone.
+   */
+  readonly probe?: boolean
+}
+
 export interface SearchEngine {
   search(input: SearchRequestInput, options?: RunOptions): Promise<SearchEngineResult>
   fetch(request: FetchRequest, options?: RunOptions): Promise<FetchOutcome>
-  health(options?: RunOptions): Promise<readonly AdapterHealthReport[]>
+  health(options?: HealthOptions): Promise<readonly AdapterHealthReport[]>
   dispose(): Promise<void>
 }

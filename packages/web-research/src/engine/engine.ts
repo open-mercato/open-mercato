@@ -23,6 +23,7 @@ import type {
   AdapterDiagnosticStatus,
   AdapterHealthReport,
   EngineAdapterEntry,
+  HealthOptions,
   RunOptions,
   SearchEngine,
   SearchEngineOptions,
@@ -540,14 +541,18 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     return result
   }
 
-  async function health(runOptions: RunOptions = {}): Promise<readonly AdapterHealthReport[]> {
+  async function health(runOptions: HealthOptions = {}): Promise<readonly AdapterHealthReport[]> {
+    const probe = runOptions.probe ?? true
     return Promise.all(
       ordered.map(async (entry): Promise<AdapterHealthReport> => {
         const readiness = entry.adapter.readiness()
         if (!readiness.ready) {
           return { id: entry.adapter.id, ready: false, ok: false, detail: readiness.reason }
         }
-        if (!entry.adapter.healthCheck) return { id: entry.adapter.id, ready: true, ok: true }
+        // Readiness alone already answers "is this configured", which is what a
+        // status display needs. Calling the adapter costs money on a metered
+        // source, so it stays opt-in.
+        if (!probe || !entry.adapter.healthCheck) return { id: entry.adapter.id, ready: true, ok: true }
         const startedAt = now()
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS)

@@ -1,7 +1,8 @@
 import { assertPublicUrl } from '@open-mercato/web-research'
 import {
   DEFAULT_USER_AGENT,
-  LAUNCH_ARGS,
+  isSandboxDisabled,
+  resolveLaunchArgs,
   importChromium,
   installNavigationGuard,
   launchChromium,
@@ -51,9 +52,17 @@ export function createState(overrides: Partial<SidecarState> = {}): SidecarState
 async function ensureBrowser(state: SidecarState): Promise<BrowserHandle> {
   if (state.browser) return state.browser
   const chromium = await importChromium()
+  if (isSandboxDisabled()) {
+    // Said once per browser, not once per render, but said: this process renders
+    // pages chosen by a search engine or a model with the one mitigation
+    // Chromium offers against a hostile renderer turned off.
+    state.warn(
+      'SECURITY: Chromium sandbox is disabled by OM_WEB_RESEARCH_BROWSER_NO_SANDBOX=1 — a renderer compromise reaches this host',
+    )
+  }
   state.browser = await launchChromium(
     chromium,
-    { headless: true, args: LAUNCH_ARGS },
+    { headless: true, args: resolveLaunchArgs() },
     { onProgress: state.warn, ...(state.installRunner ? { install: state.installRunner } : {}) },
   )
   return state.browser

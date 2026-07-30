@@ -75,6 +75,11 @@ const NOT_CONFIGURED_MARKERS = [
   'account is not active',
 ]
 
+/** Shown on the adapter's health row, so it must stay one short clause. */
+const PROVIDER_CAVEATS: Readonly<Record<string, string>> = {
+  azure: 'searches run via Grounding with Bing, billed separately and outside your geo boundary',
+}
+
 function isConfigurationFault(message: string): boolean {
   const haystack = message.toLowerCase()
   return NOT_CONFIGURED_MARKERS.some((marker) => haystack.includes(marker))
@@ -206,9 +211,18 @@ export function createModelAdapter(options: ModelOptions): SearchAdapter {
       try {
         const resolution = await resolveModel()
         const tools = await loadTools(resolution.providerId, maxUses)
-        return tools
-          ? { ok: true, detail: `${resolution.providerId}/${resolution.modelId}` }
-          : { ok: false, detail: `provider "${resolution.providerId}" has no native web search` }
+        if (!tools) {
+          return { ok: false, detail: `provider "${resolution.providerId}" has no native web search` }
+        }
+        // Azure's native search is Grounding with Bing underneath: it is billed
+        // separately and Microsoft states the Data Protection Addendum does not
+        // cover it, so queries leave the tenant's compliance and geo boundary.
+        // Anyone on Azure for data residency needs to see that, not discover it.
+        const caveat = PROVIDER_CAVEATS[resolution.providerId]
+        return {
+          ok: true,
+          detail: `${resolution.providerId}/${resolution.modelId}${caveat ? ` - ${caveat}` : ''}`,
+        }
       } catch (error) {
         return { ok: false, detail: error instanceof Error ? error.message : String(error) }
       }

@@ -13,6 +13,7 @@ export type {
   AdapterHealthReport,
   AdapterResultSet,
   EngineAdapterEntry,
+  HealthOptions,
   RunOptions,
   SearchDiagnostics,
   SearchEngine,

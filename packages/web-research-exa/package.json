@@ -1,12 +1,12 @@
 {
-  "name": "@open-mercato/web-research-model",
+  "name": "@open-mercato/web-research-exa",
   "version": "0.6.5",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "openMercato": {
     "webResearchAdapter": {
-      "id": "model-native"
+      "id": "exa"
     }
   },
   "scripts": {
@@ -32,34 +32,15 @@
     }
   },
   "peerDependencies": {
-    "@ai-sdk/anthropic": "^4.0.1",
-    "@ai-sdk/azure": "^4.0.0",
-    "@ai-sdk/openai": "^4.0.2",
-    "@open-mercato/web-research": "^0.6.0",
-    "ai": "^7.0.4"
-  },
-  "peerDependenciesMeta": {
-    "@ai-sdk/anthropic": {
-      "optional": true
-    },
-    "@ai-sdk/azure": {
-      "optional": true
-    },
-    "@ai-sdk/openai": {
-      "optional": true
-    }
+    "@open-mercato/web-research": "^0.6.0"
   },
   "dependencies": {
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^4.0.1",
-    "@ai-sdk/azure": "^4.0.0",
-    "@ai-sdk/openai": "^4.0.2",
     "@open-mercato/web-research": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.1",
-    "ai": "^7.0.4",
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
@@ -72,6 +53,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/open-mercato/open-mercato",
-    "directory": "packages/web-research-model"
+    "directory": "packages/web-research-exa"
   }
 }

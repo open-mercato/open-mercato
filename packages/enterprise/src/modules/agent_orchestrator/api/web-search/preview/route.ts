@@ -3,7 +3,11 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { enforceWebSearchRateLimit } from '../../../lib/webSearch/guardrails'
+import {
+  chargeAdapterCalls,
+  enforceWebSearchRateLimit,
+  resolveSpentAdapterBudgets,
+} from '../../../lib/webSearch/guardrails'
 import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from '../../../lib/webSearch/policy'
 import { buildWebSearchEngine } from '../../../lib/webSearch/registry'
 import { agentOrchestratorTag } from '../../openapi'
@@ -70,7 +74,15 @@ export async function POST(req: Request) {
     ...settings,
     policy: { ...settings.policy, settleMode: 'exhaustive' as const },
   }
-  const { engine, problems } = buildWebSearchEngine({ container, settings: comparison, tenantId })
+  // A comparison runs every enabled adapter on purpose, which is precisely when a
+  // spent ceiling matters most.
+  const spentBudgets = await resolveSpentAdapterBudgets(container, tenantId, settings.policy.adapters)
+  const { engine, problems } = buildWebSearchEngine({
+    container,
+    settings: comparison,
+    tenantId,
+    spentBudgets,
+  })
 
   try {
     const result = await engine.search(
@@ -81,6 +93,15 @@ export async function POST(req: Request) {
         ...(parsed.data.freshness === undefined ? {} : { freshness: parsed.data.freshness }),
       },
       { includeAdapterResults: true },
+    )
+
+    await chargeAdapterCalls(
+      container,
+      tenantId,
+      settings.policy.adapters,
+      result.diagnostics.adapters
+        .filter((entry) => entry.status !== 'skipped' && entry.status !== 'cancelled')
+        .map((entry) => entry.id),
     )
 
     const blockedByGuardrails = (url: string): boolean => {
