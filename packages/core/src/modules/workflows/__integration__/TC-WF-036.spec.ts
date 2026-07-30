@@ -65,7 +65,9 @@ async function openStudio(page: Page, definitionId: string): Promise<void> {
 }
 
 async function readCodeViewDefinition(page: Page): Promise<CodeViewDefinition> {
-  const json = await page.getByTestId('workflow-code-view-json').innerText()
+  // `workflow-code-view-json` is a <textarea> (WorkflowCodeView.tsx:149), so its
+  // content is its VALUE, not its text content — `innerText()` always returns ''.
+  const json = await page.getByTestId('workflow-code-view-json').inputValue()
   return JSON.parse(json) as CodeViewDefinition
 }
 

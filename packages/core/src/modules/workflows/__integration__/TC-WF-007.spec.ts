@@ -80,6 +80,10 @@ async function createDefinitionInStudio(
  */
 test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
   test('loads the authored steps and their transitions in the graph', async ({ page, request }) => {
+    // Authoring through the gallery, opening the details drawer, saving, going
+    // back to the list and re-entering through the row action is a long walk; it
+    // does not fit the 20s default.
+    test.setTimeout(90_000)
     const timestamp = Date.now()
     const workflowId = `qa-wf-007-${timestamp}`
     const workflowName = `QA TC-WF-007 ${timestamp}`
