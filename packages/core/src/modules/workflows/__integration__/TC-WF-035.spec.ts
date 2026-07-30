@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { workflowStepNodes } from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -79,7 +80,7 @@ test.describe('TC-WF-035: 60-node density — chip cap, overflow badge and seman
       await openStudio(page, definitionId)
 
       // Every step of the fixture is on the canvas — the scale is real, not trimmed.
-      await expect(page.locator('.react-flow__node')).toHaveCount(fixture.definition.steps.length, { timeout: 60_000 })
+      await expect(workflowStepNodes(page)).toHaveCount(fixture.definition.steps.length, { timeout: 60_000 })
 
       // Fitted to 60 nodes the canvas sits far below the semantic-zoom
       // threshold, so route details collapse into labelled dot rows instead of

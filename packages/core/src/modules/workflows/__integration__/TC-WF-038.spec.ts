@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openWorkflowDetailsDrawer } from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -138,12 +139,16 @@ test.describe('TC-WF-038: a failed save is never silent (#4232)', () => {
         })
       })
 
+      // Definition metadata lives in the details Drawer, which starts closed.
       const editedDescription = `QA WF-038 edit ${Date.now()}`
-      const descriptionField = page.locator('#description')
+      const drawer = await openWorkflowDetailsDrawer(page)
+      const descriptionField = drawer.locator('#description')
       await expect(descriptionField).toBeEditable()
       await descriptionField.fill(editedDescription)
 
-      await page.getByRole('button', { name: 'Update', exact: true }).click()
+      // Scoped to the drawer: with it open, the header Update and the drawer
+      // footer Update share an accessible name.
+      await drawer.getByRole('button', { name: 'Update', exact: true }).click()
 
       // The server's own diagnostic reaches the author, path included.
       await expect(page.getByText('definition.steps - server refused this definition').first()).toBeVisible({
@@ -152,7 +157,7 @@ test.describe('TC-WF-038: a failed save is never silent (#4232)', () => {
 
       // The edit survives the failure — retrying is possible without retyping.
       await expect(descriptionField).toHaveValue(editedDescription)
-      await expect(page.getByRole('button', { name: 'Update', exact: true })).toBeEnabled()
+      await expect(drawer.getByRole('button', { name: 'Update', exact: true })).toBeEnabled()
 
       const detail = await apiRequest(
         request,

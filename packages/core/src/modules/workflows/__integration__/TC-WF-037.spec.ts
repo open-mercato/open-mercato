@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { workflowInspector } from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -44,13 +45,22 @@ async function openStudio(page: Page, definitionId: string): Promise<void> {
   await expect(page.locator('.react-flow__node[data-id="start"]')).toBeVisible({ timeout: 30_000 })
 }
 
-/** Open the palette, filter to a single command, and run it with Enter. */
+/**
+ * Open the palette, filter to a single command, and run it with Enter.
+ *
+ * The option is matched on its TEXT, not `{ name: query, exact: true }`: a
+ * command descriptor may carry a `description` (a "Go to step" entry appends the
+ * step's type label) or a `shortcut` (`Save` renders `Cmd+S` in a `<Kbd>`), and
+ * both render inside the option — so the accessible name is
+ * `"Go to step: New Automated Task AUTOMATED"` / `"Save Cmd+S"` and an exact
+ * match can never succeed.
+ */
 async function runPaletteCommand(page: Page, query: string): Promise<void> {
   await page.keyboard.press('ControlOrMeta+k')
   const search = page.getByPlaceholder('Search commands…')
   await expect(search).toBeVisible({ timeout: 15_000 })
   await search.fill(query)
-  await expect(page.getByRole('option', { name: query, exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('option').filter({ hasText: query }).first()).toBeVisible({ timeout: 15_000 })
   await page.keyboard.press('Enter')
   await expect(search).toBeHidden({ timeout: 15_000 })
 }
@@ -81,8 +91,10 @@ test.describe('TC-WF-037: keyboard-only authoring loop (a11y smoke)', () => {
       // 3. CONFIGURE — Enter opens the inspector for the selection; the field is
       //    reached by its label and submitted from the keyboard.
       await page.keyboard.press('Enter')
-      const nodeDialog = page.getByRole('dialog').filter({ hasText: 'Edit Step' })
+      // The inspector is the DOCKED rail at the default viewport, not a modal.
+      const nodeDialog = workflowInspector(page)
       await expect(nodeDialog).toBeVisible({ timeout: 15_000 })
+      await expect(nodeDialog.getByRole('heading', { name: 'Edit Step' })).toBeVisible()
       await nodeDialog.getByLabel('Step Name').fill(NEW_STEP_NAME)
       await nodeDialog.getByRole('button', { name: 'Save Step' }).press('Enter')
       await expect(nodeDialog).toBeHidden({ timeout: 15_000 })

@@ -2,6 +2,10 @@ import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  openWorkflowDetailsDrawer,
+  workflowStepNodes,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -58,14 +62,18 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await page.getByTestId('template-card-task-escalation').click()
 
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?template=task-escalation/, { timeout: 15_000 })
-      await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 })
+      await expect(workflowStepNodes(page).first()).toBeVisible({ timeout: 15_000 })
 
       // Overwrite the template's identifiers so parallel runs cannot collide.
-      await fillText(page, page.getByPlaceholder('checkout_workflow'), workflowId)
-      await fillText(page, page.getByPlaceholder('Checkout Process'), workflowName)
+      // They live in the details Drawer, which starts closed.
+      const drawer = await openWorkflowDetailsDrawer(page)
+      await fillText(page, drawer.locator('#workflowId'), workflowId)
+      await fillText(page, drawer.locator('#workflowName'), workflowName)
 
-      // Saving keeps the author on the canvas and switches the URL into edit mode.
-      await page.getByRole('button', { name: /^save$/i }).first().click()
+      // Saving keeps the author on the canvas and switches the URL into edit
+      // mode. Save from inside the drawer — with it open, the header Save and
+      // the drawer footer Save share an accessible name.
+      await drawer.getByRole('button', { name: /^save$/i }).click()
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
 
       // Back to the list — the entry should be visible

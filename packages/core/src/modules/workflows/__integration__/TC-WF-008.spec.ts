@@ -6,6 +6,11 @@ import {
   deleteWorkflowDefinitionIfExists,
   cancelWorkflowInstanceIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  openWorkflowDetailsDrawer,
+  workflowDetailsDrawer,
+  workflowStepNodes,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -64,13 +69,19 @@ async function openDefinitionInStudioViaRowAction(page: Page, workflowId: string
   await row.getByRole('button', { name: /open actions/i }).hover()
   await page.getByRole('menuitem', { name: /^edit$/i }).first().click()
   await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
-  await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 })
+  await expect(workflowStepNodes(page).first()).toBeVisible({ timeout: 15_000 })
 }
 
+/**
+ * The triggers editor lives in the details Drawer's `inputs` section, so it has
+ * to be opened first. That also means "the dialog" is ambiguous while the drawer
+ * is open — the trigger dialog is scoped by its own accessible name.
+ */
 async function addEventTriggerViaUi(page: Page, triggerName: string, eventPattern: string): Promise<void> {
+  await openWorkflowDetailsDrawer(page)
   await page.getByRole('button', { name: /^add trigger$/i }).click()
 
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog', { name: /create event trigger/i })
   await expect(dialog).toBeVisible()
 
   await fillText(page, dialog.locator('#trigger-name'), triggerName)
@@ -162,8 +173,9 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
       // Persist the trigger with the Studio's Save. The editor stays on the
       // canvas after saving, so the confirmation is the success flash rather
       // than a redirect; the server-side assertion below is what actually
-      // proves the PUT landed before we fire the event.
-      await page.getByRole('button', { name: /^update$/i }).first().click()
+      // proves the PUT landed before we fire the event. Scoped to the drawer:
+      // the header Update and the drawer footer Update share a name.
+      await workflowDetailsDrawer(page).getByRole('button', { name: /^update$/i }).click()
       await expect(page.getByText(/workflow updated successfully/i).first())
         .toBeVisible({ timeout: 15_000 })
 

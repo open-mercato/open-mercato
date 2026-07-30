@@ -5,6 +5,12 @@ import {
   createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  openWorkflowDetailsDrawer,
+  workflowInspector,
+  workflowRouteEdges,
+  workflowStepNodes,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -50,14 +56,16 @@ async function createDefinitionInStudio(
   await page.getByTestId('template-card-task-escalation').click()
 
   await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?template=task-escalation/, { timeout: 15_000 })
-  await expect(page.locator('.react-flow__node').first()).toBeVisible({ timeout: 15_000 })
+  await expect(workflowStepNodes(page).first()).toBeVisible({ timeout: 15_000 })
 
-  await fillText(page, page.getByPlaceholder('checkout_workflow'), workflowId)
-  await fillText(page, page.getByPlaceholder('Checkout Process'), workflowName)
+  // Definition metadata lives in the details Drawer, which starts closed.
+  const drawer = await openWorkflowDetailsDrawer(page)
+  await fillText(page, drawer.locator('#workflowId'), workflowId)
+  await fillText(page, drawer.locator('#workflowName'), workflowName)
 
-  // The Studio stays put after saving and switches into edit mode by replacing
-  // the URL with the new definition's id.
-  await page.getByRole('button', { name: /^save$/i }).first().click()
+  // Save from inside the drawer: with it open, the header Save and the drawer
+  // footer Save are two buttons with the same accessible name.
+  await drawer.getByRole('button', { name: /^save$/i }).click()
   await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
 }
 
@@ -101,8 +109,9 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
 
       // React Flow renders nodes with `.react-flow__node` and edges with
-      // `.react-flow__edge`. Counts mirror `examples/templates/task-escalation.json`.
-      const nodes = page.locator('.react-flow__node')
+      // `.react-flow__edge`. Counts mirror `examples/templates/task-escalation.json`
+      // and exclude the render-time trigger pill (see workflowsUi).
+      const nodes = workflowStepNodes(page)
       await expect(nodes).toHaveCount(4, { timeout: 15_000 })
 
       // Each node card shows its label — verify the template's steps survived
@@ -112,11 +121,16 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       await expect(nodes.filter({ hasText: 'Notify Escalation' })).toHaveCount(1)
       await expect(nodes.filter({ hasText: 'Done' })).toHaveCount(1)
 
-      await expect(page.locator('.react-flow__edge')).toHaveCount(4, { timeout: 10_000 })
+      await expect(workflowRouteEdges(page)).toHaveCount(4, { timeout: 10_000 })
 
-      // Workflow metadata pane reflects what we created.
-      await expect(page.locator(`input[value="${workflowId}"]`).first()).toBeVisible()
-      await expect(page.locator(`input[value="${workflowName}"]`).first()).toBeVisible()
+      // The trigger pill is part of the Studio now — assert it, rather than
+      // silently tolerating it in the counts above.
+      await expect(page.getByTestId('workflow-trigger-node')).toBeVisible()
+
+      // Workflow metadata reflects what we created.
+      const reopened = await openWorkflowDetailsDrawer(page)
+      await expect(reopened.locator('#workflowId')).toHaveValue(workflowId)
+      await expect(reopened.locator('#workflowName')).toHaveValue(workflowName)
     } finally {
       if (token) {
         const leftoverId = await findDefinitionIdByWorkflowId(request, token, workflowId)
@@ -167,15 +181,17 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
 
       // All three nodes render, including the WAIT_FOR_TIMER step.
-      const nodes = page.locator('.react-flow__node')
+      const nodes = workflowStepNodes(page)
       await expect(nodes).toHaveCount(3, { timeout: 15_000 })
       await expect(nodes.filter({ hasText: 'Wait' })).toHaveCount(1)
-      await expect(page.locator('.react-flow__edge')).toHaveCount(2, { timeout: 10_000 })
+      await expect(workflowRouteEdges(page)).toHaveCount(2, { timeout: 10_000 })
 
-      // Open NodeEditDialog by clicking the timer node.
+      // Open the step inspector by clicking the timer node. It is the DOCKED
+      // rail at this viewport, not a modal dialog.
       await nodes.filter({ hasText: 'Wait' }).first().click()
-      const dialog = page.getByRole('dialog').first()
+      const dialog = workflowInspector(page)
       await expect(dialog).toBeVisible({ timeout: 10_000 })
+      await expect(dialog.getByRole('heading', { name: 'Edit Step' })).toBeVisible()
 
       // The CrudForm node dialog renders WAIT_FOR_TIMER config in a "Timer
       // Configuration" group: a composite duration control (DurationInput's
@@ -229,14 +245,15 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`)
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=/, { timeout: 15_000 })
 
-      const nodes = page.locator('.react-flow__node')
+      const nodes = workflowStepNodes(page)
       await expect(nodes).toHaveCount(3, { timeout: 15_000 })
 
-      // Open NodeEditDialog on the AUTOMATED node — that's where the
+      // Open the step inspector on the AUTOMATED node — that's where the
       // per-activity editor (and its activity-type dropdown) lives.
       await nodes.filter({ hasText: 'Notify' }).first().click()
-      const dialog = page.getByRole('dialog').first()
+      const dialog = workflowInspector(page)
       await expect(dialog).toBeVisible({ timeout: 10_000 })
+      await expect(dialog.getByRole('heading', { name: 'Edit Step' })).toBeVisible()
 
       // ActivityArrayEditor mounts a new activity already expanded, so its
       // "Activity Type *" Select trigger renders right after Add Activity.

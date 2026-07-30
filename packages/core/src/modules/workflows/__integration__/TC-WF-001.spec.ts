@@ -2,32 +2,24 @@ import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import {
+  openWorkflowDetailsDrawer,
+  openWorkflowStudio,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
-async function openDefinitionDetailWithRetries(page: Page, definitionId: string): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.goto(`/backend/definitions/${definitionId}`)
-    const addTriggerButton = page.getByRole('button', { name: 'Add Trigger' })
-    if (await addTriggerButton.isVisible().catch(() => false)) {
-      return
-    }
-
-    const genericErrorHeading = page.getByRole('heading', { name: /^Something went wrong$/i }).first()
-    if (await genericErrorHeading.isVisible().catch(() => false)) {
-      const retryButton = page.getByRole('button', { name: /Try again/i }).first()
-      if (await retryButton.isVisible().catch(() => false)) {
-        await retryButton.click().catch(() => {})
-        if (await addTriggerButton.isVisible().catch(() => false)) {
-          return
-        }
-      }
-      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {})
-      if (await addTriggerButton.isVisible().catch(() => false)) {
-        return
-      }
-    }
-  }
-
-  await expect(page.getByRole('button', { name: 'Add Trigger' })).toBeVisible()
+/**
+ * Open the Studio and reveal the triggers editor.
+ *
+ * `DefinitionTriggersEditor` (which owns "Add Trigger") now renders only inside
+ * `DefinitionMetadataDrawer`'s `inputs` section, and the drawer starts closed —
+ * so the old `/backend/definitions/<id>` + immediate "Add Trigger" probe could
+ * never converge. The retry/`Something went wrong` scaffolding went with it: it
+ * was compensating for the retired form-editor page.
+ */
+async function openTriggersEditor(page: Page, definitionId: string): Promise<void> {
+  await openWorkflowStudio(page, definitionId)
+  await openWorkflowDetailsDrawer(page)
+  await expect(page.getByRole('button', { name: 'Add Trigger' })).toBeVisible({ timeout: 15_000 })
 }
 
 /**
@@ -86,9 +78,9 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
         throw new Error('Workflow definition ID should be present after creation')
       }
 
-      // --- Navigate to the workflow definition edit page ---
+      // --- Navigate to the Studio and reveal the triggers editor ---
       await login(page, 'admin')
-      await openDefinitionDetailWithRetries(page, definitionId)
+      await openTriggersEditor(page, definitionId)
 
       // --- Open the Create Event Trigger dialog ---
       await page.getByRole('button', { name: 'Add Trigger' }).click()

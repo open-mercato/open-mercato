@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { workflowInspector } from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -83,12 +84,14 @@ test.describe('TC-WF-036: Code view — definition JSON and subgraph paste', () 
 
       // Select a step on the canvas and copy it. The click opens the inspector,
       // so Escape closes it again while leaving the node selected — Cmd+C is
-      // suppressed while a dialog is open, by design.
+      // suppressed while an overlay is open, by design. At this viewport
+      // (1440x900) the inspector is the DOCKED rail, not a modal dialog.
       await page.locator('.react-flow__node[data-id="review"]').click()
-      const nodeDialog = page.getByRole('dialog').filter({ hasText: 'Edit Step' })
-      await expect(nodeDialog).toBeVisible({ timeout: 15_000 })
+      const nodeInspector = workflowInspector(page)
+      await expect(nodeInspector).toBeVisible({ timeout: 15_000 })
+      await expect(nodeInspector.getByRole('heading', { name: 'Edit Step' })).toBeVisible()
       await page.keyboard.press('Escape')
-      await expect(nodeDialog).toBeHidden({ timeout: 15_000 })
+      await expect(nodeInspector).toBeHidden({ timeout: 15_000 })
       await page.keyboard.press('ControlOrMeta+c')
 
       await page.getByRole('button', { name: 'Show the definition JSON' }).click()

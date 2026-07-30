@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { openWorkflowDetailsDrawer } from '@open-mercato/core/helpers/integration/workflowsUi'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 /**
@@ -165,6 +166,9 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
   })
 
   test('admin can edit a customized workflow and the change persists', async ({ page, request }) => {
+    // Login + Studio boot + opening the details drawer + a full-payload PUT does
+    // not fit the 20s default.
+    test.setTimeout(60_000)
     const apiToken = await getAuthToken(request, 'admin')
     let overrideId: string | null = null
 
@@ -193,18 +197,17 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       ).toBeVisible()
 
       // Edit the description and save — the Studio issues the same full-payload
-      // PUT that previously tripped the strict update validator.
+      // PUT that previously tripped the strict update validator. The definition
+      // fields live in the details Drawer, which starts closed.
       const newDescription = `QA edit ${Date.now()}`
-      // Scope by placeholder, which is unique to the top-level workflow description.
-      const descriptionField = page
-        .getByPlaceholder('Optional: Describe the purpose of this workflow')
-        .first()
+      const drawer = await openWorkflowDetailsDrawer(page)
+      const descriptionField = drawer.locator('#description')
       await expect(descriptionField).toBeEditable()
       await descriptionField.fill(newDescription)
 
-      // The Studio's save action is a plain header button labelled "Update"
-      // (the form editor's "Update Workflow" submit is retired, spec section 10).
-      const updateButton = page.getByRole('button', { name: 'Update', exact: true }).first()
+      // Save from inside the drawer: with it open, the header Update and the
+      // drawer footer Update are two buttons with the same accessible name.
+      const updateButton = drawer.getByRole('button', { name: 'Update', exact: true })
       await expect(updateButton).toBeVisible()
       await Promise.all([
         page.waitForResponse(
