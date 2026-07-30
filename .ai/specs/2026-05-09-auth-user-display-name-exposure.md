@@ -229,6 +229,25 @@ Add or update tests:
 - [x] UI visibility coverage required
 - [x] Regression coverage for create/edit flows required
 
+## Migration & Backward Compatibility
+
+No migration is required, for applications or for data.
+
+- **`GET /api/auth/profile`** gains `name` as a new response field. `BACKWARD_COMPATIBILITY.md` §7 permits
+  adding optional fields to a response schema; no existing field is removed, renamed, or retyped, and the
+  route URL and method are unchanged.
+- **Consumers**: `auth/backend/auth/profile/page.tsx` and `auth/backend/profile/change-password/page.tsx`
+  widen their local `ProfileResponse` type. Both tolerate the field being absent, so an older client
+  reading a newer server, or the reverse, keeps working.
+- **`__integration__/TC-AUTH-017.spec.ts`** asserts only `profile.email`, so it is unaffected.
+- **No backfill needed.** Users with no stored name receive `null`; blank and whitespace-only values
+  normalise to `null` rather than surfacing an empty label. The column already exists, so there is no
+  schema change.
+- **The admin create/update contract is untouched** by this addition — it already accepted and returned
+  `name`.
+- **Deliberately not changed**: self-service editing of one's own display name. The profile form still
+  does not submit `name`, so no new write path or permission question is introduced here.
+
 ## Changelog
 - 2026-05-09: Drafted spec to expose `User.name` in auth admin UI and user API payloads.
 - 2026-07-30: Added the Profile Self-Read section and implemented it — `GET /api/auth/profile` now returns `name` (blank normalised to `null`). Reported from a downstream app whose backend chrome could only show an email address. Note for a maintainer: the admin-surface phases of this spec appear already implemented on `develop` (`/api/auth/users` accepts `name` on create/update, returns it in list responses, and supports search by display name), so this file may be a candidate for `.ai/specs/implemented/` — not moved here, since confirming that is a maintainer call.
