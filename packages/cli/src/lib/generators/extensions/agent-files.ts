@@ -830,9 +830,6 @@ function renderToolPermissionLine(toolName: string): string {
   return `  ${JSON.stringify(toolName)}: true`
 }
 
-/** Built-in OpenCode delegation tool a primary agent uses to fan out to sub-agents. */
-const TASK_TOOL_NAME = 'task'
-
 // OpenCode names every MCP tool `<serverKey>_<toolName with dots→underscores>`
 // (verified against the running image). Keep in sync with
 // `lib/sdk/defineFileAgent.ts`.
@@ -842,36 +839,49 @@ const CORE_FILE_AGENT_TOOL_IDS = [
   'agent_orchestrator.load_skill',
   'agent_orchestrator.run_skill_script',
 ]
+/**
+ * MCP tool a file-agent orchestrator uses to run a sub-agent SERVER-SIDE. We
+ * route delegation through this tool instead of OpenCode's built-in `task` tool:
+ * `task` spawns each sub-agent in a fresh session that never receives the run's
+ * `_sessionToken`, so the sub-agent's MCP calls fail with `no_active_run`. The
+ * delegate tool runs the sub-agent via `agentRuntime.run`, which mints its own
+ * per-run session token + correlation, so sub-agent tool calls authenticate.
+ */
+const DELEGATE_AGENT_TOOL_ID = 'agent_orchestrator.delegate_agent'
 function toOpenCodeMcpToolId(omToolId: string): string {
   return `${OPENCODE_MCP_SERVER_KEY}_${omToolId.replace(/\./g, '_')}`
 }
 
 /**
  * Render an OpenCode agent .md file. Must stay in sync with
- * `lib/sdk/defineFileAgent.ts` `renderOpenCodeAgentFile`. Sub-agent files
- * (`mode: subagent`) get NO `task` allowance and `permission.task: deny` (depth
- * cap = 1). A primary that declares sub-agents allows the built-in `task` tool,
- * whitelists ONLY its sub-agents' sanitized names under `permission.task`, and
- * gains a "Sub-agents" prompt section nudging parallel fan-out.
+ * `lib/sdk/defineFileAgent.ts` `renderOpenCodeAgentFile`. The built-in OpenCode
+ * `task` tool is NEVER granted (`permission.task: deny` for every agent): it
+ * spawns each sub-agent in a fresh session that does not inherit the run's
+ * `_sessionToken`, so the sub-agent's MCP calls fail with `no_active_run`.
+ * Instead, a primary that declares sub-agents is granted the
+ * `agent_orchestrator.delegate_agent` MCP tool (runs each sub-agent server-side
+ * under its own minted session token) and gains a "Sub-agents" prompt section
+ * nudging parallel fan-out through that tool. Sub-agent files (`mode: subagent`)
+ * get neither the delegate tool nor `task` (depth cap = 1).
  */
 function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
-  const subAgentNames =
-    agent.mode === 'primary' ? agent.subAgentsContent.map((sub) => sub.openCodeAgentName) : []
-  const hasSubAgents = subAgentNames.length > 0
-  const omMcpToolIds = Array.from(new Set([...agent.tools, ...CORE_FILE_AGENT_TOOL_IDS]))
-  const allowedTools = [
-    ...omMcpToolIds.map(toOpenCodeMcpToolId),
-    ...(hasSubAgents ? [TASK_TOOL_NAME] : []),
-  ]
+  const subAgentIds =
+    agent.mode === 'primary' ? agent.subAgentsContent.map((sub) => sub.id) : []
+  const hasSubAgents = subAgentIds.length > 0
+  const omMcpToolIds = Array.from(
+    new Set([
+      ...agent.tools,
+      ...CORE_FILE_AGENT_TOOL_IDS,
+      ...(hasSubAgents ? [DELEGATE_AGENT_TOOL_ID] : []),
+    ]),
+  )
+  const allowedTools = omMcpToolIds.map(toOpenCodeMcpToolId)
   const modelLine =
     agent.provider && agent.model
       ? `model: ${agent.provider}/${agent.model}`
       : agent.model
         ? `model: ${agent.model}`
         : null
-  const taskPermissionLines = hasSubAgents
-    ? ['  task:', '    "*": deny', ...subAgentNames.map((name) => `    ${JSON.stringify(name)}: allow`)]
-    : ['  task: deny']
   const frontmatterLines = [
     '---',
     `description: ${JSON.stringify(agent.description)}`,
@@ -884,13 +894,14 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
     '  write: deny',
     '  edit: deny',
     '  bash: deny',
-    ...taskPermissionLines,
+    '  task: deny',
     '---',
   ]
   const terminalInstruction =
     `Finish by calling the \`${toOpenCodeMcpToolId('agent_orchestrator.submit_outcome')}\` tool with a value matching the outcome contract (pass it as the \`outcome\` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.`
+  const delegateToolName = toOpenCodeMcpToolId(DELEGATE_AGENT_TOOL_ID)
   const subAgentSection = hasSubAgents
-    ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
+    ? `## Sub-agents\nDelegate a sub-task by calling the \`${delegateToolName}\` tool with \`{ agentId: "<sub-agent id>", input: <sub-task input object> }\`. Issue multiple \`${delegateToolName}\` calls in the SAME step to fan out in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentIds.join(', ')}.`
     : null
   // Inject the OUTCOME contract so the agent SEES the exact shape it must submit
   // (otherwise it guesses and learns the shape only from validation errors). Keep

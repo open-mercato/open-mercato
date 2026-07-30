@@ -209,8 +209,14 @@ function renderToolPermissionLine(toolName: string): string {
   return `  ${JSON.stringify(toolName)}: true`
 }
 
-/** Built-in OpenCode delegation tool a primary agent uses to fan out to sub-agents. */
-const TASK_TOOL_NAME = 'task'
+/**
+ * File-agent delegation goes through the server-side `agent_orchestrator.delegate_agent`
+ * MCP tool (runs each sub-agent as its own authenticated run), NOT OpenCode's built-in
+ * `task` tool — a `task` sub-session runs in a fresh session that never inherits the
+ * run's session token, so its MCP calls fail with no_active_run. Kept in sync with the
+ * CLI generator (`packages/cli/src/lib/generators/extensions/agent-files.ts`).
+ */
+const DELEGATE_AGENT_TOOL_ID = 'agent_orchestrator.delegate_agent'
 
 /**
  * The MCP server key OpenCode connects under (the `mcp.<key>` in opencode.jsonc;
@@ -258,6 +264,8 @@ function renderOpenCodeAgentFile(args: {
   mode?: 'primary' | 'subagent'
   /** Sanitized OpenCode names of this primary's reachable sub-agents (empty otherwise). */
   subAgentNames?: string[]
+  /** Full registry ids of this primary's reachable sub-agents — the `agentId` values passed to delegate_agent. */
+  subAgentIds?: string[]
   /** The OUTCOME contract — injected into the prompt so the agent sees its exact shape. */
   outcomeKind: OutcomeKind
   outcomeSchema: JsonSchemaNode
@@ -266,30 +274,27 @@ function renderOpenCodeAgentFile(args: {
   files?: FileAgentFilesConfig
 }): string {
   const mode = args.mode ?? 'primary'
-  const subAgentNames = mode === 'primary' ? (args.subAgentNames ?? []) : []
-  const hasSubAgents = subAgentNames.length > 0
+  const subAgentIds = mode === 'primary' ? (args.subAgentIds ?? []) : []
+  const hasSubAgents = subAgentIds.length > 0
   // The agent's MCP tools = its declared read tools + the core file-agent tools
   // (submit_outcome / load_skill / run_skill_script). OpenCode names every MCP
   // tool `<serverKey>_<toolName with dots→underscores>`, so the allowlist key and
   // the prompt MUST use that form — a dotted OM id never matches and `"*": false`
   // would silently drop it. `task` is an OpenCode built-in (not prefixed).
-  const omMcpToolIds = Array.from(new Set([...args.tools, ...CORE_FILE_AGENT_TOOL_IDS]))
-  const allowedTools = [
-    ...omMcpToolIds.map(toOpenCodeMcpToolId),
-    ...(hasSubAgents ? [TASK_TOOL_NAME] : []),
-  ]
+  const omMcpToolIds = Array.from(
+    new Set([...args.tools, ...CORE_FILE_AGENT_TOOL_IDS, ...(hasSubAgents ? [DELEGATE_AGENT_TOOL_ID] : [])]),
+  )
+  const allowedTools = omMcpToolIds.map(toOpenCodeMcpToolId)
   const modelLine =
     args.provider && args.model
       ? `model: ${args.provider}/${args.model}`
       : args.model
         ? `model: ${args.model}`
         : null
-  // Sub-agents may NOT delegate further: deny `task` entirely. A primary that
-  // declares sub-agents denies `task` by default then whitelists ONLY its own
-  // sub-agents' sanitized names.
-  const taskPermissionLines = hasSubAgents
-    ? ['  task:', '    "*": deny', ...subAgentNames.map((name) => `    ${JSON.stringify(name)}: allow`)]
-    : ['  task: deny']
+  // OpenCode's built-in `task` tool is NEVER granted — delegation goes through the
+  // server-side `agent_orchestrator.delegate_agent` tool instead (see DELEGATE_AGENT_TOOL_ID),
+  // so no agent (primary or sub-agent) can spawn a `task` sub-session.
+  const taskPermissionLines = ['  task: deny']
 
   // File plane (#12): a primary that opted in gets sandbox-scoped write/edit/read
   // ONLY when the global kill-switch `OM_OPENCODE_FILES_ENABLED` is on — otherwise
@@ -339,8 +344,9 @@ function renderOpenCodeAgentFile(args: {
   const submitToolId = toOpenCodeMcpToolId('agent_orchestrator.submit_outcome')
   const terminalInstruction =
     `Finish by calling the \`${submitToolId}\` tool with a value matching the outcome contract (pass it as the \`outcome\` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.`
+  const delegateToolName = toOpenCodeMcpToolId(DELEGATE_AGENT_TOOL_ID)
   const subAgentSection = hasSubAgents
-    ? `## Sub-agents\nYou may delegate independent read-only sub-tasks to these sub-agents by calling the \`task\` tool. When several sub-tasks are independent, issue multiple \`task\` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentNames.join(', ')}.`
+    ? `## Sub-agents\nDelegate a sub-task by calling the \`${delegateToolName}\` tool with \`{ agentId: "<sub-agent id>", input: <sub-task input object> }\`. Issue multiple \`${delegateToolName}\` calls in the SAME step to fan out in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentIds.join(', ')}.`
     : null
   const outcomeSection = renderOutcomeSection(args.outcomeKind, args.outcomeSchema, args.outcomeProse)
   const body = [
@@ -706,6 +712,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     tools: effectiveTools,
     mode: 'primary',
     subAgentNames,
+    subAgentIds: subAgents.map((sub) => sub.entry.id),
     outcomeKind: outcome.kind,
     outcomeSchema: outcome.schema,
     outcomeProse: outcome.prose,
