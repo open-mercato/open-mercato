@@ -4,11 +4,38 @@ import path from 'node:path'
 
 import {
   createClientOnlyStubPlugin,
+  encodeJsStringLiteral,
   isClientOnlyModulePath,
   renderClientOnlyModuleStub,
 } from '../clientOnlyModules'
+import { createCliBundlePlugins } from '../dynamicLoader'
 
 const CHART_IMPORT = '@open-mercato/ui/backend/charts'
+
+function createServerHelperFixture(tempDir: string): string {
+  const moduleDir = path.join(tempDir, 'src', 'modules', 'demo')
+  fs.mkdirSync(moduleDir, { recursive: true })
+
+  fs.writeFileSync(
+    path.join(moduleDir, 'http.client.ts'),
+    ['export const httpClient = { fetchOrders: async () => [] }', ''].join('\n'),
+  )
+
+  const entry = path.join(tempDir, 'modules.cli.generated.ts')
+  fs.writeFileSync(
+    entry,
+    [
+      "import { httpClient } from './src/modules/demo/http.client'",
+      'export const modules = [{',
+      "  id: 'demo',",
+      '  workers: [{ handler: () => httpClient.fetchOrders() }],',
+      '}]',
+      '',
+    ].join('\n'),
+  )
+
+  return entry
+}
 
 function createAppModuleFixture(tempDir: string): string {
   const widgetDir = path.join(tempDir, 'src', 'modules', 'demo', 'widgets', 'dashboard', 'sales')
@@ -78,6 +105,34 @@ describe('isClientOnlyModulePath', () => {
     expect(isClientOnlyModulePath('./clientFactory.ts')).toBe(false)
     expect(isClientOnlyModulePath('./client/index.ts')).toBe(false)
   })
+
+  it('does not match the generated notification-renderer registry', () => {
+    expect(isClientOnlyModulePath('@/.mercato/generated/notifications.client.generated')).toBe(false)
+    expect(isClientOnlyModulePath('@/.mercato/generated/notifications.client.generated.ts')).toBe(false)
+  })
+})
+
+describe('encodeJsStringLiteral', () => {
+  it('escapes quotes and backslashes so the literal cannot be terminated early', () => {
+    expect(encodeJsStringLiteral('say "hi"')).toBe('"say \\"hi\\""')
+    expect(encodeJsStringLiteral('a\\b')).toBe('"a\\\\b"')
+  })
+
+  it('escapes every character outside printable ASCII, including the separators JSON leaves raw', () => {
+    expect(encodeJsStringLiteral('a\u2028b')).toBe('"a\\u2028b"')
+    expect(encodeJsStringLiteral('a\u2029b')).toBe('"a\\u2029b"')
+    expect(encodeJsStringLiteral('a\nb')).toBe('"a\\u000ab"')
+  })
+
+  it('leaves no unescaped delimiter that could break out of the literal', () => {
+    const hostile = './widget.client"); globalThis.pwned = true; ("'
+    const encoded = encodeJsStringLiteral(hostile)
+
+    expect(encoded.startsWith('"')).toBe(true)
+    expect(encoded.endsWith('"')).toBe(true)
+    expect(encoded.slice(1, -1)).not.toMatch(/(^|[^\\])"/)
+    expect(JSON.parse(encoded)).toBe(hostile)
+  })
 })
 
 describe('renderClientOnlyModuleStub', () => {
@@ -85,6 +140,16 @@ describe('renderClientOnlyModuleStub', () => {
     const stub = renderClientOnlyModuleStub('./widget.client')
     expect(stub).toContain('export default clientOnlyModuleUnavailable')
     expect(stub).toContain('./widget.client')
+  })
+})
+
+describe('createCliBundlePlugins', () => {
+  it('registers the client-only stub ahead of the alias and external plugins', () => {
+    expect(createCliBundlePlugins('/tmp/app-root').map((plugin) => plugin.name)).toEqual([
+      'client-only-stub',
+      'alias-resolver',
+      'external-non-json',
+    ])
   })
 })
 
@@ -112,5 +177,13 @@ describe('CLI bundle graph', () => {
     const output = await bundle(entry, path.join(tempDir, 'plain.mjs'), false)
 
     expect(output).toContain(CHART_IMPORT)
+  })
+
+  it('leaves statically imported server helpers alone even when they are named *.client', async () => {
+    const entry = createServerHelperFixture(tempDir)
+    const output = await bundle(entry, path.join(tempDir, 'server-helper.mjs'), true)
+
+    expect(output).toContain('fetchOrders')
+    expect(output).not.toContain('clientOnlyModuleUnavailable')
   })
 })
