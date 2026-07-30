@@ -28,7 +28,7 @@ flowchart LR
   root --> facts["generated installed-module facts"]
   facts --> resolver["exact installed source via<br/>`framework:context`"]
 
-  cases["184-case catalog"] --> evaluator["deterministic and live evaluator"]
+  cases["192-case catalog"] --> evaluator["deterministic and live evaluator"]
   evaluator --> routing["routing and observed-context evidence"]
   evaluator --> writable["disposable writable targets"]
   writable --> oracle["controller-owned AST and behavior oracles"]
@@ -198,7 +198,7 @@ The fixture command only prepares a target; it is never passing evidence.
 
 ## Evaluation lanes
 
-The current catalog contains 184 cases. Every case participates in deterministic validation and primary live routing; 39 `implementation` or `regression` cases additionally participate in the writable release matrix.
+The current catalog contains 192 cases. Every case participates in deterministic validation and primary live routing; 45 `implementation` or `regression` cases additionally participate in the writable release matrix.
 
 | Lane | What it proves | What it does not prove |
 | --- | --- | --- |

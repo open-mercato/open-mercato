@@ -20,9 +20,9 @@ Two entry points cooperate:
 
 A *code-generation case* is any catalog case whose `evaluationKind` is
 `implementation` or `regression` (`WRITABLE_KINDS`, `evaluate-agent-harness.mjs:37`).
-There are 39 such cases (`ai/harness/validators.json`; asserted in the test suite).
+There are 45 such cases (`ai/harness/validators.json`; asserted in the test suite).
 Examples: `OMH-011` (CRUD routes), `OMH-093` (business contact-merge command),
-`OMH-163/164/165` (test authoring).
+`OMH-163/164/165/192` (test authoring).
 
 ---
 
