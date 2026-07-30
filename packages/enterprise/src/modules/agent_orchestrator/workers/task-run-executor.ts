@@ -108,17 +108,30 @@ async function handleScheduledTick(
   }
 }
 
+/**
+ * The task's own least-privilege execution principal — the acting identity for
+ * BOTH target types. Resolved from the definition (never from the payload) and
+ * org-scoped, so a foreign principal id can never be borrowed.
+ */
+async function resolveExecutionPrincipal(
+  em: EntityManager,
+  taskRun: AgentTaskRun,
+  definition: AgentTaskDefinition,
+): Promise<AgentPrincipal | null> {
+  return em.findOne(AgentPrincipal, {
+    id: definition.executionPrincipalId,
+    organizationId: taskRun.organizationId,
+    deletedAt: null,
+  })
+}
+
 async function executeAgentTarget(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
   em: EntityManager,
   taskRun: AgentTaskRun,
   definition: AgentTaskDefinition,
 ): Promise<void> {
-  const principal = await em.findOne(AgentPrincipal, {
-    id: definition.executionPrincipalId,
-    organizationId: taskRun.organizationId,
-    deletedAt: null,
-  })
+  const principal = await resolveExecutionPrincipal(em, taskRun, definition)
   if (!principal) {
     await finishTaskRun(em, taskRun, { status: 'failed', failureReason: 'Execution principal missing' })
     return
@@ -175,20 +188,39 @@ type WorkflowExecutorLike = {
     options: {
       workflowId: string
       initialContext?: Record<string, unknown>
+      metadata?: { initiatedBy?: string }
       tenantId?: string
       organizationId?: string
     },
   ) => Promise<{ id: string }>
-  executeWorkflow: (em: EntityManager, container: unknown, instanceId: string) => Promise<unknown>
+  executeWorkflow: (
+    em: EntityManager,
+    container: unknown,
+    instanceId: string,
+    context?: { userId?: string },
+  ) => Promise<unknown>
 }
 
 async function executeWorkflowTarget(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
   em: EntityManager,
   taskRun: AgentTaskRun,
+  definition: AgentTaskDefinition,
 ): Promise<void> {
   if (!taskRun.targetWorkflowId) {
     await finishTaskRun(em, taskRun, { status: 'failed', failureReason: 'Task has no target workflow' })
+    return
+  }
+  // The workflow target gets the SAME least-privilege identity the agent target
+  // gets. Without it the run has no actor at all: `startWorkflow` recorded no
+  // `metadata.initiatedBy` and `executeWorkflow` no `userId`, so every
+  // UPDATE_ENTITY activity failed the "requires an authenticated workflow user"
+  // check and CALL_API silently fell back to the workflow AUTHOR's roles —
+  // which is exactly the trigger-borrows-a-bigger-identity path the task's own
+  // principal exists to close.
+  const principal = await resolveExecutionPrincipal(em, taskRun, definition)
+  if (!principal) {
+    await finishTaskRun(em, taskRun, { status: 'failed', failureReason: 'Execution principal missing' })
     return
   }
   const workflowExecutor = container.resolve('workflowExecutor') as WorkflowExecutorLike
@@ -198,6 +230,7 @@ async function executeWorkflowTarget(
     const instance = await workflowExecutor.startWorkflow(em, {
       workflowId: taskRun.targetWorkflowId,
       initialContext: (taskRun.input ?? {}) as Record<string, unknown>,
+      metadata: { initiatedBy: principal.userId },
       tenantId: taskRun.tenantId,
       organizationId: taskRun.organizationId,
     })
@@ -216,7 +249,7 @@ async function executeWorkflowTarget(
   await em.flush()
 
   try {
-    await workflowExecutor.executeWorkflow(em, container, instanceId)
+    await workflowExecutor.executeWorkflow(em, container, instanceId, { userId: principal.userId })
   } catch (error) {
     // The executor persists instance failure itself and (post lifecycle-events
     // spec) emits workflows.instance.failed — the subscriber owns the flip.
@@ -261,7 +294,7 @@ export default async function handle(job: QueuedJob<TaskRunJobPayload>, _ctx: Jo
     return
   }
   if (decrypted.targetType === 'workflow') {
-    await executeWorkflowTarget(container, em, decrypted)
+    await executeWorkflowTarget(container, em, decrypted, definition)
     return
   }
   await finishTaskRun(em, decrypted, { status: 'failed', failureReason: 'Unknown target type' })

@@ -226,6 +226,46 @@ describe('task-run-executor worker', () => {
     expect(emitAgentOrchestratorEvent).not.toHaveBeenCalled()
   })
 
+  it('workflow target: the run acts as the task execution principal, never the trigger', async () => {
+    const { em, storeFor } = createFakeEm()
+    seed(storeFor, { targetType: 'workflow', targetAgentId: null, targetWorkflowId: 'claims_resolution' })
+    const startWorkflow = jest.fn(async () => ({ id: 'instance-1' }))
+    const executeWorkflow = jest.fn(async () => ({}))
+    containerHolder.container = makeContainer(em, {
+      workflowExecutor: { startWorkflow, executeWorkflow },
+    })
+
+    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+
+    // Without this the instance has no actor at all: every UPDATE_ENTITY
+    // activity refuses ("requires an authenticated workflow user") and CALL_API
+    // falls back to the workflow author's roles.
+    expect(startWorkflow).toHaveBeenCalledWith(
+      em,
+      expect.objectContaining({ metadata: { initiatedBy: PRINCIPAL_USER } }),
+    )
+    expect(executeWorkflow).toHaveBeenCalledWith(em, expect.anything(), 'instance-1', {
+      userId: PRINCIPAL_USER,
+    })
+  })
+
+  it('workflow target: a missing execution principal fails the run instead of starting an unattributed instance', async () => {
+    const { em, storeFor } = createFakeEm()
+    seed(storeFor, { targetType: 'workflow', targetAgentId: null, targetWorkflowId: 'claims_resolution' })
+    storeFor(AgentPrincipal).splice(0)
+    const startWorkflow = jest.fn(async () => ({ id: 'instance-1' }))
+    containerHolder.container = makeContainer(em, {
+      workflowExecutor: { startWorkflow, executeWorkflow: jest.fn() },
+    })
+
+    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+
+    expect(startWorkflow).not.toHaveBeenCalled()
+    const row = storeFor(AgentTaskRun)[0]
+    expect(row.status).toBe('failed')
+    expect(row.failureReason).toBe('Execution principal missing')
+  })
+
   it('is idempotent: terminal rows and already-started workflow rows are skipped', async () => {
     const { em, storeFor } = createFakeEm()
     seed(storeFor, { status: 'completed' })
