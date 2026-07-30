@@ -191,7 +191,7 @@ describe('akeneo client security', () => {
         : new Response('internal metadata leaked through redirect', { status: 500 })
     ))
 
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient()
     await expect(client.getSystemProbe()).rejects.toThrow('Akeneo authentication failed (302)')
   })
 
@@ -206,7 +206,7 @@ describe('akeneo client security', () => {
         : new Response('internal metadata leaked through redirect', { status: 500 })
     })
 
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient()
     await expect(client.getSystemProbe()).rejects.toThrow('Akeneo request failed (302)')
   })
 
@@ -233,7 +233,7 @@ describe('akeneo client security', () => {
         : new Response('internal metadata leaked through redirect', { status: 500 })
     })
 
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient()
     await expect(client.downloadMediaFile('asset-1')).rejects.toThrow('Akeneo request failed (302)')
   })
 
