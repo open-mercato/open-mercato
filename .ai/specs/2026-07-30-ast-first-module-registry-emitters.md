@@ -76,7 +76,7 @@ It is called by both legacy renderers and by nothing else. On an empty entry lis
 
 ## Proposed Solution
 
-Converge on the existing AST emitters and delete the legacy ones, in three phases of ascending size. Each phase is independently shippable and independently revertible.
+Converge on the existing AST emitters and delete the legacy ones, in three phases of ascending size. Each phase ships as its own PR and reverts on its own; the order is a recommendation (ascending blast radius), not a build dependency — no phase needs code that a previous phase introduces.
 
 ### Design Decisions
 
@@ -97,7 +97,7 @@ Converge on the existing AST emitters and delete the legacy ones, in three phase
 | Rewrite each legacy renderer in AST, keeping both hosts | Preserves the duplication and therefore the drift risk. Twice the code for the same output. |
 | Also convert `buildImportStatement`'s ~30 call sites to structured import specs | See Non-Goals — worth doing, but it would dominate the diff and it is not what makes generation fragile. |
 | Delete the `generateModuleRegistryApp` / `Cli` AST paths and keep the legacy one | Backwards: the AST path is the target state and produces committed app artifacts. |
-| Split each phase into its own spec | The three phases share one file, one emitter, one test harness and one parity method; they are sequential refinements of a single capability, not independent capabilities. Phase 3 cannot be reviewed without Phase 2's manifest emitter existing. |
+| Split each phase into its own spec | The three phases share one file (`module-registry.ts`), one surviving emitter (`renderAstModuleRegistryFile`), one test harness (`output-snapshots` + `structural-contracts`) and one parity method; they are refinements of a single capability — "this file stops assembling TypeScript from strings" — not independent capabilities, and reviewing any one of them means holding the same emitter contract in mind. Each still ships as its own PR. |
 | Attempt byte-identical output by teaching the AST emitter the legacy formatting | `renderLegacyCompatibleArray` is exactly that attempt, and it is one of the things being deleted. |
 
 ### Non-Goals
@@ -241,10 +241,11 @@ Stopping after Phase 1 or Phase 2 leaves a coherent codebase: fewer string emitt
 | Testability of each step | Pass | Steps 1 and 9 are test-first; every other step lands against a suite that must pass unmodified. |
 | No hardcoded user-facing strings / DS tokens | N/A | No UI surface. Generator error strings are developer-facing and stay prefixed as they are today. |
 | Enterprise boundary respected | Pass | `packages/enterprise` untouched; the plugin contract it implements is a separate spec. |
-| Scope cohesion | Pass | One capability: retire the string emitters in `module-registry.ts`. The three phases are sequential refinements of it — Phase 3 depends on Phase 2's manifest emitter — not independently deployable capabilities. |
+| Scope cohesion | Pass | One capability: retire the string emitters in `module-registry.ts`. The three phases are refinements of it over one file and one surviving emitter, ordered by ascending blast radius rather than by dependency, and are not independently deployable capabilities in the sense the split review used. |
 
 ## Changelog
 
 | Date | Change |
 |---|---|
+| 2026-07-30 | Re-review pass on PR [#4636](https://github.com/open-mercato/open-mercato/pull/4636): removed the contradiction between "each phase is independently shippable" and the claim that Phase 3 depends on Phase 2's manifest emitter. Phase 3 routes through `renderAstModuleRegistryFile`, which already exists, so the phase order is a blast-radius recommendation, not a build dependency; the reason for keeping the three phases in one spec is the shared file, emitter, test harness and parity method. |
 | 2026-07-30 | Split out of `2026-07-29-ts-morph-generator-migration.md` (issue #1637 finding 5) after PR [#4636](https://github.com/open-mercato/open-mercato/pull/4636) review found the original spec bundled three independently deployable capabilities. Re-verified against `develop@ecc10b3db`, which corrected three inaccuracies in the bundled spec: `renderAstLegacyAliasFile` is already AST-based and is now out of scope; `renderCommandLoadersFile` (`:1235`) is a string emitter that neither the issue nor the spec listed and is now in scope; and the real work is converting the main path's entry builders and deleting the duplicate emitter, not rewriting it. Parity bar corrected from "byte-identical" to structural, per the precedent in the 2026-04-06 migration spec. |

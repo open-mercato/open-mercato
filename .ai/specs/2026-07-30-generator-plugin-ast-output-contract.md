@@ -146,7 +146,7 @@ export type GeneratedExpression =
   | { kind: 'raw'; source: string }
 
 export type GeneratedObjectProperty =
-  | { kind?: 'property'; name: string; value: GeneratedExpression }
+  | { kind: 'property'; name: string; value: GeneratedExpression }
   | { kind: 'spread'; value: GeneratedExpression }
 
 export type GeneratedTypeReference =
@@ -163,6 +163,10 @@ export interface GeneratedImportDeclaration {
   isTypeOnly?: boolean
 }
 ```
+
+Every node carries a required `kind` discriminant, including `GeneratedObjectProperty.kind: 'property'`, so the CLI's mapper can `switch (node.kind)` exhaustively and a new kind added later is a compile error at the mapper rather than a silent fall-through.
+
+**What the type vocabulary does not cover.** `GeneratedTypeReference` models named references (with type arguments) and arrays, and nothing else — no object type literal, no union, no function type. That is a deliberate floor, not an oversight, but it means the first realistic adopter reaches for the escape hatch immediately: the only known implementation declares `type SecurityMfaProviderEntry = { moduleId: string; providers: unknown[] }`, which is expressible only as `{ kind: 'raw', source: '{ moduleId: string; providers: unknown[] }' }`. That raw type node is parsed and rejected unless it is exactly one type node, so the guarantee holds — but the structural coverage of *type* positions is materially thinner than of *expression* positions, and a reader should not infer otherwise. If a real consumer turns out to declare object type aliases routinely, the additive fix is one more kind (`{ kind: 'members'; members: readonly { name: string; type: GeneratedTypeReference; isOptional?: boolean }[] }`), which can ship on its own timeline without touching the plugin interface.
 
 ### The builder
 
@@ -303,6 +307,7 @@ Note that `GeneratorPlugin` is **not currently enumerated** in § 2's immutable-
 
 - **No entry producer.** An `AstGeneratorPlugin` with neither `configEntry` nor `configExpr` type-checks but fails at generation time with a named error. Closing this at the type level would require a second union axis (four constituents) whose error messages are materially worse than the runtime error. Deliberate.
 - **Legacy output is not syntax-checked.** By design, to avoid turning an existing silent breakage into a hard failure in an additive release. Follow-up: an opt-in `OM_GENERATE_STRICT_PLUGIN_SYNTAX` gate.
+- **Type positions are thinner than expression positions.** `GeneratedTypeReference` models only named references and arrays, so an object type alias — what the only known implementation declares — goes through the validated `{ kind: 'raw' }` type node. The syntax guarantee is unaffected; the *structural* guarantee is weaker for types than for expressions, and a `{ kind: 'members' }` kind is the additive fix if a real consumer needs it.
 - **Zero OSS consumers.** The AST path is covered by fixture plugins, not by production code. See below.
 
 ## Risks & Impact Review
@@ -347,7 +352,7 @@ One phase — the contract, its implementation, its tests, and its documentation
 |---|---|---|
 | D1 | Should this ship at all before an OSS consumer exists? The only implementation of `GeneratorPlugin` is in `packages/enterprise`, which is out of scope for external contributors — so this freezes a public, BC-governed shape with zero production consumers and only fixture coverage. | **Ship it last, after both sibling specs.** The issue asks for it and the additive design is what lets the enterprise owner migrate on their own schedule. If you would rather wait for a consumer, this spec can be parked without affecting the other two — they have no dependency on it. |
 | D2 | Union of two interfaces (`GeneratorPlugin \| AstGeneratorPlugin`), or a single interface with both hooks optional? | **Union.** Both-optional cannot reject a plugin with no hook at all, and it makes `buildOutput` optional on the published interface — an observable narrowing. |
-| D3 | Nine expression kinds plus a validated `{ kind: 'raw' }`, or narrow to structure-only and accept raw for every leaf? | **Nine kinds plus validated raw.** Covers the shapes the only known implementation actually emits; raw remains for arrow bodies and generics. |
+| D3 | Nine expression kinds plus a validated `{ kind: 'raw' }`, or narrow to structure-only and accept raw for every leaf? | **Nine kinds plus validated raw.** The nine kinds cover every *expression* the only known implementation emits. Raw remains for arrow bodies, generics, and — the case that shows up first in practice — the object type literal in a `type … = { … }` alias, which the three type kinds deliberately do not model (see § The expression vocabulary). |
 | D4 | Should the syntax gate also apply to legacy `buildOutput` output? | **No, not in this change** — it would turn an existing silent breakage into a hard generation failure for an unchanged plugin. Offered as an opt-in follow-up. |
 | D5 | Type `bootstrapRegistration.registrationImports` / `buildCall` in the same change? | **No** — see Non-Goals. A second speculative shape frozen at the same time doubles the D1 risk. |
 
@@ -372,4 +377,5 @@ One phase — the contract, its implementation, its tests, and its documentation
 
 | Date | Change |
 |---|---|
+| 2026-07-30 | Re-review pass on PR [#4636](https://github.com/open-mercato/open-mercato/pull/4636): stated explicitly that `GeneratedTypeReference` models only named references and arrays, so the object type alias the only known implementation declares (`type SecurityMfaProviderEntry = { moduleId: string; providers: unknown[] }`) goes through the validated `{ kind: 'raw' }` type node — the structural guarantee is thinner in type positions than in expression positions, and `{ kind: 'members' }` is the additive fix if a real consumer needs it. Made `GeneratedObjectProperty.kind: 'property'` a required discriminant so the CLI's mapper can switch exhaustively over every node kind. |
 | 2026-07-30 | Split out of `2026-07-29-ts-morph-generator-migration.md` (issue #1637 finding 3) after PR [#4636](https://github.com/open-mercato/open-mercato/pull/4636) review. Redesigned the contract as a union of two complete interfaces so an AST-only plugin type-checks (review finding High-2), replaced the free-form `addStatement` / `addImportStatement` builder methods with a structural vocabulary plus a single named, parse-validated raw escape and a whole-file syntactic-diagnostics gate (review finding Medium-1), added the compile-time contract test matrix, and corrected the claim that `GeneratorPlugin` is enumerated in `BACKWARD_COMPATIBILITY.md` § 2 — it is not, and adding it is now a deliverable. Re-verified against `develop@ecc10b3db`. |
