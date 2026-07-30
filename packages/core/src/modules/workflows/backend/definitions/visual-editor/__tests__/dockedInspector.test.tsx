@@ -115,17 +115,18 @@ describe('visual editor — docked inspector', () => {
     window.localStorage.clear()
   })
 
-  test('a wide viewport renders the step inspector inside the canvas row', () => {
+  test('a wide viewport opens the step inspector as a wide overlay drawer', () => {
     stubViewport(1600)
     renderWithProviders(<VisualEditorPage />)
     addStep()
 
     openStepInspector()
 
+    // The dense step form always uses the wide overlay Drawer (mirroring the
+    // definition metadata drawer), not the 384px docked rail — the rail is kept
+    // for the lighter route inspector only.
     const panel = screen.getByTestId('node-inspector')
-    expect(panel).toHaveAttribute('data-variant', 'docked')
-    // Sibling of the canvas, not a portal over it.
-    expect(screen.getByTestId('workflow-editor-row').contains(panel)).toBe(true)
+    expect(panel).toHaveAttribute('data-variant', 'overlay')
     expect(screen.getByTestId('canvas')).toBeInTheDocument()
   })
 

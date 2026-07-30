@@ -2851,7 +2851,11 @@ export default function VisualEditorPage() {
   const inspectorPanels = (
     <>
       {crudFormDialogsEnabled ? (
-        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} onConvertType={handleConvertNodeType} variant={inspectorVariant} />
+        // The step form is dense (Invoke-Agent, timeout, sub-editors) and the 384px
+        // docked rail made it unusable, so it always opens as the wide overlay
+        // Drawer that mirrors the definition metadata drawer. The route inspector
+        // stays on the docked rail (`inspectorVariant`) — its config is light.
+        <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} onConvertType={handleConvertNodeType} variant="overlay" wide />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
