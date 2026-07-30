@@ -515,6 +515,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/workflows/index",
             "framework/workflows/architecture",
+            "framework/workflows/entity-updates",
             "framework/workflows/task-visibility",
             "framework/workflows/run-outcomes",
             "framework/workflows/run-state",

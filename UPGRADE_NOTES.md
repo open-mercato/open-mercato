@@ -24,6 +24,49 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows: `UPDATE_ENTITY` commands now need a tenant to switch them on
+
+**Who is affected:** any module that calls `registerWorkflowSafeCommands`.
+
+`UPDATE_ENTITY` used to run any command present in the code-declared catalogue.
+It now also requires the command to be **enabled for the tenant** — a tick-box
+list at *Settings → Module Configs → Workflow Commands*, stored as one
+tenant-scoped `module_configs` row (`workflows` /
+`update_entity_enabled_commands`). The command's declared `requiredFeatures` are
+still checked against the acting user, unchanged.
+
+A tenant that has never saved the setting resolves to the declarations carrying
+the new **`defaultEnabled: true`** grandfather clause. In the platform's own
+modules that is `sales.orders.update` alone, so nothing changes for a stock
+install.
+
+**Action required for third-party modules:** a command you registered before
+this release is a *candidate* from now on and is **off until an administrator
+ticks it**. If yours was already reachable and you need it to keep running
+without a settings change, add the flag:
+
+```diff
+ registerWorkflowSafeCommands([
+-  { commandId: 'wms.stock.update', requiredFeatures: ['wms.stock.manage'] },
++  { commandId: 'wms.stock.update', requiredFeatures: ['wms.stock.manage'], defaultEnabled: true },
+ ])
+```
+
+Otherwise do nothing: the command appears in the settings page and in the
+authoring picker (marked unavailable, with the remedy) and starts working the
+moment it is ticked. **Do not** set `defaultEnabled` on a command you are
+declaring for the first time — it hands your module the tenant's decision.
+
+`WorkflowSafeCommandDefinition` also gains an optional `labelKey` (an i18n key
+resolved from your own module's locale files) used to name the command in the
+settings page and the picker. Both new fields are optional and additive.
+
+`GET /api/workflows/commands` gains `enabled`, `defaultEnabled` and `labelKey`
+on each item; `commandId` and `requiredFeatures` are unchanged.
+
+Details: [`apps/docs/docs/framework/workflows/entity-updates.mdx`](apps/docs/docs/framework/workflows/entity-updates.mdx).
+
+
 ### Workflows: existing tolerated-failure runs will start reporting `partial_failure`
 
 **Who is affected:** anyone running workflow definitions that set
