@@ -22,6 +22,7 @@ Open Mercato CLI, and the existing `scripts/profile-dev-rss.mjs` sampler.
 
 - Primary metric: median `summary.peakTotalMb` across three equivalent runs.
 - Required reduction: at least 30%.
+- Sampling interval: 1 second. Sampling duration: 180 seconds.
 - Every measurement run must start `yarn dev`, authenticate as the default super
   administrator, visit the same backend page, modify the same standalone module
   file, observe the hot-reloaded result, and stop the process tree cleanly.
@@ -77,10 +78,13 @@ Open Mercato CLI, and the existing `scripts/profile-dev-rss.mjs` sampler.
 - [ ] Start Verdaccio, publish the current workspace packages, and scaffold
   `/tmp/open-mercato-standalone-memory-baseline` with agentic setup disabled.
 - [ ] Install and initialize the standalone app using the generated commands.
-- [ ] Add one minimal app-local module whose visible backend output can change from
-  `Baseline marker A` to `Baseline marker B` without database writes.
+- [ ] Add `src/modules/memory_probe/index.ts`,
+  `src/modules/memory_probe/backend/memory-probe/page.meta.ts`, and
+  `src/modules/memory_probe/backend/memory-probe/page.tsx`; the authenticated
+  `/backend/memory-probe` page must change visibly from `Baseline marker A` to
+  `Baseline marker B` without database writes.
 - [ ] Start `yarn dev`, attach `scripts/profile-dev-rss.mjs --pid <pid>` at a
-  1-second interval, and drive the browser workflow.
+  1-second interval for 180 seconds, and drive the browser workflow.
 - [ ] Verify authentication with `superadmin@acme.com`, visit the chosen backend
   route, change the module marker, and assert the browser displays marker B without
   a server restart.

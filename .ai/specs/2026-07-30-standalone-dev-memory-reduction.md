@@ -141,7 +141,7 @@ Each baseline and candidate run uses:
 - the same installed dependency versions;
 - the same initialized database and background-service settings;
 - the same backend route and module source edit;
-- a 1-second sampling interval and the same run duration;
+- a 1-second sampling interval and a 180-second sampling duration;
 - a full restart of the `yarn dev` process tree.
 
 Reports are written under the standalone fixture's `.mercato/dev-rss/` directory.
@@ -160,6 +160,11 @@ summary values, exact commands, browser evidence, and comparison math.
 7. Assert that the browser displays the changed marker without restarting the
    server and that the original server PID remains alive.
 8. Stop the process tree cleanly and retain the report.
+
+The fixed probe is the app-local `memory_probe` module at
+`src/modules/memory_probe/`. Its authenticated page route is
+`/backend/memory-probe`, and each run changes the page marker from
+`Baseline marker A` to `Baseline marker B`.
 
 ### Root-cause gate
 
