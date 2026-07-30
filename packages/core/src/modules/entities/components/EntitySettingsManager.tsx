@@ -6,30 +6,40 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 
 export function EntitySettingsManager(): React.ReactElement {
   const t = useT()
   const [loading, setLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [restricted, setRestricted] = React.useState(false)
   const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
 
+  const { runMutation } = useGuardedMutation({
+    contextId: 'custom-entities-settings',
+  })
+
   const loadSettings = React.useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
     try {
       const data = await readApiResultOrThrow<{ newEntitiesRestrictedByDefault?: boolean; updatedAt?: string | null }>(
         '/api/entities/entity-settings',
         undefined,
         {
           errorMessage: t('entities.settings.errors.loadFailed', 'Failed to load settings'),
-          fallback: { newEntitiesRestrictedByDefault: false, updatedAt: null },
         }
       )
-      setRestricted(data?.newEntitiesRestrictedByDefault === true)
-      setUpdatedAt(data?.updatedAt ?? null)
+      setRestricted(data.newEntitiesRestrictedByDefault === true)
+      setUpdatedAt(data.updatedAt ?? null)
     } catch {
-      // Handled by readApiResultOrThrow
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -43,38 +53,44 @@ export function EntitySettingsManager(): React.ReactElement {
     e.preventDefault()
     setSaving(true)
     try {
-      const headers: Record<string, string> = { 'content-type': 'application/json' }
-      if (updatedAt) {
-        headers['If-Match'] = updatedAt
-        headers['x-om-ext-optimistic-lock-expected-updated-at'] = updatedAt
-      }
-      const res = await apiCall<{ ok: boolean; newEntitiesRestrictedByDefault: boolean; updatedAt: string | null }>(
-        '/api/entities/entity-settings',
-        {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify({
-            newEntitiesRestrictedByDefault: restricted,
-            expectedUpdatedAt: updatedAt ?? undefined,
-          }),
-        }
-      )
+      const headers = buildOptimisticLockHeader(updatedAt)
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(headers, async () => {
+            const res = await apiCallOrThrow<{ ok: boolean; newEntitiesRestrictedByDefault: boolean; updatedAt: string | null }>(
+              '/api/entities/entity-settings',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  newEntitiesRestrictedByDefault: restricted,
+                  expectedUpdatedAt: updatedAt ?? undefined,
+                }),
+              },
+              {
+                errorMessage: t('entities.settings.errors.saveFailed', 'Failed to save settings'),
+              }
+            )
 
-      if (res.status === 409) {
-        flash(t('entities.settings.errors.conflict', 'Settings were modified by another user. Please reload.'), 'error')
+            if (res.ok && res.result) {
+              setUpdatedAt(res.result.updatedAt)
+              flash(t('entities.settings.flash.saved', 'Settings saved'), 'success')
+            }
+            return res
+          }),
+        context: {},
+        mutationPayload: {
+          newEntitiesRestrictedByDefault: restricted,
+        },
+      })
+    } catch (err) {
+      const conflict = extractOptimisticLockConflict(err)
+      if (conflict) {
         setLoading(true)
         await loadSettings()
-        return
-      }
-
-      if (res.ok && res.result) {
-        setUpdatedAt(res.result.updatedAt)
-        flash(t('entities.settings.flash.saved', 'Settings saved'), 'success')
       } else {
         flash(t('entities.settings.errors.saveFailed', 'Failed to save settings'), 'error')
       }
-    } catch {
-      flash(t('entities.settings.errors.saveFailed', 'Failed to save settings'), 'error')
     } finally {
       setSaving(false)
     }
@@ -86,6 +102,19 @@ export function EntitySettingsManager(): React.ReactElement {
         <Spinner className="h-4 w-4" />
         <span>{t('entities.userEntities.form.loading', 'Loading…')}</span>
       </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <ErrorMessage
+        label={t('entities.settings.errors.loadFailed', 'Failed to load settings')}
+        action={(
+          <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
+            {t('common.retry', 'Retry')}
+          </Button>
+        )}
+      />
     )
   }
 

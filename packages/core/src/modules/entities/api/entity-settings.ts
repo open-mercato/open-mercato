@@ -3,6 +3,10 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { beginEntitiesMutationGuard } from './definitions.mutation-guard'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { ModuleConfigService } from '../../configs/lib/module-config-service'
 
 // Tenant-scoped policy: when true, new custom entities are created with
 // `access_restricted = true` unless the create request explicitly sets the flag.
@@ -14,29 +18,10 @@ export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
-type ModuleConfigServiceLike = {
-  getRecord: (
-    moduleId: string,
-    name: string,
-    scope?: { tenantId?: string | null },
-  ) => Promise<any>
-  getValue: (
-    moduleId: string,
-    name: string,
-    options?: { defaultValue?: unknown; scope?: { tenantId?: string | null } },
-  ) => Promise<unknown>
-  setValue: (
-    moduleId: string,
-    name: string,
-    value: unknown,
-    scope?: { tenantId?: string | null },
-  ) => Promise<any>
-}
-
 async function readPolicy(tenantId: string | null): Promise<boolean> {
   try {
     const { resolve } = await createRequestContainer()
-    const moduleConfigService = resolve('moduleConfigService') as ModuleConfigServiceLike
+    const moduleConfigService = resolve('moduleConfigService') as ModuleConfigService
     const value = await moduleConfigService.getValue(CONFIG_MODULE, NEW_ENTITIES_RESTRICTED_KEY, {
       defaultValue: false,
       scope: { tenantId },
@@ -51,7 +36,7 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { resolve } = await createRequestContainer()
-  const moduleConfigService = resolve('moduleConfigService') as ModuleConfigServiceLike
+  const moduleConfigService = resolve('moduleConfigService') as ModuleConfigService
   const record = await moduleConfigService.getRecord(CONFIG_MODULE, NEW_ENTITIES_RESTRICTED_KEY, {
     tenantId: auth.tenantId ?? null,
   })
@@ -75,8 +60,9 @@ export async function PUT(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
-  const { resolve } = await createRequestContainer()
-  const moduleConfigService = resolve('moduleConfigService') as ModuleConfigServiceLike
+  const container = await createRequestContainer()
+  const { resolve } = container
+  const moduleConfigService = resolve('moduleConfigService') as ModuleConfigService
 
   const currentRecord = await moduleConfigService.getRecord(
     CONFIG_MODULE,
@@ -84,14 +70,33 @@ export async function PUT(req: Request) {
     { tenantId: auth.tenantId ?? null },
   )
 
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: 'entities.settings',
+    resourceId: NEW_ENTITIES_RESTRICTED_KEY,
+    operation: currentRecord ? 'update' : 'create',
+    mutationPayload: parsed.data as unknown as Record<string, unknown>,
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
   const ifMatchHeader = req.headers.get('If-Match') || req.headers.get('x-om-ext-optimistic-lock-expected-updated-at')
   const expectedUpdatedAt = ifMatchHeader || parsed.data.expectedUpdatedAt
 
-  if (expectedUpdatedAt && currentRecord && currentRecord.updatedAt !== expectedUpdatedAt) {
-    return NextResponse.json(
-      { code: 'optimistic_lock_conflict', error: 'Settings were modified by another user. Please reload.' },
-      { status: 409 },
-    )
+  try {
+    await enforceCommandOptimisticLockWithGuards(container, {
+      resourceKind: 'entities.settings',
+      resourceId: NEW_ENTITIES_RESTRICTED_KEY,
+      current: currentRecord ? currentRecord.updatedAt : null,
+      expected: expectedUpdatedAt,
+      request: req,
+    })
+  } catch (lockError) {
+    if (isCrudHttpError(lockError)) {
+      return NextResponse.json(lockError.body, { status: lockError.status })
+    }
+    throw lockError
   }
 
   const updatedRecord = await moduleConfigService.setValue(
@@ -100,6 +105,8 @@ export async function PUT(req: Request) {
     parsed.data.newEntitiesRestrictedByDefault,
     { tenantId: auth.tenantId ?? null },
   )
+
+  await guard.runAfterSuccess()
 
   return NextResponse.json({
     ok: true,
