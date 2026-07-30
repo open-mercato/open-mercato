@@ -4,7 +4,7 @@ Load only the rows the brief requires.
 
 | Capability | Required work |
 |---|---|
-| Registration | `index.ts`, `{ id, from: '@app' }` in `src/modules.ts`, generation. In the shipped template append with `enabledModules.push({ id: '<module>', from: '@app' })`; do not rewrite the computed official-module registry. |
+| Registration | `index.ts`, `{ id, from: '@app' }` in `src/modules.ts`, generation. Treat the shipped `src/modules.ts` baseline as protected source: append exactly `enabledModules.push({ id: '<module>', from: '@app' })`; do not rewrite, compress, map, spread, sort, or reformat existing entries or the computed official-module registry. |
 | DI | `di.ts` registrations with stable tokens; resolve services, never instantiate infrastructure. |
 | ACL/setup | Declare stable resource features such as `<module>.<resources>.view`/`manage` and dependencies as the named `export const features = [...]` in `acl.ts`, followed by `export default features`; generated registry code expects both exports. Export `setup: ModuleSetupConfig = { defaultRoleFeatures, ... }` (plus default when useful) from `setup.ts`; do not rename the `features` export or export `defaultRoleFeatures` as a disconnected top-level map. Keep tenant/default/example seeds idempotent and run ACL sync. |
 | Events | `events.ts` imports `createModuleEvents` from `@open-mercato/shared/modules/events`, declares `const events = [{ id, label, category: 'crud' }] as const` (`category` is `crud`, `lifecycle`, `system`, or `custom`), then exports `createModuleEvents({ moduleId, events })`. It receives one options object, not positional module/event arguments. Use typed stable past-tense IDs before emission and idempotent subscribers; do not invent a shared `lib/events` entrypoint. |

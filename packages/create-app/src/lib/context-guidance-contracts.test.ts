@@ -105,6 +105,8 @@ test('progressive module references pin search, i18n, and intentional extension 
   assert.match(moduleSurfaces, /checksumSource/)
   assert.match(moduleSurfaces, /formatResult/)
   assert.match(moduleSurfaces, /`indexer: \{ entityType \}`/)
+  assert.match(moduleSurfaces, /Treat the shipped `src\/modules\.ts` baseline as protected source/)
+  assert.match(moduleSurfaces, /do not rewrite, compress, map, spread, sort, or reformat existing entries/)
   assert.match(moduleSurfaces, /deterministic convergence/)
   assert.match(moduleSurfaces, /buildSource/)
   assert.match(moduleSurfaces, /Do not invent .*`convergenceKey`, `result`.*aliases/)
