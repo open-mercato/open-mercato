@@ -13,9 +13,11 @@ Route before reading: an app-owned page and its page-metadata navigation stay `b
 
 1. Read `.ai/guides/backend-ui.md`; choose backend, settings, profile, frontend, or portal path with `references/page-and-navigation.md`. For public/portal, visually substantial, responsive/mobile/touch, screen-reader, or explicit accessibility work, also load `references/frontend-and-design-system.md`.
 2. For list/detail/create/edit, follow `references/crud-surfaces.md`: stable `DataTable`/`CrudForm` IDs, scoped helpers, version data, server errors, conflict UI, and save/reload/clear.
+   Preserve the stable host ID (`stable-host-id`) across these CRUD surfaces.
    For page/form/table-only work in an existing module, this UI context is complete: do not load the contracts guide or module-scaffolding skill unless the request also changes a data/API/command/ACL/setup surface.
 3. For injected UI, also invoke `om-system-extension`; never change an installed page directly.
    A field, filter, row action, or bulk action added to an existing installed form/table is injected UI and also requires `om-system-extension`; read `references/crud-surfaces.md` and `references/quality-states.md`, and preserve the stable host ID (`stable-table-host`). Do not load contracts or `om-module-scaffold` unless it adds app-owned persistence/API/commands.
+   App-owned persisted fields/entities also require `module-data`, contracts, and `om-data-model-design`; a new server API/command path instead requires `module-data`, contracts, and `om-module-scaffold`.
 4. Read `references/quality-states.md` for every UI task: loading/empty/error/success, dialogs/keyboard, accessibility, responsive layout, i18n, hydration, and design tokens.
 5. Run `yarn generate` for pages/navigation/widgets and exercise the API plus UI with self-contained fixtures.
 

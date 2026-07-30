@@ -105,7 +105,7 @@
         }
       },
       "maxContextFiles": { "type": "integer", "minimum": 1, "maximum": 16 },
-      "maxInitialContextBytes": { "type": "integer", "minimum": 4096, "maximum": 90112 },
+      "maxInitialContextBytes": { "type": "integer", "minimum": 4096, "maximum": 98304 },
       "maxTotalContextBytes": { "type": "integer", "minimum": 8192, "maximum": 262144 },
       "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 600000 },
       "relatedCases": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-9][0-9]|1[0-8][0-9]|19[0-2])$" } },

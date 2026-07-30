@@ -21,7 +21,7 @@ Once a row matches, its route key is binding: invoke every unparenthesized route
 |---|---|---|---|---|
 | “Build a customer and contact management module.” | Enable/use installed `customers`; UMES for app-specific behavior; app module only for genuinely separate records | `U+B` (`+M`) | verify activation/capabilities, customer list/detail/forms/search, then add only requested fields, policies, widgets, or related records | do not duplicate the installed customer identity; tenant+organization scope; encrypted PII reads; optimistic locking; stable IDs |
 | “Add customer success health, owner, and renewal fields to CRM customers.” | App module extension entity + UMES widgets/enricher/interceptor | `M+U+B` | health record keyed by customer ID, list/detail enrichment, editable panel, renewal filter, reminder event | read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` before extending existing customer response, event, or ID surfaces; no cross-module ORM relation; complete read/write/UI round trip; optional CRM absence degrades safely; lock extension records |
-| “Manage communication consent and channel preferences for every customer.” | App module + UMES customer panel and mutation guard | `M+U+B` | consent history, current preferences, customer widget, API, audit event, suppression query | append-only consent evidence; encrypted PII; purpose/channel granularity; deny sends without valid consent |
+| “Manage communication consent and channel preferences for every customer.” | App module + mandatory UMES customer panel and mutation guard | `M+U+B` | consent history, current preferences, customer widget, API, audit event, suppression query | append-only consent evidence; encrypted PII; purpose/channel granularity; deny sends without valid consent |
 
 ## Deals Pipeline
 
@@ -100,7 +100,7 @@ Once a row matches, its route key is binding: invoke every unparenthesized route
 | “Build an equipment rental business app.” | New app module + optional payment/shipping providers | `M+B+W+P` | assets, availability, reservations, checkout/return, damage/deposit, calendar | overlapping reservations rejected atomically; money snapshots; asset condition audit; provider failures recoverable |
 | “Build appointment booking connected to CRM.” | App module + UMES customer handoff + notification provider | `M+U+B+W+P` | public availability, booking/reschedule/cancel, CRM match/create, reminders, admin calendar | public scope derived server-side; slot hold is atomic; time-zone/DST correctness; submission/reminder dedupe |
 | “Build membership and subscription management.” | App module + payment provider + customer portal | `M+B+P+W+U` | plans/memberships, enrollment, renewal/cancel, payment status, portal/admin views | explicit billing state machine; webhook idempotency; entitlement derived from paid periods; PII/money protection |
-| “Build purchasing and vendor approval management.” | New app module + optional accounting provider | `M+B+W+P` | vendors/requests/POs/receipts, approval thresholds, budget view, export | separation of duties; exact money/currency; locked approvals; PO/export exactly once |
+| “Build purchasing and vendor approval management.” | New app module + optional accounting provider | `M+B+W` (`+P` only when an accounting provider is requested) | vendors/requests/POs/receipts, approval thresholds, budget view, export | separation of duties; exact money/currency; locked approvals; PO/export exactly once |
 
 ## Completion Rule
 

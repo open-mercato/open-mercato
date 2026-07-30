@@ -11,6 +11,8 @@ Create a provider-owned app module or separately published package that composes
 
 Route before reading: select the provider and any UI/module/UMES work from the brief first, then read only those route guides/skills. Generated facts and the integration references are sufficient unless one named exact-version symbol remains unresolved; do not open `om-framework-context` merely to confirm supplied facts, and only select/read it after naming the missing detail.
 
+When the request explicitly asks to resolve an exact installed provider/domain contract, invoke `om-framework-context`; preserve the provider variant and existing mode (`provider-variant`, `preserve-mode`). A provider phase superseded by an installed capability selects architecture + integration + framework-context, reads the compatibility snapshot, proposes safe deprecation, and asks before removal without probing unrelated trim, delivery, extension, or debugging skills.
+
 A new or complete provider implementation cannot stop at this file: `references/provider-families.md`, `references/package-and-activation.md`, and `references/security-and-reliability.md` are mandatory. A narrow repair of an existing provider reads the reference that owns the changed contract instead: cursor, retry, or idempotency repairs MUST read `references/security-and-reliability.md`, plus `references/sync-and-files.md` for sync/import/export.
 
 1. Read `.ai/guides/integrations.md`; first separate transactional email from mailbox channels, then choose the provider family and supplied host contract with `references/provider-families.md`.

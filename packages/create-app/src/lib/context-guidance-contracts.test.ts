@@ -388,6 +388,9 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(uiSkill, /read `references\/crud-surfaces\.md` and `references\/quality-states\.md`/)
   assert.match(uiSkill, /stable host ID \(`stable-table-host`\)/)
   assert.match(uiSkill, /Do not load contracts or `om-module-scaffold` unless it adds app-owned persistence\/API\/commands/)
+  assert.match(uiSkill, /stable host ID \(`stable-host-id`\)/)
+  assert.match(uiSkill, /App-owned persisted fields\/entities also require `module-data`, contracts, and `om-data-model-design`/)
+  assert.match(uiSkill, /new server API\/command path instead requires `module-data`, contracts, and `om-module-scaffold`/)
   assert.match(root, /Existing installed form\/table fields, filters, row\/bulk actions without app persistence = `umes` \+ `backend-ui` only/)
   assert.match(root, /read `crud-surfaces` \+ `quality-states`; do not load contracts, module-scaffold, or page\/navigation/)
   assert.match(root, /installed guard without app persistence = `umes` only, so do not load contracts/)
@@ -412,6 +415,26 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(extensionSkill, /host status-command guard changes a public contract: read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
   assert.match(extensionSkill, /do not read `references\/read-write-roundtrip\.md` unless adding an editable field/)
   assert.match(extensionSkill, /installed host guard, do not load contracts or `om-module-scaffold` unless adding app-owned persistence\/API\/commands/)
+  assert.match(extensionSkill, /bulk mutation reports `bulk-mutation-safety`/)
+  assert.match(extensionSkill, /reactive notification reports `notification-effect` and `idempotent-client-side-effect`/)
+  assert.match(extensionSkill, /app-owned subscriber, API, command, persisted field, or extension entity also selects `module-data` and contracts/)
+})
+
+test('residual owner guidance binds implementation, provider, debugging, and business routes', () => {
+  const implementSpec = readAgentic('shared/ai/skills/om-implement-spec/SKILL.md')
+  const integration = readAgentic('shared/ai/skills/om-integration-builder/SKILL.md')
+  const troubleshooter = readAgentic('shared/ai/skills/om-troubleshooter/SKILL.md')
+  const blueprints = readAgentic(
+    'shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
+  )
+  assert.match(implementSpec, /working app \(`working-phases`\)/)
+  assert.match(implementSpec, /`integration-coverage` belongs to writing the spec/)
+  assert.match(integration, /exact installed provider\/domain contract, invoke `om-framework-context`/)
+  assert.match(integration, /superseded by an installed capability selects architecture \+ integration \+ framework-context/)
+  assert.match(troubleshooter, /persisted create\/update\/clear\/reload defect also selects `module-data` and contracts/)
+  assert.match(troubleshooter, /fail before any query \(`no-unscoped-query`\)/)
+  assert.match(blueprints, /mandatory UMES customer panel and mutation guard/)
+  assert.match(blueprints, /`M\+B\+W` \(`\+P` only when an accounting provider is requested\)/)
 })
 
 test('workflow skill binds implementation prompts to the progressive contract references', () => {

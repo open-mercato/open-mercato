@@ -3,7 +3,7 @@
   "catalog": {
     "expectedCaseCount": 192,
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 90112,
+    "maxInitialContextBytes": 98304,
     "maxTotalContextBytes": 262144,
     "backwardCompatibilityRuleIds": [
       "BC-01", "BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07",
@@ -16,7 +16,7 @@
     ],
     "compatibilityRequiredCaseIds": [
       "OMH-007", "OMH-022", "OMH-030", "OMH-048", "OMH-057", "OMH-064", "OMH-072", "OMH-074",
-      "OMH-082", "OMH-088", "OMH-089", "OMH-105", "OMH-118", "OMH-130", "OMH-131", "OMH-147", "OMH-150",
+      "OMH-082", "OMH-087", "OMH-088", "OMH-089", "OMH-105", "OMH-108", "OMH-118", "OMH-130", "OMH-131", "OMH-147", "OMH-150",
       "OMH-182"
     ],
     "compatibilityExcludedCaseIds": [

@@ -421,7 +421,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 51200,
+    "maxInitialContextBytes": 53248,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-007"
@@ -4410,7 +4410,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 67584,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-056"
@@ -5760,7 +5760,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "scope.{0,30}(?:request body|payload)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 71680,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-018", "OMH-034", "OMH-071"]
   },
@@ -5910,7 +5910,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:approve|convert).{0,30}(?:direct update|persistAndFlush)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 14,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 72704,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-012", "OMH-053", "OMH-078"]
   },
@@ -5977,7 +5977,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:float|number).{0,30}(?:amount|money)", "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 77824,
     "maxTotalContextBytes": 262144,
     "relatedCases": ["OMH-041", "OMH-042", "OMH-070"]
   },
@@ -6202,6 +6202,7 @@
     "context": {
       "required": [
         "AGENTS.md", ".ai/guides/architecture.md", ".ai/guides/contracts.md", ".ai/guides/ai-workflows.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
         ".ai/skills/om-create-ai-agent/SKILL.md", ".ai/skills/om-create-ai-agent/references/surface-selector.md",
         ".ai/guides/modules/ai_assistant.md",
@@ -6214,7 +6215,8 @@
         ".ai/guides/modules/auth.md", ".ai/guides/modules/search.md",
         ".ai/guides/modules/events.md", ".ai/guides/modules/query_index.md", ".ai/guides/modules/translations.md",
         ".ai/guides/modules/progress.md", ".ai/guides/modules/workflows.md",
-        ".ai/guides/modules/integrations.md", ".ai/guides/modules/dashboards.md", ".ai/guides/modules/notifications.md",
+        ".ai/guides/modules/integrations.md", ".ai/guides/modules/data_sync.md",
+        ".ai/guides/modules/dashboards.md", ".ai/guides/modules/notifications.md",
         ".ai/guides/modules/messages.md", ".ai/guides/modules/inbox_ops.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
@@ -6223,8 +6225,8 @@
     "forbiddenPatterns": ["frontend/.+\\.(?:ts|tsx).{0,30}(?:canonical|create)", "api/(?:get|post|put|patch|delete)/", "data/fields\\.ts", "node_modules.{0,40}(?:write|edit|patch)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 90112,
-    "maxTotalContextBytes": 196608,
+    "maxInitialContextBytes": 94208,
+    "maxTotalContextBytes": 212992,
     "relatedCases": ["OMH-001", "OMH-004", "OMH-008"]
   },
   {
@@ -6557,7 +6559,7 @@
       "oracle.business.command"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-060",
@@ -7233,7 +7235,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-018",
@@ -7987,7 +7989,8 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/sales.md"
+        ".ai/guides/modules/sales.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -8015,7 +8018,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-009",
@@ -8586,7 +8589,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-075",
@@ -9068,7 +9071,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-025",
@@ -9258,7 +9261,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 8,
-    "maxInitialContextBytes": 49152,
+    "maxInitialContextBytes": 51200,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-009",
@@ -10210,7 +10213,8 @@
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/portal.md"
+        ".ai/guides/modules/portal.md",
+        ".ai/guides/modules/auth.md"
       ],
       "forbidden": [
         ".env*",
@@ -11810,7 +11814,7 @@
       "src/modules/erp_sync/workers/**"
     ],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 61440,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 163840,
     "relatedCases": [
       "OMH-042",
@@ -11842,7 +11846,7 @@
     "requiredDecisions":["webhook-signature","typed-events","subscriber-idempotency","outbound-delivery-status"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":12,"maxInitialContextBytes":61440,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
+    "maxContextFiles":12,"maxInitialContextBytes":63488,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
   },
   {
     "id": "OMH-156",

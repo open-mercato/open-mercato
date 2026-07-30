@@ -308,7 +308,7 @@ test('the catalog count and release coverage are derived from the validator regi
   )
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
-    'OMH-082', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
+    'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
     'OMH-182',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
@@ -403,6 +403,7 @@ test('trace-start recovery recognizes only bounded unavailable-read startup repo
     'harness.read unavailable in this environment',
     'Required harness.read access was unavailable in this environment',
     'required harness.read tool unavailable in this environment',
+    'The required harness.read tool is unavailable in the supplied tool interface',
     'harness.read is not available in this environment',
     'exact-path harness.read tool is unavailable in this environment',
   ]) assert.equal(evaluator.isCorrectableTraceStartupResponseViolation(violation), true, violation)
@@ -412,6 +413,14 @@ test('trace-start recovery recognizes only bounded unavailable-read startup repo
     'I did not call harness.read',
     'runner trace unavailable; observed context cannot be verified',
   ]) assert.equal(evaluator.isCorrectableTraceStartupResponseViolation(violation), false, violation)
+})
+
+test('routing prompts forbid invented evaluator paths and reconcile correction reads exactly', () => {
+  const source = fs.readFileSync(sourceEvaluator, 'utf8')
+  assert.match(source, /decision labels never name readable paths/)
+  assert.match(source, /Build selectedContext from every successful read in this correction attempt/)
+  assert.match(source, /add every opened routed guide's route and every opened skill's ID, or avoid opening it/)
+  assert.match(source, /Never reuse or prune the previous answer/)
 })
 
 test('deterministic evaluation passes every concrete catalog case in an emitted-layout fixture', () => {
