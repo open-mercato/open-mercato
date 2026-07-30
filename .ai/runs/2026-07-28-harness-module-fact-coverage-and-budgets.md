@@ -92,8 +92,13 @@ Follow-up: #4603
       (`core` 8280/8280 tests, 1085/1086 suites) and 3/3 for that suite in isolation. The `create-app`
       package suite run serially is 389 tests / 384 pass / 0 fail / 5 skipped, and the deterministic
       catalog gate is 201/201
-- [ ] 6.5 Republish the reviewable delta in the PR body, request the missing labels, and close #4556
-      as superseded
+- [x] 6.5 Republish the reviewable delta in the PR body (18 files / +1 264 / −37 against
+      `merge-tree(#4529 head, develop)`, itemised), request the missing labels — this account has `read`
+      permission, so `refactor`, `skip-qa`, `priority-medium`, `risk-high` and `blocked` need a
+      maintainer — and close #4556 as superseded with the measured rationale
+- [x] 6.6 Report to #4529 the stale portability count its own head publishes: `39-case` in
+      `run-agent-harness-release.mjs`, `case-template.md` and `case-workflow.md` against a 45-entry
+      `release-matrix.json`. Found by the new count guard, corrected on this branch
 
 ## Deliberately out of scope
 
