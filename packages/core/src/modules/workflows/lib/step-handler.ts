@@ -559,7 +559,35 @@ async function handleAutomatedStep(
   }
 
   // Import activity executor
-  const { executeActivities } = await import('./activity-executor')
+  const { executeActivities, interpolateVariables } = await import('./activity-executor')
+
+  // Persist the resolved INVOKE_AGENT input so the run inspector shows what this
+  // step actually received. `inputData` was seeded at step entry from the
+  // workflow trigger data (null for a manually-started run), never the agent's
+  // real, interpolated `config.input` — the same value the executor computes via
+  // `interpolateActivityConfig` (a thin wrapper over `interpolateVariables`), so
+  // re-interpolating the input field here yields exactly what the agent runs on.
+  const agentActivity = activities.find(
+    (activity: any) => activity.activityType === 'INVOKE_AGENT' && activity?.config?.input !== undefined,
+  )
+  if (agentActivity) {
+    try {
+      const resolvedInput = interpolateVariables(
+        (agentActivity as any).config.input,
+        context.workflowContext,
+        instance,
+        { mode: context.interpolationMode },
+      )
+      if (resolvedInput !== undefined) {
+        stepInstance.inputData = resolvedInput
+        stepInstance.updatedAt = new Date()
+        await em.flush()
+      }
+    } catch {
+      // Display-only capture: an interpolation error is surfaced by the actual
+      // activity run below, so it must never abort the step here.
+    }
+  }
 
   try {
     // Execute activities with proper context
