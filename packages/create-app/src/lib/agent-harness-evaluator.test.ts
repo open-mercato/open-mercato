@@ -402,6 +402,7 @@ test('trace-start recovery recognizes only bounded unavailable-read startup repo
     'Harness read tool is unavailable in the provided tool interface',
     'harness.read unavailable in this environment',
     'Required harness.read access was unavailable in this environment',
+    'Required `harness.read` access was unavailable in this environment',
     'required harness.read tool unavailable in this environment',
     'The required harness.read tool is unavailable in the supplied tool interface',
     'harness.read is not available in this environment',

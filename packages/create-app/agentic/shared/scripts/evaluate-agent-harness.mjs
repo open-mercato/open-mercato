@@ -1640,7 +1640,7 @@ function isCorrectableTraceStartupFailure(violation) {
 }
 
 export function isCorrectableTraceStartupResponseViolation(violation) {
-  return /^(?:the )?(?:exact-path )?(?:(?:required )?harness\.read(?: tool| access)?|harness read tool) (?:(?:is|was) )?(?:unavailable|not available)\b/i.test(violation)
+  return /^(?:the )?(?:exact-path )?(?:(?:required )?`?harness\.read`?(?: tool| access)?|harness read tool) (?:(?:is|was) )?(?:unavailable|not available)\b/i.test(violation)
 }
 
 function isCorrectableTraceStartupResponseFailure(violation) {
