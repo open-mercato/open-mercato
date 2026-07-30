@@ -105,3 +105,41 @@ export async function saveWorkflowFromDetailsDrawer(page: Page): Promise<void> {
   const drawer = workflowDetailsDrawer(page)
   await drawer.getByRole('button', { name: /^(save|update)$/i }).click()
 }
+
+/**
+ * The Studio's "Show last run" execution overlay (spec §8.3).
+ *
+ * The toggle is off by default and PERSISTED per author
+ * (`om:wf-editor-last-run`), and it fetches nothing until it is on — so a spec
+ * must click it, and a spec must not assume a previous test left it on.
+ */
+export const WORKFLOW_LAST_RUN_TOGGLE_LABEL = 'Show the last run on the canvas'
+
+export function workflowLastRunToggle(page: Page): Locator {
+  return page.getByRole('button', { name: WORKFLOW_LAST_RUN_TOGGLE_LABEL })
+}
+
+/**
+ * The run status the canvas painted for one step, read off the node card's
+ * `data-node-status` attribute.
+ *
+ * The value is a `WorkflowStatus`, not the `StepRunStatus` the overlay derives:
+ * each node component funnels `data.status` through `toWorkflowStatus`, which
+ * collapses `active` to `in_progress` and anything it does not know (including
+ * an absent status, i.e. the plain editor) to `not_started`.
+ */
+export function workflowNodeStatus(page: Page, stepId: string): Locator {
+  return page.locator(`.react-flow__node[data-id="${stepId}"] [data-node-status]`).first()
+}
+
+/**
+ * The visible stroke of one route. The overlay paints a TAKEN route by setting
+ * the edge's `state` to `completed`, which reaches the DOM only as the inline
+ * `stroke` (there is no `data-*` marker), so `EDGE_COLORS.completed.stroke` —
+ * `var(--status-success-icon)` — is what a spec has to look for.
+ */
+export function workflowEdgePath(page: Page, transitionId: string): Locator {
+  return page.locator(`.react-flow__edge[data-id="${transitionId}"] path.react-flow__edge-path`).first()
+}
+
+export const WORKFLOW_TAKEN_ROUTE_STROKE = 'var(--status-success-icon)'

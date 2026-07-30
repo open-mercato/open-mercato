@@ -517,6 +517,11 @@ export type UserTaskSnapshot = {
   priority?: string | number | null;
   entityBindings?: unknown[] | null;
   dueDate?: string | null;
+  /** SLA escalation bookkeeping (`api/tasks/serialize.ts`). */
+  escalatedAt?: string | null;
+  escalatedTo?: string | null;
+  reassignedAt?: string | null;
+  reassignReason?: string | null;
 };
 
 /** Task detail adds the DERIVED fields the list cannot carry (see `api/tasks/[id]/route.ts`). */
@@ -806,4 +811,275 @@ export function buildSlaBreachRouteDefinitionPayload(stamp: string) {
     },
     enabled: true,
   };
+}
+
+/**
+ * Linear, fully automated START -> prepare -> finish -> END definition. Every route is
+ * `auto` and no step carries an activity, so the start call drives it to COMPLETED
+ * synchronously — which is the precondition for anything that reads a FINISHED run
+ * (the Studio's "Show last run" overlay, the Gantt, the per-step I/O inspector).
+ */
+export function buildCompletedRunDefinitionPayload(stamp: string, suffix = '') {
+  const id = `qa-wf-run${suffix}-${stamp}`;
+  return {
+    workflowId: id,
+    workflowName: `QA Completed Run${suffix} ${stamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'prepare', stepName: 'Prepare', stepType: 'AUTOMATED' },
+        { stepId: 'finish', stepName: 'Finish', stepType: 'AUTOMATED' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-prepare', fromStepId: 'start', toStepId: 'prepare', trigger: 'auto' },
+        { transitionId: 'prepare-to-finish', fromStepId: 'prepare', toStepId: 'finish', trigger: 'auto' },
+        { transitionId: 'finish-to-end', fromStepId: 'finish', toStepId: 'end', trigger: 'auto' },
+      ],
+    },
+    enabled: true,
+  };
+}
+
+/**
+ * START -> mid -> boom -> END, where `boom` carries a STEP-level activity that cannot
+ * succeed: `EXECUTE_FUNCTION` is validated against `functionName`, so a config declaring
+ * `functionId` fails on the first attempt with a stable message and no external
+ * dependency. `mid` reaches COMPLETED before it, which is what makes the run a legal
+ * rerun target (spec 8.4 eligibility reads the LATEST attempt of the requested step and
+ * requires it to be terminal).
+ *
+ * `errorDirective: 'failureQueue'` switches the same fixture from "the instance FAILS" to
+ * "the instance PARKS with `metadata.attention`" — the two halves of the spec 8.4 failure
+ * queue, which is a UNION of those states rather than a filter over one of them.
+ *
+ * The activity is on the STEP, not on the outgoing transition, on purpose: a transition
+ * activity attributes the failure to the step the route LEAVES, which would make `mid` the
+ * failing step and leave nothing completed behind it.
+ */
+export function buildFailingStepDefinitionPayload(
+  stamp: string,
+  options: { suffix?: string; errorDirective?: 'fail' | 'continueWithFallback' | 'failureQueue' } = {},
+) {
+  const suffix = options.suffix ?? '';
+  const id = `qa-wf-fail${suffix}-${stamp}`;
+  return {
+    workflowId: id,
+    workflowName: `QA Failing Step${suffix} ${stamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'mid', stepName: 'Mid', stepType: 'AUTOMATED' },
+        {
+          stepId: 'boom',
+          stepName: 'Boom',
+          stepType: 'AUTOMATED',
+          ...(options.errorDirective ? { errorDirective: { mode: options.errorDirective } } : {}),
+          activities: [
+            {
+              activityId: 'boom',
+              activityName: 'Boom',
+              activityType: 'EXECUTE_FUNCTION',
+              config: { functionId: 'qa-nonexistent-function-do-not-register' },
+            },
+          ],
+        },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-mid', fromStepId: 'start', toStepId: 'mid', trigger: 'auto' },
+        { transitionId: 'mid-to-boom', fromStepId: 'mid', toStepId: 'boom', trigger: 'auto' },
+        { transitionId: 'boom-to-end', fromStepId: 'boom', toStepId: 'end', trigger: 'auto' },
+      ],
+    },
+    enabled: true,
+  };
+}
+
+/**
+ * A review task whose step is AGENT-SHAPED, carrying a deadline and an authored
+ * `onBreach` escalation (spec section 7.5).
+ *
+ * The step is a `USER_TASK` that ALSO declares an `INVOKE_AGENT` activity, and
+ * that combination is deliberate. `applyBreachHandling` (`lib/task-sla.ts`)
+ * chooses between the full USER_TASK breach vocabulary and the escalate-only
+ * agent-review one STRUCTURALLY — `isInvokeAgentStepDef` asks only whether the
+ * step declares an `INVOKE_AGENT` activity — so this is the exact input the
+ * production disposition path presents, without needing `agent_orchestrator`
+ * (an optional enterprise peer) or a real model round trip to write the row.
+ * `handleUserTaskStep` reads `userTaskConfig` only, so the declared activity is
+ * never executed and the absent peer is never reached.
+ *
+ * The fixture also asks — twice, as loudly as a definition can — for the run to
+ * be ROUTED on breach: `userTaskConfig.onBreach = { action: 'route' }` plus a
+ * wired `kind: 'slaBreach'` transition to `escalate`. Neither may be honoured on
+ * an agent step, and that refusal is the thing under test.
+ */
+export function buildAgentReviewDeadlineDefinitionPayload(
+  stamp: string,
+  options: {
+    suffix?: string;
+    deadlineDuration: string;
+    onBreach: { action: 'notify' | 'reassign' | 'attention'; reassignTo?: string };
+    assignedToRoles?: string[];
+  },
+) {
+  const suffix = options.suffix ?? '';
+  const id = `qa-wf-review${suffix}-${stamp}`;
+  return {
+    workflowId: id,
+    workflowName: `QA Agent Review Deadline${suffix} ${stamp}`,
+    description: `Integration test definition ${id}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        {
+          stepId: 'agent_review',
+          stepName: 'Dispose agent proposal',
+          stepType: 'USER_TASK',
+          userTaskConfig: {
+            assignedToRoles: options.assignedToRoles ?? ['admin'],
+            allowedActions: ['complete'],
+            deadline: { duration: options.deadlineDuration },
+            // The USER_TASK vocabulary asking to route. Must be ignored here.
+            onBreach: { action: 'route', transitionId: 'review-breach' },
+          },
+          activities: [
+            {
+              activityId: 'assess',
+              activityName: 'Assess',
+              activityType: 'INVOKE_AGENT',
+              config: {
+                agentId: 'qa.assessor',
+                input: {},
+                onResult: { autoApproveThreshold: 0.8 },
+                review: {
+                  deadline: { duration: options.deadlineDuration },
+                  onBreach: options.onBreach,
+                },
+              },
+            },
+          ],
+        },
+        { stepId: 'escalate', stepName: 'Escalate', stepType: 'END' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-review', fromStepId: 'start', toStepId: 'agent_review', trigger: 'auto' },
+        { transitionId: 'review-to-end', fromStepId: 'agent_review', toStepId: 'end', trigger: 'manual' },
+        // The breach route the engine must refuse to follow on an agent step.
+        {
+          transitionId: 'review-breach',
+          fromStepId: 'agent_review',
+          toStepId: 'escalate',
+          trigger: 'auto',
+          kind: 'slaBreach',
+        },
+      ],
+    },
+    enabled: true,
+  };
+}
+
+export type WorkflowEventSnapshot = {
+  id?: string;
+  eventType?: string;
+  eventData?: Record<string, unknown> | null;
+  userId?: string | null;
+  occurredAt?: string;
+};
+
+/**
+ * Instance event log, optionally narrowed to one event type. The event log is the ONLY
+ * audit surface for things that leave no row of their own (a taken transition, a rerun),
+ * so a test asserting an audit trail has to read it rather than infer from state.
+ */
+export async function listWorkflowInstanceEvents(
+  request: APIRequestContext,
+  token: string,
+  instanceId: string,
+  options: { eventType?: string; limit?: number } = {},
+): Promise<WorkflowEventSnapshot[]> {
+  const params = new URLSearchParams({ limit: String(options.limit ?? 100) });
+  if (options.eventType) params.set('eventType', options.eventType);
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/workflows/instances/${encodeURIComponent(instanceId)}/events?${params.toString()}`,
+    { token },
+  );
+  expect(response.status(), `GET instance events should return 200 (got ${response.status()})`).toBe(200);
+  const body = await readJsonSafe<{ data?: WorkflowEventSnapshot[] }>(response);
+  return body?.data ?? [];
+}
+
+export type StepInstanceSnapshot = {
+  id?: string;
+  stepId?: string;
+  stepType?: string;
+  status?: string;
+  inputData?: Record<string, unknown> | null;
+  outputData?: Record<string, unknown> | null;
+  errorData?: Record<string, unknown> | null;
+  enteredAt?: string | null;
+  exitedAt?: string | null;
+  executionTimeMs?: number | null;
+  retryCount?: number;
+};
+
+/** `GET api/instances/[id]/steps` — the spec 8.3 read surface for `StepInstance` rows. */
+export async function listWorkflowInstanceSteps(
+  request: APIRequestContext,
+  token: string,
+  instanceId: string,
+): Promise<StepInstanceSnapshot[]> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/workflows/instances/${encodeURIComponent(instanceId)}/steps?limit=100`,
+    { token },
+  );
+  expect(response.status(), `GET instance steps should return 200 (got ${response.status()})`).toBe(200);
+  const body = await readJsonSafe<{ data?: StepInstanceSnapshot[] }>(response);
+  return body?.data ?? [];
+}
+
+export type FailureQueueGroupSnapshot = {
+  key?: string;
+  label?: string;
+  count?: number;
+  workflowIds?: string[];
+  instanceIds?: string[];
+};
+
+export type FailureQueueBody = {
+  data?: Array<{ id?: string; status?: string; retryCount?: number; errorMessage?: string | null }>;
+  groups?: FailureQueueGroupSnapshot[];
+  grouping?: { scannedCount?: number; scanLimit?: number; truncated?: boolean };
+  pagination?: { total?: number; limit?: number; offset?: number; hasMore?: boolean };
+};
+
+/**
+ * `GET api/instances/failure-queue` — the spec 8.4 triage union (attention-parked PLUS
+ * FAILED). Shared-database safe by construction: callers must assert on their OWN instance
+ * ids, never on the total.
+ */
+export async function getWorkflowFailureQueue(
+  request: APIRequestContext,
+  token: string,
+  query = 'limit=100',
+): Promise<FailureQueueBody | null> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/workflows/instances/failure-queue?${query}`,
+    { token },
+  );
+  expect(response.status(), `GET failure-queue should return 200 (got ${response.status()})`).toBe(200);
+  return readJsonSafe<FailureQueueBody>(response);
 }
