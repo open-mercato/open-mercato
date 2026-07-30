@@ -10,6 +10,10 @@ function read(relativePath: string): string {
   return fs.readFileSync(path.join(agenticRoot, relativePath), 'utf8')
 }
 
+function readPackageDoc(relativePath: string): string {
+  return fs.readFileSync(path.join(agenticRoot, '..', relativePath), 'utf8')
+}
+
 test('standalone discovery catalog covers every public module contribution family', () => {
   const catalog = read('shared/ai/skills/om-module-scaffold/references/discovery-surface-catalog.md')
   const expectedPaths = [
@@ -331,6 +335,33 @@ test('the published case schema accepts the shipped catalog it pins', () => {
     const oracle = entry.oracle as { validatorIds?: string[] } | undefined
     for (const validatorId of oracle?.validatorIds ?? []) {
       assert.match(validatorId, oraclePattern, `${id}: schema oracle validatorId pattern rejects ${validatorId}`)
+    }
+  }
+})
+
+test('every published case count states the shipped catalog or the portability sample', () => {
+  const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
+  const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
+  const statedCounts = /([0-9]+)[- ](?:live-)?(?:routing |writable |read-only )?cases?\b/g
+  const allowed = new Map([
+    [cases.length, 'the shipped catalog'],
+    [validators.catalog.writableCaseIds.length, 'the writable/portability sample'],
+  ])
+  const documents: Array<[string, string]> = [
+    ['packages/create-app/README.md', readPackageDoc('README.md')],
+    ['agentic/shared/ai/harness/README.md', read('shared/ai/harness/README.md')],
+    ['agentic/shared/ai/harness/RELEASE.md', read('shared/ai/harness/RELEASE.md')],
+  ]
+
+  for (const [label, contents] of documents) {
+    const matches = [...contents.matchAll(statedCounts)]
+    assert.ok(matches.length > 0, `${label}: states no case count; an absent one would make this guard vacuous`)
+    for (const match of matches) {
+      const stated = Number(match[1])
+      assert.ok(
+        allowed.has(stated),
+        `${label}: "${match[0]}" states ${stated}, but ${[...allowed].map(([count, source]) => `${source} has ${count}`).join(' and ')}`,
+      )
     }
   }
 })
