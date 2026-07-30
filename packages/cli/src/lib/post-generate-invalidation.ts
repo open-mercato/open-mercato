@@ -21,13 +21,16 @@ function touchGeneratedFiles(appDir: string): string[] {
   if (!fs.existsSync(generatedDir) || !fs.statSync(generatedDir).isDirectory()) return []
 
   const touched: string[] = []
+  // `utimes` advances mtime without opening the file for writing. Rewriting the
+  // identical bytes would truncate multi-megabyte registries first, and Turbopack
+  // reads them concurrently during a dev compile — it can observe the empty window.
+  const touchedAt = new Date()
   const entries = fs.readdirSync(generatedDir, { withFileTypes: true })
     .sort((left, right) => left.name.localeCompare(right.name))
   for (const entry of entries) {
     if (!entry.isFile() || !TOUCHABLE_GENERATED_FILE_PATTERN.test(entry.name)) continue
     const filePath = path.join(generatedDir, entry.name)
-    const contents = fs.readFileSync(filePath)
-    fs.writeFileSync(filePath, contents)
+    fs.utimesSync(filePath, touchedAt, touchedAt)
     touched.push(filePath)
   }
   return touched
