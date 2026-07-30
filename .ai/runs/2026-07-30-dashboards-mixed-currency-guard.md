@@ -35,18 +35,29 @@ deliberately left out of scope — it is a feature, not a correctness fix.
    optional `currencyField`, letting an entity declare which mapped field holds its per-row
    currency. Additive and optional: existing analytics configs are untouched and keep
    working, so no contract surface breaks.
-2. `packages/core/src/modules/sales/analytics.ts` — `sales:orders` and `sales:quotes`
-   declare `currencyField: 'currencyCode'`.
+2. **Every entity the money widgets aggregate declares its currency column** —
+   `sales:orders` and `sales:quotes` (`currencyCode` → `currency_code`),
+   `sales:order_lines` (`currencyCode` → `currency_code`, newly mapped; `top-products`
+   aggregates it) and `customers:deals` (`valueCurrency` → `value_currency`, newly mapped;
+   `pipeline-summary` aggregates it). Covering only `sales:orders` would have left two of the
+   seven widgets the issue names unguarded — caught in review.
 3. `packages/core/src/modules/dashboards/lib/aggregations.ts` — the scope / date-range /
    filter WHERE building is extracted into a shared helper so the new
    `buildDistinctCurrencyQuery()` reads distinct row currencies over *exactly* the rows the
-   aggregation sums. `LIMIT 2` is enough to tell "one" from "several".
+   aggregation sums, capped at a handful of codes.
 4. `packages/core/src/modules/dashboards/services/widgetDataService.ts` —
    `resolveCurrencyLabel()` keeps the base currency only when every aggregated range passes
    `rowsShareCurrency()`. The comparison range is checked too, so a mixed previous period
    cannot produce a labelled delta. The check is skipped when no base currency resolved, so
-   the unbounded-scope path costs nothing. Everything unprovable — mixed codes, a NULL code,
-   a lookup failure, or a single code disagreeing with the base — resolves to `null`.
+   the unbounded-scope path costs nothing. Mixed codes, a lookup failure, or a single code
+   disagreeing with the base all resolve to `null`.
+
+   Rows with **no recorded currency** are read as inheriting the base currency, not as a
+   violation. `customer_deals.value_currency` is nullable, so failing those closed would
+   leave every tenant that never fills the column permanently unlabelled — indistinguishable
+   from a broken widget, which is the confusion this guard exists to remove. The read-back
+   cap is 4 rather than 2 so those value-less rows (`NULL` and `''` are distinct to
+   `SELECT DISTINCT`) cannot mask a second real code.
 5. `packages/core/src/modules/dashboards/components/UnlabelledAmountNotice.tsx` — a shared
    muted hint the seven money widgets render when `metadata.currency` is `null`, so a bare
    number reads as a deliberate omission rather than a broken widget. Copy added to all four
@@ -59,7 +70,7 @@ deliberately left out of scope — it is a feature, not a correctness fix.
 
 - [x] Triage: real, still-unfixed follow-up; every acceptance criterion depends on #4656, which is unmerged — hence the stacked branch
 - [x] `AnalyticsEntityTypeConfig.currencyField` declared (additive)
-- [x] `sales:orders` / `sales:quotes` declare their currency column
+- [x] `sales:orders`, `sales:quotes`, `sales:order_lines` and `customers:deals` declare their currency column
 - [x] `buildDistinctCurrencyQuery()` + extracted WHERE-clause helper
 - [x] `resolveCurrencyLabel()` / `rowsShareCurrency()` in `WidgetDataService`
 - [x] `UnlabelledAmountNotice` wired into all seven money widgets
@@ -67,6 +78,7 @@ deliberately left out of scope — it is a feature, not a correctness fix.
 - [x] Unit tests (service + query builder)
 - [x] `.ai/runs/2026-07-29-dashboards-base-currency-formatting.md` records the closed limitation
 - [x] Validation gate
+- [x] Self code review (`om-auto-review-pr --autofix`) — one major (two of the seven widgets uncovered) and one minor (silent catch) found and fixed
 - [ ] Manual QA of the seven widgets (`needs-qa`)
 
 ## Validation

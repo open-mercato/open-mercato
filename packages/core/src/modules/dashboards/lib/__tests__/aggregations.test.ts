@@ -344,7 +344,7 @@ describe('aggregations', () => {
       expect(query!.sql).toContain('deleted_at IS NULL')
       expect(query!.sql).toContain('placed_at >= ?')
       expect(query!.sql).toContain('placed_at <= ?')
-      expect(query!.sql).toContain('LIMIT 2')
+      expect(query!.sql).toContain('LIMIT 4')
       expect(query!.params[0]).toBe('tenant-1')
       expect(query!.params[1]).toBe('{org-1,org-2}')
     })
@@ -361,9 +361,21 @@ describe('aggregations', () => {
       expect(query!.params).toContain('completed')
     })
 
+    it('covers every entity the money widgets aggregate', () => {
+      for (const entityType of ['sales:orders', 'sales:order_lines', 'customers:deals']) {
+        const query = buildDistinctCurrencyQuery({
+          entityType,
+          scope: { tenantId: 'tenant-1' },
+          registry: testRegistry,
+        })
+
+        expect(query).not.toBeNull()
+      }
+    })
+
     it('returns null for an entity that declares no per-row currency column', () => {
       const query = buildDistinctCurrencyQuery({
-        entityType: 'sales:order_lines',
+        entityType: 'catalog:products',
         scope: { tenantId: 'tenant-1' },
         registry: testRegistry,
       })

@@ -19,7 +19,10 @@ import {
   buildAggregationQuery,
   buildDistinctCurrencyQuery,
 } from '../lib/aggregations'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AnalyticsRegistry } from './analyticsRegistry'
+
+const logger = createLogger('dashboards').child({ component: 'widget-data-service' })
 
 const WIDGET_DATA_CACHE_TTL = 120_000
 const WIDGET_DATA_SEGMENT_TTL = 86_400_000
@@ -220,7 +223,11 @@ export class WidgetDataService {
         if (!uniform) return null
       }
       return baseCurrency
-    } catch {
+    } catch (err) {
+      logger.warn('Row-currency uniformity check failed; leaving the amount unlabelled', {
+        err,
+        entityType: request.entityType,
+      })
       return null
     }
   }
@@ -229,6 +236,12 @@ export class WidgetDataService {
    * Reads the distinct per-row currencies of the rows one aggregation range would sum.
    * Entities that declare no `currencyField` carry no per-row currency to contradict the
    * base one, so they pass. An empty range has nothing to mislabel and also passes.
+   *
+   * Rows with no recorded currency are read as inheriting the scope's base currency, which
+   * is what an unset value means for a nullable currency column such as
+   * `customer_deals.value_currency`. Failing those closed would leave every tenant that
+   * never fills the column permanently unlabelled — indistinguishable from a broken widget,
+   * the very confusion this guard exists to remove.
    */
   private async rowsShareCurrency(
     request: WidgetDataRequest,
@@ -247,11 +260,16 @@ export class WidgetDataService {
 
     const rows = await this.em.getConnection().execute(query.sql, query.params)
     const resultRows = (Array.isArray(rows) ? rows : []) as Array<Record<string, unknown>>
-    if (resultRows.length === 0) return true
-    if (resultRows.length > 1) return false
 
-    const code = typeof resultRows[0]?.code === 'string' ? resultRows[0].code.trim().toUpperCase() : ''
-    return code === expectedCode
+    const recordedCodes = new Set<string>()
+    for (const row of resultRows) {
+      const code = typeof row.code === 'string' ? row.code.trim().toUpperCase() : ''
+      if (code) recordedCodes.add(code)
+    }
+
+    if (recordedCodes.size === 0) return true
+    if (recordedCodes.size > 1) return false
+    return recordedCodes.has(expectedCode)
   }
 
   /**
