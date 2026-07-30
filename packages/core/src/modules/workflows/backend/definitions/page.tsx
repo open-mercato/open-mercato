@@ -9,14 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -27,7 +20,6 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
-import { Trash2 } from 'lucide-react'
 import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../components/TemplateGalleryDialog'
 import { buildVisualEditorHref, WORKFLOW_STUDIO_CREATE_HREF } from '../../lib/visual-editor-navigation'
 import {
@@ -518,25 +510,22 @@ export default function WorkflowDefinitionsListPage() {
           onOpenChange={setShowTemplateGallery}
           onSelect={handleTemplateSelect}
         />
-        <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t('workflows.confirm.deleteTitle')}</DialogTitle>
-              <DialogDescription>
-                {t('workflows.confirm.delete', { name: deleteTarget?.name ?? '' })}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-                {t('common.cancel')}
-              </Button>
-              <Button variant="destructive" onClick={confirmDelete}>
-                <Trash2/>
-                {t('common.delete')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {/* Deleting a definition is a yes/no interruption that must block, so it
+            stays a confirmation in the shared ConfirmDialog rather than a rail.
+            Mounted only with a target: the body names the record, and there is
+            no record to name while the list is idle. */}
+        {deleteTarget ? (
+          <ConfirmDialog
+            open
+            onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
+            title={t('workflows.confirm.deleteTitle')}
+            text={t('workflows.confirm.delete', { name: deleteTarget.name })}
+            confirmText={t('common.delete')}
+            cancelText={t('common.cancel')}
+            variant="destructive"
+            onConfirm={confirmDelete}
+          />
+        ) : null}
       </PageBody>
     </Page>
   )

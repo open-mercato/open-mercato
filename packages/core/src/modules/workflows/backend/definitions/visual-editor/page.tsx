@@ -118,7 +118,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
-import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ConfirmDialog, useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
@@ -2919,18 +2919,18 @@ export default function VisualEditorPage() {
         onOpenChange={setShowTemplateGallery}
         onSelect={handleTemplateSelect}
       />
-      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('workflows.visualEditor.clearTitle')}</DialogTitle>
-            <DialogDescription>{t('workflows.visualEditor.clearDescription')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>{t('common.cancel', 'Cancel')}</Button>
-            <Button variant="destructive" onClick={confirmClear}>{t('common.clear', 'Clear')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Clearing the canvas is a yes/no interruption that must block — a rail
+          would make an irreversible action easy to miss. */}
+      <ConfirmDialog
+        open={showClearConfirm}
+        onOpenChange={setShowClearConfirm}
+        title={t('workflows.visualEditor.clearTitle')}
+        text={t('workflows.visualEditor.clearDescription')}
+        confirmText={t('common.clear', 'Clear')}
+        cancelText={t('common.cancel', 'Cancel')}
+        variant="destructive"
+        onConfirm={confirmClear}
+      />
       <Dialog open={startOpen} onOpenChange={setStartOpen}>
         <DialogContent>
           <DialogHeader>
@@ -3311,7 +3311,7 @@ export default function VisualEditorPage() {
               )}
               {!isCodeOnly && (
                 <Button
-                  variant="destructive"
+                  variant="destructive-outline"
                   size="sm"
                   onClick={handleClear}
                   disabled={isSaving}

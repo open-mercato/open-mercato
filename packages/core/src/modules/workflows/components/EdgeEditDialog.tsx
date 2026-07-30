@@ -541,7 +541,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           <div className="border-t border-border pt-3">
                             <Button
                               type="button"
-                              variant="destructive"
+                              variant="destructive-outline"
                               size="sm"
                               onClick={() => removePreCondition(index)}
                             >
@@ -687,7 +687,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           <div className="border-t border-border pt-3">
                             <Button
                               type="button"
-                              variant="destructive"
+                              variant="destructive-outline"
                               size="sm"
                               onClick={() => removePostCondition(index)}
                             >
@@ -910,7 +910,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           <div className="border-t border-border pt-3">
                             <Button
                               type="button"
-                              variant="destructive"
+                              variant="destructive-outline"
                               size="sm"
                               onClick={() => removeActivity(index)}
                             >
@@ -958,7 +958,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
         <DialogFooter className="flex justify-between">
           <Button
             type="button"
-            variant="destructive"
+            variant="destructive-outline"
             onClick={handleDelete}
           >
             <Trash2 className="size-4" />

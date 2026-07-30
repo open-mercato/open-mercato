@@ -1021,7 +1021,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 <div className="border-t border-border pt-3">
                                   <Button
                                     type="button"
-                                    variant="destructive"
+                                    variant="destructive-outline"
                                     size="sm"
                                     onClick={() => removeFormField(index)}
                                   >
@@ -1351,7 +1351,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 <div className="pt-3 border-t border-border">
                                   <Button
                                     type="button"
-                                    variant="destructive"
+                                    variant="destructive-outline"
                                     size="sm"
                                     onClick={() => {
                                       setStepActivities(stepActivities.filter((_, i) => i !== index))
@@ -1965,7 +1965,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
           {onDelete && (
             <Button
               type="button"
-              variant="destructive"
+              variant="destructive-outline"
               onClick={handleDelete}
             >
               <Trash2 className="size-4" />

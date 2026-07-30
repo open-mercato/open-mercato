@@ -294,7 +294,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
                     </div>
 
                     {/* Retry Policy */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Label className="text-xs font-semibold mb-2 block">{t('workflows.fieldEditors.activities.retryPolicy')}</Label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
@@ -364,7 +364,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
                     </div>
 
                     {/* Activity Options */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Label className="text-xs font-semibold mb-2 block">{t('workflows.fieldEditors.activities.activityOptions')}</Label>
                       <div className="space-y-2">
                         <div className="flex items-center space-x-2">
@@ -470,10 +470,10 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
                     )}
 
                     {/* Delete Button */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Button
                         type="button"
-                        variant="destructive"
+                        variant="destructive-outline"
                         size="sm"
                         onClick={() => removeActivity(index)}
                         disabled={disabled}

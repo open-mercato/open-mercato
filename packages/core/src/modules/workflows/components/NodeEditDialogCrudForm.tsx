@@ -1132,7 +1132,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           canDelete ? (
             <Button
               type="button"
-              variant="destructive"
+              variant="destructive-outline"
               onClick={handleDelete}
             >
               <Trash2 className="size-4 mr-2" />

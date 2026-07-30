@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { useAvailableEvents } from '@open-mercato/ui/backend/inputs/EventSelect'
@@ -659,28 +660,18 @@ export function DefinitionTriggersEditor({
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('workflows.triggers.delete.title', 'Delete Event Trigger?')}</DialogTitle>
-            <DialogDescription>
-              {t('workflows.triggers.delete.description', 'This will remove the event trigger. The change will take effect when you save the workflow definition.')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}
-            >
-              {t('common.delete', 'Delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Removing a trigger is a yes/no interruption, so it stays a blocking
+          confirmation rather than becoming a rail. */}
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        onOpenChange={(next) => { if (!next) setDeleteConfirmId(null) }}
+        title={t('workflows.triggers.delete.title', 'Delete Event Trigger?')}
+        text={t('workflows.triggers.delete.description', 'This will remove the event trigger. The change will take effect when you save the workflow definition.')}
+        confirmText={t('common.delete', 'Delete')}
+        cancelText={t('common.cancel', 'Cancel')}
+        variant="destructive"
+        onConfirm={() => { if (deleteConfirmId) handleDelete(deleteConfirmId) }}
+      />
     </div>
   )
 }

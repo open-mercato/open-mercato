@@ -280,7 +280,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
           extraActions={
             <Button
               type="button"
-              variant="destructive"
+              variant="destructive-outline"
               onClick={handleDelete}
             >
               <Trash2 className="size-4 mr-2" />

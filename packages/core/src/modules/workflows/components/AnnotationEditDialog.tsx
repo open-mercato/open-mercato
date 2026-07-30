@@ -133,7 +133,7 @@ export function AnnotationEditDialog({ node, isOpen, onClose, onSave, onDelete }
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="destructive" onClick={handleDelete}>
+          <Button type="button" variant="destructive-outline" onClick={handleDelete}>
             {t('common.delete', 'Delete')}
           </Button>
           <Button type="button" variant="outline" onClick={onClose}>
