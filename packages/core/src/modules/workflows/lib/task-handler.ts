@@ -354,6 +354,16 @@ export async function completeUserTask(
     selectedTransition = firstValidTransition.transition
   }
 
+  // Resume from the paused wait BEFORE executing the transition, exactly as
+  // `sendSignal` does. Without it the executor's defense-in-depth PAUSED check
+  // stops the run at the first step the completion traverses, so the instance
+  // sits there as PAUSED and never reaches END. Guarded on PAUSED so completing
+  // a stale task can never resurrect a CANCELLED or terminal run.
+  if (instance.status === 'PAUSED') {
+    instance.status = 'RUNNING'
+    await em.flush()
+  }
+
   // Execute the transition to move to next step
 
   const transitionResult = await transitionHandler.executeTransition(

@@ -756,7 +756,15 @@ export async function executeTransitionForToken(
     // the instance (e.g. an INVOKE_AGENT AUTOMATED step enqueued an async agent
     // job and set status PAUSED). Surface that via `paused` so the executor loop
     // stops advancing instead of taking the next auto-transition.
-    const stepPaused = stepExecutionResult.status === 'WAITING'
+    //
+    // `FORK` is the ONE wait reason that is not an external park: `openFork`
+    // leaves the instance FORKED with its branch rows already written, and the
+    // branches are driven by `advanceBranches` on the executor loop's NEXT
+    // iteration. Reporting it as paused makes the executor return before it
+    // re-reads the instance, so the branches never advance and the instance
+    // stays FORKED at the fork step forever.
+    const stepPaused =
+      stepExecutionResult.status === 'WAITING' && stepExecutionResult.waitReason !== 'FORK'
 
     // Evaluate post-conditions (business rules)
     const postConditionsResult = await evaluatePostConditions(
