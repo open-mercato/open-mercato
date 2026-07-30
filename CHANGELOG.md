@@ -119,7 +119,7 @@
 
 ## 🛠️ Improvements
 - 🛠️ Cache dictionary-entry value lookups on order create (supersedes #3948). (#4504) *(@KamilGrocholski, via @pkarw)*
-- 🛠️ Sync main hotfixes back into develop. (#4261) *(@patzick)*
+- 🛠️ Sync the main hotfixes already shipped in 0.6.6 (#4191, #4193, #4210, #4213) back into develop. (#4261) *(@patzick)*
 - 🛠️ Bump websocket-driver to 0.7.5 on develop. (#4258) *(@pkarw)*
 - 🛠️ Avoid app bootstrap after generation. (#4219) *(@andrzejewsky)*
 - 🛠️ Avoid invalidation after no-op generation. (#4217) *(@andrzejewsky)*
