@@ -3497,6 +3497,7 @@ export default function VisualEditorPage() {
                 nodeErrorCounts={nodeErrorCounts}
                 showCompensation={showCompensation}
                 runOverlay={lastRunOverlay.execution}
+                runAgentLabels={lastRunOverlay.agentLabels}
                 triggers={triggers}
                 definitionEnabled={enabled}
                 onOpenTriggers={handleOpenTriggers}
@@ -3728,6 +3729,7 @@ export default function VisualEditorPage() {
                   nodeErrorCounts={nodeErrorCounts}
                   showCompensation={showCompensation}
                   runOverlay={lastRunOverlay.execution}
+                  runAgentLabels={lastRunOverlay.agentLabels}
                   triggers={triggers}
                   definitionEnabled={enabled}
                   onOpenTriggers={handleOpenTriggers}

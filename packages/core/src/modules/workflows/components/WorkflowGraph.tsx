@@ -49,6 +49,11 @@ export interface WorkflowGraphProps {
    */
   runOverlay?: RunExecution | null
   /**
+   * Agent id → label for the overlay's reason line (spec Part 2). Display-only,
+   * like `runOverlay` itself.
+   */
+  runAgentLabels?: ReadonlyMap<string, string> | null
+  /**
    * The definition's event triggers (fidelity gap #5). Display-only: the pill is
    * minted at render time and never enters the editor's node state, so it cannot
    * reach `graphToDefinition`, the undo stack or an autosave. `undefined`/`null`

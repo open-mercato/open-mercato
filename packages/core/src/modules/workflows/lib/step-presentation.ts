@@ -243,6 +243,30 @@ export function resolveStepPresentation(
 }
 
 /**
+ * The `INVOKE_AGENT` agent id as the canvas carries it. `invokeAgent` nodes hold
+ * it either directly (the editor's display field) or inside the single
+ * INVOKE_AGENT activity they compile to — `InvokeAgentNode` resolves it the same
+ * two ways, so the reason line reads the same value the card already shows.
+ */
+export function readNodeAgentId(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null
+  const record = data as Record<string, unknown>
+  if (typeof record.agentId === 'string' && record.agentId.length > 0) return record.agentId
+  const activities = record.activities
+  if (!Array.isArray(activities)) return null
+  for (const activity of activities) {
+    if (!activity || typeof activity !== 'object') continue
+    const entry = activity as Record<string, unknown>
+    if (entry.activityType !== 'INVOKE_AGENT') continue
+    const config = entry.config
+    if (!config || typeof config !== 'object') continue
+    const agentId = (config as Record<string, unknown>).agentId
+    if (typeof agentId === 'string' && agentId.length > 0) return agentId
+  }
+  return null
+}
+
+/**
  * Map a presentation state onto the canvas paint vocabulary. Kept separate from
  * the resolver so the decision stays testable without a colour table, and so a
  * surface that paints differently (a list badge, a timeline bar) can reuse the

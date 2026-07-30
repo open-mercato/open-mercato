@@ -34,13 +34,19 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { WouldDoReport, type WouldDoReportPayload } from '../../../components/run/WouldDoReport'
 import { definitionToGraph } from '../../../lib/graph-utils'
-import { STEP_STATUS_STYLES } from '../../../lib/status-colors'
+import { PRESENTATION_STEP_STYLES } from '../../../lib/status-colors'
 import {
   deriveRunExecution,
   isRouteTaken,
   resolveNodeRunStatus,
   type RunStepInstanceInput,
 } from '../../../lib/run-execution'
+import {
+  presentationToWorkflowStatus,
+  readNodeAgentId,
+  resolveStepPresentation,
+} from '../../../lib/step-presentation'
+import { useAgentLabels } from '../../../components/run/useAgentLabels'
 import { formatElapsedSince, formatRunDuration } from '../../../lib/run-duration'
 import { isRunMilestoneEvent } from '../../../lib/run-event-tone'
 import type { Node } from '@xyflow/react'
@@ -256,9 +262,22 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
         stepInstances,
         currentStepId: instance?.currentStepId,
         instanceStatus: instance?.status,
+        attention: instance?.metadata?.attention,
       }),
-    [events, stepInstances, instance?.currentStepId, instance?.status]
+    [events, stepInstances, instance?.currentStepId, instance?.status, instance?.metadata?.attention]
   )
+
+  // The agent registry is only worth a request when this definition actually
+  // invokes one — and "use the agent's LABEL, never its definition key" is why
+  // it is worth one at all.
+  const hasAgentStep = React.useMemo(
+    () =>
+      (workflowDefinition?.definition?.steps ?? []).some((step: { activities?: Array<{ activityType?: string }> }) =>
+        (step.activities ?? []).some((activity) => activity.activityType === 'INVOKE_AGENT')
+      ),
+    [workflowDefinition]
+  )
+  const agentLabels = useAgentLabels(hasAgentStep)
 
   const executionsByStepId = React.useMemo(() => {
     const map = new Map<string, RunStepInstanceInput[]>()
@@ -281,10 +300,19 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     const { nodes, edges } = definitionToGraph(workflowDefinition.definition, { autoLayout: true })
 
     const styledNodes: Node[] = nodes.map((node) => {
-      const status = resolveNodeRunStatus(execution, node, {
+      const runStatus = resolveNodeRunStatus(execution, node, {
         currentStepId: instance?.currentStepId,
         instanceStatus: instance?.status,
       })
+      // Spec Part 2: the canvas paints the PRESENTATION state, not the engine's
+      // lifecycle vocabulary — so an activity in a worker or an agent mid-run
+      // reads blue and moving instead of amber and parked.
+      const presentation = resolveStepPresentation(
+        execution,
+        { id: node.id, status: runStatus },
+        { agentLabels, agentId: readNodeAgentId(node.data) }
+      )
+      const status = presentationToWorkflowStatus(presentation.state)
       const state = execution.stepStates.get(node.id)
       const duration = state
         ? formatRunDuration(state.startedAt, state.completedAt, state.durationMs)
@@ -311,10 +339,12 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
           ...node.data,
           status,
           duration,
+          runReason: presentation.reason,
+          runStartedAt: presentation.startedAt,
           tooltip: tooltipLines.join('\n'),
           childInstanceIds: (childrenByStepId.get(node.id) ?? []).map((child) => child.id),
         },
-        style: STEP_STATUS_STYLES[status] as React.CSSProperties,
+        style: PRESENTATION_STEP_STYLES[presentation.state] as React.CSSProperties,
         selected: node.id === selectedStepId,
       }
     })
@@ -329,7 +359,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     })
 
     return { graphNodes: styledNodes, graphEdges: styledEdges }
-  }, [workflowDefinition, execution, instance?.currentStepId, instance?.status, childrenByStepId, selectedStepId, t])
+  }, [workflowDefinition, execution, agentLabels, instance?.currentStepId, instance?.status, childrenByStepId, selectedStepId, t])
 
   const calculateDuration = React.useCallback(
     (startedAt: string | Date, completedAt: string | Date | null | undefined) =>

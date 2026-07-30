@@ -6,6 +6,7 @@ import { NODE_HANDLE_CLASS, NODE_PORT_HANDLE_CLASS } from '../../lib/node-geomet
 import { ArrowUpRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
+import type { StepReason } from '../../lib/step-presentation'
 import { toWorkflowStatus } from '../../lib/status-colors'
 import { buildNodeConfigSummary } from '../../lib/node-config-summary'
 import type { PortField } from '../../data/validators'
@@ -22,6 +23,13 @@ export interface SubWorkflowNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  /**
+   * Run presentation (spec Part 2). Set at render time by the run detail
+   * page and the Studio last-run overlay from the SAME resolver, so the two
+   * surfaces can never disagree about what the step is doing.
+   */
+  runReason?: StepReason | null
+  runStartedAt?: Date | null
   hasError?: boolean
   hasCompensation?: boolean
   errorCount?: number
@@ -95,6 +103,8 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
         title={nodeData.label}
         description={description}
         status={workflowStatus}
+        runReason={nodeData.runReason}
+        runStartedAt={nodeData.runStartedAt}
         nodeType="subWorkflow"
         selected={selected}
         hasError={nodeData.hasError}

@@ -25,6 +25,13 @@ const ALL_STATUSES: WorkflowStatus[] = [
   'paused',
   'not_started',
   'error',
+  // The run PRESENTATION states (spec `2026-07-30-workflow-run-outcomes.md`,
+  // Part 2). They are listed here, not only in their own suite, because §4.6's
+  // "status is never colour-only" is a guard over EVERY status the canvas can
+  // paint — a new one must not be able to slip in without a name and a shape.
+  'working',
+  'waiting',
+  'needs_attention',
 ]
 
 /**

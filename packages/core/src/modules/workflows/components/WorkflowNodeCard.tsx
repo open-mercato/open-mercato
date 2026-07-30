@@ -1,9 +1,23 @@
 'use client'
 
 import type React from 'react'
-import { Check, Play, Pause, Circle, CircleAlert, ShieldMinus, XCircle, Trash2 } from 'lucide-react'
+import {
+  Check,
+  Play,
+  Pause,
+  Circle,
+  CircleAlert,
+  Hourglass,
+  LoaderCircle,
+  ShieldMinus,
+  TriangleAlert,
+  XCircle,
+  Trash2,
+} from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
+import type { StepReason } from '../lib/step-presentation'
+import { formatElapsedSince } from '../lib/run-duration'
 import { NODE_TYPE_ICONS, NODE_TYPE_ACCENTS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../lib/node-type-icons'
 import { NODE_MAX_WIDTH, NODE_MIN_WIDTH } from '../lib/node-geometry'
 import {
@@ -42,6 +56,38 @@ const STATUS_LABEL_FALLBACKS: Record<WorkflowStatus, string> = {
   paused: 'Paused',
   not_started: 'Not started',
   error: 'Has errors',
+  working: 'Working',
+  waiting: 'Waiting',
+  needs_attention: 'Needs attention',
+}
+
+/**
+ * Per-status glyph. Every RUN state gets its OWN shape, because the colour is
+ * never allowed to be the only signal (spec §4.6) — and because `working` and
+ * `waiting` are the pair this whole model exists to tell apart, they get the two
+ * most different marks on the card: a spinner ring and an hourglass.
+ */
+export const STATUS_ICONS: Record<WorkflowStatus, typeof Check> = {
+  completed: Check,
+  in_progress: Play,
+  pending: Pause,
+  failed: XCircle,
+  paused: Pause,
+  not_started: Circle,
+  error: CircleAlert,
+  working: LoaderCircle,
+  waiting: Hourglass,
+  needs_attention: TriangleAlert,
+}
+
+/**
+ * Motion is an ENHANCEMENT, never the distinction. `motion-reduce:animate-none`
+ * honours `prefers-reduced-motion`, and with animation off a working step is
+ * still a blue card carrying a spinner ring, an announced name and its own
+ * reason line — none of which depend on the spin.
+ */
+const STATUS_MOTION: Partial<Record<WorkflowStatus, string>> = {
+  working: 'animate-spin motion-reduce:animate-none',
 }
 
 export function requestWorkflowNodeDeletion(nodeId: string): void {
@@ -92,6 +138,18 @@ interface WorkflowNodeCardProps {
    * an unconfigured node never reads emptier than before.
    */
   summary?: NodeConfigSummarySegment[]
+  /**
+   * The one-line "what is this doing / waiting for" (spec Part 2), resolved by
+   * `lib/step-presentation.ts`. A translation descriptor rather than a string,
+   * because the resolver is pure and never sees a locale.
+   */
+  runReason?: StepReason | null
+  /**
+   * When the current attempt started, so a working step can also say "running
+   * for 4m" — the second question an operator asks, and free because
+   * `StepInstance.startedAt` already carries it.
+   */
+  runStartedAt?: Date | null
 }
 
 export function WorkflowNodeCard({
@@ -108,6 +166,8 @@ export function WorkflowNodeCard({
   variant = 'card',
   footer,
   summary,
+  runReason = null,
+  runStartedAt = null,
 }: WorkflowNodeCardProps) {
   const t = useT()
   const resolvedSummary = summary?.map((segment) => ({
@@ -118,15 +178,7 @@ export function WorkflowNodeCard({
   const isEditMode = status === 'not_started'
   const colors = STATUS_COLORS[status]
 
-  const StatusIcon = {
-    completed: Check,
-    in_progress: Play,
-    pending: Pause,
-    failed: XCircle,
-    paused: Pause,
-    not_started: Circle,
-    error: CircleAlert,
-  }[status]
+  const StatusIcon = STATUS_ICONS[status]
 
   const NodeTypeIcon = NODE_TYPE_ICONS[nodeType]
   const nodeTypeIconColor = NODE_TYPE_COLORS[nodeType]
@@ -171,8 +223,27 @@ export function WorkflowNodeCard({
   // single card. The `sr-only` name stays unconditional — it is what keeps
   // status from being colour-only (spec section 4.6).
   const statusGlyph = isEditMode ? null : (
-    <StatusIcon className={`h-4 w-4 shrink-0 ${colors.icon}`} aria-hidden="true" />
+    <StatusIcon
+      className={`h-4 w-4 shrink-0 ${colors.icon} ${STATUS_MOTION[status] ?? ''}`.trimEnd()}
+      aria-hidden="true"
+    />
   )
+
+  // The reason line (spec Part 2). It is the answer to "is anything happening
+  // right now, or is this stuck?", so it sits directly under the title and it
+  // is TEXT — a card whose animation is disabled still says what it is doing.
+  const reasonText = runReason ? t(runReason.key, runReason.fallback, runReason.params) : null
+  const elapsed = runStartedAt ? formatElapsedSince(runStartedAt, null) : null
+  const reasonLine = reasonText ? (
+    <p className={`mt-1 truncate text-xs ${colors.text}`} title={reasonText}>
+      {reasonText}
+      {elapsed ? (
+        <span className="text-muted-foreground">
+          {` · ${t('workflows.runState.elapsed', 'running for {duration}', { duration: elapsed })}`}
+        </span>
+      ) : null}
+    </p>
+  ) : null
 
   const badges = (
     <>
@@ -296,6 +367,7 @@ export function WorkflowNodeCard({
               {description}
             </p>
           ) : null}
+          {reasonLine}
         </div>
       </div>
 

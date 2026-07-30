@@ -215,3 +215,32 @@ export const STEP_STATUS_STYLES: Record<StepRunStatus, CSSProperties> = {
     borderRadius: '8px',
   },
 }
+
+/**
+ * The same outline vocabulary, keyed by the run PRESENTATION state
+ * (`lib/step-presentation.ts`). It exists because the node's outline and the
+ * node's card must agree: a step painted blue-and-working by the card cannot
+ * sit inside an amber outline derived from the engine's lifecycle status.
+ *
+ * `working` reuses `active`'s ring rather than inventing a second blue, and
+ * `attention` deliberately does NOT reuse `failed`'s: a parked run is not a
+ * failed one, so it is the error border WITHOUT the filled error background.
+ */
+export const PRESENTATION_STEP_STYLES: Record<
+  'working' | 'waiting' | 'attention' | 'completed' | 'failed' | 'skipped' | 'not_started',
+  CSSProperties
+> = {
+  working: STEP_STATUS_STYLES.active,
+  waiting: STEP_STATUS_STYLES.paused,
+  attention: {
+    backgroundColor: 'var(--status-warning-bg)',
+    color: 'var(--status-error-text)',
+    borderColor: 'var(--status-error-icon)',
+    borderWidth: '3px',
+    borderRadius: '16px',
+  },
+  completed: STEP_STATUS_STYLES.completed,
+  failed: STEP_STATUS_STYLES.failed,
+  skipped: STEP_STATUS_STYLES.skipped,
+  not_started: STEP_STATUS_STYLES.pending,
+}

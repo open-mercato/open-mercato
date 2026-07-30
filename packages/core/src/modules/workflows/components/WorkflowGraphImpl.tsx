@@ -45,6 +45,11 @@ import {
 } from '../lib/compensation-ghosts'
 import { buildAgentOutcomeRows } from '../lib/node-outcome-rows'
 import { isRouteTaken, resolveNodeRunStatus, type RunExecution } from '../lib/run-execution'
+import {
+  presentationToWorkflowStatus,
+  readNodeAgentId,
+  resolveStepPresentation,
+} from '../lib/step-presentation'
 import { EDGE_COLORS, STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
@@ -167,6 +172,13 @@ export interface WorkflowGraphImplProps {
    */
   runOverlay?: RunExecution | null
   /**
+   * Agent id → label for the overlay's reason line, from the OPTIONAL
+   * `agent_orchestrator` peer. Rides alongside `runOverlay` so the Studio names
+   * an agent exactly the way the run detail page does — use the agent's LABEL,
+   * never its definition key.
+   */
+  runAgentLabels?: ReadonlyMap<string, string> | null
+  /**
    * The definition's event triggers, for the canvas trigger node (fidelity gap
    * #5). Display-only and minted at RENDER time, the same rule the compensation
    * ghosts and the last-run overlay follow, so the pill never enters the
@@ -206,6 +218,7 @@ export default function WorkflowGraphImpl({
   nodeErrorCounts,
   showCompensation = false,
   runOverlay = null,
+  runAgentLabels = null,
   triggers = null,
   definitionEnabled = true,
   onOpenTriggers,
@@ -440,13 +453,29 @@ export default function WorkflowGraphImpl({
   const overlaidNodes = useMemo(() => {
     if (!runOverlay) return decoratedNodes
     return decoratedNodes.map((node) => {
-      const status = resolveNodeRunStatus(runOverlay, { id: node.id, type: node.type })
+      const runStatus = resolveNodeRunStatus(runOverlay, { id: node.id, type: node.type })
       // `pending` is the editor's own look, so an un-run node is left exactly
       // as it was rather than being repainted into a third state.
-      if (status === 'pending') return node
-      return { ...node, data: { ...node.data, status } }
+      if (runStatus === 'pending') return node
+      // Spec Part 2 — the SAME resolver the run detail page uses, so the Studio
+      // and the run view cannot disagree about whether a step is working or
+      // waiting, or about what it is waiting for.
+      const presentation = resolveStepPresentation(
+        runOverlay,
+        { id: node.id, status: runStatus },
+        { agentLabels: runAgentLabels ?? undefined, agentId: readNodeAgentId(node.data) },
+      )
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          status: presentationToWorkflowStatus(presentation.state),
+          runReason: presentation.reason,
+          runStartedAt: presentation.startedAt,
+        },
+      }
     })
-  }, [decoratedNodes, runOverlay])
+  }, [decoratedNodes, runOverlay, runAgentLabels])
 
   // The trigger pill (fidelity gap #5). Derived at render time from the
   // definition's triggers and anchored to the START terminal, so it is absent

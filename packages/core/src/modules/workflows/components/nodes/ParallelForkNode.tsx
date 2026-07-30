@@ -4,6 +4,7 @@ import { Handle, Position, NodeProps } from '@xyflow/react'
 import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
 import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
+import type { StepReason } from '../../lib/step-presentation'
 import { toWorkflowStatus } from '../../lib/status-colors'
 
 /**
@@ -22,6 +23,13 @@ export interface ParallelForkNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  /**
+   * Run presentation (spec Part 2). Set at render time by the run detail
+   * page and the Studio last-run overlay from the SAME resolver, so the two
+   * surfaces can never disagree about what the step is doing.
+   */
+  runReason?: StepReason | null
+  runStartedAt?: Date | null
   hasError?: boolean
   hasCompensation?: boolean
   errorCount?: number
@@ -48,6 +56,8 @@ export function ParallelForkNode({ id, data, isConnectable, selected }: NodeProp
         title={nodeData.label}
         description={nodeData.description}
         status={toWorkflowStatus(nodeData.status)}
+        runReason={nodeData.runReason}
+        runStartedAt={nodeData.runStartedAt}
         nodeType="parallelFork"
         selected={selected}
         hasError={nodeData.hasError}
