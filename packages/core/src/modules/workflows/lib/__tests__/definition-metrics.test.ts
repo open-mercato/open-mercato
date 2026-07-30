@@ -244,12 +244,17 @@ describe('rollup bucketing', () => {
 })
 
 describe('vocabulary', () => {
-  test('COMPENSATED is deliberately absent from the terminal statuses', () => {
-    // `compensation-handler` writes no terminal timestamp, so a COMPENSATED run
-    // belongs to no window. Adding it here without also writing that timestamp
-    // would make the rollup silently drop those runs while claiming to count
-    // them.
-    expect([...WORKFLOW_TERMINAL_STATUSES]).toEqual(['COMPLETED', 'FAILED', 'CANCELLED'])
+  test('COMPENSATED is a terminal status now that the engine stamps its timestamp', () => {
+    // It was deliberately absent while `compensation-handler` wrote no terminal
+    // timestamp: counting a run the window query can never match would have
+    // been a claim the rollup could not keep. The run-outcome write now stamps
+    // `completedAt` on the compensating path, so it belongs here.
+    expect([...WORKFLOW_TERMINAL_STATUSES]).toEqual([
+      'COMPLETED',
+      'FAILED',
+      'CANCELLED',
+      'COMPENSATED',
+    ])
   })
 
   test('the window vocabulary mirrors the agent rollup', () => {

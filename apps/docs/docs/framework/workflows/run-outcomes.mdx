@@ -118,6 +118,13 @@ not. So:
 
 `COMPENSATED` used to have no terminal timestamp at all — `compensation-handler`
 flipped the status and `completeWorkflow` returned before its own `completedAt`
-assignment — so a compensated run belonged to no KPI time window. The outcome
-write now stamps `completedAt` on that path (and on the
-compensation-failed path, which had the same gap).
+assignment — so a compensated run belonged to no KPI time window and its
+duration was unmeasurable. The outcome write now stamps `completedAt` on that
+path, and on the partial-compensation path (status back to `FAILED`), which had
+the same gap. An instant that was already recorded is never moved, and
+`CANCELLED` is excluded because `cancelledAt` is its terminal instant.
+
+`COMPENSATED` therefore joins `WORKFLOW_TERMINAL_STATUSES`, and the rollup
+reports `runsCompensated` as its own number — neither a success nor an ordinary
+failure. Runs compensated **before** this fix still carry a null timestamp and,
+exactly as before, fall into no window: nothing is backfilled.

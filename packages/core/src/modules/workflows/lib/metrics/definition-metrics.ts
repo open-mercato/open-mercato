@@ -57,16 +57,16 @@ export function floorToRollupBucket(epochMs: number): number {
 /**
  * Terminal statuses a run can reach.
  *
- * `COMPENSATED` is deliberately absent, and its absence is a documented engine
- * gap rather than an oversight: `compensation-handler` flips the status to
- * COMPENSATED but writes NO terminal timestamp, and `completeWorkflow` returns
- * before its own `completedAt` assignment on the compensating path. A run in
- * that state therefore has no instant to attribute to a window, so it can be
- * counted honestly in no window at all. Closing the gap means writing a
- * terminal timestamp in the compensation path, which is a state-machine change
- * (Ask First) and not this change.
+ * `COMPENSATED` used to be absent because the engine wrote it NO terminal
+ * timestamp — `compensation-handler` flipped the status and `completeWorkflow`
+ * returned before its own `completedAt` assignment — so a compensated run had
+ * no instant to attribute to any window. The run-outcome write now stamps that
+ * timestamp on the compensating path, so a compensated run finally belongs to
+ * the window it terminated in. Rows compensated BEFORE that fix still carry a
+ * null timestamp and, exactly as before, fall into no window at all: nothing is
+ * backfilled.
  */
-export const WORKFLOW_TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'] as const
+export const WORKFLOW_TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED', 'COMPENSATED'] as const
 
 export type WorkflowTerminalStatus = (typeof WORKFLOW_TERMINAL_STATUSES)[number]
 
@@ -81,7 +81,7 @@ export type TerminalRunSample = {
    */
   outcome?: WorkflowRunOutcome | null
   startedAt: Date | null
-  /** `completedAt` for COMPLETED/FAILED, `cancelledAt` for CANCELLED. */
+  /** `completedAt` for COMPLETED/FAILED/COMPENSATED, `cancelledAt` for CANCELLED. */
   terminalAt: Date | null
 }
 
@@ -111,6 +111,12 @@ export type DefinitionMetrics = {
    */
   runsPartialFailure: number
   /**
+   * Runs rolled back by compensation. Its own number for the same reason
+   * `runsPartialFailure` is: a compensated run is neither a success nor an
+   * ordinary failure, and folding it into either would misstate both.
+   */
+  runsCompensated: number
+  /**
    * `(runsCompleted - runsPartialFailure) / runsTerminal`, or null when nothing
    * terminated.
    */
@@ -134,6 +140,7 @@ export const EMPTY_DEFINITION_METRICS: DefinitionMetrics = {
   runsFailed: 0,
   runsCancelled: 0,
   runsPartialFailure: 0,
+  runsCompensated: 0,
   successRate: null,
   durationSampleCount: 0,
   avgDurationMs: null,
@@ -221,6 +228,7 @@ export function buildDefinitionMetrics(input: DefinitionMetricsInput): Definitio
   let runsFailed = 0
   let runsCancelled = 0
   let runsPartialFailure = 0
+  let runsCompensated = 0
   const durations: number[] = []
 
   for (const run of terminalRuns) {
@@ -230,6 +238,7 @@ export function buildDefinitionMetrics(input: DefinitionMetricsInput): Definitio
     }
     else if (run.status === 'FAILED') runsFailed += 1
     else if (run.status === 'CANCELLED') runsCancelled += 1
+    else if (run.status === 'COMPENSATED') runsCompensated += 1
     const duration = runDurationMs(run)
     if (duration !== null) durations.push(duration)
   }
@@ -246,6 +255,7 @@ export function buildDefinitionMetrics(input: DefinitionMetricsInput): Definitio
     runsFailed,
     runsCancelled,
     runsPartialFailure,
+    runsCompensated,
     successRate: rateOf(runsCompleted - runsPartialFailure, terminalRuns.length),
     durationSampleCount: durations.length,
     avgDurationMs: meanOf(durations),

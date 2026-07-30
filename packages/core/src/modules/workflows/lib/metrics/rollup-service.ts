@@ -147,8 +147,10 @@ export async function computeDefinitionMetrics(
 
   // A run is "terminal in this window" by its terminal TIMESTAMP, never by its
   // status alone — a run that failed last month is not this week's failure.
-  // `completedAt` covers COMPLETED and FAILED, `cancelledAt` covers CANCELLED;
-  // see `WORKFLOW_TERMINAL_STATUSES` for why COMPENSATED is absent.
+  // `completedAt` covers COMPLETED, FAILED and COMPENSATED, `cancelledAt`
+  // covers CANCELLED. A run compensated before the engine started stamping a
+  // terminal timestamp has neither, so it matches nothing here and falls into
+  // no window — unchanged, and deliberately not backfilled.
   const terminalInstances = await em.find(
     WorkflowInstance,
     {

@@ -59,6 +59,25 @@ What to do:
 
 Full mechanism: [`apps/docs/docs/framework/workflows/run-outcomes.mdx`](apps/docs/docs/framework/workflows/run-outcomes.mdx).
 
+### Workflows: compensated runs finally get a terminal timestamp — and enter the KPIs
+
+**Who is affected:** anyone reading the per-definition KPI rollup for a workflow
+that uses compensation.
+
+`compensation-handler` flipped the instance status to `COMPENSATED` (or back to
+`FAILED` on a partial compensation) and `completeWorkflow` returned before its
+own `completedAt` assignment, so a compensated run had **no terminal timestamp
+at all**: it could be attributed to no KPI time window and its duration was
+unmeasurable. `COMPENSATED` was excluded from `WORKFLOW_TERMINAL_STATUSES` for
+exactly that reason.
+
+The run-outcome write now stamps `completedAt` on those paths, `COMPENSATED`
+joins the terminal statuses, and the rollup reports `runsCompensated` (also
+`.optional()` in the schema). Expect compensated runs to start appearing in
+`runsTerminal` and in the duration percentiles, which will move both. Runs
+compensated **before** this ships keep their null timestamp and stay out of
+every window — nothing is backfilled.
+
 ### Workflows: a tolerated step failure is now recorded as FAILED
 
 **Who is affected:** anyone reading `StepInstance` rows or `STEP_FAILED` events

@@ -1358,13 +1358,23 @@ async function persistFailedStatusAfterRollback(
 }
 
 /**
- * Write the run's terminal VERDICT onto the instance.
+ * Write the run's terminal VERDICT onto the instance, and guarantee it has a
+ * terminal timestamp.
  *
  * The ONE write site, so `outcome` cannot be assembled ad hoc per exit point:
  * every caller hands over the terminal status and the pure
  * `resolveRunOutcome` decides from the evidence the run recorded. Called before
  * the flush that persists the terminal status, so status and verdict land in the
  * same UPDATE and no reader can observe one without the other.
+ *
+ * The timestamp backstop closes a real gap. `compensation-handler` flips the
+ * status to COMPENSATED (or back to FAILED on a partial compensation) and
+ * `completeWorkflow` RETURNS before its own `completedAt` assignment on that
+ * path, so a compensated run had no terminal instant at all — it could be
+ * attributed to no KPI window and its duration was unmeasurable. Every other
+ * path already assigns one, so this only ever fills a hole; it never moves an
+ * instant that was already recorded, and CANCELLED is excluded because
+ * `cancelledAt` is its terminal instant.
  */
 async function writeRunOutcome(
   em: EntityManager,
@@ -1373,6 +1383,10 @@ async function writeRunOutcome(
 ): Promise<void> {
   const evidence = await collectRunOutcomeEvidence(em, instance, terminalStatus)
   instance.outcome = resolveRunOutcome(evidence)
+
+  if (terminalStatus !== 'CANCELLED' && !instance.completedAt) {
+    instance.completedAt = new Date()
+  }
 }
 
 /**

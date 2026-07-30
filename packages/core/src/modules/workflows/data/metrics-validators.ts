@@ -21,6 +21,7 @@ export const workflowDefinitionMetricsSchema = z.object({
   // written before outcomes existed still parses; a reader MUST treat its
   // absence as "this rollup has nothing to say about that metric", never as 0.
   runsPartialFailure: z.number().int().nonnegative().optional(),
+  runsCompensated: z.number().int().nonnegative().optional(),
   successRate: z.number().min(0).max(1).nullable(),
   durationSampleCount: z.number().int().nonnegative(),
   avgDurationMs: z.number().nonnegative().nullable(),

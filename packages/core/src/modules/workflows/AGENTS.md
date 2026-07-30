@@ -591,10 +591,9 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - **Only metrics the engine actually populates ship.** `StepInstance.executionTimeMs` is
   deliberately NOT used: `exitStep` writes it on the COMPLETED path only, and every FAILED path
   leaves it null, so a "step p95" would be a success-only latency wearing the wrong name. Run
-  duration is `startedAt` → the terminal timestamp instead. **`COMPENSATED` is absent from
-  `WORKFLOW_TERMINAL_STATUSES`** because `compensation-handler` writes NO terminal timestamp and
-  `completeWorkflow` returns before its own `completedAt` assignment on that path — a compensated
-  run belongs to no window. Fixing that is a state-machine change (Ask First).
+  duration is `startedAt` → the terminal timestamp instead. `successRate` counts the run's VERDICT
+  (`outcome`), never its status: `partial_failure` and `compensated` are their own numbers.
+  Mechanism: `apps/docs/docs/framework/workflows/run-outcomes.mdx`.
 - **Every rate reports its denominator, and a zero denominator is `null`, never 0.** "No run
   finished in this window" and "every run failed" are opposite facts.
 - **Dry runs never count**: `isDryRun: false` is on every instance query and tasks are reached only
