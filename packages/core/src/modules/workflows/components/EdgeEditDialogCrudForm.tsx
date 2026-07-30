@@ -48,6 +48,8 @@ export interface EdgeEditDialogCrudFormProps {
    * not opted in keeps the modal shape it had.
    */
   variant?: InspectorPanelVariant
+  /** Widen the overlay Drawer and lay the ledger out as a sticky side column. */
+  wide?: boolean
 }
 
 /**
@@ -67,7 +69,7 @@ export interface EdgeEditDialogCrudFormProps {
  * - Delete functionality with confirmation
  * - Keyboard shortcuts (Cmd/Ctrl+Enter save, Escape cancel)
  */
-export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete, ledgerEntries, focusFieldId, variant = 'overlay' }: EdgeEditDialogCrudFormProps) {
+export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete, ledgerEntries, focusFieldId, variant = 'overlay', wide }: EdgeEditDialogCrudFormProps) {
   const t = useT()
   const [initialValues, setInitialValues] = useState<Partial<EdgeFormValues>>({})
   const bodyRef = useRef<HTMLDivElement | null>(null)
@@ -251,6 +253,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
       open={isOpen}
       onClose={onClose}
       variant={variant}
+      wide={wide}
       title={t('workflows.edgeEditor.title')}
       typeLabel={t(`workflows.transitions.triggers.${trigger}`)}
       typeLabelVariant={triggerVariant}
@@ -266,36 +269,38 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
         </div>
       }
     >
-      <div ref={bodyRef}>
-        {/* Remount on re-target — see the note in NodeEditDialogCrudForm. */}
-        <CrudForm
-          key={edge.id}
-          density="compact"
-          fields={fields}
-          groups={groups}
-          initialValues={initialValues}
-          onSubmit={handleSubmit}
-          embedded={true}
-          submitLabel={t('workflows.edgeEditor.saveTransition')}
-          extraActions={
-            <Button
-              type="button"
-              variant="destructive-outline"
-              onClick={handleDelete}
-            >
-              <Trash2 className="size-4 mr-2" />
-              {t('workflows.edgeEditor.deleteTransition')}
-            </Button>
-          }
-        />
+      <div className={wide ? 'flex gap-6' : undefined}>
+        <div ref={bodyRef} className={wide ? 'min-w-0 flex-1' : undefined}>
+          {/* Remount on re-target — see the note in NodeEditDialogCrudForm. */}
+          <CrudForm
+            key={edge.id}
+            density="compact"
+            fields={fields}
+            groups={groups}
+            initialValues={initialValues}
+            onSubmit={handleSubmit}
+            embedded={true}
+            submitLabel={t('workflows.edgeEditor.saveTransition')}
+            extraActions={
+              <Button
+                type="button"
+                variant="destructive-outline"
+                onClick={handleDelete}
+              >
+                <Trash2 className="size-4 mr-2" />
+                {t('workflows.edgeEditor.deleteTransition')}
+              </Button>
+            }
+          />
+        </div>
+        <div className={wide ? 'sticky top-0 w-96 shrink-0 self-start' : 'mt-4'}>
+          <InputDataPanel
+            entries={ledgerEntries}
+            stepId={edge.target}
+            defaultCollapsed={!wide}
+          />
+        </div>
       </div>
-
-      <InputDataPanel
-        entries={ledgerEntries}
-        stepId={edge.target}
-        className="mt-4"
-        defaultCollapsed
-      />
     </InspectorPanel>
   )
 }

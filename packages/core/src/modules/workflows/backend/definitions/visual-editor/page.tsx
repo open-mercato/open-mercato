@@ -2860,7 +2860,7 @@ export default function VisualEditorPage() {
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
       )}
       {crudFormDialogsEnabled ? (
-        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} focusFieldId={edgeDialogFocusFieldId} variant={inspectorVariant} />
+        <EdgeEditDialogCrudForm edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} ledgerEntries={edgeDialogLedgerEntries} focusFieldId={edgeDialogFocusFieldId} variant="overlay" wide />
       ) : (
         <EdgeEditDialog edge={selectedEdge} isOpen={showEdgeDialog} onClose={() => setShowEdgeDialog(false)} onSave={handleSaveEdge} onDelete={handleDeleteEdge} />
       )}
