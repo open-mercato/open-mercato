@@ -105,6 +105,12 @@ on disk and fails the deterministic gate when either cannot fit the case's own f
 guide or fact-sheet that grows past a case's envelope therefore surfaces as a catalog error naming the
 exact numbers, instead of as a live routing failure that reads like a model mistake.
 
+One measurement boundary is worth stating: `.ai/guides/modules/*.md` is generated after enabled-module
+discovery, so a tree where those sheets do not exist yet — a staged unit-test fixture, or a scaffold before
+its first `generate` — measures them as zero bytes. They never count toward the *initial* budgets by design,
+so only the total-byte arm is affected, and it is exact from the moment the sheets are on disk. The
+controller measurements below include them.
+
 Restoring OMH-169's pre-fix byte budget on the controller reproduces:
 
 ```
@@ -148,8 +154,8 @@ the durations are comparable.
 The agent read exactly the ten initial files the case requires, in both runs, and the byte violation is
 gone. **The case still fails**, on a different and pre-existing problem: the model never opens
 `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`, a non-initial required path that no budget was ever
-constraining. That is a guidance defect on #4529's surface, not a budget one, and is left to a follow-up
-rather than papered over here.
+constraining. That is a guidance defect on #4529's surface, not a budget one, and is recorded in
+[#4603](https://github.com/open-mercato/open-mercato/issues/4603) rather than papered over here.
 
 OMH-111 passed before and after the widening (147 s → 132 s), so its fix removes a latent contradiction
 rather than an active failure.

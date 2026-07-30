@@ -67,6 +67,14 @@ type StoredReviewResult = {
   sourceResult: { path: string; sha256: string }
 }
 
+// The evaluator's own initial-context rule, mirrored so budget assertions measure what it measures.
+function isInitialContextPath(relative: string): boolean {
+  return !relative.includes('/references/')
+    && !relative.startsWith('.ai/guides/modules/')
+    && !relative.startsWith('.ai/guides/upstream/')
+    && !relative.startsWith('.agents/skills/')
+}
+
 function stageApp(): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-eval-')))
   fs.cpSync(path.join(sharedRoot, 'ai'), path.join(root, '.ai'), { recursive: true })
@@ -363,20 +371,37 @@ test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4
       context: { required: string[]; allowedExtra?: string[] }
       maxContextFiles: number
       maxInitialContextBytes: number
+      maxTotalContextBytes: number
     }>
-    const measured = cases[0].context.required
-      .map((relative) => fs.statSync(path.join(root, relative)).size)
-      .reduce((total, size) => total + size, 0)
+    // Mirror the evaluator: skip what is absent (fact-sheets are generated after module
+    // discovery) and count only initial paths toward the initial budgets.
+    const measure = (paths: string[], initialOnly: boolean) => paths.reduce((total, relative) => {
+      if (initialOnly && !isInitialContextPath(relative)) return total
+      try { return total + fs.statSync(path.join(root, relative)).size } catch { return total }
+    }, 0)
+    const measured = measure(cases[0].context.required, true)
     assert.ok(measured > 4096, 'the first case must require more than the smallest legal byte budget')
     cases[0].maxInitialContextBytes = 4096
     cases[1].context.allowedExtra = [...(cases[1].context.allowedExtra ?? []), '.ai/guides/testing-debugging.md']
     cases[1].maxContextFiles = cases[1].context.required.length
+    // The total-byte arm needs a non-initial path so the initial budgets stay satisfiable and only
+    // maxTotalContextBytes can fail; a `/references/` file is non-initial and ships with the skills.
+    const nonInitial = '.ai/skills/om-evolve-harness/references/case-template.md'
+    cases[2].context.required = [...cases[2].context.required, nonInitial]
+    const declaredOfThird = [...cases[2].context.required, ...(cases[2].context.allowedExtra ?? [])]
+    const declaredInitialOfThird = measure(declaredOfThird, true)
+    const declaredTotalOfThird = measure(declaredOfThird, false)
+    assert.ok(declaredTotalOfThird > declaredInitialOfThird, 'the third case must declare a non-initial path with bytes')
+    cases[2].maxInitialContextBytes = declaredInitialOfThird
+    cases[2].maxTotalContextBytes = declaredInitialOfThird
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stderr, new RegExp(`FAIL ${cases[0].id}:.*required context exceeds maxInitialContextBytes: ${measured}/4096`))
     assert.match(result.stderr, new RegExp(`FAIL ${cases[1].id}:.*declared context exceeds maxContextFiles`))
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*declared context exceeds maxTotalContextBytes: ${declaredTotalOfThird}/${declaredInitialOfThird}`))
+    assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*exceeds maxInitialContextBytes`))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
