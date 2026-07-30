@@ -214,6 +214,8 @@ export interface NodeEditDialogCrudFormProps {
    * not opted in keeps the modal shape it had.
    */
   variant?: InspectorPanelVariant
+  /** Widen the overlay Drawer to the metadata-drawer width — the step form is dense. */
+  wide?: boolean
 }
 
 /**
@@ -236,7 +238,7 @@ export interface NodeEditDialogCrudFormProps {
  * - waitForCondition: ConditionBuilder predicate + mandatory timeout policy
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder, onConvertType, variant = 'overlay' }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder, onConvertType, variant = 'overlay', wide }: NodeEditDialogCrudFormProps) {
   const t = useT()
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
@@ -1100,6 +1102,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       open={isOpen}
       onClose={onClose}
       variant={variant}
+      wide={wide}
       title={t('workflows.nodeEditor.title')}
       typeLabel={nodeTypeLabel}
       description={t('workflows.nodeEditor.description')}

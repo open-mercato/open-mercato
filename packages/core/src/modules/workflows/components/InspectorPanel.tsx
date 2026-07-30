@@ -50,6 +50,13 @@ export interface InspectorPanelProps {
    * belongs beside the id rather than inside the scrolling form.
    */
   headerExtra?: React.ReactNode
+  /**
+   * Widen the `overlay` Drawer to match the definition metadata drawer
+   * (`sm:w-4/5`) instead of the DS default 400px. Content-dense inspectors — the
+   * step editor with its Invoke-Agent, timeout and sub-editor sections — are
+   * unusable at 400px, so they opt in. No effect on the `docked` rail.
+   */
+  wide?: boolean
   children: React.ReactNode
 }
 
@@ -138,6 +145,7 @@ export function InspectorPanel({
   recordId,
   recordIdLabel,
   headerExtra,
+  wide,
   children,
 }: InspectorPanelProps) {
   const t = useT()
@@ -165,7 +173,7 @@ export function InspectorPanel({
           aria-labelledby={titleId}
           aria-describedby={description ? descriptionId : undefined}
           closeAriaLabel={t('workflows.inspector.close', 'Close inspector')}
-          className="p-0"
+          className={wide ? 'p-0 w-full max-w-none sm:w-4/5' : 'p-0'}
         >
           <DrawerHeader className="border-b border-border/70">
             <InspectorHeading

@@ -7,6 +7,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@open-mercato/ui/primitives/tooltip'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -278,42 +279,54 @@ export default function WorkflowDefinitionsListPage() {
 
   const columns: ColumnDef<WorkflowDefinition>[] = [
     {
-      id: 'workflowId',
-      header: t('workflows.fields.workflowId'),
-      accessorKey: 'workflowId',
-      meta: { truncate: false },
-      cell: ({ row }) => (
-        <span className="font-mono text-sm">{row.original.workflowId}</span>
-      ),
-    },
-    {
       id: 'workflowName',
       header: t('workflows.fields.workflowName'),
       accessorKey: 'workflowName',
       meta: { truncate: false },
-      cell: ({ row }) => (
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{row.original.workflowName}</span>
-            {row.original.source === 'code' && (
-              <Badge variant="secondary">{t('workflows.source.code')}</Badge>
-            )}
-            {row.original.source === 'code_override' && (
-              <Badge variant="outline">{t('workflows.source.code_override')}</Badge>
+      // The Workflow ID column and the inline description were dropped — the row
+      // was three lines tall. Both now live in a hover tooltip on the name.
+      cell: ({ row }) => {
+        const nameBlock = (
+          <div className="cursor-default">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{row.original.workflowName}</span>
+              {row.original.source === 'code' && (
+                <Badge variant="secondary">{t('workflows.source.code')}</Badge>
+              )}
+              {row.original.source === 'code_override' && (
+                <Badge variant="outline">{t('workflows.source.code_override')}</Badge>
+              )}
+            </div>
+            {row.original.metadata?.category && (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {row.original.metadata.category}
+              </div>
             )}
           </div>
-          {row.original.description && (
-            <div className="text-xs text-muted-foreground">
-              {row.original.description}
-            </div>
-          )}
-          {row.original.metadata?.category && (
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {row.original.metadata.category}
-            </div>
-          )}
-        </div>
-      ),
+        )
+        if (!row.original.workflowId && !row.original.description) return nameBlock
+        return (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>{nameBlock}</TooltipTrigger>
+              <TooltipContent
+                side="right"
+                align="start"
+                variant="light"
+                size="lg"
+                className="max-w-md space-y-1"
+              >
+                <div className="font-mono text-xs">{row.original.workflowId}</div>
+                {row.original.description ? (
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                    {row.original.description}
+                  </p>
+                ) : null}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
     },
     {
       id: 'version',
