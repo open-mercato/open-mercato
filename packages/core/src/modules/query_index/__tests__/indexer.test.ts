@@ -62,6 +62,7 @@ function createFakeKysely(data: TableData) {
         const ocBuilder: any = {
           columns: (cols: string[]) => { entry.conflictColumns = cols; return ocBuilder },
           doUpdateSet: (merge: any) => { entry.merge = merge; return ocBuilder },
+          doNothing: () => { entry.doNothing = true; return ocBuilder },
         }
         cb(ocBuilder)
         return chain
