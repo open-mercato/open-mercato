@@ -363,6 +363,7 @@ Review the [changelog](https://github.com/open-mercato/open-mercato/releases) fo
 
 - **`preinstall` check fails** — make sure you are running Node.js 24 or later. Use `nvm use 24` or `fnm use 24` to switch.
 - **Registry errors** — if using a private registry, pass `--registry <url>` when creating the app or edit `.yarnrc.yml` after scaffolding.
+- **`All versions satisfying ... are quarantined`** — Yarn's `npmMinimalAgeGate` (default 1 day) refuses versions published less than a day ago. The scaffold's `.yarnrc.yml` already exempts `@open-mercato/*` through `npmPreapprovedPackages`; add any other freshly published package the same way. A top-level `npmMinimalAgeGate: 0` does not help when the package's scope has its own `npmScopes` entry — the scope default shadows it.
 - **Generators produce empty output** — run `yarn install` first so the `@open-mercato` packages are available in `node_modules`.
 - **Ejected module errors after upgrade** — ejected modules are not updated automatically. Compare your local copy with the upstream source and merge changes manually.
 - **Docker services not starting** — verify Docker is running and ports 5432, 6379, and 7700 are free. Use `docker compose logs` to inspect errors.
