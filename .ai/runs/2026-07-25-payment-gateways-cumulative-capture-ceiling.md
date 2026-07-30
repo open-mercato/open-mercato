@@ -140,6 +140,25 @@ PR: #4508
 - [x] 5.2 Major — `TC-PGWY-022` did in fact run on this PR; answered with CI evidence instead of a
   code change (see the note below)
 
+### Phase 6: merge readiness (om-auto-fix-pr, 2026-07-30)
+
+- [x] 6.1 Merge the latest `develop` into the branch (195 commits behind; no conflicts, no
+  `payment_gateways` churn on the base since the merge base)
+- [x] 6.2 Major — release the capture reservation only while the provider has not been called yet:
+  a failure *after* a successful provider capture (completion transaction, lost operation claim)
+  used to hand the slice back, so a fresh `operationId` could spend it again and over-capture —
+  1a693013e
+- [x] 6.3 Major — record provider-confirmed captures (webhook sync, status poller) in the ledger;
+  `captured` is itself a valid capture target, so without this a webhook-confirmed capture left the
+  whole authorization capturable again — 1a693013e
+- [x] 6.4 Validation gate re-run on the merged head
+
+Note on 6.4: `yarn i18n:check-usage` fails on two keys (`ui.customFields.phone.defaultCountry`,
+`ui.customFields.phone.defaultCountryAuto`) referenced from `packages/ui/src/backend/fields/phone.tsx`,
+which arrived on `develop` with #4147. This PR touches no file under `packages/ui`; the step is
+advisory in CI (`continue-on-error: true`) and the breakage is tracked as a follow-up instead of
+being fixed from this branch. Every other gate command exits `0`.
+
 Note on 5.2: the review read the job name `ephemeral-integration (none)` as "no shard ran". `none`
 is the matrix value CI uses for the PR-mode **single runner**, not an empty selection — the 15
 numbered shards only exist for pushes to `main`/`develop`. Job `89659158994` for head `8b3d48427`
