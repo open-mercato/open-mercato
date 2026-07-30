@@ -1,7 +1,22 @@
 import { type DateRangePreset, isValidDateRangePreset } from '@open-mercato/ui/backend/date-range'
 import type { WidgetDataRequest } from '../../../services/widgetDataService'
 
-export const CLOSED_DEAL_STATUSES = ['win', 'loose'] as const
+// Deal statuses that mean the deal is closed and must stop counting as current pipeline.
+//
+// This is a denylist, not an allowlist: `customer_deals.status` is a lenient `text` column
+// fed by the per-tenant `deal_status` dictionary, so a status unknown to code counts as OPEN
+// and keeps contributing to the chart. That keeps tenant-specific stages visible and mirrors
+// `customers/lib/interactionStatus.ts`, which treats an unknown interaction status as open.
+//
+// Every vocabulary that reaches the column has to be listed here, because the analytics layer
+// can only filter on `status` — `closure_outcome` is deliberately absent from the
+// `customers:deals` fieldMappings in `packages/core/src/modules/customers/analytics.ts`:
+//   - `win` / `loose` are written by the deal closure UI and the kanban board.
+//   - `won` / `lost` are written verbatim by the `customers.update_deal_stage` AI tool, whose
+//     free-form `toStage` is passed straight through to `status`.
+//   - `closed` is a seeded `deal_status` dictionary value, persisted by the dashboards
+//     analytics seed and treated as terminal by the demo-data generator.
+export const CLOSED_DEAL_STATUSES = ['win', 'loose', 'won', 'lost', 'closed'] as const
 
 export const PIPELINE_STATUS_SCOPES = ['open', 'all'] as const
 

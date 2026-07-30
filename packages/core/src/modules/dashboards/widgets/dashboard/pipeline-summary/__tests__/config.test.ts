@@ -47,13 +47,40 @@ describe('pipeline summary settings', () => {
     })
   })
 
+  describe('CLOSED_DEAL_STATUSES', () => {
+    // Spelled out rather than derived from the constant: a test that maps over
+    // CLOSED_DEAL_STATUSES passes no matter which terminal statuses are missing from it.
+    it('covers every terminal status the supported write paths persist', () => {
+      expect([...CLOSED_DEAL_STATUSES].sort()).toEqual(['closed', 'loose', 'lost', 'win', 'won'])
+    })
+
+    it('does not deny any status that means the deal is still open', () => {
+      for (const openStatus of ['open', 'in_progress', 'negotiations', 'awaiting_legal']) {
+        expect(CLOSED_DEAL_STATUSES).not.toContain(openStatus)
+      }
+    })
+  })
+
   describe('buildPipelineDataRequest', () => {
+    it.each(['win', 'loose', 'won', 'lost', 'closed'])('excludes deals stored as %s', (status) => {
+      const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' })
+
+      expect(request.filters).toContainEqual({ field: 'status', operator: 'neq', value: status })
+    })
+
     it('excludes closed deals for the open scope', () => {
       const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' })
 
       expect(request.filters).toEqual(
         CLOSED_DEAL_STATUSES.map((status) => ({ field: 'status', operator: 'neq', value: status })),
       )
+    })
+
+    it('leaves a tenant-specific active status in the chart', () => {
+      const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' })
+
+      expect(request.filters?.every((filter) => filter.operator === 'neq')).toBe(true)
+      expect(request.filters?.map((filter) => filter.value)).not.toContain('awaiting_legal')
     })
 
     it('sends no filters for the all scope', () => {
