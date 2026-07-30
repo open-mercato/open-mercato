@@ -5,6 +5,10 @@ jest.mock('@open-mercato/shared/lib/email/send', () => ({
   sendEmail: jest.fn((args: unknown) => sendEmailMock(args)),
 }))
 
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn().mockResolvedValue({}),
+}))
+
 jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
   checkAuthRateLimit: jest.fn((args: unknown) => checkAuthRateLimitMock(args)),
 }))
