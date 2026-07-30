@@ -213,7 +213,7 @@ function reportUnresolvableWidgetReferences(
 
   for (const [widgetId, modules] of Array.from(tableWidgetRefs.entries()).sort(([a], [b]) => a.localeCompare(b))) {
     if (declaredIds.has(widgetId)) continue
-    const owners = Array.from(modules).sort().join(', ')
+    const owners = Array.from(modules).sort((left, right) => left.localeCompare(right)).join(', ')
     console.warn(
       `[generate] ⚠ Injection table in "${owners}" references widget id "${widgetId}", but no scanned ` +
         'widget declares it — that spot will render nothing. Check the id against the widget\'s ' +
