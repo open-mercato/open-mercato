@@ -1,6 +1,6 @@
 # Standalone AI Development Harness
 
-- **Status:** Implemented — deterministic and focused gates green; final selected-primary-runner release evidence pending
+- **Status:** Implemented — deterministic and focused remediation gates green; complete multi-runner release certification continues in #4670
 - **Date:** 2026-07-24
 - **Scope:** OSS, standalone applications emitted by `create-mercato-app` only
 - **Tracking plan:** `.ai/runs/2026-07-24-standalone-app-ai-harness.md`
@@ -720,3 +720,4 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 - **2026-07-28** — Expanded the catalog to 187 cases and the writable/review matrix to 40; added complete-module, cache, and queue coverage; made case-schema validation executable through OMH-187; audited all 53 emitted module facts into catalog coverage; added contrastive decision vocabularies; and wired bounded controller-materialized installed-package context into declared writable cases without relaxing the dependency-tree ban.
 - **2026-07-28** — Added field-tested writable OMH-188–191 and combined CRM/library OMH-192; extended the writable/review matrix to 45, added a fourth executable generated-test lane, fixed exact-string oracle execution, enforced command-local atomic/undo seams, and tightened scope, lifecycle, concurrency, CRM-link, worker-scope, and Jest review rules.
 - **2026-07-29** — Re-audited Zielivia's original and generated-case findings plus #4564/#4565/#4571/#4572 against their executable owners, synchronized the remaining overview/risk counts to 192, and proved final27 deterministic 192/192; the selected live runner matrices remain the delivery gate.
+- **2026-07-30** — Completed PR #4529's merge-focused remediation: final emitted controllers pass deterministic 192/192; OMH-188–192 pass focused live routing on default Codex, Claude Sonnet, and high-effort gpt-5.4-mini; repeated OMH-185 writable attempts produced actionable root-contract fixes but the final fresh attempt reached its fixed 600-second ceiling and is excluded from pass evidence. Complete 192-case primary plus 45-case writable/review release certification, with generative cases prioritized and Claude non-blocking when unavailable, continues in #4670 without weakening trace, containment, scope, or oracle contracts.

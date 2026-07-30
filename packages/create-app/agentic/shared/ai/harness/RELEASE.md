@@ -36,6 +36,10 @@ For externally prepared apps, `--writable-targets /absolute/release-targets.json
 
 The current catalog contains 192 cases, including 45 writable implementation/regression cases (23.4%). The command still derives all counts and case IDs from `cases.json`, `validators.json`, and `release-matrix.json`; those figures are documented release facts, not runner constants. The matrix keeps both supported runner model selectors, an exact all-case primary profile, an exact 45-case portability profile, and runner-neutral writable assignments. Run `yarn install-skills` first so the pinned external `om-code-review` skill and ownership evidence are present. Before running a model or writing a fixture, the release command requires complete deterministic, primary live-routing, writable, trusted-oracle, target, generated-test, and generated-code-review coverage. Every one of the 45 writable cases must have an `om-code-review` assignment. Missing business fixtures or release-matrix entries fail preflight and are listed by exact case ID in the report.
 
+## PR #4529 remediation evidence
+
+The PR's focused remediation evidence is not a release-certification substitute. Fresh emitted controllers pass deterministic 192/192, and the field-tested OMH-188–192 generative cohort passes on default Codex, Claude Sonnet, and high-effort gpt-5.4-mini. Fresh OMH-185 writable attempts fixed concrete organization-scope, command-object, module-activation, command-snapshot, schema, custom-field, UI, and Jest guidance defects at their routed owners without relaxing trusted oracles. The final attempt reached the case's fixed 600-second ceiling and is excluded from pass evidence. Issue #4670 owns the complete selected-primary 192-case routing and 45-case writable/generated-test/review certification, prioritizing the generative cohort and recording unavailable Claude lanes without fallback or mixed-runner ownership.
+
 After preflight it runs, in order:
 
 1. deterministic validation for the complete catalog;
