@@ -71,8 +71,8 @@ for (const entry of readdirSync(guidesDestDir)) {
 
 let guidesFound = 0
 for (const pkg of readdirSync(packagesDir)) {
-  // Remove package-level guides left by an older incremental build. They were never
-  // reachable from the standalone router and duplicated the routed conceptual guides.
+  // Package-level source guides remain for monorepo context, but standalone apps route
+  // through conceptual and module-level guides, so remove their stale emitted copies.
   const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
   if (existsSync(guideSource)) {
     rmSync(join(guidesDestDir, `${pkg}.md`), { force: true })

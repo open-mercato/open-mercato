@@ -298,6 +298,15 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
   assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
+  const portabilityCount = validators.catalog.writableCaseIds.length
+  const publishedPortabilityReferences = [
+    path.join(sharedRoot, 'scripts', 'run-agent-harness-release.mjs'),
+    path.join(sharedRoot, 'ai', 'skills', 'om-evolve-harness', 'references', 'case-template.md'),
+    path.join(sharedRoot, 'ai', 'skills', 'om-evolve-harness', 'references', 'case-workflow.md'),
+  ]
+  for (const reference of publishedPortabilityReferences) {
+    assert.match(fs.readFileSync(reference, 'utf8'), new RegExp(`\\b${portabilityCount}-case read-only portability`))
+  }
   assert.deepEqual(
     [...new Set(cases.flatMap((entry) => entry.owner.ruleIds))].sort(),
     validators.catalog.backwardCompatibilityRuleIds,

@@ -65,6 +65,8 @@ await buildPackage(packageDir, {
 
     let guidesFound = 0
     for (const pkg of readdirSync(packagesDir)) {
+      // Package-level source guides remain for monorepo context, but standalone apps route
+      // through conceptual and module-level guides, so remove their stale emitted copies.
       const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
       if (existsSync(guideSource)) {
         rmSync(join(guidesDestDir, `${pkg}.md`), { force: true })
