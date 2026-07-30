@@ -24,6 +24,56 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Workflows: existing tolerated-failure runs will start reporting `partial_failure`
+
+**Who is affected:** anyone running workflow definitions that set
+`continueOnActivityFailure: true` on a transition, or an `errorDirective` of
+`continueWithFallback` on a step — and anyone reading the per-definition KPI
+rollup or the failure queue.
+
+`WorkflowInstance` gains an additive, nullable `outcome` column: the run's
+**verdict** (`success`, `success_with_warnings`, `partial_failure`, `failure`,
+`cancelled`, `compensated`) alongside its unchanged lifecycle `status`. A run
+that reached END while tolerating at least one activity or step failure is now
+written `status: 'COMPLETED', outcome: 'partial_failure'`.
+
+**This is a reporting change, not a behaviour change.** Nothing runs
+differently: the same steps execute, the same routes are taken, the same
+`status` is written. Runs that used to look healthy will start looking degraded,
+because they always were. Expect the KPI success rate of any workflow relying on
+tolerated failures to drop the day this ships — that drop is the previously
+hidden truth, not a regression.
+
+What to do:
+
+- `status` is untouched, so no filter, subscriber or integration needs changing.
+- `outcome` is `null` on every pre-upgrade row, meaning *"ran before outcomes
+  existed"*. Nothing is backfilled; do not read `null` as `success`.
+- The KPI rollup reports `runsPartialFailure` as its own number and excludes it
+  from `successRate`. The key is `.optional()` in
+  `workflowDefinitionMetricsSchema`, so pre-upgrade rollup rows still parse —
+  treat a missing key as "this rollup has nothing to say", never as zero.
+- `partial_failure` is **not** retryable as a whole run (it reached END; a
+  retry would re-run the parts that succeeded). Recover with rerun-from-step on
+  the specific failed step.
+
+Full mechanism: [`apps/docs/docs/framework/workflows/run-outcomes.mdx`](apps/docs/docs/framework/workflows/run-outcomes.mdx).
+
+### Workflows: a tolerated step failure is now recorded as FAILED
+
+**Who is affected:** anyone reading `StepInstance` rows or `STEP_FAILED` events
+directly.
+
+`handleAutomatedStep` reports a failed sync activity as `{ status: 'FAILED' }`
+instead of throwing, so `executeStep`'s catch never ran: the step row stayed
+`ACTIVE` for ever and no `STEP_FAILED` event was logged. Both are now written on
+that path too. A run that previously showed a permanently `ACTIVE` step will
+show a terminal `FAILED` one, and one additional `STEP_FAILED` event per
+tolerated failure appears in the audit log.
+
+This also means `POST /api/workflows/instances/[id]/rerun-step` now **accepts**
+such a step; it previously refused it with 409 `WORKFLOW_STEP_STILL_PARKED`.
+
 ### Workflows: `MobileMetadataSheet` is deprecated
 
 **Who is affected:** anyone importing `MobileMetadataSheet` from

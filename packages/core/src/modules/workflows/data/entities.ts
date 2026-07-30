@@ -6,6 +6,9 @@
 
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import type { WorkflowRunOutcome } from '../lib/run-outcome'
+
+export type { WorkflowRunOutcome }
 
 // ============================================================================
 // Type Definitions
@@ -432,6 +435,19 @@ export class WorkflowInstance {
 
   @Property({ name: 'status', type: 'varchar', length: 30 })
   status!: WorkflowInstanceStatus
+
+  /**
+   * Terminal VERDICT, written once when the run terminates and null while it is
+   * still going (`lib/run-outcome.ts` owns the vocabulary and the decision).
+   *
+   * Additive and nullable ON PURPOSE: `status` keeps meaning exactly what every
+   * existing consumer, filter and subscriber already believes it means, and a
+   * null on a pre-existing row means "ran before outcomes existed" — never
+   * "success". Nothing is backfilled: a fabricated verdict would be the same
+   * dishonesty this column exists to remove, pointed the other way.
+   */
+  @Property({ name: 'outcome', type: 'varchar', length: 30, nullable: true })
+  outcome?: WorkflowRunOutcome | null
 
   @Property({ name: 'current_step_id', type: 'varchar', length: 100 })
   currentStepId!: string

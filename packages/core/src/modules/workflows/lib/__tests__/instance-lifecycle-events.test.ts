@@ -85,6 +85,7 @@ describe('workflows.instance.* lifecycle bus emission', () => {
     mockEm = {
       findOne: jest.fn(),
       find: jest.fn(),
+      count: jest.fn(async () => 0),
       create: jest.fn((_entity: unknown, data: unknown) => data),
       persist: jest.fn(function persist(this: unknown) {
         return this

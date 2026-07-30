@@ -1,0 +1,123 @@
+---
+title: Run Outcomes
+description: The honest verdict a workflow run reports alongside its lifecycle status
+---
+
+# Run Outcomes
+
+A workflow run carries **two** independent answers about how it went.
+
+| Field | Question it answers | Who reads it |
+|---|---|---|
+| `status` | *Did it reach the end?* | control flow — the executor, retry/cancel guards, the failure queue, third-party subscribers |
+| `outcome` | *Did everything it attempted actually happen?* | operators, KPIs, triage |
+
+Before `outcome` existed, one enum was asked both questions, so it answered
+neither honestly: a run that swallowed three failed writes and a clean run both
+reported `COMPLETED`.
+
+`status` is untouched by this feature. `outcome` is **additive and nullable** —
+`null` while the run is still going, and `null` for ever on a row written before
+outcomes existed. Nothing was backfilled: a fabricated verdict would be the same
+dishonesty in the other direction.
+
+## The vocabulary
+
+| `outcome` | Meaning |
+|---|---|
+| `success` | Reached END. Nothing failed, nothing was suppressed. |
+| `success_with_warnings` | Reached END and did everything it was asked to, but something is worth reading — a step skipped by design, for instance. |
+| `partial_failure` | Reached END, **but at least one activity or step failed and was tolerated.** |
+| `failure` | Did not reach END. |
+| `cancelled` | A human stopped it. |
+| `compensated` | Rolled back. |
+
+## The invariant
+
+> **A run that suppressed at least one failure MUST NOT be `success`.**
+
+It holds by construction. `resolveRunOutcome` in
+`packages/core/src/modules/workflows/lib/run-outcome.ts` is a **pure** function
+and the **only** decision point — no exit point in the engine assembles a
+verdict of its own — and it consults the failure evidence before it can return
+`success`. It is covered by its own test
+(`lib/__tests__/run-outcome.test.ts`), which sweeps every terminal status
+against every evidence shape.
+
+## What counts as evidence
+
+`lib/run-outcome-evidence.ts` counts, under the run's own tenant **and**
+organization:
+
+| Evidence | Weight | Why |
+|---|---|---|
+| `StepInstance` rows in status `FAILED` | failure | A step row becomes FAILED whether or not the run went on to tolerate the failure. Tolerating a failure is a routing decision, not a reason to forget it happened. |
+| `ACTIVITY_FAILED` events | failure | A transition's activities run *leaving* their source step, whose row has already exited `COMPLETED`. A transition-level `continueOnActivityFailure` therefore leaves **no** failed step row anywhere — this event is the only trace. |
+| `StepInstance` rows in status `SKIPPED`, `STEP_SKIPPED` events | warning | Skipped by design. |
+
+`STEP_FAILED` events are deliberately **not** counted: they are one-to-one with a
+FAILED row, and counting both would double-count one failure.
+
+Evidence is read only when the run terminates `COMPLETED`. `cancelled`,
+`compensated` and `failure` are decided by the lifecycle alone, so a failing run
+pays no extra queries on its way out.
+
+### Known imprecision
+
+A run that failed, was **retried**, and then completed still carries its
+pre-retry `ACTIVITY_FAILED` rows, so it reports `partial_failure`. The engine
+records no attempt boundary to subtract them by. Over-reporting a degraded run is
+the safe direction for a change whose entire purpose is to stop under-reporting
+one.
+
+## The enabling fix
+
+A verdict needs evidence, so a tolerated failure must still be *recorded* as a
+failure. `handleAutomatedStep` **reports** a failed sync activity as
+`{ status: 'FAILED' }` rather than throwing, so `executeStep`'s catch never ran:
+the `StepInstance` row stayed `ACTIVE` for ever and no `STEP_FAILED` was logged.
+`markStepInstanceFailed` (`lib/step-handler.ts`) is now the one place a step row
+becomes FAILED, on both the reported and the thrown path, and is idempotent.
+
+This also repaired a second bug: because the row stayed `ACTIVE`,
+`POST /api/workflows/instances/[id]/rerun-step` refused it with 409
+`WORKFLOW_STEP_STILL_PARKED` — rerun-from-step could not rerun exactly the step
+it exists for.
+
+## Recovery: `partial_failure` is not retryable as a whole run
+
+Retrying replays the graph, which would re-run every part that already
+succeeded — duplicating their effects in order to re-attempt the parts that did
+not. So:
+
+- `POST /api/workflows/instances/[id]/retry` still accepts `FAILED` only, and a
+  `partial_failure` run is `COMPLETED`, so it is refused.
+- `canApplyBulkReplay('retry', …)` agrees, for the same reason.
+- **Recovery is rerun-from-step** on the specific failed step
+  (`POST /api/workflows/instances/[id]/rerun-step`), which the enabling fix
+  unblocked.
+
+`isRetryableRunOutcome` in `lib/run-outcome.ts` states this in one place.
+
+## Consumers
+
+- **KPI rollup** — `successRate` counts `COMPLETED` runs whose verdict is not
+  `partial_failure`. Partial failures are reported as their own number,
+  `runsPartialFailure`, rather than folded into either bucket. Pre-upgrade rollup
+  rows lack the key, and a reader must treat its absence as *"this rollup has
+  nothing to say about that metric"*, never as zero.
+- **Failure queue** (`GET /api/workflows/instances/failure-queue`) — the triage
+  union now includes `outcome = 'partial_failure'` alongside FAILED and
+  attention-parked runs. A run nobody looks at because it said COMPLETED is the
+  exact failure this feature removes.
+- **Instance list** (`GET /api/workflows/instances`) — filterable with
+  `?outcome=partial_failure` (comma-separated for several), and every instance
+  response carries `outcome` additively.
+
+## Compensation timestamps
+
+`COMPENSATED` used to have no terminal timestamp at all — `compensation-handler`
+flipped the status and `completeWorkflow` returned before its own `completedAt`
+assignment — so a compensated run belonged to no KPI time window. The outcome
+write now stamps `completedAt` on that path (and on the
+compensation-failed path, which had the same gap).

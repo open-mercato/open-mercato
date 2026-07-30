@@ -3,6 +3,7 @@ import { conditionExpressionSchema } from '@open-mercato/core/modules/business_r
 import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
 import { parseDuration } from '../lib/duration'
 import { excludeNonNormalTransitions } from '../lib/route-kinds'
+import { WORKFLOW_RUN_OUTCOMES } from '../lib/run-outcome'
 import {
   WORKFLOW_START_FIXTURES_MAX_CHARS,
   WORKFLOW_START_FIXTURES_MAX_COUNT,
@@ -103,6 +104,15 @@ export const workflowInstanceStatusSchema = z.enum([
   'FORKED',
 ])
 export type WorkflowInstanceStatus = z.infer<typeof workflowInstanceStatusSchema>
+
+/**
+ * Terminal run VERDICT (`WorkflowInstance.outcome`), additive alongside the
+ * lifecycle `status`. The tuple lives in the pure `lib/run-outcome.ts` so the
+ * engine, the schema and the read routes cannot drift apart.
+ */
+export const workflowRunOutcomeSchema = z.enum(
+  WORKFLOW_RUN_OUTCOMES as unknown as [string, ...string[]],
+)
 
 export const workflowBranchInstanceStatusSchema = z.enum([
   'ACTIVE',

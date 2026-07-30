@@ -120,6 +120,7 @@ describe('executor pause-on-park (INVOKE_AGENT regression)', () => {
     mockEm = {
       findOne: jest.fn(),
       find: jest.fn(),
+      count: jest.fn(async () => 0),
       create: jest.fn((_entity: unknown, data: unknown) => data),
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
@@ -333,6 +334,7 @@ describe('executeTransitionForToken surfaces paused when the destination step pa
     mockEm = {
       findOne: jest.fn(async () => parkDefinition),
       find: jest.fn(),
+      count: jest.fn(async () => 0),
       create: jest.fn((_entity: unknown, data: unknown) => data),
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),

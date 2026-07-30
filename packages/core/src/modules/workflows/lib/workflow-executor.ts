@@ -36,6 +36,8 @@ import {
   type WorkflowAgentOutcomeContextEntry,
 } from './outcome-routing'
 import { scheduleWorkflowErrorHandler } from './error-handler'
+import { resolveRunOutcome } from './run-outcome'
+import { collectRunOutcomeEvidence } from './run-outcome-evidence'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { resolveWorkflowDefinitionExecutionUserId } from './definition-grant'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -896,6 +898,7 @@ export async function executeWorkflow(
           instance.errorMessage = errorMessage
           instance.errorDetails = error instanceof WorkflowExecutionError ? error.details : undefined
           instance.updatedAt = new Date()
+          await writeRunOutcome(trx, instance, 'FAILED')
           await trx.flush()
 
           await logWorkflowEvent(trx, {
@@ -1325,6 +1328,7 @@ async function persistFailedStatusAfterRollback(
     instance.errorMessage = errorMessage
     instance.errorDetails = errorDetails
     instance.updatedAt = new Date()
+    await writeRunOutcome(trx, instance, 'FAILED')
     await trx.flush()
     await logWorkflowEvent(trx, {
       workflowInstanceId: instanceId,
@@ -1351,6 +1355,24 @@ async function persistFailedStatusAfterRollback(
       persistError,
     )
   }
+}
+
+/**
+ * Write the run's terminal VERDICT onto the instance.
+ *
+ * The ONE write site, so `outcome` cannot be assembled ad hoc per exit point:
+ * every caller hands over the terminal status and the pure
+ * `resolveRunOutcome` decides from the evidence the run recorded. Called before
+ * the flush that persists the terminal status, so status and verdict land in the
+ * same UPDATE and no reader can observe one without the other.
+ */
+async function writeRunOutcome(
+  em: EntityManager,
+  instance: WorkflowInstance,
+  terminalStatus: string,
+): Promise<void> {
+  const evidence = await collectRunOutcomeEvidence(em, instance, terminalStatus)
+  instance.outcome = resolveRunOutcome(evidence)
 }
 
 /**
@@ -1422,7 +1444,12 @@ export async function completeWorkflow(
         })
 
         // Note: instance status already updated by compensateWorkflow
-        // It will be COMPENSATED or remain FAILED.
+        // It will be COMPENSATED or remain FAILED. This branch RETURNS, so the
+        // verdict is written here rather than at the shared tail below — same
+        // resolver, same evidence, one more call site than the ideal one.
+        await writeRunOutcome(em, instance, instance.status)
+        await em.flush()
+
         // A compensated/failed child must still resume its parent SUB_WORKFLOW
         // step — otherwise a parent parked on this child stays PAUSED forever.
         // From the parent's perspective the sub-workflow did not succeed, so this
@@ -1465,6 +1492,8 @@ export async function completeWorkflow(
       instance.cancelledAt = now
       break
   }
+
+  await writeRunOutcome(em, instance, status)
 
   await em.flush()
 
@@ -1627,6 +1656,7 @@ export async function resumeWorkflowAfterActivities(
           jobId: e.eventData.jobId,
         })),
       }
+      await writeRunOutcome(trx, instance, 'FAILED')
       await trx.flush()
 
       await logWorkflowEvent(trx, {

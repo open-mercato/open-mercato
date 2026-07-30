@@ -3010,6 +3010,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "outcome": {
+          "name": "outcome",
+          "type": "varchar(30)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 30,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
         "paused_at": {
           "name": "paused_at",
           "type": "timestamptz(6)",

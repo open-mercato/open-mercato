@@ -70,6 +70,7 @@ describe('Workflow Executor (Unit Tests)', () => {
     mockEm = {
       findOne: jest.fn(),
       find: jest.fn(),
+      count: jest.fn(async () => 0),
       create: jest.fn(),
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
