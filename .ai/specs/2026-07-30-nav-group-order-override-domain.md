@@ -221,6 +221,32 @@ Ordering (`packages/core`):
 - [x] Normalisation and collision covered
 - [x] Prepend semantics covered
 
+## Migration & Backward Compatibility
+
+No migration is required, and no existing installation changes behaviour.
+
+- **`ModuleOverrides.nav`** is a new **optional** domain key, wired under the clause in
+  `BACKWARD_COMPATIBILITY.md` §2 that reserves non-AI domain keys for additive wiring.
+  `ModuleOverrideDomain` and `DOMAIN_KEYS` gain `'nav'` additively; no existing domain is renamed,
+  removed, or reordered in a way that changes behaviour.
+- **Ordering is unchanged when no override is configured.** `resolveGroupOrder()` returns
+  `defaultGroupOrder` itself, so the sort comparator, the rank lookup, and the weight arithmetic are
+  identical to the previous implementation. Verified empirically rather than by inspection: the ordering
+  test suite was run against the *unmodified* implementation, where the no-override and empty-override
+  cases pass unchanged and only the override-specific cases fail.
+- **One narrow behaviour does change, intentionally.** An app that had already written `overrides.nav`
+  was previously ignored with a "domain not yet wired" warning, and now takes effect. That is the point
+  of wiring the domain; such an app was relying on a documented no-op.
+- **Preference precedence is preserved.** The override feeds the base ordering only; role and per-user
+  sidebar preferences still apply on top through the untouched `applySidebarPreference` chain, so an
+  operator's saved arrangement continues to win.
+- **No other contract surface is touched**: no route URL or method, no response schema, no event name or
+  payload, no CLI command, no DI key, no ACL feature, no database change, and no change to
+  `SidebarPreferencesSettings` or the sidebar preferences API.
+- **Forward constraint for future changes**: the no-override-configured path MUST stay byte-identical.
+  Any later change to this domain has to preserve that property, because it is what keeps the domain
+  additive rather than a silent reorder of every existing sidebar.
+
 ## Changelog
 
 - 2026-07-30: Drafted and implemented. Reported from a downstream app that could not rank its own
