@@ -707,6 +707,7 @@
   "ui.crud.dragHandle.aria": "Drag to reorder",
   "ui.customFields.phone.defaultCountry": "Default country",
   "ui.customFields.phone.defaultCountryAuto": "Auto-detect from value",
+  "ui.customFields.phone.defaultCountryHint": "Pre-selects a country in the phone editor when the field is empty.",
   "ui.dataLoader.loading": "Loading...",
   "ui.dataTable.actionsColumn": "Actions",
   "ui.dataTable.bulkAction.error": "Bulk action failed.",
