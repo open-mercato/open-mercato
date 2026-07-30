@@ -128,7 +128,7 @@ export const deleteBook = { execute() {}, buildLog() {}, undo() {} }
   }
 })
 
-test('the complete module oracle accepts command-local atomic and undo behavior', () => {
+test('the complete module oracle accepts suffixed command-local atomic and undo behavior', () => {
   const root = stageTarget('src/modules/library/commands/books.ts', `
 function withAtomicFlush() {}
 function enforceCommandOptimisticLock() {}
@@ -137,17 +137,17 @@ function buildCustomFieldResetMap() {}
 function emitCrudSideEffects() {}
 function emitCrudUndoSideEffects() {}
 
-export const createBook = {
+export const createBookCommand = {
   execute() { withAtomicFlush({}, [], { transaction: true }); emitCrudSideEffects() },
   buildLog() {},
   undo() { extractUndoPayload(); emitCrudUndoSideEffects() },
 }
-export const updateBook = {
+export const updateBookCommand = {
   execute() { withAtomicFlush({}, [], { transaction: true }); enforceCommandOptimisticLock(); emitCrudSideEffects() },
   buildLog() { buildCustomFieldResetMap() },
   undo() { extractUndoPayload(); buildCustomFieldResetMap(); emitCrudUndoSideEffects() },
 }
-export const deleteBook = {
+export const deleteBookCommand = {
   execute() { withAtomicFlush({}, [], { transaction: true }); enforceCommandOptimisticLock(); emitCrudSideEffects() },
   buildLog() { buildCustomFieldResetMap() },
   undo() { extractUndoPayload(); buildCustomFieldResetMap(); emitCrudUndoSideEffects() },

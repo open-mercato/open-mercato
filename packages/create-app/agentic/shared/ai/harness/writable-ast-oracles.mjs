@@ -897,6 +897,10 @@ function exportedObjectCalls(facts, variableName, requiredCalls) {
   return factReachesCalls(facts, facts.exportedObjectFacts.get(variableName), requiredCalls)
 }
 
+function exportedCommandObjectCalls(facts, variableName, requiredCalls) {
+  return [variableName, `${variableName}Command`].some((name) => exportedObjectCalls(facts, name, requiredCalls))
+}
+
 function exportedFunctionHasCallOptions(facts, functionName, callName, requiredOptions) {
   const fact = facts.exportedFunctions.get(functionName)
   return Boolean(fact && (fact.callOptions.get(callName) ?? []).some((options) => requiredOptions.every((name) => options.has(name))))
@@ -960,11 +964,11 @@ function caseChecks(ts, caseId, facts, root) {
       check('module.crud-actions', hasCall(facts, 'registerCommand') && ['library.books.create', 'library.books.update', 'library.books.delete'].every((id) => hasExactString(facts, id)) && ['create', 'update', 'delete'].every((name) => facts.objectProperties.has(name)), 'create, update, and delete actions are backed by aligned registered commands'),
       check('module.api-metadata', ['GET', 'POST', 'PUT', 'DELETE', 'requireAuth', 'requireFeatures'].every((name) => facts.objectProperties.has(name)), 'CRUD API metadata declares per-method auth and features'),
       check('module.openapi', facts.exportedVariables.has('openApi'), 'the CRUD API exports OpenAPI documentation separately'),
-      check('module.command-atomic', exportedObjectCalls(facts, 'createBook', ['withAtomicFlush'])
-        && ['updateBook', 'deleteBook'].every((name) => exportedObjectCalls(facts, name, ['withAtomicFlush', 'enforceCommandOptimisticLock'])),
+      check('module.command-atomic', exportedCommandObjectCalls(facts, 'createBook', ['withAtomicFlush'])
+        && ['updateBook', 'deleteBook'].every((name) => exportedCommandObjectCalls(facts, name, ['withAtomicFlush', 'enforceCommandOptimisticLock'])),
       'each declared create/update/delete command reaches its own transaction seam, and update/delete each enforce their own optimistic lock'),
-      check('module.command-undo', exportedObjectCalls(facts, 'createBook', ['extractUndoPayload', 'emitCrudUndoSideEffects'])
-        && ['updateBook', 'deleteBook'].every((name) => exportedObjectCalls(facts, name, ['extractUndoPayload', 'buildCustomFieldResetMap', 'emitCrudUndoSideEffects']))
+      check('module.command-undo', exportedCommandObjectCalls(facts, 'createBook', ['extractUndoPayload', 'emitCrudUndoSideEffects'])
+        && ['updateBook', 'deleteBook'].every((name) => exportedCommandObjectCalls(facts, name, ['extractUndoPayload', 'buildCustomFieldResetMap', 'emitCrudUndoSideEffects']))
         && hasCall(facts, 'emitCrudSideEffects'),
       'each declared create/update/delete command owns concrete undo behavior; update/delete restore custom fields and all commands retain forward side effects'),
       check('module.encryption-map', facts.exportedVariables.has('defaultEncryptionMaps') && hasExactString(facts, 'library:book'), 'encryption.ts exports a library:book defaultEncryptionMaps entry'),
