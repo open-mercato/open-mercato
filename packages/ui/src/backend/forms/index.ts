@@ -1,4 +1,4 @@
 export { FormActionButtons, type FormActionButtonsProps } from './FormActionButtons'
-export { ActionsDropdown, type ActionItem, type ActionsDropdownProps } from './ActionsDropdown'
+export { ActionsDropdown, type ActionItem, type ActionSeparator, type ActionMenuEntry, type ActionsDropdownProps } from './ActionsDropdown'
 export { FormHeader, type FormHeaderProps, type FormHeaderEditProps, type FormHeaderDetailProps } from './FormHeader'
 export { FormFooter, type FormFooterProps } from './FormFooter'

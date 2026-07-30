@@ -122,7 +122,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { ConfirmDialog, useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { FormHeader, ActionsDropdown, type ActionMenuEntry } from '@open-mercato/ui/backend/forms'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -3297,53 +3297,30 @@ export default function VisualEditorPage() {
                   </>
                 )}
               </Button>
-              {!isCodeOnly && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleOpenTemplateGallery}
-                  disabled={isSaving}
-                  className="h-8 text-xs"
-                >
-                  {t('workflows.visualEditor.loadExample')}
-                </Button>
-              )}
-              {!isCodeOnly && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAutoArrange}
-                  disabled={isSaving || nodes.length === 0}
-                  className="h-8 px-2 text-xs"
-                  aria-label={t('workflows.visualEditor.autoArrange')}
-                >
-                  <Network className="mr-1.5 h-4 w-4" />
-                  {t('workflows.visualEditor.autoArrange')}
-                </Button>
-              )}
-              {!isCodeOnly && (
-                <Button
-                  variant="destructive-outline"
-                  size="sm"
-                  onClick={handleClear}
-                  disabled={isSaving}
-                  className="h-8 px-2 text-xs"
-                  aria-label={t('workflows.visualEditor.clear')}
-                >
-                  <Trash2 className="mr-1.5 h-4 w-4" />
-                  {t('workflows.visualEditor.clear')}
-                </Button>
-              )}
+              {/* Validate — surfaces the last Problems pass's error count so
+                  the author sees "3 errors" without opening the panel; icon +
+                  count, never colour alone (spec §4.6). */}
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleValidate}
                 disabled={isSaving}
                 className="h-8 px-2 text-xs"
-                aria-label={t('workflows.visualEditor.validate')}
+                aria-label={problemErrorCount > 0
+                  ? t('workflows.visualEditor.validateWithErrors', '{count} validation errors', { count: problemErrorCount })
+                  : t('workflows.visualEditor.validate')}
               >
-                <CircleQuestionMark className="mr-1.5 h-4 w-4" />
+                {problemErrorCount > 0 ? (
+                  <CircleAlert className="mr-1.5 h-4 w-4 text-destructive" aria-hidden="true" />
+                ) : (
+                  <CircleQuestionMark className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                )}
                 {t('workflows.visualEditor.validate')}
+                {problemErrorCount > 0 && (
+                  <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold text-white">
+                    {problemErrorCount}
+                  </span>
+                )}
               </Button>
               {/* Prompt-to-draft (spec §9). Offered for every author who can
                   create definitions; the route 403s otherwise and the dialog
@@ -3373,40 +3350,6 @@ export default function VisualEditorPage() {
                 <Code className="mr-1.5 h-4 w-4" aria-hidden="true" />
                 {t('workflows.visualEditor.codeView.title', 'Code')}
               </Button>
-              {/* Compensation ghosts (spec §4.4): a read-only overlay of the
-                  undo paths a failure would walk. Never an engine change. */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={toggleCompensation}
-                aria-pressed={showCompensation}
-                className="h-8 px-2 text-xs"
-                aria-label={t('workflows.compensation.toggle', 'Show compensation paths')}
-              >
-                <ShieldMinus className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                {t('workflows.compensation.toggleShort', 'Compensation')}
-              </Button>
-              {/* Execution overlay (spec §8.3): "Show last run" paints node
-                  states with DS status tokens and the taken path. Read-only —
-                  derived at render time, never part of the document. */}
-              {definitionId && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleLastRun}
-                  aria-pressed={showLastRun}
-                  className="h-8 px-2 text-xs"
-                  aria-label={t('workflows.lastRun.toggle', 'Show the last run on the canvas')}
-                >
-                  <History className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                  {t('workflows.lastRun.toggleShort', 'Last run')}
-                  {showLastRun && lastRunOverlay.isUnavailable ? (
-                    <span className="ml-1.5 text-muted-foreground">
-                      {t('workflows.lastRun.never', '(never run)')}
-                    </span>
-                  ) : null}
-                </Button>
-              )}
               {definitionId && (
                 <Button
                   variant="outline"
@@ -3419,17 +3362,33 @@ export default function VisualEditorPage() {
                   {t('workflows.actions.startInstance')}
                 </Button>
               )}
-              {isCodeOverride && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleResetToCode}
-                  disabled={isSaving}
-                  className="h-8 text-xs"
-                >
-                  {t('workflows.actions.resetToCode')}
-                </Button>
-              )}
+              {/* Overflow: the low-frequency view/canvas tools and the
+                  destructive Clear, kept out of the always-visible row so the
+                  essentials (Details, Validate, AI draft, Code, Start instance)
+                  read at a glance. Clear sits last, behind a separator, in the
+                  destructive token. */}
+              {(() => {
+                const moreActions: ActionMenuEntry[] = []
+                if (!isCodeOnly) moreActions.push({ id: 'load-example', label: t('workflows.visualEditor.loadExample'), onSelect: handleOpenTemplateGallery, disabled: isSaving })
+                if (!isCodeOnly) moreActions.push({ id: 'auto-arrange', label: t('workflows.visualEditor.autoArrange'), icon: Network, onSelect: handleAutoArrange, disabled: isSaving || nodes.length === 0 })
+                moreActions.push({ id: 'compensation', label: t('workflows.compensation.toggleShort', 'Compensation'), icon: ShieldMinus, onSelect: toggleCompensation })
+                if (definitionId) moreActions.push({ id: 'last-run', label: t('workflows.lastRun.toggleShort', 'Last run'), icon: History, onSelect: toggleLastRun })
+                if (isCodeOverride) moreActions.push({ id: 'reset-to-code', label: t('workflows.actions.resetToCode'), onSelect: handleResetToCode, disabled: isSaving })
+                if (!isCodeOnly) {
+                  moreActions.push({ separator: true, id: 'sep-destructive' })
+                  moreActions.push({ id: 'clear', label: t('workflows.visualEditor.clear'), icon: Trash2, onSelect: handleClear, disabled: isSaving, destructive: true })
+                }
+                if (moreActions.length === 0) return null
+                return (
+                  <ActionsDropdown
+                    items={moreActions}
+                    label={t('workflows.visualEditor.more', 'More')}
+                    ariaLabel={t('workflows.visualEditor.more', 'More')}
+                    triggerClassName="h-8 px-2 text-xs"
+                    triggerIcon={false}
+                  />
+                )
+              })()}
               </>
               )}
               {isCodeOnly ? (
