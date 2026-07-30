@@ -23,6 +23,23 @@ const delegateInput = z.object({
   input: z.unknown().describe('Input payload passed to the sub-agent (shape is sub-agent specific).'),
 })
 
+/** Default wall-clock budget for a delegated sub-agent run (ms) — deliberately far
+ * below the top-level `OM_OPENCODE_RUN_TIMEOUT_MS` so a hung sub-agent tool (e.g. a
+ * wedged web_search navigation) fails fast and returns an error to the orchestrator
+ * instead of blocking it for the full top-level deadline. */
+const DEFAULT_DELEGATE_RUN_TIMEOUT_MS = 3 * 60_000
+
+/** Resolve the delegated-run wall-clock budget from `OM_AGENT_DELEGATE_RUN_TIMEOUT_MS`,
+ * falling back to {@link DEFAULT_DELEGATE_RUN_TIMEOUT_MS}. A non-positive/NaN override is ignored. */
+function resolveDelegateRunTimeoutMs(): number {
+  const raw = process.env.OM_AGENT_DELEGATE_RUN_TIMEOUT_MS
+  if (raw != null && raw !== '') {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+  }
+  return DEFAULT_DELEGATE_RUN_TIMEOUT_MS
+}
+
 /**
  * Resolve the parent run id from the caller's run session when the in-process
  * run context is absent. On the OpenCode path this tool runs in the separate
@@ -100,6 +117,10 @@ const delegateAgentTool: AiToolDefinition = {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         userId: ctx.userId,
+        // Bound the delegated run well below the top-level budget so a hung
+        // sub-agent tool (e.g. a wedged web_search navigation) fails fast and
+        // returns an error to the orchestrator instead of blocking it for an hour.
+        runTimeoutMs: resolveDelegateRunTimeoutMs(),
         ...(parentRunId ? { parentRunId } : {}),
         // Inherit the parent's origin so an eval replay's sub-agent runs are not
         // counted as production traffic in the agent's metric rollups.
