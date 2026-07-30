@@ -1,4 +1,5 @@
 import type { SearchAdapter } from '../../contract/adapter'
+import type { FetchOutcome } from '../../contract/outcomes'
 import { resolvePolicy, type SearchPolicyInput } from '../../contract/policy'
 import type { RawResult } from '../../contract/results'
 import type { SearchStep } from '../../contract/steps'
@@ -227,6 +228,43 @@ describe('search engine scheduling', () => {
     await engine.fetch({ url: 'https://example.com/app' })
 
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('bounds a browser fetch that ignores its abort signal instead of hanging', async () => {
+    const browser = createFakeAdapter({ id: 'wedged-browser', kind: 'browser', capabilities: { fetch: true } })
+    // A browser adapter whose render neither honours the abort signal nor ever
+    // settles — the wedged-Playwright case behind the 66-minute run hang.
+    const neverSettles: SearchAdapter['fetch'] = () => new Promise<FetchOutcome>(() => {})
+    const engine = createSearchEngine({
+      policy: resolvePolicy({ escalateToBrowser: true, hardDeadlineMs: 500 }),
+      adapters: [entry({ ...browser, fetch: neverSettles }, { order: 0 })],
+      http,
+    })
+
+    const outcome = await engine.fetch({ url: 'https://example.com/app', render: 'always' })
+
+    expect(outcome.status).toBe('timeout')
+  })
+
+  it('a wedged browser escalation during content enrichment does not hang the search', async () => {
+    // A client-side-render shell classifies as `js-shell` and asks for a browser
+    // render, so enrichment escalates the top result into the wedged adapter.
+    const shell = createStubHttpClient(() => ({ body: '<html><body><div id="root"></div></body></html>' }))
+    const browser = createFakeAdapter({ id: 'wedged-browser', kind: 'browser', capabilities: { fetch: true } })
+    const neverSettles: SearchAdapter['fetch'] = () => new Promise<FetchOutcome>(() => {})
+    const engine = createSearchEngine({
+      policy: resolvePolicy({ escalateToBrowser: true, hardDeadlineMs: 500, minResults: 1, lastResort: null }),
+      adapters: [
+        entry(createFakeAdapter({ id: 'api', results: hits('example.com', 3) }), { order: 0 }),
+        entry({ ...browser, fetch: neverSettles }, { order: 1 }),
+      ],
+      http: shell,
+    })
+
+    const result = await engine.search({ query: 'x', includeContent: true })
+
+    // The search still returns its results rather than blocking on the escalation.
+    expect(result.results.length).toBeGreaterThan(0)
   })
 
   it('gives an adapter its own timeout when the policy sets one', async () => {
