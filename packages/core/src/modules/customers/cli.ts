@@ -12,6 +12,7 @@ import { E as CoreEntities } from '#generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import {
@@ -1395,12 +1396,24 @@ async function seedCustomerExamples(
     )
   )
   if (exampleDealTitles.length > 0) {
-    const already = await em.count(CustomerDeal, {
-      tenantId,
-      organizationId,
-      title: { $in: exampleDealTitles as any },
-    })
-    if (already > 0) {
+    // `customer_deal.title` is encryption-mapped (see ./encryption.ts), so with
+    // TENANT_DATA_ENCRYPTION enabled the stored column holds ciphertext. A plaintext
+    // `title: { $in: [...] }` filter therefore matches nothing, the guard falls through, and every
+    // re-run duplicates the whole example batch. Read the deals back through the decryption-aware
+    // helper and compare plaintext titles in memory instead; this behaves identically whether or
+    // not encryption is enabled.
+    const exampleTitles = new Set(exampleDealTitles)
+    const existingDeals = await findWithDecryption(
+      em,
+      CustomerDeal,
+      { tenantId, organizationId },
+      undefined,
+      { tenantId, organizationId },
+    )
+    const already = existingDeals.some(
+      (deal) => typeof deal.title === 'string' && exampleTitles.has(deal.title),
+    )
+    if (already) {
       return false
     }
   }
