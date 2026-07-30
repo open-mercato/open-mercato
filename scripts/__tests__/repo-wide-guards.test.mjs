@@ -6,6 +6,7 @@ import test from 'node:test'
 import {
   CROSS_PACKAGE_EXCEPTIONS,
   REPO_WIDE_GUARDS,
+  buildJestArgs,
   findCrossPackageTestCandidates,
   listGuardPaths,
 } from '../repo-wide-guards.mjs'
@@ -43,6 +44,20 @@ test('every guard workspace has the jest config the runner invokes', () => {
   for (const group of REPO_WIDE_GUARDS) {
     const configPath = path.join(repoRoot, group.workspaceDir, group.jestConfig)
     assert.ok(fs.existsSync(configPath), `${group.workspace}: ${group.workspaceDir}/${group.jestConfig} does not exist.`)
+  }
+})
+
+test('the runner refuses to pass when a guard matches no test', () => {
+  for (const group of REPO_WIDE_GUARDS) {
+    const args = buildJestArgs(group)
+    assert.ok(
+      args.includes('--passWithNoTests=false'),
+      `${group.workspace}: the jest invocation must override the workspace config's passWithNoTests, or a guard that stops matching testMatch would exit 0 having run nothing.`,
+    )
+    assert.ok(args.includes('--runTestsByPath'), `${group.workspace}: guard paths must be passed as exact paths, not regexes.`)
+    for (const guard of group.tests) {
+      assert.ok(args.includes(guard.path), `${group.workspace}: ${guard.path} is missing from the jest invocation.`)
+    }
   }
 })
 

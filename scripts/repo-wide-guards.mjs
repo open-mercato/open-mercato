@@ -255,11 +255,26 @@ export function listGuardPaths() {
   return REPO_WIDE_GUARDS.flatMap((group) => group.tests.map((test) => `${group.workspaceDir}/${test.path}`))
 }
 
+/**
+ * Jest arguments for one workspace group. `--passWithNoTests=false` is load-bearing: every
+ * workspace jest config sets `passWithNoTests: true`, so a guard that stops matching its
+ * config's `testMatch` (moved out of `__tests__/`, renamed to `.spec.ts`) would otherwise exit 0
+ * having run nothing — the silent zero-match this runner exists to prevent.
+ */
+export function buildJestArgs(group) {
+  return [
+    '--config',
+    group.jestConfig,
+    '--passWithNoTests=false',
+    '--runTestsByPath',
+    ...group.tests.map((test) => test.path),
+  ]
+}
+
 function runGuardGroup(group) {
   const workspaceDir = path.join(REPO_ROOT, group.workspaceDir)
   const jestBinary = resolveProjectBinary('jest', { cwd: REPO_ROOT })
-  const jestArgs = ['--config', group.jestConfig, '--runTestsByPath', ...group.tests.map((test) => test.path)]
-  const resolvedSpawn = resolveSpawnCommand(jestBinary, jestArgs)
+  const resolvedSpawn = resolveSpawnCommand(jestBinary, buildJestArgs(group))
 
   console.log(`\n▶ ${group.workspace} — ${group.tests.length} repo-wide guard(s)`)
   const result = spawnSync(resolvedSpawn.command, resolvedSpawn.args, {
