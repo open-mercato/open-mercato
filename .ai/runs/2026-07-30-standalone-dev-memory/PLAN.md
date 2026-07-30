@@ -98,6 +98,7 @@ Open Mercato CLI, and the existing `scripts/profile-dev-rss.mjs` sampler.
 **Files:**
 
 - Create: `.ai/runs/2026-07-30-standalone-dev-memory/root-cause.md`
+- Modify: `.ai/specs/2026-07-30-standalone-dev-memory-reduction.md`
 - Read: the three baseline JSON reports
 - Read: relevant Turbopack trace/import and generated-registry sources
 
@@ -121,6 +122,10 @@ Open Mercato CLI, and the existing `scripts/profile-dev-rss.mjs` sampler.
 - [ ] When confirmed, record exact production files, regression-test files,
   expected failing assertion, and compatibility/template-sync obligations in
   `root-cause.md`.
+- [ ] Amend the standalone dev-memory spec with the confirmed hypothesis and
+  experiment delta, exact production/test files, affected contract surfaces,
+  rollback mechanics, intervention-specific acceptance criteria, and an updated
+  compliance report before Task 3 begins.
 
 ### Task 3: Implement the confirmed optimization test-first
 
