@@ -3,9 +3,13 @@
 - **Run:** `2026-07-28-workflows-task-visibility` · branch `feat/workflows-task-visibility`
 - **Scope:** the change that makes a workflow user task visible and actionable on *assignment + entity access* instead of on `workflows.tasks.view`, plus the new portal task surface.
 - **Why this document exists:** the spec makes a dedicated security review a **release precondition** for shipping this default-ON. This is the evidence half. It is not the review — a named human still has to sign the three items at the bottom that no test can answer.
-- **Checklist:** the 16 rows of `DESIGN.md` §9, worked one at a time. Every row is answered with a file, a function or a test name. **Where an item is not satisfied it says so.** Four are not, and one is only partly; stretching them into a full green column would be worse than useless to a reviewer.
+- **Checklist:** the 16 rows of `DESIGN.md` §9, worked one at a time. Every row is answered with a file, a function or a test name. **Where an item is not satisfied it says so.** Four are not; stretching them into a full green column would be worse than useless to a reviewer.
 
-**Summary: 11 of 16 satisfied · 1 partially satisfied · 4 not satisfied.** All four unsatisfied rows require a human judgement or a human artifact (a written sign-off, a PR comment, a tracker issue) — none of them is a code defect discovered and left unfixed. The partial one (row 9) is satisfied in code and documentation and missing only its tracker issue.
+**Summary (revised 2026-07-30): 12 of 16 satisfied · 4 not satisfied.** Row 9 moved from partial
+to satisfied when its follow-up issue was filed (#4661). The four that remain are unchanged and
+are all human artifacts — a written sign-off on entity-type-vs-per-record scope, a sign-off on the
+stale-JWT ownership window, the D-1 deviation call-out on the PR itself, and the rollout decision
+in item 1 below. None of the four is a code defect discovered and left unfixed.
 
 Paths below are relative to the repository root; `<wf>` abbreviates `packages/core/src/modules/workflows/`.
 
@@ -135,11 +139,17 @@ Two distinct delays, easy to conflate and worth keeping apart:
 
 ---
 
-## 9. Role matching keys on names — **PARTIALLY SATISFIED**
+## 9. Role matching keys on names — **SATISFIED** (was partial; issue filed 2026-07-30)
 
 **Satisfied:** the comparison site now carries the comment the checklist asks for — `hasRoleOverlap` in `<wf>lib/task-visibility.ts` documents that both sides are names, that they are server-derived (so not client-spoofable), that they are tenant-mutable (so a rename silently orphans assignments), and why changing only the query side would match nothing (`loadAcl` returns no role ids). The consequence is also stated in `BackofficeTaskPrincipal.roleNames`' own doc comment, in `task-visibility.mdx` → Known Limits, in the UPGRADE_NOTES entry, and in the spec changelog's deferrals.
 
-**Not satisfied:** the checklist requires a **follow-up issue link** for an additive `assigned_to_role_ids`. No tracker issue has been filed — filing one was not part of this run's steps and is not something to do unasked. **A reviewer should open it before merge and paste the link here.**
+**Now satisfied (2026-07-30):** the follow-up issue the checklist requires is
+**https://github.com/open-mercato/open-mercato/issues/4661** — it records the additive
+`assigned_to_role_ids` column, the reason a query-side-only change would match nothing
+(`loadAcl` returns no role ids), and the full scope: principal plumbing, a backfill for existing
+`user_tasks` rows, a migration of authored definitions including the shipped gallery templates,
+and a dual-read window per the deprecation protocol. Filed after the visibility work merged, so
+it tracks outstanding debt rather than gating a release.
 
 ---
 
@@ -232,7 +242,7 @@ No test answers any of these. They are the reason this document is evidence and 
 2. **Row 6 — is entity-*type* access enough?** Sign the §3.7 disposition explicitly, or require per-record checks and send this back. Do not leave it implied.
 3. **Row 8 — is the stale-JWT ownership window acceptable?** A portal user moved between companies keeps ownership of their old company's bound records until their token turns over. Accept the window or require re-resolution.
 4. **Row 11 — is the D-1 deviation called out on the PR itself?** It contradicts an approved spec sentence. PLAN.md requires it to be prominent; a changelog line is not prominent.
-5. **Row 9 — open the `assigned_to_role_ids` follow-up and link it here** before merging, so the deferral is tracked rather than remembered.
+5. ~~**Row 9 — open the `assigned_to_role_ids` follow-up and link it here**~~ — **done, 2026-07-30: #4661.** Remaining items on this list are 1, 2, 3, 4 and 6, all of which are genuine maintainer judgements that no test can answer.
 6. **Is "administration sees but cannot act" the right default for this organization?** It is a real operational cost: a supervisor covering for an absent colleague must reassign first, which shows up in the audit trail as a reassignment that may read as a takeover. The alternative — letting `view_all` complete — makes "who approved this?" unanswerable. This document asserts the trade-off was made deliberately; only the maintainer can say it was made correctly.
 
 ---

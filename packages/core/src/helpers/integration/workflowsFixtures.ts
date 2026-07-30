@@ -44,8 +44,8 @@ export function buildUserTaskDefinitionPayload(timestamp: number) {
             assignedTo: 'admin',
             formSchema: {
               fields: [
-                { name: 'approved', type: 'boolean', required: true },
-                { name: 'comments', type: 'string' },
+                { name: 'approved', type: 'boolean', label: 'Approved', required: true },
+                { name: 'comments', type: 'string', label: 'Comments' },
               ],
             },
           },
@@ -93,7 +93,7 @@ export function buildDryRunIsolationDefinitionPayload(timestamp: number, suffix 
           stepType: 'USER_TASK',
           userTaskConfig: {
             assignedTo: ['admin'],
-            formSchema: { fields: [{ name: 'approved', type: 'boolean', required: true }] },
+            formSchema: { fields: [{ name: 'approved', type: 'boolean', label: 'Approved', required: true }] },
           },
         },
         { stepId: 'end', stepName: 'End', stepType: 'END' },
