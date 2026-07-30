@@ -78,16 +78,23 @@ function writeGeneratedModule(generatedDir: string, baseName: string, source: { 
 function writeCompiledSibling(generatedDir: string, baseName: string, compiled: string) {
   const source = fs.readFileSync(path.join(generatedDir, `${baseName}.ts`), 'utf8')
   const inputHash = hash(JSON.stringify({
-    version: 2,
+    version: 3,
     sourceHash: hash(source),
     tsconfigHash: hash(APP_TSCONFIG),
   }))
+  const sourceRelativePath = path.relative(
+    path.dirname(path.dirname(generatedDir)),
+    path.join(generatedDir, `${baseName}.ts`),
+  ).split(path.sep).join('/')
   const compiledPath = path.join(generatedDir, `${baseName}.mjs`)
   fs.writeFileSync(compiledPath, compiled)
   fs.writeFileSync(`${compiledPath}.cache.json`, JSON.stringify({
-    version: 2,
+    version: 3,
     inputHash,
     outputHash: hash(compiled),
+    dependencies: {
+      [sourceRelativePath]: hash(source),
+    },
   }))
   compiledCacheGeneration += 1
   const fresh = new Date(Date.now() + compiledCacheGeneration * 60_000)

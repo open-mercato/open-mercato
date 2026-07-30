@@ -10,12 +10,13 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 
-const DYNAMIC_LOADER_CACHE_VERSION = 2
+const DYNAMIC_LOADER_CACHE_VERSION = 3
 
 type DynamicLoaderCacheMetadata = {
   version: number
   inputHash: string
   outputHash: string
+  dependencies: Record<string, string>
 }
 
 function cacheMetadataPath(jsPath: string): string {
@@ -36,6 +37,31 @@ function cacheInputHash(tsPath: string, appTsconfig: string): string {
   return hash.digest('hex')
 }
 
+function dependenciesAreValid(appRoot: string, dependencies: Record<string, string>): boolean {
+  return Object.entries(dependencies).every(([relativePath, expectedHash]) => {
+    const dependencyPath = path.resolve(appRoot, relativePath)
+    return fs.existsSync(dependencyPath)
+      && contentHash(fs.readFileSync(dependencyPath)) === expectedHash
+  })
+}
+
+function collectDependencyHashes(
+  appRoot: string,
+  inputs: Record<string, unknown>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.keys(inputs)
+      .map((inputPath) => {
+        const absolutePath = path.isAbsolute(inputPath)
+          ? inputPath
+          : path.resolve(appRoot, inputPath)
+        const relativePath = path.relative(appRoot, absolutePath).split(path.sep).join('/')
+        return [relativePath, contentHash(fs.readFileSync(absolutePath))]
+      })
+      .sort(([left], [right]) => left.localeCompare(right)),
+  )
+}
+
 function readCacheMetadata(metadataPath: string): DynamicLoaderCacheMetadata | null {
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
@@ -48,11 +74,16 @@ function readCacheMetadata(metadataPath: string): DynamicLoaderCacheMetadata | n
       && typeof parsed.inputHash === 'string'
       && 'outputHash' in parsed
       && typeof parsed.outputHash === 'string'
+      && 'dependencies' in parsed
+      && typeof parsed.dependencies === 'object'
+      && parsed.dependencies !== null
+      && Object.values(parsed.dependencies).every((hash) => typeof hash === 'string')
     ) {
       return {
         version: parsed.version,
         inputHash: parsed.inputHash,
         outputHash: parsed.outputHash,
+        dependencies: parsed.dependencies as Record<string, string>,
       }
     }
   } catch {}
@@ -60,6 +91,7 @@ function readCacheMetadata(metadataPath: string): DynamicLoaderCacheMetadata | n
 }
 
 function cacheIsValid(
+  appRoot: string,
   jsPath: string,
   metadataPath: string,
   expectedInputHash: string,
@@ -68,6 +100,7 @@ function cacheIsValid(
   const metadata = readCacheMetadata(metadataPath)
   if (!metadata || metadata.inputHash !== expectedInputHash) return false
   return contentHash(fs.readFileSync(jsPath)) === metadata.outputHash
+    && dependenciesAreValid(appRoot, metadata.dependencies)
 }
 
 /**
@@ -92,7 +125,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   }
 
   const expectedInputHash = cacheInputHash(tsPath, appTsconfig)
-  const needsCompile = !cacheIsValid(jsPath, metadataPath, expectedInputHash)
+  const needsCompile = !cacheIsValid(appRoot, jsPath, metadataPath, expectedInputHash)
 
   if (needsCompile) {
     // Dynamically import esbuild only when needed
@@ -140,10 +173,12 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
     }
 
     // Use esbuild.build with bundling to handle JSON imports
-    await esbuild.build({
+    const result = await esbuild.build({
       entryPoints: [tsPath],
       outfile: jsPath,
+      absWorkingDir: appRoot,
       bundle: true,
+      metafile: true,
       format: 'esm',
       platform: 'node',
       target: 'node18',
@@ -156,6 +191,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
       version: DYNAMIC_LOADER_CACHE_VERSION,
       inputHash: expectedInputHash,
       outputHash: contentHash(fs.readFileSync(jsPath)),
+      dependencies: collectDependencyHashes(appRoot, result.metafile.inputs),
     }
     fs.writeFileSync(metadataPath, JSON.stringify(metadata))
   }

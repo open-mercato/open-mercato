@@ -39,6 +39,8 @@ function writeFixture(): string {
 
     @Entity()
     export class ProbeEntity {
+      static revision = 1
+
       @PrimaryKey()
       id!: string
     }
@@ -53,6 +55,7 @@ function readCacheMetadata(appRoot: string, baseName: string): {
   version: number
   inputHash: string
   outputHash: string
+  dependencies: Record<string, string>
 } {
   return JSON.parse(
     fs.readFileSync(
@@ -62,13 +65,17 @@ function readCacheMetadata(appRoot: string, baseName: string): {
   )
 }
 
-function loadBootstrapDataInNode(appRoot: string): { entityNames: string[] } {
+function loadBootstrapDataInNode(appRoot: string): {
+  entityNames: string[]
+  entityRevisions: number[]
+} {
   const loaderUrl = pathToFileURL(path.resolve(__dirname, '../dynamicLoader.ts')).href
   const script = `
     import { loadBootstrapData } from ${JSON.stringify(loaderUrl)}
     const data = await loadBootstrapData(process.argv[1])
     process.stdout.write(JSON.stringify({
       entityNames: data.entities.map((entity) => entity.name),
+      entityRevisions: data.entities.map((entity) => entity.revision),
     }))
   `
   return JSON.parse(execFileSync(
@@ -122,7 +129,7 @@ describe('dynamic loader app tsconfig and content-addressed cache', () => {
     loadBootstrapDataInNode(appRoot)
     const after = readCacheMetadata(appRoot, 'entities')
 
-    expect(after.version).toBe(2)
+    expect(after.version).toBe(3)
     expect(after.inputHash).not.toBe(before.inputHash)
   })
 
@@ -142,6 +149,35 @@ describe('dynamic loader app tsconfig and content-addressed cache', () => {
     const after = readCacheMetadata(appRoot, 'entities')
 
     expect(after.inputHash).not.toBe(before.inputHash)
+  })
+
+  it('invalidates compiled output when only a bundled local dependency changes', async () => {
+    const appRoot = createAppRoot()
+    const generatedSourcePath = path.join(
+      appRoot,
+      '.mercato',
+      'generated',
+      'entities.generated.ts',
+    )
+    const generatedSource = fs.readFileSync(generatedSourcePath, 'utf8')
+    const first = loadBootstrapDataInNode(appRoot)
+    const before = readCacheMetadata(appRoot, 'entities')
+    const entityPath = path.join(appRoot, 'src', 'modules', 'probe', 'data', 'entities.ts')
+
+    fs.writeFileSync(
+      entityPath,
+      fs.readFileSync(entityPath, 'utf8').replace('static revision = 1', 'static revision = 2'),
+    )
+    const second = loadBootstrapDataInNode(appRoot)
+    const after = readCacheMetadata(appRoot, 'entities')
+
+    expect(first.entityRevisions).toEqual([1])
+    expect(second.entityRevisions).toEqual([2])
+    expect(after.outputHash).not.toBe(before.outputHash)
+    expect(after.dependencies['src/modules/probe/data/entities.ts']).not.toBe(
+      before.dependencies['src/modules/probe/data/entities.ts'],
+    )
+    expect(fs.readFileSync(generatedSourcePath, 'utf8')).toBe(generatedSource)
   })
 
   it('rebuilds a compiled file whose bytes do not match its sidecar', async () => {
@@ -166,10 +202,10 @@ describe('dynamic loader app tsconfig and content-addressed cache', () => {
       'entities.generated.mjs.cache.json',
     )
     const stale = readCacheMetadata(appRoot, 'entities')
-    fs.writeFileSync(metadataPath, JSON.stringify({ ...stale, version: 1 }))
+    fs.writeFileSync(metadataPath, JSON.stringify({ ...stale, version: 2 }))
 
     loadBootstrapDataInNode(appRoot)
 
-    expect(readCacheMetadata(appRoot, 'entities').version).toBe(2)
+    expect(readCacheMetadata(appRoot, 'entities').version).toBe(3)
   })
 })

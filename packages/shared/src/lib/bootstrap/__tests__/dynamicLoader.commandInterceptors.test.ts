@@ -49,16 +49,23 @@ function hash(content: string): string {
 function writeGeneratedModule(generatedDir: string, baseName: string, source: { ts: string; compiled: string }) {
   const sourcePath = path.join(generatedDir, `${baseName}.ts`)
   const compiledPath = path.join(generatedDir, `${baseName}.mjs`)
+  const sourceRelativePath = path.relative(
+    path.dirname(path.dirname(generatedDir)),
+    sourcePath,
+  ).split(path.sep).join('/')
   fs.writeFileSync(sourcePath, source.ts)
   fs.writeFileSync(compiledPath, source.compiled)
   fs.writeFileSync(`${compiledPath}.cache.json`, JSON.stringify({
-    version: 2,
+    version: 3,
     inputHash: hash(JSON.stringify({
-      version: 2,
+      version: 3,
       sourceHash: hash(source.ts),
       tsconfigHash: hash(APP_TSCONFIG),
     })),
     outputHash: hash(source.compiled),
+    dependencies: {
+      [sourceRelativePath]: hash(source.ts),
+    },
   }))
 }
 
