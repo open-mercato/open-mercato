@@ -189,6 +189,123 @@ Production implementation is blocked until the spec is amended with:
 - intervention-specific acceptance criteria;
 - an updated compliance report covering every newly relevant `AGENTS.md`.
 
+### Phase 2 root-cause amendment — confirmed 2026-07-30
+
+The confirmed hypothesis is:
+
+> The default module-resource telemetry snapshots written below
+> `.mercato/module-resource-usage/` cause repeated Turbopack invalidation and
+> retained `next-server` memory during standalone development because the active
+> Next.js project watches that app-root path, the snapshots are atomically replaced
+> at a five-second throttle, and moving only those snapshots below the already
+> ignored Next.js `distDir` removed the five-second Fast Refresh cadence while
+> reducing the attributed peak by 30.40%.
+
+All three baseline peaks were `next-turbopack` dominated. Their peak class totals
+were 7,908.54 MB, 7,689.89 MB, and 8,101.76 MB, with `next-server (v16.2.11)` using
+7,330.03 MB, 7,051.50 MB, and 7,468.78 MB. Each retained browser console recorded
+exactly 36 Fast Refresh rebuilds in its first 180 seconds, including the initial
+route work and the one intended edit; the remainder continued at an approximately
+five-second cadence.
+
+The generated graph is reachable at the peak:
+`backend-routes.generated.ts` is 113,487 bytes with 80 static imports,
+`modules.app.generated.ts` is 855,779 bytes with 586, and
+`modules.bootstrap.generated.ts` is 155,026 bytes with 361. Their mtimes remained
+content-stable after the initial generator pass. The recurring writer was
+`packages/shared/src/lib/modules/resource-usage.ts`, whose default snapshot path is
+inside the app root and whose atomic snapshot replacement is throttled to 5,000 ms.
+
+The first reversible hypothesis disabled the compact splash state with
+`OM_DEV_SPLASH_PORT=off`; periodic rebuilds continued, so it was rejected. The
+confirmed experiment instead kept the normal splash and set only:
+
+```text
+OM_MODULE_RESOURCE_USAGE_DIR=.mercato/next/module-resource-usage-experiment
+```
+
+The equivalent 180-second standalone workflow produced:
+
+| Metric | Baseline comparator | Experiment | Delta |
+| --- | ---: | ---: | ---: |
+| Peak total RSS | 10,094.50 MB | 7,397.08 MB | -26.72% |
+| Mean total RSS | 9,431.21 MB | 6,819.47 MB | -27.69% |
+| Peak `next-turbopack` | 7,908.54 MB | 5,503.97 MB | -30.40% |
+| Peak `next-server` | 7,330.03 MB | 5,204.11 MB | -29.00% |
+| Fast Refresh rebuilds in 180 seconds | 36 per run | 3 | -91.67% |
+
+The three experiment rebuilds were initial route work, the intended edit, and one
+non-periodic residual rebuild. Telemetry snapshots continued updating below
+`.mercato/next`, the splash-state file continued updating in its original
+location, the marker updated in place, and the server PID survived. The full
+evidence is in
+`.ai/runs/2026-07-30-standalone-dev-memory/root-cause.md`.
+
+#### Exact Task 3 manifest
+
+Production:
+
+- `scripts/dev.mjs`
+- `packages/create-app/template/scripts/dev.mjs`
+
+Regression tests:
+
+- create `scripts/__tests__/dev-module-resource-usage-dir.test.mjs`
+- modify `packages/create-app/src/lib/template-dev-log-files.test.ts`
+
+Documentation:
+
+- `apps/docs/docs/framework/operations/system-status.mdx`
+
+The implementation sets the managed local-dev default
+`OM_MODULE_RESOURCE_USAGE_DIR` to the applicable app-local
+`.mercato/next/module-resource-usage` directory before runtime children spawn. A
+non-empty explicit value always wins.
+
+The focused pre-fix failure is:
+
+```text
+expected both managed dev wrappers to default OM_MODULE_RESOURCE_USAGE_DIR to
+the app-local .mercato/next/module-resource-usage path while preserving an
+explicit OM_MODULE_RESOURCE_USAGE_DIR override
+```
+
+#### Affected contracts, template parity, and rollback
+
+The stable `yarn dev` command and the existing `OM_MODULE_RESOURCE_USAGE_DIR`
+configuration surface are affected behaviorally but not renamed or narrowed.
+Snapshot payloads, atomic writes, system-status aggregation, generated exports,
+routes, imports, types, entities, events, ACL features, and DI keys are unchanged.
+Production and non-managed runtimes retain the shared library default.
+
+`scripts/dev.mjs` and `packages/create-app/template/scripts/dev.mjs` must be
+changed together. No `apps/mercato/src/app/**` or env-example file is touched, so
+no additional app-shell/env template pair is required.
+
+Rollback removes the default injection from both wrappers and the focused
+tests/documentation note. There is no migration. On the next dev start snapshots
+return to `.mercato/module-resource-usage`; files below `.mercato/next` are
+disposable and already covered by dev-cache reset.
+
+#### Intervention-specific acceptance
+
+- The focused test completes a red-green cycle for standalone, monorepo-app, and
+  explicit-override resolution.
+- Managed dev writes fresh snapshots below
+  `.mercato/next/module-resource-usage`, and system status still aggregates sibling
+  process snapshots.
+- Monorepo and Verdaccio-backed standalone smokes retain login, authenticated
+  backend rendering, the original server PID, and in-place source Fast Refresh.
+- No candidate browser log contains three or more post-edit Fast Refresh rebuilds
+  spaced four to six seconds apart.
+- The three-run candidate median peak `next-turbopack` total is at least 30% below
+  7,908.54 MB.
+- The unchanged primary gate also passes: median total process-tree peak is at
+  least 30% below 10,094.50 MB, or at most 7,066.15 MB.
+
+The one-run experiment is not final acceptance: 7,397.08 MB is 330.93 MB above the
+primary total-process-tree ceiling.
+
 ## Data Models
 
 N/A. The capability adds no persistent application entity or database schema. The
@@ -328,6 +445,19 @@ one equivalent `yarn dev` page/HMR smoke is required.
 - **Residual risk**: Intentionally divergent template files require explicit
   review rather than mechanical copying.
 
+### Dev telemetry relocation loses cross-process visibility
+
+- **Scenario**: The managed runtime writes one process below the Next.js build tree
+  while another process keeps the old default, so the system-status report omits a
+  sibling snapshot.
+- **Severity**: Medium
+- **Affected area**: Local module-resource diagnostics
+- **Mitigation**: Inject one inherited absolute directory before spawning Next,
+  scheduler, and worker processes; verify sibling aggregation in the focused test
+  and standalone smoke.
+- **Residual risk**: A manually launched process that does not inherit the managed
+  dev environment retains the shared default by design.
+
 ### Dependency-version shortcut
 
 - **Scenario**: A preview dependency happens to reduce memory but is unstable or
@@ -346,6 +476,8 @@ one equivalent `yarn dev` page/HMR smoke is required.
 - `AGENTS.md`
 - `.ai/specs/AGENTS.md`
 - `packages/create-app/AGENTS.md`
+- `packages/create-app/template/AGENTS.md`
+- `packages/cli/AGENTS.md`
 - `.ai/docs/agent-instructions.md`
 - `BACKWARD_COMPATIBILITY.md`
 
@@ -358,8 +490,11 @@ one equivalent `yarn dev` page/HMR smoke is required.
 | `packages/create-app/AGENTS.md` | Test through Verdaccio | Compliant | Required for the baseline and candidate fixture. |
 | `packages/create-app/AGENTS.md` | Build before publishing and use build/generate/build order | Compliant | Phase 1 and Phase 4 require the exact order. |
 | `packages/create-app/AGENTS.md` | Mirror app-shell/runtime changes into the template | Compliant | Mandatory implementation constraint and explicit risk mitigation. |
+| `packages/create-app/template/AGENTS.md` | Preserve generated files and standalone dev workflow | Compliant | The intervention moves diagnostic runtime snapshots only; generated registry paths and hot reload remain unchanged. |
+| `packages/cli/AGENTS.md` | Preserve generator output and standalone contracts | Compliant | Generator output was inspected but is not modified by the selected intervention. |
 | `BACKWARD_COMPATIBILITY.md` | Preserve stable and frozen contract surfaces | Compliant | No contract removal or rename is permitted. |
-| Data, API, commands, cache, security, and design-system rules | Apply when those surfaces change | N/A | No entity, API, mutation, cache, or product UI change is proposed by the approved measurement phase. |
+| `packages/create-app/AGENTS.md` | Validate monorepo and Verdaccio-backed standalone environments | Pending Task 3/4 | Both smokes and the full create-app gate are now explicit acceptance criteria. |
+| Data, API, commands, cache, security, and design-system rules | Apply when those surfaces change | N/A | No entity, API, mutation, cache, or product UI change is selected. |
 
 ### Internal Consistency Check
 
@@ -370,19 +505,22 @@ one equivalent `yarn dev` page/HMR smoke is required.
 | Baseline and candidate are comparable | Pass | Fixture, dependencies, database, route, edit, settings, interval, and duration are fixed. |
 | Risks cover likely intervention families | Pass | Externalization, bootstrap ordering, dependency shortcut, and template drift are explicit. |
 | Data/API/UI sections match scope | Pass | All are N/A except browser verification of existing UI. |
+| Selected intervention has exact files, rollback, and red assertion | Pass | The Phase 2 amendment names two production files, two tests, one documentation file, and a no-migration rollback. |
+| Experiment isolates one variable | Pass | Only `OM_MODULE_RESOURCE_USAGE_DIR` moved below the existing Next.js `distDir`; telemetry and splash remained enabled. |
 
 ### Non-Compliant Items
 
-Production implementation remains intentionally gated until Phase 2 amends this
-spec with the confirmed intervention. If attribution selects a
-frontend/bootstrap change, the amendment must also add the required Frontend
-Architecture Contract and related UI guide review.
+The Phase 2 production gate is satisfied. Final compliance remains pending the
+Task 3 red-green cycle and the Task 4 three-run primary acceptance gate. The
+selected intervention is a dev-runtime environment change, not a frontend or
+bootstrap change, so no Frontend Architecture Contract is required.
 
 ### Verdict
 
-**Conditionally compliant:** approved for baseline measurement and root-cause
-experimentation. Production implementation requires the Phase 2 amendment and
-updated compliance review.
+**Conditionally compliant for Task 3 implementation:** the root cause, exact file
+manifest, rollback, contract impact, template parity, and intervention acceptance
+are recorded. Completion still requires implementation and the unchanged
+three-run 30% primary gate.
 
 ## Changelog
 
@@ -390,6 +528,9 @@ updated compliance review.
 
 - Initial standalone dev-memory reduction specification with a three-run 30%
   peak-RSS target and mandatory login, backend page, and module hot-reload gates.
+- Confirmed app-root module-resource telemetry snapshots as the recurring
+  Turbopack invalidation trigger; recorded the isolated `distDir` relocation
+  experiment, exact Task 3 files/tests, rollback, and acceptance criteria.
 
 ### Review — 2026-07-30
 
