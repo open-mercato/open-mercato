@@ -140,6 +140,22 @@ describe('runAgenticInit', () => {
     expect(testContext.runAgenticSetup).not.toHaveBeenCalled()
   })
 
+  it('rejects force and ownership-aware update together before setup', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const testContext = await loadRunAgenticInit({
+      existingPaths: new Set<string>([appModulesPath]),
+    })
+
+    const exitCode = await testContext.runAgenticInit(['--force', '--update-harness'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '❌  --force and --update-harness are mutually exclusive',
+    )
+    expect(testContext.createInterface).not.toHaveBeenCalled()
+    expect(testContext.runAgenticSetup).not.toHaveBeenCalled()
+  })
+
   it('warns and exits early when relevant agentic files already exist without force', async () => {
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     const testContext = await loadRunAgenticInit({

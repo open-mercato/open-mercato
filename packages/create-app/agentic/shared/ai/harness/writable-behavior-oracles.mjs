@@ -15,7 +15,7 @@ const MAX_SOURCE_BYTES = 256 * 1024
 const WORKER_TIMEOUT_MS = 3_000
 
 const CASES = {
-  'OMH-045': { file: 'src/modules/external_sync/lib/client.ts' },
+  'OMH-045': { file: 'src/modules/external_sync/lib/client.ts', allowCompiledImports: true },
   'OMH-054': { file: 'src/modules/automation/workflows/call-api.ts' },
   'OMH-057': { file: 'src/modules/harness_fixture/api/scope/route.ts' },
   'OMH-060': { file: 'src/modules/harness_fixture/commands/update-record.ts' },
@@ -25,7 +25,7 @@ const CASES = {
   },
   'OMH-070': { file: 'src/modules/harness_fixture/workers/sync.ts' },
   'OMH-093': { file: 'src/modules/customer_merge/commands/merge-contacts.ts', family: 'business-command', exportName: 'mergeContacts', requiredFlags: ['scopeValid', 'survivorSelected'] },
-  'OMH-105': { file: 'src/modules/deal_stages/commands/change-stage.ts', family: 'business-command', exportName: 'changeDealStage', requiredFlags: ['transitionAllowed', 'requiredFieldsPresent'] },
+  'OMH-105': { file: 'src/modules/deal_stages/commands/change-stage.ts', family: 'business-command', exportName: 'changeDealStage', requiredFlags: ['transitionAllowed', 'requiredFieldsPresent'], allowCompiledImports: true },
   'OMH-107': { file: 'src/modules/quote_approval/commands/request-discount.ts', family: 'business-command', exportName: 'requestQuoteDiscount', requiredFlags: ['approvalSatisfied', 'separationOfDuties'] },
   'OMH-115': { file: 'src/modules/deal_accessibility/lib/move-deal.ts', family: 'ui-business-surface', exportName: 'moveDealAccessibly', requiredFlags: ['accessGranted', 'keyboardEquivalent'] },
   'OMH-122': { file: 'src/modules/stock_reservations/commands/reserve-stock.ts', family: 'business-command', exportName: 'reserveStock', requiredFlags: ['stockAvailable', 'reservationKeyPresent'] },
@@ -44,6 +44,14 @@ const CASES = {
   'OMH-171': { file: 'src/modules/harness_fixture/api/scope/route.ts', probeCase: 'OMH-057' },
   'OMH-172': { file: 'src/modules/harness_fixture/backend/edit/page.tsx', probeCase: 'OMH-061', allowedCompiledImport: '@open-mercato/ui/backend/CrudForm' },
   'OMH-181': { file: 'src/modules/order_risk/widgets/injection/order-risk-review/widget.ts', family: 'data-table-extension', exportName: 'reviewOrderRisk' },
+  'OMH-189': {
+    directory: 'src/modules/room_calendar_sync/lib',
+    file: 'src/modules/room_calendar_sync/lib/export-source.ts',
+    requiredExport: 'assertSafeEndpoint',
+    family: 'endpoint-guard',
+    allowCompiledImports: true,
+  },
+  'OMH-192': { file: 'src/modules/library/commands/crm-loans.ts', family: 'crm-library-regression' },
 }
 
 const FAMILY_PROBES = {
@@ -295,6 +303,35 @@ const FAMILY_PROBES = {
     return { checks }
     })();
   `),
+  'endpoint-guard': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
+    const guard = module.exports.assertSafeEndpoint
+    if (typeof guard !== 'function') throw new Error('required assertSafeEndpoint export is missing')
+    const checks = []
+    const unsafe = [
+      'http://calendar.example/events',
+      'https://localhost/events',
+      'https://127.0.0.1/events',
+      'https://[::1]/events',
+      'https://10.1.2.3/events',
+      'https://172.16.0.1/events',
+      'https://172.31.255.254/events',
+      'https://192.168.1.1/events',
+      'https://169.254.169.254/latest/meta-data',
+      'https://metadata.internal/latest/meta-data',
+    ]
+    const rejected = []
+    for (const endpoint of unsafe) {
+      try { await guard(endpoint) } catch { rejected.push(endpoint) }
+    }
+    checks.push({ id: 'rejects-non-https-and-private-endpoints', passed: rejected.length === unsafe.length })
+    let publicError
+    try { await guard('https://calendar.example/events') } catch (error) { publicError = error }
+    checks.push({ id: 'accepts-public-https-endpoint', passed: !publicError })
+    return { checks }
+    })();
+  `),
   'data-flow': new vm.Script(`
     'use strict';
     globalThis.__oracleResult = (async () => {
@@ -329,6 +366,134 @@ const FAMILY_PROBES = {
       })
     } catch { fetchRejected = true }
     checks.push({ id: 'preserves-cursor-on-page-failure', passed: fetchRejected && !failedCommit })
+    return { checks }
+    })();
+  `),
+  'crm-library-regression': new vm.Script(`
+    'use strict';
+    globalThis.__oracleResult = (async () => {
+    const required = ['createBook', 'undoCreateBook', 'deleteBook', 'undoDeleteBook', 'checkoutBook', 'returnLoan', 'renewLoan', 'markLoanLost']
+    const actions = Object.fromEntries(required.map((name) => [name, module.exports[name]]))
+    if (required.some((name) => typeof actions[name] !== 'function')) throw new Error('required CRM library export is missing')
+
+    const checks = []
+    const trustedScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    const attackerScope = { tenantId: 'tenant-b', organizationId: 'org-b' }
+    const books = new Map()
+    const loans = new Map()
+    const idempotency = new Map()
+    const activeByBook = new Map()
+    const scopeEvents = []
+    const customerEvents = []
+    let effectCalls = 0
+
+    const assertScope = (scope) => {
+      effectCalls += 1
+      scopeEvents.push(scope?.tenantId + ':' + scope?.organizationId)
+    }
+
+    const effects = {
+      async createBook(record, scope) {
+        assertScope(scope)
+        const stored = { ...record, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null }
+        books.set(stored.id, stored)
+        return { ...stored }
+      },
+      async softDeleteBook(id, scope) {
+        assertScope(scope)
+        const book = books.get(id)
+        if (!book) throw new Error('book not found')
+        book.deletedAt = 'deleted'
+        return { ...book }
+      },
+      async restoreBook(id, scope) {
+        assertScope(scope)
+        const book = books.get(id)
+        if (!book) throw new Error('book not found')
+        book.deletedAt = null
+        return { ...book }
+      },
+      async resolveCustomer(id, scope) {
+        assertScope(scope)
+        customerEvents.push({ id, scope: { ...scope } })
+        return { id, displayName: 'Scoped CRM customer' }
+      },
+      async findActiveLoan(bookId, scope) {
+        assertScope(scope)
+        await Promise.resolve()
+        const loanId = activeByBook.get(bookId)
+        return loanId ? { ...loans.get(loanId) } : undefined
+      },
+      async createLoan(input, scope) {
+        assertScope(scope)
+        await Promise.resolve()
+        const loan = { ...input, id: 'loan-' + (loans.size + 1), status: 'active' }
+        loans.set(loan.id, loan)
+        activeByBook.set(loan.bookId, loan.id)
+        return { ...loan }
+      },
+      async claimCheckout(input, scope) {
+        assertScope(scope)
+        if ('memberId' in input) throw new Error('duplicate local member leaked into checkout')
+        const priorId = idempotency.get(input.idempotencyKey)
+        if (priorId) return { status: 'existing', loan: { ...loans.get(priorId) } }
+        if (activeByBook.has(input.bookId)) return { status: 'conflict' }
+        const loan = { ...input, id: 'loan-' + (loans.size + 1), tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'active' }
+        loans.set(loan.id, loan)
+        activeByBook.set(input.bookId, loan.id)
+        idempotency.set(input.idempotencyKey, loan.id)
+        return { status: 'created', loan: { ...loan } }
+      },
+      async findLoan(id, scope) {
+        assertScope(scope)
+        const loan = loans.get(id)
+        return loan ? { ...loan } : undefined
+      },
+      async updateLoan(id, scope, patch) {
+        assertScope(scope)
+        const loan = loans.get(id)
+        if (!loan) throw new Error('loan not found')
+        Object.assign(loan, patch)
+        return { ...loan }
+      },
+    }
+
+    let missingScopeRejected = false
+    const callsBeforeMissingScope = effectCalls
+    try {
+      await actions.checkoutBook({ bookId: 'missing-scope', customerEntityId: 'customer-a', idempotencyKey: 'missing-scope' }, {}, effects)
+    } catch { missingScopeRejected = true }
+    checks.push({ id: 'fails-closed-before-effects', passed: missingScopeRejected && effectCalls === callsBeforeMissingScope })
+
+    await actions.createBook({ id: 'created-book', title: 'Created', ...attackerScope }, trustedScope, effects)
+    await actions.undoCreateBook('created-book', trustedScope, effects)
+    checks.push({ id: 'create-undo-soft-deletes', passed: books.get('created-book')?.deletedAt === 'deleted' })
+
+    await actions.createBook({ id: 'restored-book', title: 'Restored', ...attackerScope }, trustedScope, effects)
+    await actions.deleteBook('restored-book', trustedScope, effects)
+    await actions.undoDeleteBook('restored-book', trustedScope, effects)
+    checks.push({ id: 'delete-undo-restores', passed: books.get('restored-book')?.deletedAt === null })
+    checks.push({ id: 'body-scope-cannot-override-trusted-scope', passed: [...books.values()].every((book) => book.tenantId === trustedScope.tenantId && book.organizationId === trustedScope.organizationId) })
+
+    const checkoutInput = { bookId: 'shared-copy', customerEntityId: 'customer-a', ...attackerScope }
+    const concurrent = await Promise.all([
+      actions.checkoutBook({ ...checkoutInput, idempotencyKey: 'checkout-a' }, trustedScope, effects).catch(() => ({ status: 'conflict' })),
+      actions.checkoutBook({ ...checkoutInput, idempotencyKey: 'checkout-b' }, trustedScope, effects).catch(() => ({ status: 'conflict' })),
+    ])
+    const statuses = concurrent.map((result) => result?.status).sort()
+    checks.push({ id: 'concurrent-checkout-has-one-winner', passed: statuses.join(',') === 'conflict,created' && [...loans.values()].filter((loan) => loan.bookId === 'shared-copy' && loan.status === 'active').length === 1 })
+
+    const winner = concurrent.find((result) => result?.status === 'created')
+    const winnerKey = winner?.loan?.id === loans.get(idempotency.get('checkout-a'))?.id ? 'checkout-a' : 'checkout-b'
+    const retry = await actions.checkoutBook({ ...checkoutInput, idempotencyKey: winnerKey }, trustedScope, effects)
+    checks.push({ id: 'checkout-retry-is-deterministic', passed: retry?.status === 'existing' && retry?.loan?.id === winner?.loan?.id && loans.size === 1 })
+    checks.push({ id: 'resolves-scoped-crm-customer-snapshot', passed: customerEvents.length >= 2 && customerEvents.every((event) => event.id === 'customer-a' && event.scope.tenantId === trustedScope.tenantId) && winner?.loan?.customerEntityId === 'customer-a' && winner?.loan?.customerNameSnapshot === 'Scoped CRM customer' && !('memberId' in (winner?.loan ?? {})) })
+
+    for (const [id, action] of [['return-loan', actions.returnLoan], ['renew-loan', actions.renewLoan], ['lost-loan', actions.markLoanLost]]) {
+      loans.set(id, { id, bookId: id, customerEntityId: 'customer-a', status: 'active' })
+      await action({ id, ...attackerScope }, trustedScope, effects)
+    }
+    checks.push({ id: 'all-loan-actions-use-trusted-scope', passed: ['return-loan', 'renew-loan', 'lost-loan'].every((id) => loans.get(id)?.status !== 'active') && scopeEvents.every((entry) => entry === 'tenant-a:org-a') })
     return { checks }
     })();
   `),
@@ -626,7 +791,86 @@ function safeMessage(error, root) {
     .slice(0, 500)
 }
 
+function hasExportModifier(ts, node) {
+  return Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword))
+}
+
+function unwrapTypeExpression(ts, node) {
+  let current = node
+  while (current && (
+    ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isNonNullExpression(current)
+    || (typeof ts.isSatisfiesExpression === 'function' && ts.isSatisfiesExpression(current))
+  )) current = current.expression
+  return current
+}
+
+function sourceDeclaresConcreteExport(ts, file, source, exportName) {
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  const localFunctions = new Set()
+  let direct = false
+  let exportedLocally = false
+  for (const statement of ast.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === exportName) {
+      localFunctions.add(exportName)
+      if (hasExportModifier(ts, statement)) direct = true
+      continue
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue
+        const initializer = declaration.initializer ? unwrapTypeExpression(ts, declaration.initializer) : undefined
+        if (!initializer || (!ts.isArrowFunction(initializer) && !ts.isFunctionExpression(initializer))) continue
+        localFunctions.add(exportName)
+        if (hasExportModifier(ts, statement)) direct = true
+      }
+      continue
+    }
+    if (!ts.isExportDeclaration(statement) || statement.moduleSpecifier || !statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue
+    exportedLocally ||= statement.exportClause.elements.some((element) =>
+      (element.propertyName?.text ?? element.name.text) === exportName && element.name.text === exportName)
+  }
+  return direct || (exportedLocally && localFunctions.has(exportName))
+}
+
+function findExportSource(root, caseRecord) {
+  const ts = loadTargetTypeScript(root)
+  const directory = path.resolve(root, caseRecord.directory)
+  if (!isPathInside(root, directory)) throw new Error('oracle target directory escapes the app root')
+  const realRoot = fs.realpathSync(root)
+  const realDirectory = fs.realpathSync(directory)
+  if (!isPathInside(realRoot, realDirectory)) throw new Error('oracle target directory resolves outside the app root')
+  const candidates = []
+  const pending = [realDirectory]
+  while (pending.length) {
+    const current = pending.pop()
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) throw new Error('oracle target directory contains a symbolic link')
+      const absolute = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        pending.push(absolute)
+        continue
+      }
+      if (!entry.isFile() || !/\.[cm]?tsx?$/.test(entry.name) || /\.(?:d|test|spec)\.[cm]?tsx?$/.test(entry.name)) continue
+      const stat = fs.statSync(absolute)
+      if (stat.size > MAX_SOURCE_BYTES) throw new Error(`oracle target exceeds ${MAX_SOURCE_BYTES} bytes`)
+      const source = fs.readFileSync(absolute, 'utf8')
+      if (sourceDeclaresConcreteExport(ts, absolute, source, caseRecord.requiredExport)) candidates.push({ absolute, source })
+    }
+  }
+  if (candidates.length !== 1) {
+    throw new Error(`oracle target must contain exactly one exported ${caseRecord.requiredExport}; found ${candidates.length}`)
+  }
+  return candidates[0]
+}
+
 function readTargetSource(root, caseRecord) {
+  if (caseRecord.directory) {
+    const match = findExportSource(root, caseRecord)
+    return { source: match.source, file: path.relative(root, match.absolute) }
+  }
   const candidate = path.resolve(root, caseRecord.file)
   if (!isPathInside(root, candidate)) throw new Error('oracle target escapes the app root')
   const realRoot = fs.realpathSync(root)
@@ -635,7 +879,7 @@ function readTargetSource(root, caseRecord) {
   const stat = fs.statSync(realCandidate)
   if (!stat.isFile()) throw new Error(`oracle target is not a file: ${caseRecord.file}`)
   if (stat.size > MAX_SOURCE_BYTES) throw new Error(`oracle target exceeds ${MAX_SOURCE_BYTES} bytes`)
-  return fs.readFileSync(realCandidate, 'utf8')
+  return { source: fs.readFileSync(realCandidate, 'utf8'), file: caseRecord.file }
 }
 
 function loadTargetTypeScript(root) {
@@ -663,13 +907,51 @@ function transpileTarget(root, caseRecord, source) {
     throw new Error(`target TypeScript compilation failed (${codes})`)
   }
   let output = result.outputText
-  if (caseRecord.allowedCompiledImport) {
+  let importStub = ''
+  if (caseRecord.allowCompiledImports) {
+    importStub = `
+const __harnessPublicAddress = '1.1.1.1'
+const __harnessDnsPromises = Object.freeze({
+  async lookup(hostname, options) {
+    const address = hostname === 'localhost' ? '127.0.0.1' : hostname === '[::1]' ? '::1' : hostname === 'metadata.internal' ? '169.254.169.254' : /^\\d+(?:\\.\\d+){3}$/.test(hostname) ? hostname : __harnessPublicAddress
+    return options?.all ? [{ address, family: address.includes(':') ? 6 : 4 }] : { address, family: address.includes(':') ? 6 : 4 }
+  },
+})
+const __harnessDns = Object.freeze({
+  lookup(hostname, options, callback) {
+    const resolvedCallback = typeof options === 'function' ? options : callback
+    const address = hostname === 'localhost' ? '127.0.0.1' : hostname === '[::1]' ? '::1' : hostname === 'metadata.internal' ? '169.254.169.254' : /^\\d+(?:\\.\\d+){3}$/.test(hostname) ? hostname : __harnessPublicAddress
+    if (typeof options === 'object' && options?.all) resolvedCallback(null, [{ address, family: address.includes(':') ? 6 : 4 }])
+    else resolvedCallback(null, address, address.includes(':') ? 6 : 4)
+  },
+})
+const __harnessNet = Object.freeze({
+  isIP(value) {
+    if (/^\\d+(?:\\.\\d+){3}$/.test(value)) return 4
+    if (String(value).includes(':')) return 6
+    return 0
+  },
+})
+const __harnessImportStub = new Proxy(function (...args) {
+  const callback = args.find((argument) => typeof argument === 'function')
+  return callback ? callback() : __harnessImportStub
+}, {
+  get(_target, property) { return property === 'then' ? undefined : __harnessImportStub },
+  construct() { return __harnessImportStub },
+})
+`
+    output = output
+      .replace(/\brequire\((['"])node:dns\/promises\1\)/g, '__harnessDnsPromises')
+      .replace(/\brequire\((['"])node:dns\1\)/g, '__harnessDns')
+      .replace(/\brequire\((['"])node:net\1\)/g, '__harnessNet')
+    output = output.replace(/\brequire\((['"])[^'"]+\1\)/g, '__harnessImportStub')
+  } else if (caseRecord.allowedCompiledImport) {
     const escaped = caseRecord.allowedCompiledImport.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const importExpression = new RegExp(`require\\(["']${escaped}["']\\)`, 'g')
     output = output.replace(importExpression, '({ CrudForm: function CrudForm() {} })')
   }
   if (/\brequire\s*\(/.test(output)) throw new Error('behavior-oracle target must not execute imports')
-  return output
+  return `${importStub}${output}`
 }
 
 function executeWorker(caseId, compiledSource) {
@@ -736,8 +1018,11 @@ async function internalRun(caseId) {
         if (!match) throw new TypeError('invalid absolute URL')
         this.protocol = match[1] + ':'
         const authority = match[2]
-        const portIndex = authority.lastIndexOf(':')
-        this.hostname = portIndex > -1 ? authority.slice(0, portIndex) : authority
+        const bracketEnd = authority.startsWith('[') ? authority.indexOf(']') : -1
+        const portIndex = bracketEnd > -1
+          ? (authority[bracketEnd + 1] === ':' ? bracketEnd + 1 : -1)
+          : authority.lastIndexOf(':')
+        this.hostname = bracketEnd > -1 ? authority.slice(0, bracketEnd + 1) : portIndex > -1 ? authority.slice(0, portIndex) : authority
         this.port = portIndex > -1 ? authority.slice(portIndex + 1) : ''
         this.pathname = match[3] || '/'
         this.hash = match[5] ? '#' + match[5] : ''
@@ -795,8 +1080,8 @@ async function main() {
     if (!CASES[options.caseId]) throw new Error(`--case must be one of: ${Object.keys(CASES).join(', ')}`)
     if (!['before', 'after'].includes(options.phase)) throw new Error('--phase must be before or after')
     const caseRecord = CASES[options.caseId]
-    const source = readTargetSource(root, caseRecord)
-    const compiled = transpileTarget(root, caseRecord, source)
+    const target = readTargetSource(root, caseRecord)
+    const compiled = transpileTarget(root, { ...caseRecord, file: target.file }, target.source)
     const probe = executeWorker(options.caseId, compiled)
     const failures = probe.checks.filter((check) => !check.passed).map((check) => `${check.id}: behavior requirement was not met`)
     const result = { passed: failures.length === 0, failures, checks: probe.checks }

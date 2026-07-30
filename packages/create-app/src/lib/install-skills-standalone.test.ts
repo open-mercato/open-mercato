@@ -507,7 +507,7 @@ test('an offline pin change removes stale managed skills from canonical discover
   }
 })
 
-test('a pre-ledger mismatched external directory is quarantined on the first offline run', () => {
+test('a pre-ledger mismatched external directory stays user-owned on an offline run', () => {
   const root = fixture()
   const skillDir = path.join(root, '.agents', 'skills', 'om-code-review')
   try {
@@ -516,12 +516,13 @@ test('a pre-ledger mismatched external directory is quarantined on the first off
 
     const result = run(root, '--no-external')
     assert.equal(result.status, 0, result.stderr)
-    assert.equal(fs.existsSync(skillDir), false)
+    assert.equal(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'), '# old unverified install\n')
     assert.equal(
-      fs.readFileSync(path.join(root, '.agents', 'skills-quarantine', 'unowned-om-code-review', 'SKILL.md'), 'utf8'),
-      '# old unverified install\n',
+      fs.existsSync(path.join(root, '.agents', 'skills-quarantine', 'unowned-om-code-review')),
+      false,
     )
-    assert.match(result.stderr, /quarantined unverified pre-ledger skill/)
+    assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', '.om-external-ownership.json')), false)
+    assert.doesNotMatch(result.stderr, /quarantined/)
   } finally {
     removeFixture(root)
   }

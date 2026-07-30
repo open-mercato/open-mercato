@@ -272,12 +272,77 @@ describe('runAgenticSetup ownership modes', () => {
     await runAgenticSetup(appDir, ask, { tool: 'codex' })
     write(join(appDir, 'AGENTS.md'), '# My local harness rules\n')
 
-    await runAgenticSetup(appDir, ask, { tool: 'codex', force: true, updateHarness: true })
+    await runAgenticSetup(appDir, ask, { tool: 'codex', force: true })
 
     expect(readFileSync(join(appDir, 'AGENTS.md'), 'utf8')).toContain(
       '<!-- CODEX_ENFORCEMENT_RULES_START -->',
     )
     expect(existsSync(join(appDir, 'AGENTS.md.incoming'))).toBe(false)
+  })
+
+  it.each([
+    ['top-level .ai', '.ai'],
+    ['top-level scripts', 'scripts'],
+    ['nested guides', join('.ai', 'guides')],
+  ])('rejects a symlinked %s destination on initial setup before writing outside the app', async (_label, linkedRelative) => {
+    if (process.platform === 'win32') return
+    const targetDir = join(appDir, linkedRelative.replaceAll('/', '-'))
+    const outsideDir = join(appDir, `outside-initial-${linkedRelative.replaceAll('/', '-')}`)
+    write(
+      join(targetDir, 'src', 'modules.ts'),
+      "export const enabledModules: Array<{ id: string }> = []\n",
+    )
+    write(join(outsideDir, 'sentinel.txt'), 'outside sentinel\n')
+    const linkedPath = join(targetDir, linkedRelative)
+    mkdirSync(dirname(linkedPath), { recursive: true })
+    symlinkSync(outsideDir, linkedPath, 'dir')
+
+    await expect(runAgenticSetup(targetDir, async () => '', { tool: 'codex' })).rejects.toThrow(
+      'Harness-managed path contains a symbolic-link component',
+    )
+    expect(readFileSync(join(outsideDir, 'sentinel.txt'), 'utf8')).toBe('outside sentinel\n')
+    expect(readdirSync(outsideDir)).toEqual(['sentinel.txt'])
+    expect(existsSync(join(targetDir, 'AGENTS.md'))).toBe(false)
+  })
+
+  it.each([
+    ['top-level .ai', '.ai'],
+    ['top-level scripts', 'scripts'],
+    ['nested guides', join('.ai', 'guides')],
+  ])('rejects a symlinked %s destination on forced setup before writing outside the app', async (_label, linkedRelative) => {
+    if (process.platform === 'win32') return
+    const targetDir = join(appDir, `force-${linkedRelative.replaceAll('/', '-')}`)
+    const outsideDir = join(appDir, `outside-force-${linkedRelative.replaceAll('/', '-')}`)
+    write(
+      join(targetDir, 'src', 'modules.ts'),
+      "export const enabledModules: Array<{ id: string }> = []\n",
+    )
+    await runAgenticSetup(targetDir, async () => '', { tool: 'codex' })
+    const originalAgents = readFileSync(join(targetDir, 'AGENTS.md'), 'utf8')
+    write(join(outsideDir, 'sentinel.txt'), 'outside sentinel\n')
+    const linkedPath = join(targetDir, linkedRelative)
+    rmSync(linkedPath, { recursive: true, force: true })
+    mkdirSync(dirname(linkedPath), { recursive: true })
+    symlinkSync(outsideDir, linkedPath, 'dir')
+
+    await expect(
+      runAgenticSetup(targetDir, async () => '', { tool: 'codex', force: true }),
+    ).rejects.toThrow('Harness-managed path contains a symbolic-link component')
+    expect(readFileSync(join(outsideDir, 'sentinel.txt'), 'utf8')).toBe('outside sentinel\n')
+    expect(readdirSync(outsideDir)).toEqual(['sentinel.txt'])
+    expect(readFileSync(join(targetDir, 'AGENTS.md'), 'utf8')).toBe(originalAgents)
+  })
+
+  it('updates the harness without crashing when src/modules.ts is missing', async () => {
+    rmSync(join(appDir, 'src', 'modules.ts'))
+
+    await expect(runAgenticSetup(appDir, async () => '', {
+      tool: 'codex',
+      updateHarness: true,
+    })).resolves.toBeUndefined()
+
+    expect(existsSync(join(appDir, 'src', 'modules.ts'))).toBe(false)
+    expect(existsSync(join(appDir, '.ai', 'harness', 'manifest.json'))).toBe(true)
   })
 
   it('removes unmodified tool-specific assets when switching tools', async () => {

@@ -6,9 +6,9 @@ Diagnose before editing, fix the smallest knowledge/code owner, and prove the re
 
 Name the areas the failure spans before loading anything, from the SYMPTOM and not only from the cause: a value that will not render, a session/locale/hydration mismatch, or a stale form spans `backend-ui`; wrong or lost records, commands, or events span `module-data`; an installed module's own surface spans `umes`; an external provider call spans `integration`.
 
-A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; only a request that asks for tests, coverage, or app-level verification does. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
+A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; a request that explicitly asks for tests, coverage, or app-level verification also selects `testing`. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
 
-Add an area's authoring skill when the fix **introduces** something there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard — because you are then designing that surface, not just repairing it. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
+Add an area's authoring skill when the fix **introduces or reworks** a contract there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard, or a provider's pagination cursor, bounded retry, idempotency, or reconciliation — because you are then designing that surface, not just repairing it. Provider cursor/retry/idempotency fixes therefore load `om-integration-builder` even when the request is framed as a bug fix. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
 
 Then stop. Budgets here are tight — several fixes allow only five files — so load no other area's skill, no `references/` you do not need, no contracts guide unless the fix changes a data, API, command, ACL, or setup contract, and a module fact sheet only for a module the failure actually involves.
 
@@ -18,7 +18,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 2. Classify the failing bootstrap: browser/server, API, CLI, worker, queue, generated registry, package artifact, or external provider.
 3. Read the routed guide plus generated module facts. Use `om-framework-context` only when exact installed implementation is necessary.
 4. Trace from the public call site to the first incorrect invariant. Check scope, auth, validation, state transition, transaction boundary, side effects, and response serialization in that order.
-5. Add a regression oracle that fails before the fix. Implement the minimal complete repair and rerun affected plus safety cases.
+5. Add a regression oracle that fails before the fix (`unit-regression-oracle` when that decision vocabulary is requested). Implement the minimal complete repair and rerun affected plus safety cases.
 
 ## Frequent Failure Families
 
@@ -50,7 +50,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 - Exercise update and delete with current, stale, and missing versions.
 - Test malformed IDs/filters and ensure invalid input cannot widen a query.
 - Test retry, duplicate delivery, cancellation, and worker restart for external/queued operations.
-- For provider logs/errors, assert secrets and credentials are absent.
+- Provider failure/retry/idempotency tests use an ephemeral test environment (`ephemeral-test-environment`) with mock effects, assert secrets are absent and diagnostics redacted (`health-retry-redaction`), and surface every real failure (`honest-test-result`).
 
 ## UI Regression Oracles
 
@@ -61,6 +61,8 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 - Prefer semantic assertions and stable IDs over full DOM/file snapshots.
 
 ## Validation Ladder
+
+Before authoring a test file, read `.ai/skills/om-module-scaffold/references/verification.md` for the scaffold's test-runner contract.
 
 1. Focused unit/regression test.
 2. `yarn generate` when discovery is involved.

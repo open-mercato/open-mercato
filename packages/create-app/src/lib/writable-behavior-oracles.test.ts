@@ -143,6 +143,79 @@ export async function syncPage(state: { cursor?: string }, provider: any) {
 }
 `,
   },
+  'OMH-192': {
+    fixture: 'omh-192',
+    file: 'src/modules/library/commands/crm-loans.ts',
+    corrected: `
+export type TrustedScope = { tenantId?: string; organizationId?: string }
+export type LibraryEffects = {
+  createBook(record: Record<string, unknown>, scope: TrustedScope): Promise<Record<string, unknown>>
+  softDeleteBook(id: string, scope: TrustedScope): Promise<Record<string, unknown>>
+  restoreBook(id: string, scope: TrustedScope): Promise<Record<string, unknown>>
+  resolveCustomer(id: string, scope: TrustedScope): Promise<{ id: string; displayName: string }>
+  findActiveLoan(bookId: string, scope: TrustedScope): Promise<Record<string, unknown> | undefined>
+  createLoan(input: Record<string, unknown>, scope: TrustedScope): Promise<Record<string, unknown>>
+  claimCheckout(input: Record<string, unknown>, scope: TrustedScope): Promise<Record<string, unknown>>
+  findLoan(id: string, scope: TrustedScope): Promise<Record<string, unknown> | undefined>
+  updateLoan(id: string, scope: TrustedScope, patch: Record<string, unknown>): Promise<Record<string, unknown>>
+}
+
+export function requireTrustedScope(scope: TrustedScope) {
+  if (!scope.tenantId || !scope.organizationId) throw new Error('trusted tenant and organization scope required')
+  return { tenantId: scope.tenantId, organizationId: scope.organizationId }
+}
+
+export async function createBook(input: { id: string; title: string; tenantId?: string; organizationId?: string }, scope: TrustedScope, effects: LibraryEffects) {
+  const trusted = requireTrustedScope(scope)
+  return effects.createBook({ id: input.id, title: input.title }, trusted)
+}
+
+export async function undoCreateBook(id: string, scope: TrustedScope, effects: LibraryEffects) {
+  return effects.softDeleteBook(id, requireTrustedScope(scope))
+}
+
+export async function deleteBook(id: string, scope: TrustedScope, effects: LibraryEffects) {
+  return effects.softDeleteBook(id, requireTrustedScope(scope))
+}
+
+export async function undoDeleteBook(id: string, scope: TrustedScope, effects: LibraryEffects) {
+  return effects.restoreBook(id, requireTrustedScope(scope))
+}
+
+export async function checkoutBook(input: { bookId: string; customerEntityId: string; idempotencyKey: string; tenantId?: string; organizationId?: string }, scope: TrustedScope, effects: LibraryEffects) {
+  const trusted = requireTrustedScope(scope)
+  const customer = await effects.resolveCustomer(input.customerEntityId, trusted)
+  return effects.claimCheckout({
+    bookId: input.bookId,
+    customerEntityId: customer.id,
+    customerNameSnapshot: customer.displayName,
+    idempotencyKey: input.idempotencyKey,
+  }, trusted)
+}
+
+async function mutateLoan(id: string, status: string, scope: TrustedScope, effects: LibraryEffects) {
+  const trusted = requireTrustedScope(scope)
+  const loan = await effects.findLoan(id, trusted)
+  if (!loan) throw new Error('loan not found')
+  return effects.updateLoan(id, trusted, { status })
+}
+
+export async function returnLoan(input: { id: string }, scope: TrustedScope, effects: LibraryEffects) {
+  requireTrustedScope(scope)
+  return mutateLoan(input.id, 'returned', scope, effects)
+}
+
+export async function renewLoan(input: { id: string }, scope: TrustedScope, effects: LibraryEffects) {
+  requireTrustedScope(scope)
+  return mutateLoan(input.id, 'renewed', scope, effects)
+}
+
+export async function markLoanLost(input: { id: string }, scope: TrustedScope, effects: LibraryEffects) {
+  requireTrustedScope(scope)
+  return mutateLoan(input.id, 'lost', scope, effects)
+}
+`,
+  },
 }
 
 function stageTarget(caseId: string, source?: string): string {
@@ -206,6 +279,69 @@ test('corrected fixtures pass the fixed after-phase behavior probes', { skip: pr
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
+  }
+})
+
+test('OMH-189 behavior-probes the exported endpoint guard against private networks', { skip: process.platform === 'win32' }, () => {
+  const root = stageTarget('OMH-057')
+  const client = path.join(root, 'src/modules/room_calendar_sync/lib/transport.ts')
+  fs.mkdirSync(path.dirname(client), { recursive: true })
+  try {
+    fs.writeFileSync(client, `
+export function assertSafeEndpoint(endpoint: string) {
+  const url = new URL(endpoint)
+  if (url.protocol !== 'https:') throw new Error('unsafe endpoint')
+}
+`)
+    const insecure = runOracle(root, 'OMH-189', 'after')
+    assert.equal(insecure.status, 1, `${insecure.stdout}\n${insecure.stderr}`)
+    assert.equal(insecure.parsed?.checks.find((check) => check.id === 'rejects-non-https-and-private-endpoints')?.passed, false)
+
+    fs.writeFileSync(client, `
+import { lookup } from 'node:dns/promises'
+
+export const assertSafeEndpoint = (async (endpoint: string) => {
+  const url = new URL(endpoint)
+  const hostname = url.hostname.toLowerCase()
+  const resolved = await lookup(hostname)
+  const privateIpv4 = /^(?:10\\.|127\\.|192\\.168\\.|169\\.254\\.|172\\.(?:1[6-9]|2\\d|3[01])\\.)/
+  if (url.protocol !== 'https:' || hostname === 'localhost' || hostname === '[::1]' || privateIpv4.test(hostname) || privateIpv4.test(resolved.address)) {
+    throw new Error('unsafe endpoint')
+  }
+}) satisfies (endpoint: string) => Promise<void>
+`)
+    fs.writeFileSync(path.join(path.dirname(client), 'index.ts'), `
+// export function assertSafeEndpoint() is implemented by transport.ts
+export { assertSafeEndpoint } from './transport'
+`)
+    const secure = runOracle(root, 'OMH-189', 'after')
+    assert.equal(secure.status, 0, `${secure.stdout}\n${secure.stderr}`)
+    assert.equal(secure.parsed?.passed, true)
+    assert.ok(secure.parsed?.checks.every((check) => check.passed))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('OMH-045 uses inert dependency stubs for trusted imported helpers', { skip: process.platform === 'win32' }, () => {
+  const caseId = 'OMH-045'
+  const definition = cases[caseId]
+  const source = `
+import { z } from 'zod'
+import { registerCommand } from '@open-mercato/shared/modules/commands'
+
+const importedSchema = z.object({})
+registerCommand({ id: 'harness.probe', schema: importedSchema })
+
+${definition.corrected}
+`
+  const root = stageTarget(caseId, source)
+  try {
+    const result = runOracle(root, caseId, 'after')
+    assert.equal(result.status, 0, `${caseId}\n${result.stdout}\n${result.stderr}`)
+    assert.equal(result.parsed?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 

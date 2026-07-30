@@ -272,6 +272,7 @@ jobs:
   # half of the pair (#4479).
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: audit-scope
     if: needs.audit-scope.outputs.should_run == 'true'
     steps:

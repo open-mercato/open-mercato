@@ -37,7 +37,12 @@ against a clean passing live trace rather than a neighbouring case's envelope.
 cannot fit its own file/byte budgets, naming the exact numbers. A case that trips it is unpassable or
 self-contradictory, not merely tight.
 
-For `implementation` or `regression`, also declare `fixture`, `oracle`, and a narrow `allowedWrites`; add the ID to the writable registry/release matrix only when an executable disposable fixture exists. A regression oracle must fail before the edit and pass after it.
+Omit `decisionVocabulary` when every offered label is mandatory. Include it only
+for a contrastive case; it must contain every `requiredDecisions` label plus at
+least one plausible but unmandated distractor, for example
+`"decisionVocabulary": ["semantic-decision-id", "contrastive-distractor-id"]`.
+
+For `implementation` or `regression`, also declare `fixture`, `oracle`, and a narrow `allowedWrites`; add the ID to the writable registry/release matrix only when an executable disposable fixture exists. A regression oracle must fail before the edit and pass after it. When the task needs exact installed-package contracts, add one to three `frameworkContext` entries, each with exactly one `module` or `package` selector and one bounded `query`; the controller materializes and allowlists that evidence before the model runs. Queries must resolve to distinct package/version output roots.
 
 Update together:
 
@@ -90,6 +95,6 @@ yarn install-skills
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 40-case read-only lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
+Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 45-case read-only lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
 
 If live capacity is unavailable, record the tool/version/model and sanitized provider error. Do not convert availability failure into a passing routing result.

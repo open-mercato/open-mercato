@@ -92,7 +92,7 @@ test('standalone provider guidance defaults app integrations to local modules, n
   assert.match(root, /src\/modules\/<id>/)
   for (const content of [guide, activation]) assert.match(content, /src\/modules\/<provider>/)
   for (const content of [root, guide, activation]) assert.match(content, /packages\/\*/)
-  assert.match(root, /Reusable providers are published dependencies/)
+  assert.match(root, /Providers are published, never `packages\/\*`/)
   assert.match(guide, /scaffold has no workspace topology/)
   assert.match(activation, /App-specific \(default\)/)
   assert.match(activation, /Reusable \(explicit user requirement\)/)
@@ -147,7 +147,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 196-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 201-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -156,14 +156,14 @@ test('the 196-case catalog routes audited installed-module, runtime, and AI/prov
     requiredSkills: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 196)
+  assert.equal(cases.length, 201)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
     'OMH-015': { contexts: ['.ai/guides/modules/content.md'], decisions: ['static-content-page', 'localized-copy', 'ssr-friendly-content'] },
     'OMH-039': { contexts: ['.ai/guides/modules/communication_channels.md', '.ai/guides/modules/channel_gmail.md', '.ai/guides/modules/channel_imap.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
     'OMH-052': { contexts: ['.ai/guides/modules/attachments.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
-    'OMH-087': { contexts: ['.ai/guides/ai-workflows.md', '.ai/guides/modules/security.md', '.ai/guides/modules/generators.md', '.ai/guides/modules/dashboards.md', '.ai/guides/modules/notifications.md', '.ai/guides/modules/messages.md', '.ai/guides/modules/inbox_ops.md', '.ai/guides/modules/ai_assistant.md'], decisions: ['mfa-and-sudo-contributions', 'dashboard-notification-message-inbox-surfaces', 'typed-tool-versus-mcp', 'mcp-opencode-code-mode', 'mcp-two-tier-auth'] },
+    'OMH-087': { contexts: ['.ai/guides/ai-workflows.md', '.ai/guides/modules/api_keys.md', '.ai/guides/modules/configs.md', '.ai/guides/modules/dictionaries.md', '.ai/guides/modules/gateway_stripe.md', '.ai/guides/modules/perspectives.md', '.ai/guides/modules/resources.md', '.ai/guides/modules/sync_akeneo.md', '.ai/guides/modules/sync_excel.md', '.ai/guides/modules/dashboards.md', '.ai/guides/modules/notifications.md', '.ai/guides/modules/messages.md', '.ai/guides/modules/inbox_ops.md', '.ai/guides/modules/ai_assistant.md'], decisions: ['mfa-and-sudo-contributions', 'dashboard-notification-message-inbox-surfaces', 'typed-tool-versus-mcp', 'mcp-opencode-code-mode', 'mcp-two-tier-auth'] },
     'OMH-088': { contexts: ['.ai/skills/om-system-extension/references/extension-branches.md'], decisions: ['command-interceptor-execute-undo', 'command-interceptor-acl-scope', 'safe-command-block-rewrite'] },
     'OMH-097': { contexts: ['.ai/guides/modules/onboarding.md'], decisions: ['on-tenant-created-hook', 'seed-defaults-versus-examples', 'translated-welcome-invitation-email'] },
     'OMH-106': { contexts: ['.ai/guides/modules/staff.md'], decisions: ['staff-assignable-route', 'staff-availability-resolver', 'optional-staff-module'] },
@@ -197,38 +197,58 @@ test('the 196-case catalog routes audited installed-module, runtime, and AI/prov
       decisions: ['module-queue-factory', 'discovered-worker-metadata', 'scoped-serializable-job', 'queue-retry-idempotency'],
     },
     'OMH-188': {
+      contexts: ['.ai/skills/om-data-model-design/references/integrity-and-concurrency.md'],
+      decisions: ['exclusion-constraint-overlap', 'conflict-not-500', 'generated-entity-ids'],
+    },
+    'OMH-189': {
+      contexts: ['.ai/skills/om-integration-builder/references/security-and-reliability.md'],
+      decisions: ['paired-integration-exports', 'ssrf-endpoint-guard', 'stable-idempotency-key'],
+    },
+    'OMH-190': {
+      contexts: ['.ai/skills/om-system-extension/references/extension-branches.md'],
+      decisions: ['dot-form-target-entity', 'batched-enrichment', 'namespaced-additive-result'],
+    },
+    'OMH-191': {
+      contexts: ['.ai/skills/om-build-workflow/references/workflow-design.md'],
+      decisions: ['timer-duration-config', 'workflow-safe-commands', 'signal-over-timer'],
+    },
+    'OMH-192': {
+      contexts: ['.ai/guides/modules/customers.md', '.ai/skills/om-module-scaffold/references/verification.md'],
+      decisions: ['trusted-scope-only', 'scalar-crm-customer-snapshot', 'atomic-one-winner-checkout', 'executable-jest-regression'],
+    },
+    'OMH-193': {
       contexts: ['.ai/guides/modules/dictionaries.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
-    'OMH-189': {
+    'OMH-194': {
       contexts: ['.ai/guides/modules/api_keys.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'acl-features', 'tenant-scope', 'smallest-validation'],
     },
-    'OMH-190': {
+    'OMH-195': {
       contexts: ['.ai/guides/modules/configs.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
-    'OMH-191': {
+    'OMH-196': {
       contexts: ['.ai/guides/modules/perspectives.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
-    'OMH-192': {
+    'OMH-197': {
       contexts: ['.ai/guides/modules/resources.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
-    'OMH-193': {
+    'OMH-198': {
       contexts: ['.ai/guides/modules/sync_excel.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
       decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
-    'OMH-194': {
+    'OMH-199': {
       contexts: ['.ai/guides/modules/gateway_stripe.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'acl-features', 'smallest-validation'],
     },
-    'OMH-195': {
+    'OMH-200': {
       contexts: ['.ai/guides/modules/sync_akeneo.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'smallest-validation'],
     },
-    'OMH-196': {
+    'OMH-201': {
       contexts: ['.ai/guides/modules/wms.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
@@ -251,20 +271,21 @@ test('the 196-case catalog routes audited installed-module, runtime, and AI/prov
   assert.ok(byId.get('OMH-185')?.context.allowedExtra?.includes('.ai/skills/om-system-extension/references/read-write-roundtrip.md'))
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
+  assert.deepEqual(byId.get('OMH-192')?.expectedRouter.required, ['module-data', 'umes', 'testing'])
 
   // Every reuse-installed case observes its module fact-sheet; the skill that governs the
   // decision differs by framing. "Does something already own this?" opens om-help; a named
   // provider or file-feed opens om-integration-builder, which is what live routing selects.
   const reuseInstalledFacts: Record<string, { factSheet: string; skill: string }> = {
-    'OMH-188': { factSheet: '.ai/guides/modules/dictionaries.md', skill: 'om-help' },
-    'OMH-189': { factSheet: '.ai/guides/modules/api_keys.md', skill: 'om-help' },
-    'OMH-190': { factSheet: '.ai/guides/modules/configs.md', skill: 'om-help' },
-    'OMH-191': { factSheet: '.ai/guides/modules/perspectives.md', skill: 'om-help' },
-    'OMH-192': { factSheet: '.ai/guides/modules/resources.md', skill: 'om-help' },
-    'OMH-193': { factSheet: '.ai/guides/modules/sync_excel.md', skill: 'om-integration-builder' },
-    'OMH-194': { factSheet: '.ai/guides/modules/gateway_stripe.md', skill: 'om-integration-builder' },
-    'OMH-195': { factSheet: '.ai/guides/modules/sync_akeneo.md', skill: 'om-integration-builder' },
-    'OMH-196': { factSheet: '.ai/guides/modules/wms.md', skill: 'om-help' },
+    'OMH-193': { factSheet: '.ai/guides/modules/dictionaries.md', skill: 'om-help' },
+    'OMH-194': { factSheet: '.ai/guides/modules/api_keys.md', skill: 'om-help' },
+    'OMH-195': { factSheet: '.ai/guides/modules/configs.md', skill: 'om-help' },
+    'OMH-196': { factSheet: '.ai/guides/modules/perspectives.md', skill: 'om-help' },
+    'OMH-197': { factSheet: '.ai/guides/modules/resources.md', skill: 'om-help' },
+    'OMH-198': { factSheet: '.ai/guides/modules/sync_excel.md', skill: 'om-integration-builder' },
+    'OMH-199': { factSheet: '.ai/guides/modules/gateway_stripe.md', skill: 'om-integration-builder' },
+    'OMH-200': { factSheet: '.ai/guides/modules/sync_akeneo.md', skill: 'om-integration-builder' },
+    'OMH-201': { factSheet: '.ai/guides/modules/wms.md', skill: 'om-help' },
   }
   for (const [caseId, { factSheet, skill }] of Object.entries(reuseInstalledFacts)) {
     const record = byId.get(caseId)

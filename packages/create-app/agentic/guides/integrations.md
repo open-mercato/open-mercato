@@ -33,7 +33,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 - Validate external base URLs against SSRF rules, including redirects and DNS/private ranges. Permit private endpoints only through an explicit development setting.
 - Redact authorization headers, tokens, signed URLs, provider payload secrets, and sensitive response bodies from errors and logs.
 - Use `createLogger` from `@open-mercato/shared/lib/logger` with structured fields; never use raw `console.*` or place credentials/provider payload bodies in log fields.
-- Verify inbound signatures against the raw body, enforce timestamp/replay bounds, and make duplicate delivery idempotent.
+- Verify inbound signatures against the raw body, enforce timestamp/replay bounds, and atomically claim each inbox delivery before side effects so duplicate callbacks have one winner (`atomic-inbox-claim`).
 
 ## Reliability Contract
 

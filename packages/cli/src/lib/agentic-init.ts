@@ -62,6 +62,11 @@ export async function runAgenticInit(args: string[]): Promise<number> {
   const targetDir = resolve('.')
   const options = parseArgs(args)
 
+  if (options.force && options.updateHarness) {
+    console.error('❌  --force and --update-harness are mutually exclusive')
+    return 1
+  }
+
   // Validate this is an Open Mercato app directory
   if (!existsSync(join(targetDir, 'src', 'modules.ts'))) {
     console.error('❌  Not an Open Mercato app directory (src/modules.ts not found)')

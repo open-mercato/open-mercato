@@ -15,7 +15,8 @@ Route before reading: select affected domain routes from the reproduced symptom 
 2. Route the symptom using `references/diagnosis-map.md`; load only the matching domain guide and module facts.
 3. Invoke `om-framework-context` if the failure depends on exact installed implementation or package exports.
 4. Trace to the first broken invariant: auth/scope, validation, state/transaction, side effects, serialization, generation/bootstrap, UI state, or provider boundary.
-5. Add a regression oracle that fails before the fix. Use `references/regression-oracles.md` for scope, rollback, locking, bootstrap, hydration, cache/search, and provider cases.
+   A persisted create/update/clear/reload defect also selects `module-data` and contracts. A multi-seam persisted API/command fix with concurrency MUST read the exact paths `.ai/skills/om-module-scaffold/references/api-and-domain.md`, `.ai/skills/om-module-scaffold/references/verification.md`, and `.ai/skills/om-data-model-design/references/integrity-and-concurrency.md`. A missing tenant or organization must fail before any query (`no-unscoped-query`); preserve the compatibility snapshot when repairing a seeded export or public seam.
+5. Add a regression oracle that fails before the fix. When the request explicitly asks to add a test, select the `testing` route as well. Use `references/regression-oracles.md` for scope, rollback, locking, bootstrap, hydration, cache/search, and provider cases.
 6. Make the smallest complete change through the real call site, then rerun focused, safety, and affected integration gates.
 
 ## Rules

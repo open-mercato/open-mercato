@@ -14,28 +14,35 @@ const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness
 const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
 const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
+const sourceFrameworkContext = path.join(sharedRoot, 'scripts', 'framework-context.mjs')
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript-standalone/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
 
 type HarnessCase = {
   id: string
+  title: string
   mode: string
   evaluationKind: string
   owner: { ruleIds: string[] }
   context: { required: string[]; allowedExtra?: string[] }
   validators: string[]
+  decisionVocabulary?: string[]
   requiredDecisions?: string[]
   allowedWrites?: string[]
+  frameworkContext?: Array<{ module?: string; package?: string; query: string }>
   oracle?: { expectedArtifacts?: string[] }
   fixture?: unknown
   timeoutMs?: number
+  maxContextFiles: number
+  maxInitialContextBytes: number
 }
 
 type StoredResult = {
   status: string
   runnerVersion: string
   model: string
+  selectedRouter: string[]
   selectedSkills: string[]
   selectedContext: string[]
   decisions: string[]
@@ -87,6 +94,7 @@ function stageApp(): string {
   fs.copyFileSync(sourceExecutionSandbox, path.join(root, 'scripts', 'execution-sandbox.mjs'))
   fs.copyFileSync(sourceToolServer, path.join(root, 'scripts', 'agent-harness-tool-server.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
+  fs.copyFileSync(sourceFrameworkContext, path.join(root, 'scripts', 'framework-context.mjs'))
   fs.mkdirSync(path.join(root, 'node_modules'))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export const enabledModules = []\n')
@@ -197,7 +205,8 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('implement the complete request with repeated use of the allowlisted harness write tool')
   || !prompt.includes('A manifest of intended files, metadata-only stub, TODO, placeholder')
-  || !prompt.includes('selectedContext records only instruction/fact paths')) process.exit(10)
+  || !prompt.includes('selectedContext records only instruction/fact paths')
+  || !prompt.includes('Call harness.read or harness.write; never call read_mcp_resource or any resource API')) process.exit(10)
 JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 ${sandboxProbe ? `
 try { fs.readFileSync(${JSON.stringify(sandboxProbe.readPath)}, 'utf8'); process.exit(31) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
@@ -250,7 +259,7 @@ test('the catalog count and release coverage are derived from the validator regi
     }
   }
   const casesSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8')) as {
-    items: { properties: { maxInitialContextBytes: { maximum: number } } }
+    items: { properties: { id: { pattern: string }; maxInitialContextBytes: { maximum: number } } }
   }
   const matrix = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'release-matrix.json'), 'utf8')) as {
     routing: { required: { caseIds: string }; portability: { caseIds: string[] }; runners: Record<string, { modelSelector: string }> }
@@ -261,15 +270,29 @@ test('the catalog count and release coverage are derived from the validator regi
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
   assert.equal(casesSchema.items.properties.maxInitialContextBytes.maximum, validators.catalog.maxInitialContextBytes)
-  assert.deepEqual(cases.map((entry) => entry.id), Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`))
+  const fulfillmentCase = cases.find((entry) => entry.id === 'OMH-080')
+  assert.equal(fulfillmentCase?.maxContextFiles, 14)
+  assert.equal(fulfillmentCase?.maxInitialContextBytes, 81_920)
+  const expectedCaseIds = Array.from({ length: cases.length }, (_, index) => `OMH-${String(index + 1).padStart(3, '0')}`)
+  const caseIdPattern = new RegExp(casesSchema.items.properties.id.pattern)
+  assert.deepEqual(cases.map((entry) => entry.id), expectedCaseIds)
+  assert.ok(expectedCaseIds.every((id) => caseIdPattern.test(id)), 'case schema must admit every expected ID')
+  assert.ok(['OMH-000', `OMH-${String(cases.length + 1).padStart(3, '0')}`, 'OMH-0010'].every((id) => !caseIdPattern.test(id)), 'case schema must reject IDs outside the catalog range')
   assert.deepEqual(cases.filter((entry) => entry.fixture).map((entry) => entry.id), validators.catalog.writableCaseIds)
   assert.deepEqual(matrix.routing.portability.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.routing.required.caseIds, 'all')
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 40)
-  assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [['OMH-185', 600_000]])
+  assert.equal(validators.catalog.writableCaseIds.length, 45)
+  assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
+    ['OMH-185', 600_000],
+    ['OMH-188', 600_000],
+    ['OMH-189', 600_000],
+    ['OMH-190', 420_000],
+    ['OMH-191', 420_000],
+    ['OMH-192', 600_000],
+  ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
   assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)
@@ -278,6 +301,7 @@ test('the catalog count and release coverage are derived from the validator regi
     { caseId: 'OMH-163', runner: 'jest', artifact: 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts', network: 'none' },
     { caseId: 'OMH-164', runner: 'playwright-api', artifact: 'src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts', network: 'loopback' },
     { caseId: 'OMH-165', runner: 'playwright-browser', artifact: 'src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts', network: 'loopback' },
+    { caseId: 'OMH-192', runner: 'jest', artifact: 'src/modules/library/commands/__tests__/crm-loans.test.ts', network: 'none' },
   ])
   assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
@@ -292,7 +316,7 @@ test('the catalog count and release coverage are derived from the validator regi
   )
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
-    'OMH-082', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150', 'OMH-169',
+    'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
     'OMH-182',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
@@ -301,6 +325,18 @@ test('the catalog count and release coverage are derived from the validator regi
   ])
   const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
+  const auditedInitialContextFloors = [
+    ['OMH-070', 7, 44_179],
+    ['OMH-080', 12, 69_892],
+    ['OMH-111', 10, 58_162],
+    ['OMH-169', 10, 57_825],
+  ] as const
+  for (const [id, files, bytes] of auditedInitialContextFloors) {
+    const caseRecord = byId.get(id)
+    assert.ok(caseRecord, `${id} must exist`)
+    assert.ok(caseRecord.maxContextFiles >= files, `${id} initial context file budget must fit its audited route set`)
+    assert.ok(caseRecord.maxInitialContextBytes >= bytes, `${id} initial context byte budget must fit its audited route set`)
+  }
   assert.deepEqual(
     cases.filter((entry) => entry.context.required.includes(compatibilityPath)).map((entry) => entry.id),
     validators.catalog.compatibilityRequiredCaseIds,
@@ -347,6 +383,53 @@ test('runner selection distinguishes explicit primary all-cases from the default
   const matrix = { routing: { portability: { caseIds: ['OMH-002', 'OMH-003'] } } }
   assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: true, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-001', 'OMH-002', 'OMH-003'])
   assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: false, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-002', 'OMH-003'])
+})
+
+test('live timeout policy gives slow default runners measured floors without overriding operator timeouts', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    resolveLiveCaseTimeout: (
+      options: { timeout: number; timeoutExplicit: boolean; runner: string; reasoningEffort?: string },
+      model: string,
+      caseTimeout?: number,
+    ) => number
+  }
+  const defaultOptions = { timeout: 300_000, timeoutExplicit: false, runner: 'codex', reasoningEffort: 'high' }
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini'), 900_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, timeoutExplicit: true }, 'gpt-5.4-mini'), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, reasoningEffort: 'medium' }, 'gpt-5.4-mini'), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined }, 'sonnet'), 600_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined, timeoutExplicit: true }, 'sonnet'), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 1_000_000), 1_000_000)
+})
+
+test('trace-start recovery recognizes only bounded unavailable-read startup reports', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    isCorrectableTraceStartupResponseViolation: (violation: string) => boolean
+  }
+  for (const violation of [
+    'Harness read tool is unavailable in the provided tool interface',
+    'harness.read unavailable in this environment',
+    'Required harness.read access was unavailable in this environment',
+    'Required `harness.read` access was unavailable in this environment',
+    'required harness.read tool unavailable in this environment',
+    'The required harness.read tool is unavailable in the supplied tool interface',
+    'harness.read is not available in this environment',
+    'exact-path harness.read tool is unavailable in this environment',
+  ]) assert.equal(evaluator.isCorrectableTraceStartupResponseViolation(violation), true, violation)
+  for (const violation of [
+    'harness.write is unavailable in this environment',
+    'harness.read returned an unsafe path',
+    'I did not call harness.read',
+    'runner trace unavailable; observed context cannot be verified',
+  ]) assert.equal(evaluator.isCorrectableTraceStartupResponseViolation(violation), false, violation)
+})
+
+test('routing prompts forbid invented evaluator paths and reconcile correction reads exactly', () => {
+  const source = fs.readFileSync(sourceEvaluator, 'utf8')
+  assert.match(source, /decision labels never name readable paths/)
+  assert.match(source, /Build selectedContext from every successful read in this correction attempt/)
+  assert.match(source, /add every opened routed guide's route and every opened skill's ID, or avoid opening it/)
+  assert.match(source, /Never reuse or prune the previous answer/)
 })
 
 test('deterministic evaluation passes every concrete catalog case in an emitted-layout fixture', () => {
@@ -402,6 +485,69 @@ test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4
     assert.match(result.stderr, new RegExp(`FAIL ${cases[1].id}:.*declared context exceeds maxContextFiles`))
     assert.match(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*declared context exceeds maxTotalContextBytes: ${declaredTotalOfThird}/${declaredInitialOfThird}`))
     assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*exceeds maxInitialContextBytes`))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deterministic evaluation rejects module-fact context absent from an emitted controller', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      context: { required: string[]; allowedExtra?: string[] }
+    }>
+    const moduleFactPaths = new Set(cases.flatMap((caseRecord) => [
+      ...caseRecord.context.required,
+      ...(caseRecord.context.allowedExtra ?? []),
+    ]).filter((reference) => reference.startsWith('.ai/guides/modules/')))
+    for (const reference of moduleFactPaths) {
+      const absolute = path.join(root, reference)
+      fs.mkdirSync(path.dirname(absolute), { recursive: true })
+      fs.writeFileSync(absolute, '# Generated module fact\n')
+    }
+    cases[0].context.allowedExtra = [
+      ...(cases[0].context.allowedExtra ?? []),
+      '.ai/guides/modules/not_enabled.md',
+    ]
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /allowed-extra context does not exist: \.ai\/guides\/modules\/not_enabled\.md/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('deterministic evaluation enforces the case schema through OMH-201', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
+    assert.equal(cases.at(-1)?.id, 'OMH-201')
+    cases[0].title = 'x'.repeat(181)
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /cases schema: \$\[0\]\.title exceeds maxLength 180/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('catalog validation requires contrastive decision vocabularies to contain every mandatory label', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
+    cases[0].decisionVocabulary = ['facts-first', 'unrelated-distractor']
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /decisionVocabulary must include every required decision/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -503,6 +649,8 @@ test('fixture preparer safely seeds one writable case and refuses reuse', () => 
       encoding: 'utf8',
     })
     assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+    assert.match(prepared.stdout, /run `yarn generate` in the target/)
+    assert.match(prepared.stdout, /link its node_modules to the controller dependency tree/)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'DISPOSABLE')), true)
     assert.equal(fs.existsSync(path.join(target, 'src', 'modules', 'library', 'index.ts')), true)
 
@@ -524,6 +672,130 @@ test('fixture preparer safely seeds one writable case and refuses reuse', () => 
     })
     assert.equal(nested.status, 2)
     assert.match(nested.stderr, /outside the controller app/)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('writable evaluation materializes and admits bounded installed framework context', { skip: !targetSandboxAvailable }, () => {
+  const controller = stageApp()
+  const target = stageWritableTarget(controller)
+  const corePackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'core')
+  const sharedPackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'shared')
+  const coreMaterializedRoot = '.ai/framework-context/open-mercato-core@1.0.0'
+  const sharedMaterializedRoot = '.ai/framework-context/open-mercato-shared@2.0.0'
+  const coreManifest = `${coreMaterializedRoot}/manifest.json`
+  const coreSearch = `${coreMaterializedRoot}/search.txt`
+  const coreUsage = `${coreMaterializedRoot}/source/workflows/contracts.ts`
+  const sharedManifest = `${sharedMaterializedRoot}/manifest.json`
+  const sharedSearch = `${sharedMaterializedRoot}/search.txt`
+  const installedContract = `${sharedMaterializedRoot}/source/package/modules/workflows/types.ts`
+  try {
+    fs.cpSync(path.join(controller, 'AGENTS.md'), path.join(target, 'AGENTS.md'))
+    fs.cpSync(path.join(controller, '.ai', 'guides'), path.join(target, '.ai', 'guides'), { recursive: true })
+    fs.cpSync(path.join(controller, '.ai', 'skills'), path.join(target, '.ai', 'skills'), { recursive: true })
+    fs.mkdirSync(path.join(target, '.ai', 'guides', 'modules'), { recursive: true })
+    fs.writeFileSync(path.join(target, '.ai', 'guides', 'modules', 'workflows.md'), '# Workflows\nUse installed workflow contracts.\n')
+    fs.mkdirSync(path.join(corePackageRoot, 'src', 'modules', 'workflows'), { recursive: true })
+    fs.writeFileSync(path.join(corePackageRoot, 'package.json'), JSON.stringify({
+      name: '@open-mercato/core',
+      version: '1.0.0',
+    }))
+    fs.writeFileSync(path.join(corePackageRoot, 'AGENTS.md'), '# Core package\nKeep installed contracts read-only.\n')
+    fs.writeFileSync(
+      path.join(corePackageRoot, 'src', 'modules', 'workflows', 'contracts.ts'),
+      "import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'\n",
+    )
+    fs.mkdirSync(path.join(sharedPackageRoot, 'src', 'modules', 'workflows'), { recursive: true })
+    fs.writeFileSync(path.join(sharedPackageRoot, 'package.json'), JSON.stringify({
+      name: '@open-mercato/shared',
+      version: '2.0.0',
+    }))
+    fs.writeFileSync(path.join(sharedPackageRoot, 'AGENTS.md'), '# Shared package\nPreserve public type contracts.\n')
+    fs.writeFileSync(
+      path.join(sharedPackageRoot, 'src', 'modules', 'workflows', 'types.ts'),
+      'export interface CodeWorkflowDefinition { workflowId: string }\n',
+    )
+    fs.writeFileSync(path.join(target, 'package.json'), JSON.stringify({
+      name: 'framework-context-writable-fixture',
+      private: true,
+      dependencies: { '@open-mercato/core': '1.0.0', '@open-mercato/shared': '2.0.0' },
+    }))
+    fs.writeFileSync(
+      path.join(target, 'src', 'modules.ts'),
+      "export const enabledModules = [{ id: 'workflows', from: '@open-mercato/core' }]\n",
+    )
+    const prepared = spawnSync(process.execPath, [
+      path.join(controller, 'scripts', 'prepare-agent-harness-fixture.mjs'),
+      '--case', 'OMH-054', '--target', target, '--acknowledge-writes',
+    ], { cwd: controller, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+
+    const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+const requiredContext = ${JSON.stringify([coreManifest, coreSearch, coreUsage, sharedManifest, sharedSearch, installedContract])}
+const promptEvidence = ${JSON.stringify([
+  coreManifest,
+  coreSearch,
+  `${coreMaterializedRoot}/source/workflows`,
+  sharedManifest,
+  sharedSearch,
+  `${sharedMaterializedRoot}/source/package`,
+])}
+if (!prompt.includes('controller has already materialized bounded read-only installed-package evidence')
+  || !promptEvidence.every((entry) => prompt.includes(entry))
+  || !args.some((entry) => entry.includes(${JSON.stringify(`${coreMaterializedRoot}/**`)}))
+  || !args.some((entry) => entry.includes(${JSON.stringify(`${sharedMaterializedRoot}/**`)}))) process.exit(10)
+for (const entry of requiredContext) {
+  const content = fs.readFileSync(path.join(process.cwd(), entry), 'utf8')
+  if (content.includes('node_modules') || content.includes(${JSON.stringify(controller)})) process.exit(11)
+}
+const route = path.join(process.cwd(), 'src/modules/automation/workflows/call-api.ts')
+fs.writeFileSync(route, \`
+export type CallApiInput = { url: string; idempotencyKey: string }
+export type CallApiEffects = {
+  reserveIdempotency(key: string): Promise<string>
+  transaction<T>(work: () => Promise<T>): Promise<T>
+  post(url: string, options: { idempotencyKey: string }): Promise<unknown>
+}
+export const activityType = 'CALL_API'
+export async function sendCallApi(url: string, key: string, fetchImpl = fetch) {
+  return fetchImpl(url, { headers: { 'Idempotency-Key': key } })
+}
+export async function callApiActivity(input: CallApiInput, effects: CallApiEffects) {
+  const key = await effects.reserveIdempotency(input.idempotencyKey)
+  return effects.transaction(() => effects.post(input.url, { idempotencyKey: key }))
+}
+\`)
+const selectedContext = [
+  'AGENTS.md', '.ai/guides/ai-workflows.md', '.ai/skills/om-build-workflow/SKILL.md',
+  '.ai/guides/modules/workflows.md', ...requiredContext,
+]
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['ai-workflow'], selectedSkills: ['om-build-workflow'],
+  selectedContext, decisions: ['idempotency-outside-rollback', 'call-api'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat ' + selectedContext.join(' ') } }))
+`)
+    fs.writeFileSync(path.join(bin, 'yarn'), '#!/usr/bin/env node\nprocess.exit(process.argv[2] === "typecheck" ? 0 : 9)\n')
+    fs.chmodSync(path.join(bin, 'yarn'), 0o755)
+    const run = runEvaluator(controller, [
+      '--runner', 'codex', '--case', 'OMH-054', '--writable-root', target, '--acknowledge-writes',
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(controller), null, 2)}`)
+    const [stored] = storedResults(controller)
+    assert.ok(stored.actualContext.paths.includes(installedContract))
+    assert.ok(stored.selectedContext.includes(coreManifest))
+    assert.ok(stored.selectedContext.includes(sharedManifest))
+    assert.ok(stored.selectedContext.includes(sharedSearch))
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
@@ -563,9 +835,9 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
-if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md')) process.exit(10)
+if (!prompt.includes('Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories') || !prompt.includes('an all-guides/all-skills/all-facts read is an automatic failure') || !prompt.includes('selectedSkills names only skills you actually invoked during this evaluation after opening their SKILL.md') || !prompt.includes('Call harness.read; never call read_mcp_resource or any resource API') || !prompt.includes('call harness.read with {"path":"AGENTS.md"}')) process.exit(10)
 const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index + 1]] : [])
-if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['skill_search','shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
+if (!args.includes('--ephemeral') || !args.includes('--json') || !args.includes('--ignore-user-config') || !['shell_tool','unified_exec','apps','multi_agent','browser_use','computer_use','image_generation','standalone_web_search'].every((feature) => disabled.includes(feature)) || disabled.includes('skill_search') || args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('sandbox_workspace_write.network_access=false') || !args.includes('shell_environment_policy.inherit=none') || !args.includes('mcp_servers.harness.required=true') || !args.includes('mcp_servers.harness.default_tools_approval_mode="approve"') || args[args.indexOf('--model') + 1] !== 'gpt-5.4-mini' || !args.includes('model_reasoning_effort="high"') || !args.some((arg) => arg.startsWith('mcp_servers.harness.command=')) || !args.some((arg) => arg.startsWith('mcp_servers.harness.args=')) || !process.env.CODEX_HOME?.includes('om-harness-result-') || !process.env.HOME?.includes('om-harness-result-')) process.exit(9)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
 const allowedReads = JSON.parse(mcpArgs.at(-2))
 for (const required of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testing-debugging.md', '.ai/skills/om-help/SKILL.md', '.ai/skills/om-troubleshooter/SKILL.md', '.ai/skills/om-troubleshooter/references/**']) if (!allowedReads.includes(required)) process.exit(9)
@@ -583,7 +855,7 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON
 `)
   fs.chmodSync(fake, 0o755)
   try {
-    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001', '--model', 'gpt-5.4-mini', '--reasoning-effort', 'high'], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
@@ -598,11 +870,13 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON
     const parsed = JSON.parse(stored) as {
       attempts: number
       corrections: number
+      reasoningEffort: string
       actualContext: { paths: string[] }
       declaredContext: { paths: string[] }
     }
     assert.equal(parsed.attempts, 1)
     assert.equal(parsed.corrections, 0)
+    assert.equal(parsed.reasoningEffort, 'high')
     assert.deepEqual(parsed.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
     assert.deepEqual(parsed.declaredContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
   } finally {
@@ -834,17 +1108,16 @@ test('refused instruction-tree enumeration still fails closed above the bounded 
   }
 })
 
-// `--disable` errors on a feature name the installed Codex does not recognize, so a name
-// that has been retired aborts every case — `skill_search` no longer exists in codex-cli
-// 0.144.6 and made the whole Codex lane unusable there. The harness must deny every
-// capability this CLI knows, and must not pass a name it does not.
+// `--disable` errors on a feature name the installed Codex does not recognize. The harness
+// must deny every unsafe capability this CLI knows, while keeping skill_search available
+// because current mini models use it to expose configured MCP tools.
 test('live Codex adapter denies only the feature flags the installed CLI knows', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
-const known = ['shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use', 'computer_use',
+const known = ['skill_search', 'shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use', 'computer_use',
   'image_generation', 'standalone_web_search', 'goals', 'hooks', 'plugins', 'remote_plugin',
   'tool_suggest', 'auth_elicitation', 'unrelated_feature']
 if (args[0] === 'features' && args[1] === 'list') {
@@ -854,12 +1127,15 @@ if (args[0] === 'features' && args[1] === 'list') {
 const disabled = args.reduce((names, value, index) => (
   args[index - 1] === '--disable' ? [...names, value] : names
 ), [])
+const enabled = args.reduce((names, value, index) => (
+  args[index - 1] === '--enable' ? [...names, value] : names
+), [])
 // Every capability this CLI knows about must be denied...
-for (const name of known.filter((entry) => entry !== 'unrelated_feature')) {
+for (const name of known.filter((entry) => !['unrelated_feature', 'skill_search'].includes(entry))) {
   if (!disabled.includes(name)) process.exit(9)
 }
-// ...and a retired name this CLI would reject must not be passed at all.
-if (disabled.includes('skill_search')) process.exit(9)
+// The discovery gate must be explicit under --ignore-user-config; unrelated features stay untouched.
+if (disabled.includes('skill_search') || !enabled.includes('skill_search') || enabled.includes('unrelated_feature')) process.exit(9)
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
@@ -1033,13 +1309,13 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
   }
 })
 
-test('live Claude preserves its terminal error event without retrying a non-transient failure', { skip: !targetSandboxAvailable }, () => {
+test('live Claude classifies authentication failures as environment failures', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 console.log(JSON.stringify({ type: 'system', subtype: 'init', plugins: Array.from({ length: 800 }, (_, index) => 'plugin-' + index) }))
-console.log(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'authentication failed: invalid account' }))
+console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: true, terminal_reason: 'api_error', result: 'Failed to authenticate: OAuth session expired and could not be refreshed' }))
 process.exit(1)
 `)
   try {
@@ -1047,17 +1323,201 @@ process.exit(1)
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
-    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-    const [stored] = storedResults(root)
-    assert.equal(stored.attempts, 1)
-    assert.match(stored.sanitizedError ?? '', /authentication failed: invalid account/)
-    assert.doesNotMatch(stored.sanitizedError ?? '', /plugin-0/)
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /provider environment failure after executing 1 of 1 cases/)
+    assert.match(result.stderr, /Failed to authenticate: OAuth session expired/)
+    assert.doesNotMatch(result.stderr, /plugin-0/)
+    assert.deepEqual(storedResults(root), [])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('live Claude does not retry routing or safety assertion failures', { skip: !targetSandboxAvailable }, () => {
+test('live Codex aborts a partial matrix when provider quota is exhausted', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+console.log(JSON.stringify({ type: 'error', message: "You've hit your usage limit" }))
+process.exit(1)
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /provider environment failure after executing 1 of 1 cases/)
+    assert.match(result.stderr, /usage limit/)
+    assert.deepEqual(storedResults(root), [])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Codex retries one trace-free routing startup and then succeeds', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+const prompt = fs.readFileSync(0, 'utf8')
+const correction = prompt.includes('Correction kind: trace-start')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: correction ? [] : ['Harness read tool is unavailable in the provided tool interface']
+}))
+if (correction) {
+  for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+    }}))
+  }
+} else {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'trace-free-first-attempt' }))
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2)
+    assert.equal(stored.corrections, 1)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Codex retries one successful startup that emitted no context reads', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+const prompt = fs.readFileSync(0, 'utf8')
+const correction = prompt.includes('Correction kind: trace-start')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+if (correction) {
+  for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+    }}))
+  }
+} else {
+  console.log(JSON.stringify({ type: 'item.completed', item: { type: 'tool_use', name: 'noop', input: {} } }))
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2)
+    assert.equal(stored.corrections, 1)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Codex gives a semantic correction one separate trace-start recovery', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+const prompt = fs.readFileSync(0, 'utf8')
+const semanticCorrection = prompt.includes('Correction kind: semantic-routing')
+const traceCorrection = prompt.includes('Correction kind: trace-start')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: semanticCorrection || traceCorrection ? ['architecture'] : ['testing'],
+  selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: []
+}))
+if (!semanticCorrection || traceCorrection) {
+  for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+    }}))
+  }
+} else {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'trace-free-semantic-correction' }))
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 3)
+    assert.equal(stored.corrections, 2)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.selectedRouter, ['architecture'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Claude retries one correctable read-only routing assertion and then succeeds', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'claude', `
+const fs = require('node:fs')
+const path = require('node:path')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+const correction = prompt.includes('Correction kind: semantic-routing')
+console.log(JSON.stringify({ type: 'assistant', message: { content: [
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
+  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
+] } }))
+console.log(JSON.stringify({ type: 'result', structured_output: {
+  selectedRouter: correction ? ['module-data'] : ['testing'],
+  selectedSkills: ['om-data-model-design'],
+  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
+} }))
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'claude', '--case', 'OMH-009'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 2)
+    assert.equal(stored.corrections, 1)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.selectedRouter, ['module-data'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Claude does not retry safety assertion failures', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'claude', `
 const path = require('node:path')
@@ -1839,6 +2299,35 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
     assert.ok(stored.violations.includes('standard context .ai/guides/testing-debugging.md requires route debugging or testing'))
     assert.ok(!stored.violations.includes('unexpected context .ai/guides/testing-debugging.md'))
     assert.ok(!stored.violations.includes('unsafe arbitrary app-root read .ai/guides/testing-debugging.md'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('routing rejects an offered but unmandated contrastive decision', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+  const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
+  cases[0].decisionVocabulary = [...(cases[0].requiredDecisions ?? []), 'framework-package-edit']
+  fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first', 'framework-package-edit'], violations: []
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/architecture.md' } }))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 1, `${run.stdout}\n${run.stderr}`)
+    assert.ok(storedResults(root)[0].violations.includes('unmandated decision framework-package-edit'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

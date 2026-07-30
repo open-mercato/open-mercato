@@ -421,8 +421,8 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 51200,
-    "maxTotalContextBytes": 98304,
+    "maxInitialContextBytes": 55296,
+    "maxTotalContextBytes": 114688,
     "relatedCases": [
       "OMH-007"
     ]
@@ -1375,26 +1375,33 @@
     },
     "expectedRouter": {
       "required": [
-        "module-data",
-        "umes"
+        "module-data"
       ],
       "allowedExtra": [
         "architecture",
-        "debugging"
+        "debugging",
+        "umes"
       ]
     },
     "requiredSkills": [
-      "om-module-scaffold",
-      "om-system-extension"
+      "om-module-scaffold"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-system-extension",
+        "route": "umes"
+      }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/events.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -1530,25 +1537,33 @@
     "expectedRouter": {
       "required": [
         "module-data",
-        "backend-ui",
-        "umes"
+        "backend-ui"
       ],
-      "allowedExtra": []
+      "allowedExtra": [
+        "umes"
+      ]
     },
     "requiredSkills": [
       "om-module-scaffold",
-      "om-backend-ui-design",
-      "om-system-extension"
+      "om-backend-ui-design"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-system-extension",
+        "route": "umes"
+      }
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
       ".ai/guides/backend-ui.md",
-        ".ai/guides/extensions.md",
         ".ai/guides/modules/notifications.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
@@ -1921,7 +1936,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md"
       ],
       "forbidden": [
         ".env*",
@@ -1929,9 +1945,16 @@
         "node_modules/**"
       ]
     },
+    "decisionVocabulary": [
+      "scoped-enricher",
+      "batched-enrichment",
+      "dotted-runtime-target-entity",
+      "colon-form-target-entity"
+    ],
     "requiredDecisions": [
       "scoped-enricher",
-      "batched-enrichment"
+      "batched-enrichment",
+      "dotted-runtime-target-entity"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -4206,7 +4229,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Preserve the seeded callApiActivity(input, effects) seam and reserve input.idempotencyKey through effects.reserveIdempotency before entering effects.transaction; send that reserved key through effects.post on every retry. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a CALL_API activity whose idempotency key survives transaction rollback. Use the controller-prepared installed workflows contract instead of probing node_modules. Preserve the seeded callApiActivity(input, effects) seam and reserve input.idempotencyKey through effects.reserveIdempotency before entering effects.transaction; send that reserved key through effects.post on every retry. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "ai-workflow",
       "idempotency-outside-rollback"
@@ -4292,6 +4315,16 @@
     },
     "allowedWrites": [
       "src/modules/automation/**"
+    ],
+    "frameworkContext": [
+      {
+        "module": "workflows",
+        "query": "CodeWorkflowDefinition"
+      },
+      {
+        "package": "@open-mercato/shared",
+        "query": "interface CodeWorkflowDefinition"
+      }
     ]
   },
   {
@@ -4377,7 +4410,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 67584,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-056"
@@ -5572,8 +5605,8 @@
       "oracle.artifacts",
       "oracle.regression.cursor"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 46080,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-069"
@@ -5727,7 +5760,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "scope.{0,30}(?:request body|payload)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 71680,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-018", "OMH-034", "OMH-071"]
   },
@@ -5877,7 +5910,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:approve|convert).{0,30}(?:direct update|persistAndFlush)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 14,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 72704,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-012", "OMH-053", "OMH-078"]
   },
@@ -5944,7 +5977,7 @@
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:float|number).{0,30}(?:amount|money)", "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 77824,
     "maxTotalContextBytes": 262144,
     "relatedCases": ["OMH-041", "OMH-042", "OMH-070"]
   },
@@ -5980,8 +6013,8 @@
     "requiredDecisions": ["provider-neutral-domain", "deterministic-carrier-rule", "retry-safe-booking", "idempotent-external-id", "event-progress", "webhook-poll-reconciliation", "optional-provider"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "provider credentials.{0,30}(?:log|plain)", "direct ORM relationship"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 13,
-    "maxInitialContextBytes": 69632,
+    "maxContextFiles": 14,
+    "maxInitialContextBytes": 81920,
     "maxTotalContextBytes": 262144,
     "relatedCases": ["OMH-040", "OMH-043", "OMH-055"]
   },
@@ -6156,7 +6189,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, dashboard widgets, typed events, async and sync query subscribers, workers, workflows, progress, notification definitions/renderers/reactive handlers, messages and inbox actions, widgets, command/API interceptors, response/query enrichers, guards, AI tools, MFA provider and sudo-target contributions, integration metadata, generator plugins, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. For AI, explicitly choose typed defineAiTool versus low-level registerMcpTool/OpenCode Code Mode, including Zod/moduleId/requiredFeatures/serializable results, installed ai_assistant facts, per-request MCP/RBAC, two-tier auth, and ask-first config/session changes. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
+    "prompt": "For a standalone service-management module that needs entities, validators, commands, APIs, backend and public pages, page middleware, UI locales, ACL/setup/DI/encryption, search, vector config, analytics, dashboard widgets, typed events, async and sync query subscribers, workers, workflows, progress, notification definitions/renderers/reactive handlers, messages and inbox actions, widgets, command/API interceptors, response/query enrichers, guards, AI tools, MFA provider and sudo-target contributions, integration metadata, generator plugins, CLI, translatable fields, and tests, map each named capability to the current canonical discovery or support surface. Include the emitted installed facts for API keys, configs, dictionaries, Stripe gateway, perspectives, resources, Akeneo sync, and Excel sync so none of those enabled capabilities is rebuilt unnecessarily. For AI, explicitly choose typed defineAiTool versus low-level registerMcpTool/OpenCode Code Mode, including Zod/moduleId/requiredFeatures/serializable results, installed ai_assistant facts, per-request MCP/RBAC, two-tier auth, and ask-first config/session changes. Distinguish generator discovery from imported support files; reject retired flat pages, HTTP-method API directories, data/fields.ts, and unnecessary placeholders; include generation and focused verification.",
     "tags": ["module", "discovery", "surface-catalog", "architecture"],
     "owner": {
       "kind": "skill",
@@ -6169,16 +6202,21 @@
     "context": {
       "required": [
         "AGENTS.md", ".ai/guides/architecture.md", ".ai/guides/contracts.md", ".ai/guides/ai-workflows.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
         ".ai/skills/om-create-ai-agent/SKILL.md", ".ai/skills/om-create-ai-agent/references/surface-selector.md",
-        ".ai/guides/modules/ai_assistant.md"
+        ".ai/guides/modules/ai_assistant.md",
+        ".ai/guides/modules/api_keys.md", ".ai/guides/modules/configs.md", ".ai/guides/modules/dictionaries.md",
+        ".ai/guides/modules/gateway_stripe.md", ".ai/guides/modules/perspectives.md", ".ai/guides/modules/resources.md",
+        ".ai/guides/modules/sync_akeneo.md", ".ai/guides/modules/sync_excel.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md",
-        ".ai/guides/modules/auth.md", ".ai/guides/modules/security.md", ".ai/guides/modules/generators.md", ".ai/guides/modules/search.md",
+        ".ai/guides/modules/auth.md", ".ai/guides/modules/search.md",
         ".ai/guides/modules/events.md", ".ai/guides/modules/query_index.md", ".ai/guides/modules/translations.md",
         ".ai/guides/modules/progress.md", ".ai/guides/modules/workflows.md",
-        ".ai/guides/modules/integrations.md", ".ai/guides/modules/dashboards.md", ".ai/guides/modules/notifications.md",
+        ".ai/guides/modules/integrations.md", ".ai/guides/modules/data_sync.md",
+        ".ai/guides/modules/dashboards.md", ".ai/guides/modules/notifications.md",
         ".ai/guides/modules/messages.md", ".ai/guides/modules/inbox_ops.md"
       ],
       "forbidden": [".env*", ".git/**", "node_modules/**"]
@@ -6187,8 +6225,8 @@
     "forbiddenPatterns": ["frontend/.+\\.(?:ts|tsx).{0,30}(?:canonical|create)", "api/(?:get|post|put|patch|delete)/", "data/fields\\.ts", "node_modules.{0,40}(?:write|edit|patch)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 90112,
-    "maxTotalContextBytes": 196608,
+    "maxInitialContextBytes": 94208,
+    "maxTotalContextBytes": 212992,
     "relatedCases": ["OMH-001", "OMH-004", "OMH-008"]
   },
   {
@@ -6521,7 +6559,7 @@
       "oracle.business.command"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-060",
@@ -6718,7 +6756,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-009",
@@ -7197,7 +7235,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-018",
@@ -7951,7 +7989,8 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/sales.md"
+        ".ai/guides/modules/sales.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -7979,7 +8018,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-009",
@@ -8270,8 +8309,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 11,
-    "maxInitialContextBytes": 65536,
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 61440,
     "maxTotalContextBytes": 229376,
     "relatedCases": [
       "OMH-060",
@@ -8369,7 +8408,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 65536,
+    "maxInitialContextBytes": 71680,
     "maxTotalContextBytes": 229376,
     "relatedCases": [
       "OMH-077",
@@ -8550,7 +8589,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-075",
@@ -9032,7 +9071,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 60416,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-025",
@@ -9188,7 +9227,8 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-data-model-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/guides/modules/catalog.md"
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/wms.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/sales.md",
@@ -9221,7 +9261,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 8,
-    "maxInitialContextBytes": 49152,
+    "maxInitialContextBytes": 51200,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-009",
@@ -10173,7 +10213,8 @@
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/portal.md"
+        ".ai/guides/modules/portal.md",
+        ".ai/guides/modules/auth.md"
       ],
       "forbidden": [
         ".env*",
@@ -10870,7 +10911,7 @@
     "requiredDecisions":["durable-user-task","separation-of-duties","mutation-guards","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","requireRoles"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":9,"maxInitialContextBytes":49152,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
+    "maxContextFiles":9,"maxInitialContextBytes":50176,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
   },
   {
     "id": "OMH-140",
@@ -11231,8 +11272,8 @@
       "oracle.artifacts",
       "oracle.business.ai-safe-agent"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxContextFiles": 4,
+    "maxInitialContextBytes": 32768,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-051"
@@ -11773,7 +11814,7 @@
       "src/modules/erp_sync/workers/**"
     ],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 61440,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 163840,
     "relatedCases": [
       "OMH-042",
@@ -11805,7 +11846,7 @@
     "requiredDecisions":["webhook-signature","typed-events","subscriber-idempotency","outbound-delivery-status"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":12,"maxInitialContextBytes":61440,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
+    "maxContextFiles":12,"maxInitialContextBytes":63488,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
   },
   {
     "id": "OMH-156",
@@ -12167,11 +12208,11 @@
     "owner":{"kind":"skill","path":".ai/skills/om-auto-create-pr/SKILL.md","ruleIds":["BC-01","BC-02","BC-05","BC-07","BC-10"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes","testing","spec-pr"],"allowedExtra":["ai-workflow"]},
     "requiredSkills":["om-module-scaffold","om-data-model-design","om-backend-ui-design","om-system-extension","om-auto-create-pr"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["public-scope-derived-server-side","idempotent-submission","deterministic-deduplication","optional-crm","delivery-route-preserves-task-routes","smallest-validation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","git (?:add|commit).{0,20}(?:--all|-a)","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":12,"maxInitialContextBytes":65536,"maxTotalContextBytes":196608,"relatedCases":["OMH-005","OMH-073"]
+    "maxContextFiles":11,"maxInitialContextBytes":61440,"maxTotalContextBytes":196608,"relatedCases":["OMH-005","OMH-073"]
   },
   {
     "id":"OMH-170","title":"Review a stock-reservation pull request for actionable problems only","family":"architecture","mode":"review","evaluationKind":"routing","risk":"medium",
@@ -12406,7 +12447,7 @@
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","atomic-inbox-claim","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","catch.{0,40}(?:ignore|swallow)","(?:random|timestamp).{0,20}idempotency"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
+    "maxContextFiles":8,"maxInitialContextBytes":52224,"maxTotalContextBytes":114688,"relatedCases":["OMH-043","OMH-060"]
   },
   {
     "id":"OMH-174","title":"Fix an ERP synchronization job skipping records after a page failure","family":"bugfix","mode":"bugfix","evaluationKind":"routing","risk":"high",
@@ -12466,10 +12507,10 @@
     "prompt":"Before changing order confirmation, explain how this installed version currently confirms an order, who is allowed to do it, what other behavior depends on it, and the safest supported place to customize it.",
     "tags":["business-language","installed-context","sales"],
     "owner":{"kind":"skill","path":".ai/skills/om-framework-context/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-14"]},
-    "expectedRouter":{"required":["architecture","framework-context"],"allowedExtra":["umes"]},
+    "expectedRouter":{"required":["framework-context"],"allowedExtra":["architecture","umes"]},
     "requiredSkills":["om-framework-context"],
     "optionalSkills":[{"id":"om-system-extension","route":"umes"}],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/architecture.md",".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
     "requiredDecisions":["installed-version","bounded-source-search","facts-first","read-only-framework-context"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","assume.{0,30}(?:event|permission|route|version)","(?:load|read).{0,20}all (?:packages|modules|source)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12908,6 +12949,543 @@
   },
   {
     "id": "OMH-188",
+    "title": "Build room bookings whose overlapping reservations are rejected atomically",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone app, build the core of a room_bookings module in one shot: Room and RoomBooking entities, validators, a reviewed migration, undoable create/update/delete commands, and a scoped CRUD API at api/bookings. Overlapping bookings for the same room must be rejected atomically even under concurrent requests - a read-then-check inside the command cannot reject a concurrent booking, so the database must own the decision - and a rejected overlap must surface as a conflict response, never an internal error. Abutting bookings (one ends exactly when the next starts) are valid; cancelled and soft-deleted bookings do not block a slot. Reference entity IDs from the generated E map through the app alias, never hand-written strings. Replace the seeded index stub with working implementation files, not a manifest of files to add later. Review the generated migration but do not apply it.",
+    "tags": [
+      "module",
+      "booking-overlap",
+      "concurrency",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-04",
+        "BC-09"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "module-data"
+      ],
+      "allowedExtra": [
+        "umes",
+        "debugging",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-module-scaffold",
+      "om-data-model-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md",
+        ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+        ".ai/skills/om-data-model-design/references/migration-workflow.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/skills/om-module-scaffold/references/verification.md",
+        ".ai/skills/om-module-scaffold/references/planning.md",
+        ".ai/skills/om-module-scaffold/references/data-and-migrations.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "exclusion-constraint-overlap",
+      "conflict-not-500",
+      "generated-entity-ids",
+      "migration-snapshot-no-apply",
+      "tenant-organization-scope"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:apply|run).{0,20}(?:migration|db:migrate)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.business.booking-overlap"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-188"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.business.booking-overlap"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_bookings/index.ts",
+        "src/modules/room_bookings/data/entities.ts",
+        "src/modules/room_bookings/data/validators.ts",
+        "src/modules/room_bookings/migrations/**",
+        "src/modules/room_bookings/commands/**",
+        "src/modules/room_bookings/api/bookings/route.ts",
+        "src/modules.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_bookings/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
+  },
+  {
+    "id": "OMH-189",
+    "title": "Ship a calendar provider whose transport survives a hostile endpoint",
+    "family": "integration",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone app, create an app-local provider module room_calendar_sync that pushes booking events to an external calendar service over HTTPS. integration.ts declares typed credentials (an endpoint URL field and a secret API token) and a healthCheck service named roomCalendarSyncHealth, and exports the full paired export set the generated module registry reads. di.ts registers that exact health service. The transport is an exported factory createRoomCalendarClient with an exported assertSafeEndpoint guard that rejects non-HTTPS and private-network endpoints on every call, refuses to follow redirects, retries transient failures through a bounded loop with a stable idempotency-key header so a retry cannot create a second event, never lets the token reach any error surface, and reports missing configuration as a degraded unconfigured outcome instead of failing. Activate the module in src/modules.ts. Replace the seeded index stub with working implementation files.",
+    "tags": [
+      "integration",
+      "provider-transport",
+      "ssrf",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "integration"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "debugging",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-integration-builder"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/integrations.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
+        ".ai/skills/om-integration-builder/references/package-and-activation.md",
+        ".ai/skills/om-integration-builder/references/provider-families.md",
+        ".ai/skills/om-integration-builder/references/security-and-reliability.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-integration-builder/references/sync-and-files.md",
+        ".ai/guides/modules/integrations.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "paired-integration-exports",
+      "ssrf-endpoint-guard",
+      "stable-idempotency-key",
+      "unconfigured-degraded"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.business.provider-transport"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-189"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.business.provider-transport"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_calendar_sync/index.ts",
+        "src/modules/room_calendar_sync/integration.ts",
+        "src/modules/room_calendar_sync/di.ts",
+        "src/modules/room_calendar_sync/lib/**",
+        "src/modules.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_calendar_sync/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
+  },
+  {
+    "id": "OMH-190",
+    "title": "Attach app-owned booking summaries to installed customer responses",
+    "family": "umes",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "The seeded room_bookings module persists bookings. Show each customer's confirmed-booking summary on the installed customers module's person list and detail responses without modifying that module and without a cross-module ORM relation: add src/modules/room_bookings/data/enrichers.ts with a typed response enricher targeting the installed person entity, batched for list responses, gated on the room_bookings.bookings.view feature, adding its fields under the _room_bookings namespace, and declaring fallback, timeout, and conservative list-cache behaviour. The block must reliably appear for authorized staff - an enricher whose target selector never matches is silently skipped, which is the failure this task exists to prevent.",
+    "tags": [
+      "umes",
+      "response-enricher",
+      "silent-failure",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-03",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/modules/customers.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/read-write-roundtrip.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "dot-form-target-entity",
+      "batched-enrichment",
+      "namespaced-additive-result"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.umes.response-enricher"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-190"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.umes.response-enricher"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_bookings/data/enrichers.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_bookings/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 420000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
+  },
+  {
+    "id": "OMH-191",
+    "title": "Expire unconfirmed booking holds through a durable workflow",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "The seeded room_bookings module holds bookings as held until somebody confirms them. Add src/modules/room_bookings/workflows.ts defining a durable hold-expiry workflow with the typed builder: explicit START and END steps, a WAIT_FOR_TIMER step whose config carries an ISO 8601 duration of PT15M - a timer step without a duration fails the instance only after it is already paused - a signal-triggered confirmation transition that wins over expiry, and a release transition whose UPDATE_ENTITY activity dispatches the room_bookings.bookings.update command. A workflow may only dispatch commands explicitly allowlisted through registerWorkflowSafeCommands together with the features the dispatch is authorised against, so register that command with its required features. Export the discovered workflowsConfig.",
+    "tags": [
+      "module",
+      "durable-workflow",
+      "timer",
+      "writable"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-build-workflow/references/workflow-design.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "ai-workflow"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-build-workflow"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/ai-workflows.md",
+        ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/skills/om-build-workflow/references/workflow-design.md",
+        ".ai/skills/om-build-workflow/references/activity-contracts.md",
+        ".ai/skills/om-build-workflow/references/durability-and-progress.md",
+        ".ai/guides/modules/workflows.md"
+      ],
+      "allowedExtra": [],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**"
+      ]
+    },
+    "requiredDecisions": [
+      "timer-duration-config",
+      "workflow-safe-commands",
+      "signal-over-timer"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.workflow.durable-timer"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:omh-191"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.workflow.durable-timer"
+      ],
+      "expectedArtifacts": [
+        "src/modules/room_bookings/workflows.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/room_bookings/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 420000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-185"
+    ]
+  },
+  {
+    "id": "OMH-192",
+    "title": "Repair CRM-backed library loans with trusted scope and atomic checkout",
+    "family": "module",
+    "mode": "bugfix",
+    "evaluationKind": "regression",
+    "risk": "high",
+    "prompt": "Fix the seeded CRM-backed library loan slice and its focused test at the root cause. Preserve the exported createBook, undoCreateBook, deleteBook, undoDeleteBook, checkoutBook, returnLoan, renewLoan, and markLoanLost seams plus the injected LibraryEffects contract. Every seam must fail before effects when trusted tenant or organization scope is missing; body tenantId/organizationId are untrusted and public request schemas must not accept them. Create undo must leave the book absent or soft-deleted, while delete undo restores it. Checkout must resolve an existing customers-module CRM person in trusted scope, store only the scalar customerEntityId plus a display-name snapshot, require no duplicate local member, and reach the injected atomic claimCheckout seam so two concurrent requests yield exactly one created loan and one conflict; retrying the winning idempotency key must return the same loan. Return, renew, and mark-lost must each find and mutate the loan with trusted tenant and organization scope. Replace the weak test with executable Jest coverage in src/modules/library/commands/__tests__/crm-loans.test.ts, import globals explicitly from @jest/globals, exercise all of those invariants including Promise.all concurrency, and run the focused test. Do not edit installed or generated framework files.",
+    "tags": ["module", "crm", "library-loans", "concurrency", "trusted-scope", "unit-tests", "writable"],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "ruleIds": ["BC-02", "BC-03", "BC-04", "BC-09"]
+    },
+    "expectedRouter": {
+      "required": ["module-data", "umes", "testing"],
+      "allowedExtra": ["debugging", "framework-context"]
+    },
+    "requiredSkills": ["om-module-scaffold", "om-data-model-design", "om-system-extension"],
+    "optionalSkills": [{"id": "om-framework-context", "route": "framework-context"}],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/guides/modules/customers.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/verification.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+        ".ai/skills/om-system-extension/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+    },
+    "requiredDecisions": [
+      "trusted-scope-only",
+      "public-schema-no-runtime-scope",
+      "scalar-crm-customer-snapshot",
+      "atomic-one-winner-checkout",
+      "deterministic-idempotent-retry",
+      "correct-lifecycle-undo",
+      "scoped-loan-actions",
+      "executable-jest-regression"
+    ],
+    "decisionVocabulary": [
+      "trusted-scope-only",
+      "payload-scope",
+      "public-schema-no-runtime-scope",
+      "caller-supplied-public-scope",
+      "scalar-crm-customer-snapshot",
+      "local-member-shadow-required",
+      "atomic-one-winner-checkout",
+      "non-atomic-check-then-create",
+      "deterministic-idempotent-retry",
+      "correct-lifecycle-undo",
+      "scoped-loan-actions",
+      "id-only-loan-actions",
+      "executable-jest-regression"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:body|payload).{0,40}(?:tenantId|organizationId).{0,30}(?:trusted|scope source)",
+      "memberId",
+      "(?:find|check).{0,50}(?:available|active loan).{0,80}(?:create|persist).{0,30}loan"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.regression.crm-library"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": ["fixture:omh-192"],
+      "expectedFailure": "The seed must fail trusted scope, lifecycle undo, CRM linkage, concurrency, public-schema, and executable-test checks."
+    },
+    "oracle": {
+      "validatorIds": ["writable.allowed-paths", "oracle.artifacts", "oracle.regression.crm-library"],
+      "expectedArtifacts": [
+        "src/modules/library/commands/crm-loans.ts",
+        "src/modules/library/api/schemas.ts",
+        "src/modules/library/commands/__tests__/crm-loans.test.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/library/**",
+      "src/modules/library/commands/__tests__/crm-loans.test.ts"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 14,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 229376,
+    "relatedCases": ["OMH-083", "OMH-093", "OMH-122", "OMH-163", "OMH-185"]
+  },
+  {
+    "id": "OMH-193",
     "title": "Let operations own order cancellation reasons without a new module",
     "family": "architecture",
     "mode": "analysis",
@@ -12961,7 +13539,7 @@
     "relatedCases": ["OMH-002", "OMH-177"]
   },
   {
-    "id": "OMH-189",
+    "id": "OMH-194",
     "title": "Give a partner system unattended revocable API access",
     "family": "architecture",
     "mode": "analysis",
@@ -13011,10 +13589,10 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-188"]
+    "relatedCases": ["OMH-002", "OMH-193"]
   },
   {
-    "id": "OMH-190",
+    "id": "OMH-195",
     "title": "Let administrators retune module thresholds without a redeploy",
     "family": "architecture",
     "mode": "analysis",
@@ -13064,10 +13642,10 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-188"]
+    "relatedCases": ["OMH-002", "OMH-193"]
   },
   {
-    "id": "OMH-191",
+    "id": "OMH-196",
     "title": "Give each team its own saved list view without a bespoke preferences store",
     "family": "architecture",
     "mode": "analysis",
@@ -13117,10 +13695,10 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-188"]
+    "relatedCases": ["OMH-002", "OMH-193"]
   },
   {
-    "id": "OMH-192",
+    "id": "OMH-197",
     "title": "Track shared company assets and their history without a new module",
     "family": "architecture",
     "mode": "analysis",
@@ -13170,10 +13748,10 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-188"]
+    "relatedCases": ["OMH-002", "OMH-193"]
   },
   {
-    "id": "OMH-193",
+    "id": "OMH-198",
     "title": "Load a supplier spreadsheet in bulk without a hand-written parser",
     "family": "architecture",
     "mode": "analysis",
@@ -13223,10 +13801,10 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-189"]
+    "relatedCases": ["OMH-002", "OMH-194"]
   },
   {
-    "id": "OMH-194",
+    "id": "OMH-199",
     "title": "Charge cards through the installed payment provider rather than a bespoke client",
     "family": "architecture",
     "mode": "analysis",
@@ -13276,10 +13854,10 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-189"]
+    "relatedCases": ["OMH-002", "OMH-194"]
   },
   {
-    "id": "OMH-195",
+    "id": "OMH-200",
     "title": "Pull product data from the PIM the business already runs without a new connector",
     "family": "architecture",
     "mode": "analysis",
@@ -13329,10 +13907,10 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-189"]
+    "relatedCases": ["OMH-002", "OMH-194"]
   },
   {
-    "id": "OMH-196",
+    "id": "OMH-201",
     "title": "Keep stock counts per warehouse honest and hold goods for confirmed orders without a new module",
     "family": "architecture",
     "mode": "analysis",
@@ -13382,6 +13960,6 @@
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-002", "OMH-188"]
+    "relatedCases": ["OMH-002", "OMH-193"]
   }
 ]

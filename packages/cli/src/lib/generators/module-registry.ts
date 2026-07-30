@@ -3059,6 +3059,10 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       if (fields) fieldsImportName = fields.importName
     }
 
+    const integrationExports = integrationImportName
+      ? `(${integrationImportName} as unknown as { integrations?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]; integration?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition; bundles?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]; bundle?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle })`
+      : null
+
     // 13. Pages: backend
     {
       const beApp = path.join(roots.appBase, 'backend')
@@ -3167,8 +3171,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
     runtimeModuleDecls.push(`{
       id: ${toLiteral(modId)},
@@ -3185,8 +3189,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
   }
 
