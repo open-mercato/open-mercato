@@ -4,6 +4,7 @@
 import {
   CLOSED_DEAL_STATUSES,
   DEFAULT_SETTINGS,
+  OPEN_DEAL_CLOSURE_OUTCOME_FILTER,
   buildPipelineDataRequest,
   dehydrateSettings,
   hydrateSettings,
@@ -71,16 +72,53 @@ describe('pipeline summary settings', () => {
     it('excludes closed deals for the open scope', () => {
       const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' })
 
-      expect(request.filters).toEqual(
-        CLOSED_DEAL_STATUSES.map((status) => ({ field: 'status', operator: 'neq', value: status })),
-      )
+      expect(request.filters).toEqual([
+        ...CLOSED_DEAL_STATUSES.map((status) => ({ field: 'status', operator: 'neq', value: status })),
+        { field: 'closureOutcome', operator: 'is_null' },
+      ])
     })
 
     it('leaves a tenant-specific active status in the chart', () => {
       const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' })
 
-      expect(request.filters?.every((filter) => filter.operator === 'neq')).toBe(true)
-      expect(request.filters?.map((filter) => filter.value)).not.toContain('awaiting_legal')
+      const statusFilters = request.filters?.filter((filter) => filter.field === 'status')
+
+      expect(statusFilters?.every((filter) => filter.operator === 'neq')).toBe(true)
+      expect(statusFilters?.map((filter) => filter.value)).not.toContain('awaiting_legal')
+    })
+
+    // #4668: a deal can be closed through `closure_outcome` alone — the CRUD API accepts it
+    // without a status change — and the deals-summary KPI already counts such a deal as won or
+    // lost. Without this filter the chart and the KPI cards disagree about the same deal.
+    it('excludes a deal closed through closureOutcome alone', () => {
+      const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' })
+
+      expect(request.filters).toContainEqual({ field: 'closureOutcome', operator: 'is_null' })
+    })
+
+    // The regression this locks in is silent: `neq` renders as `column != ?`, and because
+    // `closure_outcome` is NULL on every open deal, `NULL != 'won'` is NULL rather than true —
+    // a denylist there would empty the chart instead of trimming it. `not_in` (`!= ALL(?)`)
+    // fails the same way. Only `is_null` keeps the open deals in.
+    it('never tests closureOutcome with an operator that NULL cannot satisfy', () => {
+      const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'open' })
+      const closureFilters = request.filters?.filter((filter) => filter.field === 'closureOutcome')
+
+      expect(closureFilters).toHaveLength(1)
+      for (const filter of closureFilters ?? []) {
+        expect(filter.operator).toBe('is_null')
+        expect(filter).not.toHaveProperty('value')
+      }
+    })
+
+    it('exposes the closure-outcome filter as a constant so the intent is not re-derived', () => {
+      expect(OPEN_DEAL_CLOSURE_OUTCOME_FILTER).toEqual({ field: 'closureOutcome', operator: 'is_null' })
+    })
+
+    it('drops the closure-outcome filter for the all scope', () => {
+      const request = buildPipelineDataRequest({ dateRange: 'this_year', statusScope: 'all' })
+
+      expect(request.filters?.some((filter) => filter.field === 'closureOutcome')).toBeFalsy()
     })
 
     it('sends no filters for the all scope', () => {

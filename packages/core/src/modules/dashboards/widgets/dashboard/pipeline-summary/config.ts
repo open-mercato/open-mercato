@@ -8,15 +8,34 @@ import type { WidgetDataRequest } from '../../../services/widgetDataService'
 // and keeps contributing to the chart. That keeps tenant-specific stages visible and mirrors
 // `customers/lib/interactionStatus.ts`, which treats an unknown interaction status as open.
 //
-// Every vocabulary that reaches the column has to be listed here, because the analytics layer
-// can only filter on `status` — `closure_outcome` is deliberately absent from the
-// `customers:deals` fieldMappings in `packages/core/src/modules/customers/analytics.ts`:
+// Every vocabulary that reaches the column has to be listed here:
 //   - `win` / `loose` are written by the deal closure UI and the kanban board.
 //   - `won` / `lost` are written verbatim by the `customers.update_deal_stage` AI tool, whose
 //     free-form `toStage` is passed straight through to `status`.
 //   - `closed` is a seeded `deal_status` dictionary value, persisted by the dashboards
 //     analytics seed and treated as terminal by the demo-data generator.
 export const CLOSED_DEAL_STATUSES = ['win', 'loose', 'won', 'lost', 'closed'] as const
+
+// A deal is also closed when `closure_outcome` records the outcome, which the deals-summary
+// KPI already treats as terminal: `api/deals/summary/route.ts` counts a deal as won or lost
+// when EITHER `status` OR `closure_outcome` says so. The two columns can disagree — the CRUD
+// API accepts `closureOutcome` on its own, and the AI tool writes `status` without ever setting
+// it — so the chart has to test both signals to agree with those KPI cards (#4668).
+//
+// The `closure_outcome` side is expressed as `IS NULL` rather than as a `neq` denylist for two
+// reasons, and swapping it for `neq` would be a silent regression:
+//   - `closure_outcome` is nullable, and every OPEN deal holds NULL there. `neq` renders as
+//     `column != ?`, and in SQL `NULL != 'won'` is NULL, not true — a `neq` filter would drop
+//     every open deal and empty the chart. `status` has no such problem: it is `text not null
+//     default 'open'`, which is why the status side stays a denylist.
+//   - Unlike `status`, this column is not fed by a per-tenant dictionary. Every write path
+//     validates it against the same closed `z.enum(['won', 'lost'])` (`data/validators.ts`,
+//     `api/deals/[id]/route.ts`, `api/deals/[id]/stats/route.ts`), so a non-null value always
+//     means closed and there is no tenant-specific vocabulary to keep visible.
+export const OPEN_DEAL_CLOSURE_OUTCOME_FILTER = {
+  field: 'closureOutcome',
+  operator: 'is_null',
+} as const
 
 export const PIPELINE_STATUS_SCOPES = ['open', 'all'] as const
 
@@ -70,11 +89,14 @@ export function buildPipelineDataRequest(settings: PipelineSummarySettings): Wid
   }
 
   if (settings.statusScope === 'open') {
-    request.filters = CLOSED_DEAL_STATUSES.map((status) => ({
-      field: 'status',
-      operator: 'neq' as const,
-      value: status,
-    }))
+    request.filters = [
+      ...CLOSED_DEAL_STATUSES.map((status) => ({
+        field: 'status',
+        operator: 'neq' as const,
+        value: status,
+      })),
+      { ...OPEN_DEAL_CLOSURE_OUTCOME_FILTER },
+    ]
   }
 
   return request
