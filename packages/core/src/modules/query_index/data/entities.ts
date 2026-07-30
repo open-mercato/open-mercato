@@ -255,6 +255,12 @@ export class IndexerStatusLog {
 @Index({ name: 'search_tokens_lookup_idx', properties: ['entityType', 'field', 'tokenHash', 'tenantId', 'organizationId'] })
 @Index({ name: 'search_tokens_entity_idx', properties: ['entityType', 'entityId'] })
 @Index({ name: 'search_tokens_tenant_token_hash_idx', properties: ['tenantId', 'tokenHash'] })
+// #4681: the token tuple is unique per record. Enforced through a coalesced
+// functional unique index (see Migration20260730120000_query_index) rather than
+// @Unique because the scope columns are nullable and Postgres treats NULLs as
+// distinct — a plain unique constraint would not collapse the global
+// (NULL organization/tenant) rows whose duplication caused the runaway growth.
+// Token INSERTs use ON CONFLICT DO NOTHING against it.
 export class SearchToken {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

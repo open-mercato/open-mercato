@@ -15,6 +15,20 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
+// #4681: token INSERTs must be idempotent so overlapping rebuilds (auto-reindex
+// stampede, un-awaited per-record rebuilds) can never duplicate rows. The
+// coalesced unique index `search_tokens_unique_tuple_idx` backs the conflict;
+// the target is left unspecified so Postgres matches it without us restating the
+// functional expression here.
+async function insertTokensIgnoringDuplicates(db: Kysely<any>, batch: unknown[]): Promise<void> {
+  if (!batch.length) return
+  await db
+    .insertInto('search_tokens' as any)
+    .values(batch as any)
+    .onConflict((oc: any) => oc.doNothing())
+    .execute()
+}
+
 export type SearchTokenRow = {
   entity_type: string
   entity_id: string
@@ -171,7 +185,7 @@ export async function replaceSearchTokensForRecord(
     if (!rows.length) return
     const payloads = rows.map((row) => ({ ...row, created_at: sql`now()` }))
     for (const batch of chunk(payloads, INSERT_BATCH_SIZE)) {
-      await trx.insertInto('search_tokens' as any).values(batch as any).execute()
+      await insertTokensIgnoringDuplicates(trx, batch)
     }
   })
 }
@@ -238,7 +252,7 @@ export async function replaceSearchTokensForBatch(
     }
     const payloadWithTimestamps = rows.map((row) => ({ ...row, created_at: sql`now()` }))
     for (const batch of chunk(payloadWithTimestamps, INSERT_BATCH_SIZE)) {
-      await trx.insertInto('search_tokens' as any).values(batch as any).execute()
+      await insertTokensIgnoringDuplicates(trx, batch)
     }
   })
 }
