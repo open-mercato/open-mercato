@@ -13330,5 +13330,58 @@
     "maxInitialContextBytes": 57344,
     "maxTotalContextBytes": 147456,
     "relatedCases": ["OMH-002", "OMH-189"]
+  },
+  {
+    "id": "OMH-196",
+    "title": "Keep stock counts per warehouse honest and hold goods for confirmed orders without a new module",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the operations team keeps stock for two storage sites in a spreadsheet: how much of each product sits in which aisle, how much is already promised to confirmed orders, and what has been received, moved, or counted since the last check. They also want a heads-up when an item drops below the level they consider safe. Decide the smallest safe design against what the installed modules already provide, say how that capability is turned on for this application, keep tenant and organization boundaries intact, state the access-control posture for viewing counts versus adjusting them, and identify the smallest relevant validation. Do not model your own stock, location, or reservation tables before establishing whether an installed module already owns this capability.",
+    "tags": ["architecture", "module-facts", "reuse-installed", "stock-on-hand"],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/wms.md",
+      "ruleIds": ["BC-01", "BC-04"]
+    },
+    "expectedRouter": {
+      "required": ["architecture"],
+      "allowedExtra": ["module-data", "backend-ui", "umes", "framework-context"]
+    },
+    "requiredSkills": ["om-help"],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/wms.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/modules/catalog.md",
+        ".ai/guides/modules/sales.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
+      ],
+      "forbidden": [".env*", ".git/**", "node_modules/**"]
+    },
+    "requiredDecisions": ["facts-first", "app-module-activation", "tenant-scope", "acl-features", "smallest-validation"],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 11,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": ["OMH-002", "OMH-188"]
   }
 ]

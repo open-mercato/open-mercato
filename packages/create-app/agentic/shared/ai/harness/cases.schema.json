@@ -3,8 +3,8 @@
   "$id": "https://open-mercato.dev/schemas/standalone-harness-cases.schema.json",
   "title": "Open Mercato standalone harness case catalog",
   "type": "array",
-  "minItems": 195,
-  "maxItems": 195,
+  "minItems": 196,
+  "maxItems": 196,
   "items": {
     "type": "object",
     "additionalProperties": false,
@@ -15,7 +15,7 @@
       "maxTotalContextBytes", "relatedCases"
     ],
     "properties": {
-      "id": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-9][0-9]|1[0-7][0-9]|18[0-9]|19[0-5])$" },
+      "id": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-9][0-9]|1[0-7][0-9]|18[0-9]|19[0-6])$" },
       "title": { "type": "string", "minLength": 12, "maxLength": 180 },
       "family": { "enum": ["architecture", "module", "umes", "integration", "ai-workflow", "bugfix", "business", "testing"] },
       "mode": { "enum": ["analysis", "one-shot", "spec", "bugfix", "review"] },
@@ -92,7 +92,7 @@
       "maxInitialContextBytes": { "type": "integer", "minimum": 4096, "maximum": 90112 },
       "maxTotalContextBytes": { "type": "integer", "minimum": 8192, "maximum": 262144 },
       "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 600000 },
-      "relatedCases": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-9][0-9]|1[0-7][0-9]|18[0-9]|19[0-5])$" } },
+      "relatedCases": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-9][0-9]|1[0-7][0-9]|18[0-9]|19[0-6])$" } },
       "source": {
         "type": "object",
         "additionalProperties": false,

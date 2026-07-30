@@ -143,7 +143,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 195-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 196-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -152,7 +152,7 @@ test('the 195-case catalog routes audited installed-module, runtime, and AI/prov
     requiredSkills: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 195)
+  assert.equal(cases.length, 196)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -224,6 +224,10 @@ test('the 195-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/modules/sync_akeneo.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'smallest-validation'],
     },
+    'OMH-196': {
+      contexts: ['.ai/guides/modules/wms.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -256,6 +260,7 @@ test('the 195-case catalog routes audited installed-module, runtime, and AI/prov
     'OMH-193': { factSheet: '.ai/guides/modules/sync_excel.md', skill: 'om-integration-builder' },
     'OMH-194': { factSheet: '.ai/guides/modules/gateway_stripe.md', skill: 'om-integration-builder' },
     'OMH-195': { factSheet: '.ai/guides/modules/sync_akeneo.md', skill: 'om-integration-builder' },
+    'OMH-196': { factSheet: '.ai/guides/modules/wms.md', skill: 'om-help' },
   }
   for (const [caseId, { factSheet, skill }] of Object.entries(reuseInstalledFacts)) {
     const record = byId.get(caseId)

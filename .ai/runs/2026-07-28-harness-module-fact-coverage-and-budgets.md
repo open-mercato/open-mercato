@@ -61,6 +61,14 @@ Follow-up: #4603
       rule. Three nits fixed: the fact-sheet guard comment no longer implies it asserts the
       `allowedExtra` tier, and the audit report names #4603 and records the measurement
       boundary — 625bc0c73
+- [x] 5.6 CI stabilization (`om-auto-fix-pr --ci-only`): merged `develop`, which enables the new
+      `wms` module in the create-app template. Both of this branch's own guards then fired on the
+      merge result, exactly as designed — the classic fact-index canary (47 → 48 sheets) and
+      "every shipped fact-sheet is routed by at least one case" (`wms` uncovered). Closed the gap
+      the same way OMH-188…195 closed theirs: OMH-196 routes `.ai/guides/modules/wms.md` through
+      `om-help` as a reuse-installed architecture decision, with the catalog counters, the id
+      pattern, and the harness docs repinned to 196. `ephemeral-integration (2/15)` failed on a
+      Docker Hub 500 pulling `testcontainers/ryuk` — runner infrastructure, not this branch.
 
 ## Deliberately out of scope
 

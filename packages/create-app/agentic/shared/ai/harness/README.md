@@ -1,6 +1,6 @@
 # Agent harness evaluations
 
-`cases.json` is the 195-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Besides the schema, reference, and relation checks, that gate measures each case's declared context on disk and fails a case whose required or `allowedExtra` paths cannot fit its own file/byte budgets — so a grown guide or fact-sheet surfaces here, naming the exact numbers, instead of as a live routing failure. Live routing uses a fresh read-only process per case:
+`cases.json` is the 196-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Besides the schema, reference, and relation checks, that gate measures each case's declared context on disk and fails a case whose required or `allowedExtra` paths cannot fit its own file/byte budgets — so a grown guide or fact-sheet surfaces here, naming the exact numbers, instead of as a live routing failure. Live routing uses a fresh read-only process per case:
 
 ```text
 yarn harness:validate --runner codex --all
@@ -14,7 +14,7 @@ yarn harness:release --runner codex --prepare-targets /absolute/empty-release-ta
 yarn harness:release --runner codex --portability-runner claude --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The primary runner owns all 195 routing cases, all 40 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+The primary runner owns all 196 routing cases, all 40 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
 Writable evaluation is intentionally opt-in. The expanded catalog has a 40-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
