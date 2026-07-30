@@ -73,12 +73,34 @@ Discovery troubleshooting:
 │   └── ...
 ├── tests/                       # Playwright config only — do not place specs here
 │   ├── playwright.config.ts
+├── personas/                    # Synthetic-user personas for om-ux-walkthrough (see below)
+│   ├── AGENTS.md                #   Authoring rules: schema, review expectations, naming
+│   └── *.md                     #   One persona per file, validated frontmatter
 └── ...
 
 packages/<package>/src/modules/<module>/__integration__/   # Preferred test location
 apps/mercato/src/modules/<module>/__integration__/         # App-specific modules
 packages/enterprise/modules/<module>/__integration__/      # Optional enterprise overlay tests
 ```
+
+---
+
+## Synthetic User Walkthroughs (advisory)
+
+`.ai/qa/personas/` holds the persona library for the `om-ux-walkthrough` skill
+(`.ai/skills/om-ux-walkthrough/SKILL.md`): persona-driven walkthroughs that attempt a task on a
+PR's UI the way a specific user would — visible labels only, no selectors, no source access —
+and post quantified friction findings (steps vs baseline, backtracks, dead ends, mislabels,
+abandoned goals, hesitation markers) as one sticky, advisory PR comment. Request one by adding
+the `needs-ux-walkthrough` label to a PR or invoking `/om-ux-walkthrough` manually.
+
+- Personas are **synthetic** — authored archetypes, never real users or real research; see
+  `.ai/qa/personas/AGENTS.md` for authoring and review rules.
+- Walkthrough reports are **advisory only**: they set no pipeline/QA labels, create no checks,
+  and gate nothing. A walkthrough finding alone never justifies blocking a PR.
+- The skill adds no executable specs anywhere and writes artifacts only under
+  `.ai/tmp/om-ux-walkthrough/`; it reuses the ephemeral env via `.ai/qa/ephemeral-env.json`
+  with the standard reuse/teardown discipline.
 
 ---
 
