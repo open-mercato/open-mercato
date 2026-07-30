@@ -433,6 +433,14 @@ test('residual owner guidance binds implementation, provider, debugging, and bus
   assert.match(integration, /exact installed provider\/domain contract, invoke `om-framework-context`/)
   assert.match(integration, /superseded by an installed capability selects architecture \+ integration \+ framework-context/)
   assert.match(troubleshooter, /persisted create\/update\/clear\/reload defect also selects `module-data` and contracts/)
+  assert.match(troubleshooter, /multi-seam persisted API\/command fix with concurrency MUST read the exact paths/)
+  for (const reference of [
+    '.ai/skills/om-module-scaffold/references/api-and-domain.md',
+    '.ai/skills/om-module-scaffold/references/verification.md',
+    '.ai/skills/om-data-model-design/references/integrity-and-concurrency.md',
+  ]) {
+    assert.ok(troubleshooter.includes(`\`${reference}\``), `missing multi-seam debugging reference ${reference}`)
+  }
   assert.match(troubleshooter, /fail before any query \(`no-unscoped-query`\)/)
   assert.match(blueprints, /mandatory UMES customer panel and mutation guard/)
   assert.match(blueprints, /`M\+B\+W` \(`\+P` only when an accounting provider is requested\)/)
@@ -442,6 +450,7 @@ test('workflow skill binds implementation prompts to the progressive contract re
   const workflowSkill = readAgentic('shared/ai/skills/om-build-workflow/SKILL.md')
   assert.match(workflowSkill, /Always load `references\/workflow-design\.md`/)
   assert.match(workflowSkill, /custom activity or `UPDATE_ENTITY` command activity/)
+  assert.match(workflowSkill, /Dispatching an existing allowlisted command from a workflow does not change that command's implementation and stays workflow-only: do not read contracts/)
   assert.match(workflowSkill, /installed-host order, status, or quantity state also selects `module-data` \+ `umes`/)
   assert.match(workflowSkill, /loads `\.ai\/guides\/contracts\.md`, `\.ai\/guides\/extensions\.md`, and `om-system-extension`/)
   assert.match(workflowSkill, /every new business account loads and declares `\.ai\/guides\/modules\/onboarding\.md`/)
