@@ -3,6 +3,25 @@
  *
  * Endpoint:
  * - GET /api/workflows/commands - List commands allowlisted for UPDATE_ENTITY activities
+ *
+ * ## Why this returns disabled candidates instead of hiding them
+ *
+ * It used to return the whole catalogue to any holder of
+ * `workflows.definitions.edit`, which meant an author could pick a command the
+ * tenant had not enabled and only discover it when a run failed. Returning ONLY
+ * the enabled ones would fix that failure but create a worse one: the field
+ * accepts free text (`allowCustomValues`), so a command that vanishes from the
+ * list is not prevented, it is merely unexplained — "why can I not update
+ * products here?" becomes unanswerable from the editor.
+ *
+ * So every candidate is returned with an explicit `enabled` flag and the picker
+ * renders the disabled ones as unavailable, naming the remedy. This is the same
+ * rule the command palette already follows: a command that cannot run right now
+ * is shown disabled, never hidden, because a missing entry reads as
+ * "unsupported" and a disabled one reads as "not now".
+ *
+ * `enabled`, `defaultEnabled` and `labelKey` are ADDITIVE fields on an existing
+ * response; `commandId` and `requiredFeatures` are unchanged.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -11,6 +30,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { listWorkflowSafeCommands } from '../../lib/workflow-safe-commands'
+import { resolveWorkflowCommandCatalogue } from '../../lib/workflow-command-enablement'
+import { resolveWorkflowCommandPolicyForContainer } from '../../lib/workflow-command-settings'
 import { workflowsTag, workflowErrorSchema, workflowSafeCommandListResponseSchema } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -54,10 +75,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 
-    const items = listWorkflowSafeCommands().map((command) => ({
-      commandId: command.commandId,
-      requiredFeatures: [...command.requiredFeatures],
-    }))
+    const policy = await resolveWorkflowCommandPolicyForContainer(container, tenantId)
+    const items = resolveWorkflowCommandCatalogue(listWorkflowSafeCommands(), policy)
 
     return NextResponse.json({ items })
   } catch (error) {
@@ -75,7 +94,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List commands allowlisted for UPDATE_ENTITY activities',
-      description: 'Returns the registered workflow-safe command allowlist consumed by the UPDATE_ENTITY command picker. Commands outside this list can still be authored but fail at runtime.',
+      description: 'Returns the registered workflow-safe command catalogue consumed by the UPDATE_ENTITY command picker, each entry carrying whether the caller\'s tenant has enabled it. Entries with enabled:false, and commands outside the catalogue entirely, can still be authored but fail at runtime.',
       responses: [
         { status: 200, description: 'Allowlisted workflow-safe commands', schema: workflowSafeCommandListResponseSchema },
       ],

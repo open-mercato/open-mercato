@@ -28,6 +28,7 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 describe('Workflow-Safe Commands API', () => {
   let mockContainer: { resolve: jest.Mock }
   let mockRbacService: { userHasAllFeatures: jest.Mock }
+  let storedEnabledCommandIds: Record<string, unknown>
 
   const testTenantId = 'test-tenant-id'
   const testOrgId = 'test-org-id'
@@ -37,6 +38,7 @@ describe('Workflow-Safe Commands API', () => {
 
   beforeEach(() => {
     clearWorkflowSafeCommandsForTests()
+    storedEnabledCommandIds = {}
 
     mockRbacService = {
       userHasAllFeatures: jest.fn().mockResolvedValue(true),
@@ -45,6 +47,13 @@ describe('Workflow-Safe Commands API', () => {
     mockContainer = {
       resolve: jest.fn((name: string) => {
         if (name === 'rbacService') return mockRbacService
+        if (name === 'moduleConfigService') {
+          return {
+            getValue: async (_moduleId: string, _key: string, options?: any) =>
+              storedEnabledCommandIds[String(options?.scope?.tenantId ?? null)],
+            setValue: async () => null,
+          }
+        }
         return null
       }),
     }
@@ -70,7 +79,7 @@ describe('Workflow-Safe Commands API', () => {
 
   it('returns registered commands in registration order', async () => {
     registerWorkflowSafeCommands([
-      { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       { commandId: 'customers.people.update', requiredFeatures: ['customers.people.manage', 'customers.view'] },
     ])
 
@@ -80,10 +89,62 @@ describe('Workflow-Safe Commands API', () => {
     expect(response.status).toBe(200)
     expect(body).toEqual({
       items: [
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
-        { commandId: 'customers.people.update', requiredFeatures: ['customers.people.manage', 'customers.view'] },
+        {
+          commandId: 'sales.orders.update',
+          requiredFeatures: ['sales.orders.manage'],
+          labelKey: null,
+          enabled: true,
+          defaultEnabled: true,
+        },
+        {
+          commandId: 'customers.people.update',
+          requiredFeatures: ['customers.people.manage', 'customers.view'],
+          labelKey: null,
+          enabled: false,
+          defaultEnabled: false,
+        },
       ],
     })
+  })
+
+  it('reports a candidate the tenant has NOT enabled rather than hiding it', async () => {
+    registerWorkflowSafeCommands([
+      { commandId: 'catalog.products.update', requiredFeatures: ['catalog.products.manage'] },
+    ])
+
+    const body = await (await listCommands(makeRequest())).json()
+
+    // Present — the field accepts free text, so hiding it would replace a
+    // runtime failure with an unexplained absence — but explicitly disabled.
+    expect(body.items).toEqual([
+      expect.objectContaining({ commandId: 'catalog.products.update', enabled: false }),
+    ])
+  })
+
+  it('reports a candidate this tenant HAS enabled as available', async () => {
+    registerWorkflowSafeCommands([
+      { commandId: 'catalog.products.update', requiredFeatures: ['catalog.products.manage'] },
+    ])
+    storedEnabledCommandIds[testTenantId] = ['catalog.products.update']
+
+    const body = await (await listCommands(makeRequest())).json()
+
+    expect(body.items).toEqual([
+      expect.objectContaining({ commandId: 'catalog.products.update', enabled: true }),
+    ])
+  })
+
+  it('does not leak another tenant enablement', async () => {
+    registerWorkflowSafeCommands([
+      { commandId: 'catalog.products.update', requiredFeatures: ['catalog.products.manage'] },
+    ])
+    storedEnabledCommandIds['other-tenant-id'] = ['catalog.products.update']
+
+    const body = await (await listCommands(makeRequest())).json()
+
+    expect(body.items).toEqual([
+      expect.objectContaining({ commandId: 'catalog.products.update', enabled: false }),
+    ])
   })
 
   it('returns an empty list when nothing is registered', async () => {
