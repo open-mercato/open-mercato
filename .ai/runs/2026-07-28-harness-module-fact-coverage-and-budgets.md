@@ -55,6 +55,12 @@ Follow-up: #4603
       `core` 1033/1033, `ui` 206/206, `enterprise` 57/57, `create-app` 335 pass / 5 skipped.
 - [x] 5.2 Audit report committed under `.ai/analysis/` — c6e4f8afb
 - [x] 5.3 Follow-up issue for the `allowedExtra`-only coverage tier — #4603
+- [x] 5.4 Review pass (`om-auto-review-pr`): one Minor finding fixed — the new rule's
+      `maxTotalContextBytes` arm had no assertion and measures fact-sheets as zero in a staged
+      fixture; the regression test now isolates that arm and mirrors the evaluator's initial-path
+      rule. Three nits fixed: the fact-sheet guard comment no longer implies it asserts the
+      `allowedExtra` tier, and the audit report names #4603 and records the measurement
+      boundary — 625bc0c73
 
 ## Deliberately out of scope
 
