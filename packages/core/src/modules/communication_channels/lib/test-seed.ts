@@ -71,6 +71,10 @@ type TestSeedCaptureScope = {
   organizationId: string | null
 }
 
+export type TestSeedCaptureOptions = {
+  systemRecipient?: string
+}
+
 function resolveCapturePath(): string {
   const explicit = process.env.OM_TEST_EMAIL_CAPTURE_PATH?.trim()
   if (explicit) return path.resolve(explicit)
@@ -82,11 +86,30 @@ function resolveCapturePath(): string {
 function matchesCaptureScope(
   message: TestSeedCapturedMessage,
   scope: TestSeedCaptureScope,
+  options: TestSeedCaptureOptions = {},
 ): boolean {
-  return (
-    message.scope.tenantId === scope.tenantId &&
-    (message.scope.organizationId ?? null) === scope.organizationId
-  )
+  if (message.scope.tenantId === scope.tenantId) {
+    const messageOrganizationId = message.scope.organizationId ?? null
+    return messageOrganizationId === scope.organizationId || messageOrganizationId === scope.tenantId
+  }
+
+  if (
+    message.scope.tenantId !== 'system' ||
+    message.scope.organizationId !== 'system' ||
+    !options.systemRecipient
+  ) {
+    return false
+  }
+
+  const expectedRecipient = options.systemRecipient.trim().toLowerCase()
+  const matchesRecipient = (value: unknown): boolean => {
+    if (typeof value === 'string') return value.trim().toLowerCase() === expectedRecipient
+    if (Array.isArray(value)) return value.some(matchesRecipient)
+    if (!value || typeof value !== 'object') return false
+    return matchesRecipient((value as Record<string, unknown>).address)
+  }
+
+  return matchesRecipient(message.metadata?.to)
 }
 
 async function readTestSeedCapturedMessages(): Promise<TestSeedCapturedMessage[]> {
@@ -99,10 +122,13 @@ async function readTestSeedCapturedMessages(): Promise<TestSeedCapturedMessage[]
     .map((line) => JSON.parse(line) as TestSeedCapturedMessage)
 }
 
-export async function clearTestSeedCapturedMessages(scope: TestSeedCaptureScope): Promise<void> {
+export async function clearTestSeedCapturedMessages(
+  scope: TestSeedCaptureScope,
+  options: TestSeedCaptureOptions = {},
+): Promise<void> {
   const capturePath = resolveCapturePath()
   const retained = (await readTestSeedCapturedMessages())
-    .filter((message) => !matchesCaptureScope(message, scope))
+    .filter((message) => !matchesCaptureScope(message, scope, options))
   if (retained.length === 0) {
     await rm(capturePath, { force: true })
     return
@@ -116,9 +142,10 @@ export async function clearTestSeedCapturedMessages(scope: TestSeedCaptureScope)
 
 export async function listTestSeedCapturedMessages(
   scope: TestSeedCaptureScope,
+  options: TestSeedCaptureOptions = {},
 ): Promise<TestSeedCapturedMessage[]> {
   return (await readTestSeedCapturedMessages()).filter((message) =>
-    matchesCaptureScope(message, scope),
+    matchesCaptureScope(message, scope, options),
   )
 }
 

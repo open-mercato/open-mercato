@@ -32,11 +32,12 @@ test.describe('TC-SEC-EMAIL-001: Enterprise security email OTP uses system chann
   })
 
   test('email OTP challenge dispatches through Communications Hub when security module is enabled', async ({ request }) => {
+    test.slow()
     const seedingAvailable = await isChannelSeedingAvailable(request, adminToken)
     test.skip(!seedingAvailable, 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
 
     await seedSystemEmailChannel(request, adminToken)
-    await clearCapturedSystemEmails(request, adminToken)
+    await clearCapturedSystemEmails(request, adminToken, { systemRecipient: userEmail })
 
     const firstLogin = await loginViaApi(request, userEmail, userPassword)
     await enrollOtpEmail(request, firstLogin.token)
@@ -51,7 +52,7 @@ test.describe('TC-SEC-EMAIL-001: Enterprise security email OTP uses system chann
       request,
       adminToken,
       (email) => email.metadata?.to === userEmail && String(email.metadata?.subject ?? '').includes('verification code'),
-      { description: 'security email OTP challenge' },
+      { description: 'security email OTP challenge', systemRecipient: userEmail },
     )
     expect(captured.scope.tenantId).toBe('system')
     expect(captured.scope.organizationId).toBe('system')

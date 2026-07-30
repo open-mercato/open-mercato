@@ -71,10 +71,12 @@ const seedSystemChannelSchema = z.object({
 
 const clearCaptureSchema = z.object({
   action: z.literal('clear-capture'),
+  systemRecipient: z.string().email().max(320).optional(),
 })
 
 const listCaptureSchema = z.object({
   action: z.literal('list-capture'),
+  systemRecipient: z.string().email().max(320).optional(),
 })
 
 const emitInboundSchema = z.object({
@@ -146,12 +148,14 @@ export async function POST(req: Request): Promise<Response> {
   const captureScope = { tenantId, organizationId }
 
   if (body.action === 'clear-capture') {
-    await clearTestSeedCapturedMessages(captureScope)
+    await clearTestSeedCapturedMessages(captureScope, { systemRecipient: body.systemRecipient })
     return NextResponse.json({ ok: true })
   }
 
   if (body.action === 'list-capture') {
-    return NextResponse.json({ items: await listTestSeedCapturedMessages(captureScope) })
+    return NextResponse.json({
+      items: await listTestSeedCapturedMessages(captureScope, { systemRecipient: body.systemRecipient }),
+    })
   }
 
   const container = await createRequestContainer()
