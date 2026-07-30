@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+# gap-orientation-preflight — ensure gap-analysis has clean, FRESH checkouts of
+# the platform's integration branch for code-orientation AND merged-code
+# verdict grounding, auto-provisioning them if the caller hasn't pointed at
+# their own. Validates up to TWO repos:
+#   1. the platform repo   (REQUIRED — hard-fails the whole preflight)
+#   2. a companion repo    (BEST-EFFORT — e.g. a separate shipped-modules repo;
+#      see "Why the companion is best-effort" below)
+#
+# Usage:
+#   gap-orientation-preflight --repo <owner/name> --branch <branch>
+#                             [--companion-repo <owner/name>]
+#                             [--candidates <colon-separated paths>]
+#                             [--companion-candidates <colon-separated paths>]
+#                             [--cache-dir <path>]          (default .ai/tmp/om-gap-analysis/checkouts)
+#                             [--clone-url <git url>]       (default https://github.com/<owner/name>.git)
+#                             [--companion-clone-url <git url>]
+#
+# All repo/branch values come from the pipeline config (`platform.repo`,
+# `platform.branch`, `platform.companionRepo`) — never hardcoded here: the
+# integration branch a platform grounds against is a per-platform fact.
+# Env overrides: GAP_PLATFORM_CHECKOUT / GAP_COMPANION_CHECKOUT pin an explicit
+# checkout path (validated + fast-forwarded, never auto-cloned into if missing).
+#
+# stdout on exit 0 (always exactly two lines):
+#   line 1: the platform checkout path   — REPO_ROOT
+#   line 2: the companion checkout path  — COMPANION_ROOT, or the literal
+#           string UNAVAILABLE if no companion repo is configured or it could
+#           not be validated/provisioned (reason on stderr;
+#           bin/gap-validate-finding correctly rejects any companion-sourced
+#           finding in that case with a clear "no --companion-root provided"
+#           message rather than silently mis-grounding it).
+#
+# Why freshness is HARD (fetch + fast-forward + HEAD == remote tip), not a
+# soft note: verdict grounding greps THESE checkouts (bin/gap-validate-finding)
+# — a stale checkout would smuggle wrong verdicts through as a vendored
+# snapshot with extra steps. Orienting or grounding against a fork/feature
+# branch primes false positives; hence the remote/branch validation below.
+#
+# Why the companion is best-effort, not required: it's a smaller, auxiliary
+# repo — most stories never claim companion-sourced evidence at all.
+# Hard-failing the ENTIRE Phase-2 run because a secondary repo is briefly
+# unreachable would be disproportionate; instead this preflight degrades
+# gracefully (WARN + "UNAVAILABLE" on line 2) and lets bin/gap-validate-finding
+# fail *only the specific findings* that actually needed it.
+#
+# Auto-provisioning + reuse (both repos): resolution order is (1) the env
+# override, if set; (2) the first entry of --candidates that ALREADY validates
+# (right remote, right branch, clean) — never probed further, never mutated if
+# it doesn't already qualify; (3) this script's own dedicated checkout under
+# --cache-dir, reused across runs (fetch + fast-forward) rather than a fresh
+# clone every time, and cloned once if it doesn't exist yet. Candidates and an
+# explicit env override are both treated the same way once resolved: validated
+# and fast-forwarded, but never auto-cloned into if missing, and never deleted
+# on failure (that path means something to whoever owns it; only the dedicated
+# cache is ours to recreate) — deliberately NOT extended to arbitrary unlisted
+# paths, since silently fetching/fast-forwarding or branch-switching a
+# directory nobody named is exactly the overreach this gate exists to prevent
+# doing TO you.
+#
+# Exit codes:
+#   0  HEALTHY      — platform checkout valid, on the configured branch,
+#                     fast-forwarded. The companion checkout may or may not be
+#                     (see the line-2 contract) — that alone never fails.
+#   1  FAIL         — the PLATFORM checkout is invalid (missing + not
+#                     auto-managed, not a git repo, wrong remote, wrong branch,
+#                     dirty working tree, or a permanent clone/fetch/
+#                     fast-forward error). Prints the concrete fix.
+#   2  RETRY-LATER  — the PLATFORM checkout's auto-managed clone or fetch hit
+#                     a transient network error (rate limit, timeout, DNS).
+#                     Wait and re-run; NOT a verdict on the checkout's validity.
+#
+# Scope honesty: a green preflight proves the checkout is the configured
+# platform repo on the configured branch, clean, and just-fetched — it does
+# NOT prove that branch is release-quality (an integration branch can carry
+# unreleased work). This is a RUN-LEVEL honesty note, not a per-finding one:
+# when the clone has full history, the HEALTHY line reports how many commits
+# the branch sits ahead of the repo's default branch; on a shallow cache clone
+# that count would be silently wrong, so it prints "count unavailable
+# (shallow clone)" instead — coarse but honest, versus a confident wrong number.
+
+set -uo pipefail
+
+REPO=""
+BRANCH=""
+COMPANION_REPO=""
+CANDIDATES=""
+COMPANION_CANDIDATES=""
+CACHE_DIR=".ai/tmp/om-gap-analysis/checkouts"
+CLONE_URL=""
+COMPANION_CLONE_URL=""
+
+usage() {
+  echo "usage: gap-orientation-preflight --repo <owner/name> --branch <branch> [--companion-repo <owner/name>] [--candidates <paths>] [--companion-candidates <paths>] [--cache-dir <path>] [--clone-url <url>] [--companion-clone-url <url>]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo)                    REPO="${2:-}"; shift 2 || usage ;;
+    --branch)                  BRANCH="${2:-}"; shift 2 || usage ;;
+    --companion-repo)          COMPANION_REPO="${2:-}"; shift 2 || usage ;;
+    --candidates)              CANDIDATES="${2:-}"; shift 2 || usage ;;
+    --companion-candidates)    COMPANION_CANDIDATES="${2:-}"; shift 2 || usage ;;
+    --cache-dir)               CACHE_DIR="${2:-}"; shift 2 || usage ;;
+    --clone-url)               CLONE_URL="${2:-}"; shift 2 || usage ;;
+    --companion-clone-url)     COMPANION_CLONE_URL="${2:-}"; shift 2 || usage ;;
+    *) usage ;;
+  esac
+done
+
+[ -n "$REPO" ] && [ -n "$BRANCH" ] || usage
+case "$REPO" in
+  */*) : ;;
+  *) echo "gap-orientation-preflight: --repo must be <owner/name>, got '$REPO'" >&2; exit 2 ;;
+esac
+# Externally-sourced values land in shell commands below — keep them shaped.
+SAFE='^[A-Za-z0-9._/-]+$'
+[[ "$REPO" =~ $SAFE ]] || { echo "gap-orientation-preflight: --repo contains unexpected characters" >&2; exit 2; }
+[[ "$BRANCH" =~ $SAFE ]] || { echo "gap-orientation-preflight: --branch contains unexpected characters" >&2; exit 2; }
+if [ -n "$COMPANION_REPO" ]; then
+  [[ "$COMPANION_REPO" =~ $SAFE ]] || { echo "gap-orientation-preflight: --companion-repo contains unexpected characters" >&2; exit 2; }
+fi
+
+is_transient() {
+  grep -qiE "rate limit|secondary rate|\b403\b|abuse|timeout|timed out|could not resolve|connection|temporar|try again|network" <<<"$1"
+}
+
+# Read-only, silent probe: true if $1 is ALREADY a valid, on-branch, clean
+# checkout of $2 — used only to decide whether a conventional path can be
+# reused in place of the dedicated cache. Never mutates anything, never
+# prints — a candidate that doesn't already qualify is simply skipped, not
+# touched (switching its branch or fetching into it would be exactly the
+# overreach this gate exists to avoid doing to a checkout the user manages
+# for their own purposes).
+looks_like_valid_checkout() {
+  local path="$1" repo="$2"
+  [ -d "$path" ] || return 1
+  git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  git -C "$path" remote -v 2>/dev/null | grep -qiE "[:/]${repo}(\.git)?([[:space:]]|$)" || return 1
+  [ "$(git -C "$path" branch --show-current 2>/dev/null)" = "$BRANCH" ] || return 1
+  [ -z "$(git -C "$path" status --porcelain 2>/dev/null)" ] || return 1
+  return 0
+}
+
+# Resolution order: explicit env override (unchanged) > the first candidate
+# that ALREADY validates > the dedicated cache (auto-clone/reuse — signaled by
+# echoing NOTHING, so validate_checkout's own ${explicit_path:-$default_cache}
+# fallback applies and auto_managed stays 1).
+resolve_path() {
+  local explicit="$1" repo="$2" candidates="$3" c
+  if [ -n "$explicit" ]; then
+    echo "$explicit"
+    return
+  fi
+  local IFS=':'
+  for c in $candidates; do
+    [ -n "$c" ] || continue
+    if looks_like_valid_checkout "$c" "$repo"; then
+      echo "$c"
+      return
+    fi
+  done
+}
+
+# Validates/auto-provisions ONE checkout of $2 at the resolved path. Prints
+# the path on stdout on success (exit 0). On failure, prints its own
+# FAIL/RETRY-LATER line to stderr and returns 1 (permanent) or 2 (transient) —
+# the caller decides whether that return code is fatal for the whole script
+# (platform) or just a warning (companion).
+validate_checkout() {
+  local label="$1" repo="$2" default_cache="$3" explicit_path="$4" clone_url="$5"
+  local orient_path auto_managed upstream_remote branch dirty
+  orient_path="${explicit_path:-$default_cache}"
+  auto_managed=1
+  [ -n "$explicit_path" ] && auto_managed=0
+  [ -n "$clone_url" ] || clone_url="https://github.com/$repo.git"
+
+  if [ ! -d "$orient_path" ]; then
+    if [ "$auto_managed" -eq 0 ]; then
+      echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: path does not exist.
+  Fix: clone a clean checkout of the platform repo, e.g.:
+    git clone --branch $BRANCH --single-branch $clone_url \"$orient_path\"
+  or unset the path override to let this preflight auto-manage its own checkout." >&2
+      return 1
+    fi
+    mkdir -p "$(dirname "$orient_path")"
+    local clone_errfile clone_rc clone_err
+    clone_errfile="$(mktemp "${TMPDIR:-/tmp}/gap-orient-clone-err.XXXXXX")"
+    git clone --branch "$BRANCH" --single-branch --depth 1 "$clone_url" "$orient_path" 2>"$clone_errfile"
+    clone_rc=$?
+    clone_err="$(cat "$clone_errfile" 2>/dev/null)"; rm -f "$clone_errfile"
+    if [ $clone_rc -ne 0 ]; then
+      rm -rf "$orient_path"
+      if is_transient "$clone_err"; then
+        echo "ORIENTATION PREFLIGHT RETRY-LATER [$label:$orient_path]: clone of $repo failed transiently: $(head -1 <<<"$clone_err"). Wait ~60s and re-run." >&2
+        return 2
+      fi
+      echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: clone of $repo failed: $(head -1 <<<"$clone_err").
+  Fix: check network access and git auth, then re-run. Or set the env override
+  (GAP_PLATFORM_CHECKOUT / GAP_COMPANION_CHECKOUT) to an existing checkout you
+  manage yourself." >&2
+      return 1
+    fi
+  fi
+
+  git -C "$orient_path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: path exists but is not a git checkout.
+  Fix: clone a clean checkout there, e.g.:
+    git clone --branch $BRANCH --single-branch $clone_url \"$orient_path\"
+  or point the env override at an existing clean checkout." >&2
+    return 1
+  }
+
+  # Capture the MATCHED remote's NAME, not just "does any remote match" — a
+  # checkout can have origin=<fork> and a *different* remote (e.g. upstream)
+  # pointing at the real repo. Fetching/merging a hardcoded "origin" in that
+  # layout would silently ground against the fork while claiming HEALTHY.
+  upstream_remote="$(git -C "$orient_path" remote -v 2>/dev/null \
+    | grep -iE "[:/]${repo}(\.git)?([[:space:]]|$)" | head -1 | awk '{print $1}')"
+  if [ -z "$upstream_remote" ]; then
+    local remote_names
+    remote_names="$(git -C "$orient_path" remote 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+    echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: no remote points at $repo (remotes found: ${remote_names:-none}).
+  This is not a checkout of the configured platform repo — code-orientation
+  and verdict grounding would read the wrong project.
+  Fix: point the env override at a checkout of $repo (or remove $orient_path
+  and re-run to let this preflight clone one, if auto-managed)." >&2
+    return 1
+  fi
+
+  branch="$(git -C "$orient_path" branch --show-current 2>/dev/null)"
+  if [ "$branch" != "$BRANCH" ]; then
+    echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: on branch '${branch:-<detached HEAD>}', not the configured branch '$BRANCH'.
+  This looks like a working fork/feature-branch checkout, not a clean platform
+  read — orienting or grounding gap-analysis against it primes false positives.
+  Fix, pick whichever applies:
+    1. If $orient_path is meant to be your platform checkout:
+         git -C \"$orient_path\" checkout $BRANCH && git -C \"$orient_path\" pull $upstream_remote $BRANCH
+    2. If $orient_path is intentionally a working fork, leave it as-is and
+       point the env override at a separate clean clone instead." >&2
+    return 1
+  fi
+
+  dirty="$(git -C "$orient_path" status --porcelain 2>/dev/null)"
+  if [ -n "$dirty" ]; then
+    echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: working tree has uncommitted changes — refusing to fetch/fast-forward it (would risk losing work).
+  Fix: commit or stash changes in $orient_path, then re-run. If this path
+  holds work you don't want gap-analysis touching, point the env override at
+  a separate checkout instead." >&2
+    return 1
+  fi
+
+  local fetch_errfile fetch_rc fetch_err
+  fetch_errfile="$(mktemp "${TMPDIR:-/tmp}/gap-orient-fetch-err.XXXXXX")"
+  git -C "$orient_path" fetch "$upstream_remote" "$BRANCH" --quiet 2>"$fetch_errfile"
+  fetch_rc=$?
+  fetch_err="$(cat "$fetch_errfile" 2>/dev/null)"; rm -f "$fetch_errfile"
+  if [ $fetch_rc -ne 0 ]; then
+    if is_transient "$fetch_err"; then
+      echo "ORIENTATION PREFLIGHT RETRY-LATER [$label:$orient_path]: fetch failed transiently: $(head -1 <<<"$fetch_err"). Wait ~60s and re-run." >&2
+      return 2
+    fi
+    echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: fetch failed: $(head -1 <<<"$fetch_err").
+  Fix: check network access and git auth for $orient_path, then re-run." >&2
+    return 1
+  fi
+
+  local merge_out merge_rc
+  merge_out="$(git -C "$orient_path" merge --ff-only "$upstream_remote/$BRANCH" 2>&1)"
+  merge_rc=$?
+  if [ $merge_rc -ne 0 ]; then
+    echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: could not fast-forward to $upstream_remote/$BRANCH: $(head -1 <<<"$merge_out")
+  This checkout has local commits $upstream_remote/$BRANCH doesn't have, which
+  shouldn't happen on a checkout this preflight manages.
+  Fix: investigate $orient_path by hand, or remove it and re-run to get a
+  fresh clone (auto-managed path only), or point the env override at a
+  different checkout." >&2
+    return 1
+  fi
+
+  # merge --ff-only succeeds trivially (no-op) when HEAD is already AHEAD of
+  # the remote tip, not just when it fast-forwards TO it — so it alone can't
+  # catch a checkout carrying local-only commits the remote never had. Assert
+  # equality explicitly; this is the actual freshness/integrity guarantee.
+  local local_head remote_head
+  local_head="$(git -C "$orient_path" rev-parse HEAD)"
+  remote_head="$(git -C "$orient_path" rev-parse "$upstream_remote/$BRANCH")"
+  if [ "$local_head" != "$remote_head" ]; then
+    echo "ORIENTATION PREFLIGHT FAIL [$label:$orient_path]: HEAD ($local_head) does not match $upstream_remote/$BRANCH ($remote_head) after fetch.
+  This checkout has local commits the remote doesn't have, which shouldn't
+  happen on a checkout this preflight manages.
+  Fix: inspect the extra commits (git -C \"$orient_path\" log $upstream_remote/$BRANCH..HEAD),
+  then either remove and re-clone (auto-managed path only) or point the env
+  override at a different checkout." >&2
+    return 1
+  fi
+
+  local last_commit
+  last_commit="$(git -C "$orient_path" log -1 --format=%cr 2>/dev/null)"
+
+  # Run-level honesty note: how far the integration branch sits ahead of the
+  # repo's default branch (grounding here may include unreleased work). A
+  # shallow cache clone cannot compute this correctly (rev-list undercounts
+  # without full history — a confident wrong number is worse than none), so
+  # it degrades to an explicit "count unavailable" note. Local-git only; never
+  # fails the preflight over an informational extra.
+  local unreleased_note="" default_branch shallow
+  default_branch="$(git -C "$orient_path" ls-remote --symref "$upstream_remote" HEAD 2>/dev/null \
+    | awk '/^ref:/ {sub("refs/heads/","",$2); print $2; exit}')"
+  if [ -n "$default_branch" ] && [ "$default_branch" != "$BRANCH" ]; then
+    shallow="$(git -C "$orient_path" rev-parse --is-shallow-repository 2>/dev/null)"
+    if [ "$shallow" = "true" ]; then
+      unreleased_note=", $BRANCH may include work unreleased on $default_branch (ahead-count unavailable on a shallow clone)"
+    else
+      local ahead
+      git -C "$orient_path" fetch "$upstream_remote" "$default_branch" --quiet 2>/dev/null || true
+      ahead="$(git -C "$orient_path" rev-list --count "$upstream_remote/$default_branch..$upstream_remote/$BRANCH" 2>/dev/null || true)"
+      [ -n "$ahead" ] && unreleased_note=", $BRANCH is $ahead commit(s) ahead of $default_branch (grounding here may include unreleased work)"
+    fi
+  fi
+
+  echo "ORIENTATION PREFLIGHT HEALTHY [$label:$orient_path]: git checkout, remote -> $repo (via '$upstream_remote'), branch -> $BRANCH, HEAD == $upstream_remote/$BRANCH${last_commit:+, latest commit $last_commit}$unreleased_note" >&2
+  echo "$orient_path"
+  return 0
+}
+
+# --- Platform checkout: REQUIRED ---
+CACHE_SLUG="$(printf '%s' "$REPO" | tr '/' '-')"
+PLATFORM_RESOLVED="$(resolve_path "${GAP_PLATFORM_CHECKOUT:-}" "$REPO" "$CANDIDATES")"
+PLATFORM_PATH="$(validate_checkout platform "$REPO" \
+  "$CACHE_DIR/$CACHE_SLUG-$BRANCH" "$PLATFORM_RESOLVED" "$CLONE_URL")"
+PLATFORM_RC=$?
+if [ $PLATFORM_RC -eq 2 ]; then
+  exit 2
+elif [ $PLATFORM_RC -ne 0 ]; then
+  exit 1
+fi
+
+# --- Companion checkout: BEST-EFFORT (never hard-fails the run) ---
+COMPANION_PATH="UNAVAILABLE"
+if [ -n "$COMPANION_REPO" ]; then
+  COMPANION_CACHE_SLUG="$(printf '%s' "$COMPANION_REPO" | tr '/' '-')"
+  COMPANION_RESOLVED="$(resolve_path "${GAP_COMPANION_CHECKOUT:-}" "$COMPANION_REPO" "$COMPANION_CANDIDATES")"
+  COMPANION_PATH="$(validate_checkout companion "$COMPANION_REPO" \
+    "$CACHE_DIR/$COMPANION_CACHE_SLUG-$BRANCH" "$COMPANION_RESOLVED" "$COMPANION_CLONE_URL")"
+  COMPANION_RC=$?
+  if [ $COMPANION_RC -ne 0 ]; then
+    echo "ORIENTATION PREFLIGHT WARN: companion checkout unavailable (see FAIL/RETRY-LATER line above).
+  Companion-sourced findings will correctly fail at bin/gap-validate-finding
+  (no --companion-root available) until this is fixed; platform-repo grounding
+  and everything else is unaffected." >&2
+    COMPANION_PATH="UNAVAILABLE"
+  fi
+fi
+
+echo "$PLATFORM_PATH"
+echo "$COMPANION_PATH"
+exit 0
