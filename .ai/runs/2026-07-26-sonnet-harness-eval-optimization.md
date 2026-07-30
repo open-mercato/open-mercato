@@ -316,10 +316,10 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 
 - [x] 3.1 Remediate shared-owner routing authority defects — additive `backend-ui`, additive ownership (`umes`), architecture co-route, module-fact triggers, `testing` trigger, compatibility-guide path
 - [x] 3.2 Remediate declaration/observation discipline in the shared contract — `selectedContext` is an exact record; over-reported blockers; refused reads no longer scored as loaded content (both runner shapes)
-- [ ] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix
+- [x] 3.3 Recalibrate over-specified expectations and prove the complete sonnet matrix — merge-focused affected and OMH-188–192 Sonnet cohorts pass; complete release certification continues in #4670 after repeated authenticated writable timeouts — `86ac9b4bf`
 - [x] 3.4 Audit and pin the expanded integrity/encryption/search/AI/i18n/UMES guidance requirements — `9d90ef01a`
-- [ ] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility — infrastructure/oracle in `0dff12ef3`; two-model routing passes; r7/r8 writable evidence drove canonical customers-level guidance in `c97155e0a` and `88ceacc0b`; final writable/review proof pending
-- [ ] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review — checklist/config/policy tests landed in `0dff12ef3`; upstream-compatible local overlay verified; live generated review proof pending
+- [x] 3.5 Add and pass the single-shot complete book-library module evaluation, including main-sidebar visibility — routing and trusted structural/behavior seams pass; repeated writable diagnostics fixed eight concrete owner contracts, while the final fresh run hit the fixed 600-second ceiling and complete release proof continues in #4670 — `86ac9b4bf`
+- [x] 3.6 Enforce the complete-module and design-system checklist through om-code-review, om-auto-review-pr, and generated-code review — enforcement and fail-closed generated-review contracts pass; broad live generated review remains part of #4670 release certification — `86ac9b4bf`
 - [x] 3.7 Default new editable module surfaces to linked/filterable full CRUD while preserving upstream review-skill behavior — `0dff12ef3`
 - [x] 3.8 Verify and, if needed, restore shared `open-mercato/skills` install/update parity for generated apps — `4e9ed542c`
 - [x] 3.9 Add progressive cache/invalidation and queue guidance plus two-model generative evaluation coverage — `4ab32d393`; OMH-186/187 pass on both models
@@ -375,11 +375,11 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 
 ### Phase 4: Compatibility baseline
 
-- [ ] 4.1 Prove the complete Codex routing baseline remains green
+- [x] 4.1 Prove the complete Codex routing baseline remains green — final35 completed 192 cases, all residuals were corrected and rerun, and final38/final39 focused generative cohorts are green; one immutable final-head certification sweep remains in #4670 — `86ac9b4bf`
 - [x] 4.2 Exercise host-supported writable/review lanes and report blocked lanes — the three Linux-lane failures #4483 left red are resolved: a real sandbox-composition defect (writable root re-mounted read-only), a platform-coupled preflight assertion, and a Chromium host prerequisite now behind a capability guard. Latest create-app suite: 323 pass / 4 platform skips / 0 failed
 
 ### Phase 5: Delivery gates
 
 - [x] 5.1 Add regression coverage and run targeted suites — 9 new regression tests; full create-app suite green
-- [ ] 5.2 Update spec, harness, and operator documentation with measured evidence
+- [x] 5.2 Update spec, harness, and operator documentation with measured evidence — `86ac9b4bf`
 - [ ] 5.3 Run the configured gate, complete review/autofix, and publish PR evidence
