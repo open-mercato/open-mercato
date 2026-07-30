@@ -645,6 +645,58 @@ export async function findInstanceUserTask(
 }
 
 /**
+ * Register a run-unique CUSTOM ENTITY so a task may legally be bound to it.
+ *
+ * Spec §6.4's entity clause (`lib/task-visibility.ts` → `evaluateEntityClause`)
+ * FAILS CLOSED on a binding whose `entityType` resolves to nothing:
+ * `resolveTaskEntityAccess` answers `{ kind: 'unknown-entity-type' }` and the task
+ * becomes invisible to every principal except a superadmin — the list route
+ * reports it as `diagnostics.entityHidden[].reason = 'denied:unknown-entity-type'`
+ * while returning zero rows. A spec that invents an `entityType` purely to scope
+ * `?entityType=` against a shared database therefore sees nothing at all.
+ *
+ * Registering the id as a tenant custom entity makes `classifyRecordsEntity`
+ * answer `{ kind: 'custom', restricted: false }`, which requires only
+ * `entities.records.view` — held by `admin` — so the binding resolves and the
+ * scoping trick works while still exercising the real §6.4 path.
+ *
+ * `entityId` MUST match `^[a-z0-9_]+:[a-z0-9_]+$` (`entityIdRegex`): underscores,
+ * never hyphens.
+ */
+export async function registerTaskBindingEntityType(
+  request: APIRequestContext,
+  token: string,
+  entityId: string,
+  label?: string,
+): Promise<void> {
+  const response = await apiRequest(request, 'POST', '/api/entities/entities', {
+    token,
+    data: {
+      entityId,
+      label: label ?? entityId,
+      showInSidebar: false,
+      accessRestricted: false,
+    },
+  });
+  expect(
+    response.status(),
+    `POST /api/entities/entities should register ${entityId}, got ${response.status()}`,
+  ).toBeLessThan(300);
+}
+
+export async function deleteTaskBindingEntityTypeIfExists(
+  request: APIRequestContext,
+  token: string,
+  entityId: string | null,
+): Promise<void> {
+  if (!entityId) return;
+  await apiRequest(request, 'DELETE', '/api/entities/entities', {
+    token,
+    data: { entityId },
+  }).catch(() => undefined);
+}
+
+/**
  * Definition whose "agent" step parks on the INVOKE_AGENT proposal-ready signal and
  * declares outcome routes for two of spec §7.2's five disposition kinds.
  *

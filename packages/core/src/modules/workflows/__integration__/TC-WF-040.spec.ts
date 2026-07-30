@@ -6,8 +6,10 @@ import {
   cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
+  deleteTaskBindingEntityTypeIfExists,
   findInstanceUserTask,
   pollWorkInbox,
+  registerTaskBindingEntityType,
   startWorkflowInstanceFixture,
   type WorkInboxRowSnapshot,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
@@ -35,7 +37,10 @@ import {
  *   ordinary answer for a queue.
  * - The endpoint parses the same query string the list does, so `?entityType=` narrows the
  *   candidate set. The tests rely on that to stay deterministic against a shared database —
- *   without it the loop would happily claim an unrelated suite's task.
+ *   without it the loop would happily claim an unrelated suite's task. The `entityType` is
+ *   REGISTERED as a tenant custom entity first: spec §6.4's entity clause fails closed on an
+ *   unresolvable type, so an invented one makes the bound task invisible AND unclaimable
+ *   (`actable` requires the entity clause too). See `registerTaskBindingEntityType`.
  */
 type ClaimNextBody = { data?: WorkInboxRowSnapshot | null; message?: string }
 
@@ -44,7 +49,7 @@ test.describe('TC-WF-040: work inbox claim-next loop', () => {
     const token = await getAuthToken(request, 'admin')
     const userId = getTokenScope(token).userId
     const timestamp = Date.now()
-    const entityType = `qa:claim-next-${timestamp}`
+    const entityType = `qa:claim_next_${timestamp}`
     const scoped = `?entityType=${encodeURIComponent(entityType)}`
 
     const buildPayload = (suffix: string, priority: 'extreme' | 'high' | 'low') =>
@@ -75,6 +80,7 @@ test.describe('TC-WF-040: work inbox claim-next loop', () => {
     }
 
     try {
+      await registerTaskBindingEntityType(request, token, entityType, `QA Claim Next ${timestamp}`)
       for (let index = 0; index < payloads.length; index += 1) {
         definitionIds[index] = await createWorkflowDefinitionFixture(request, token, payloads[index])
         instanceIds[index] = await startWorkflowInstanceFixture(request, token, {
@@ -130,6 +136,7 @@ test.describe('TC-WF-040: work inbox claim-next loop', () => {
       for (const definitionId of definitionIds) {
         await deleteWorkflowDefinitionIfExists(request, token, definitionId)
       }
+      await deleteTaskBindingEntityTypeIfExists(request, token, entityType)
     }
   })
 })
