@@ -11,11 +11,11 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add `workflows.validate_workflow_definition` AI tool (`ai-tools.ts`) + unit tests | inline | todo | |
-| 1 | 1.2 | Extend `WorkflowDraftCatalog`/`buildWorkflowDraftCatalog` with `agents` + fail-closed prompt rule + unit tests | inline | todo | |
-| 1 | 1.3 | Wire agents list into generate route from optional `agentWorkflowBridge.listAgentOutcomeContracts?.()` | inline | todo | |
-| 1 | 1.4 | Enable tool loop: `ai-agents.ts` (allowedTools/loop/header) + `ai-draft-runner.ts` `enableTools:true` + `yarn generate` | inline | todo | |
-| 1 | 1.5 | Docs: module `AGENTS.md` AI table + draft doc-comments | inline | todo | |
+| 1 | 1.1 | Add `workflows.validate_workflow_definition` AI tool (`ai-tools.ts`) + unit tests | inline | done | b4bdcd5a9 |
+| 1 | 1.2 | Extend `WorkflowDraftCatalog`/`buildWorkflowDraftCatalog` with `agents` + fail-closed prompt rule + unit tests | inline | done | b4bdcd5a9 |
+| 1 | 1.3 | Wire agents list into generate route from optional `agentWorkflowBridge.listAgentOutcomeContracts?.()` | inline | done | b4bdcd5a9 |
+| 1 | 1.4 | Enable tool loop: `ai-agents.ts` (allowedTools/loop/header) + `ai-draft-runner.ts` `enableTools:true` + `yarn generate` | inline | done | b4bdcd5a9 |
+| 1 | 1.5 | Docs: module `AGENTS.md` AI note + draft doc-comments | inline | done | (next commit) |
 | 2a | 2.1 | ai-assistant: optional `onAgentAction` observer on `runAiAgentObject` (stream path) + unit test | inline | todo | |
 | 2b | 2.2 | enterprise: DI-resolved relay transport + publish `onAgentAction` in `nativeAgentRunner` + backpressure + tests | dispatch | todo | |
 | 2c | 2.3 | core: SSE endpoint `GET /api/workflows/instances/[id]/agent-stream` + tests | dispatch | todo | |
