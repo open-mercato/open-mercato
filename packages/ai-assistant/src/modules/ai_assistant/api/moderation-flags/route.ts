@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -7,6 +8,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { AiModerationFlagRepository } from '../../data/repositories/AiModerationFlagRepository'
 import { hasRequiredFeatures } from '../../lib/auth'
+
+const logger = createLogger('ai_assistant')
 
 const REQUIRED_FEATURE = 'ai_assistant.settings.manage'
 const MAX_PAGE_SIZE = 100
@@ -128,7 +131,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
     return NextResponse.json({ items: serialized, total, page, pageSize })
   } catch (error) {
-    console.error('[AI Moderation Flags] GET error:', error)
+    logger.error('Moderation flags GET failed', { err: error })
     return jsonError(500, 'Failed to fetch moderation flags.', 'internal_error')
   }
 }

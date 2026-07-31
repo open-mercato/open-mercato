@@ -1,8 +1,11 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiModerationFlagRepository } from '../data/repositories/AiModerationFlagRepository'
 import { emitAiAssistantEvent } from '../events'
 import type { ModerationCategoryResult } from './moderation'
+
+const logger = createLogger('ai_assistant')
 
 export interface RecordModerationFlagInput {
   tenantId: string | null
@@ -48,10 +51,7 @@ export async function recordModerationFlag(
     })
     createdId = flag.id
   } catch (error) {
-    console.error(
-      '[ai_assistant] failed to persist moderation flag (rejection still applies):',
-      error instanceof Error ? error.message : error,
-    )
+    logger.error('Failed to persist moderation flag (rejection still applies)', { err: error })
     return
   }
 
@@ -70,9 +70,6 @@ export async function recordModerationFlag(
       categories: flaggedCategories,
     })
   } catch (error) {
-    console.error(
-      '[ai_assistant] failed to emit moderation_flag.created (audit row persisted):',
-      error instanceof Error ? error.message : error,
-    )
+    logger.error('Failed to emit moderation_flag.created (audit row persisted)', { err: error })
   }
 }

@@ -1116,7 +1116,7 @@ export async function runInputModerationGate(params: InputModerationGateParams):
       if (error instanceof AiModerationUnavailableError) throw error
       throw new AiModerationUnavailableError(reason, error)
     }
-    console.warn(`[ai_assistant] input moderation unavailable; failing open for opt-in surface: ${reason}`)
+    logger.warn('Input moderation unavailable; failing open for opt-in surface', { reason })
   }
 
   if (!params.service) {
@@ -1147,8 +1147,7 @@ export async function runInputModerationGate(params: InputModerationGateParams):
       try {
         await params.onFlagged(result.categories)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error('[ai_assistant] moderation flag side effect failed (rejection still applies):', message)
+        logger.error('Moderation flag side effect failed (rejection still applies)', { err: error })
       }
     }
     throw new AiModerationBlockedError(result.categories)
@@ -1165,8 +1164,7 @@ function resolveEndUserIdentifier(authContext: AiChatRequestContext): string | u
   try {
     return computeEndUserIdentifier(authContext.tenantId, authContext.userId)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn('[ai_assistant] failed to derive end-user safety identifier:', message)
+    logger.warn('Failed to derive end-user safety identifier', { err: error })
     return undefined
   }
 }
@@ -1401,10 +1399,7 @@ async function resolveModerationOverrideValues(
       tenantWideOverride: tenantRow?.inputModeration ?? null,
     }
   } catch (error) {
-    console.warn(
-      `[ai_assistant] moderation override lookup failed for agent "${agentId}"; falling back to env default.`,
-      error,
-    )
+    logger.warn('Moderation override lookup failed; falling back to env default', { agentId, err: error })
     return empty
   }
 }
