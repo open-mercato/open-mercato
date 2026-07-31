@@ -140,6 +140,24 @@ test('the standalone smoke test installs the scaffold before invoking its Yarn s
   )
 })
 
+test('the standalone smoke installs from the same Verdaccio registry it publishes to', () => {
+  const smokeTest = fs.readFileSync(
+    new URL('../../../../scripts/test-create-app.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(
+    smokeTest,
+    /\[CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--agents', 'all'\]/,
+    'the scaffold must not silently fall back to the fixed --verdaccio port',
+  )
+  assert.match(
+    smokeTest,
+    /yarnConfig\.includes\(`npmRegistryServer: \"\$\{VERDACCIO_URL\}\"`\)/,
+    'the smoke must verify the generated Yarn registry before installing packages',
+  )
+})
+
 test('`yarn test` succeeds on a scaffold that ships no test files', () => {
   const scaffoldedTestFiles = listScaffoldedTestFiles(fileURLToPath(new URL('src/', TEMPLATE_DIR)))
   const jestConfig = createRequire(import.meta.url)(

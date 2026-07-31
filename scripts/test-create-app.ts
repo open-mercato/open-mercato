@@ -85,11 +85,16 @@ async function main(): Promise<void> {
   try {
     await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio', '--agents', 'all'], { cwd: ROOT })
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--agents', 'all'], { cwd: ROOT })
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded app package.json created')
     assertExists(path.join(appDir, 'src', 'modules.ts'), 'Scaffolded app modules.ts created')
     assertExists(path.join(appDir, '.yarnrc.yml'), 'Scaffolded app Yarn config created')
+    const yarnConfig = fs.readFileSync(path.join(appDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error(`Scaffolded app does not use the published Verdaccio registry: ${VERDACCIO_URL}`)
+    }
+    console.log(green(`✔ Scaffolded app uses Verdaccio at ${VERDACCIO_URL}`))
 
     assertExists(path.join(appDir, 'CLAUDE.md'), 'Agentic setup wrote CLAUDE.md (claude-code)')
     assertExists(path.join(appDir, '.codex', 'mcp.json.example'), 'Agentic setup wrote .codex config (codex)')
