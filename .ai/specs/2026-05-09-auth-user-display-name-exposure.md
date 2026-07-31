@@ -169,6 +169,7 @@ Add or update tests:
 - `POST /api/auth/users`
 - `PUT /api/auth/users`
 - `GET /api/auth/users`
+- `GET /api/auth/profile` — covered by `modules/auth/__integration__/TC-AUTH-PROFILE-NAME-001.spec.ts`
 
 ### UI Paths
 - `/backend/users/create`
@@ -180,6 +181,14 @@ Add or update tests:
 - list users and verify `name` is returned in the payload
 - open create form and confirm `name` is visible
 - open edit form and confirm `name` is visible and prefilled
+
+Profile self-read (`TC-AUTH-PROFILE-NAME-001`, executable):
+- create a user with a display name through the admin API, authenticate **as that user**, and verify
+  the name comes back from `GET /api/auth/profile` — closing the write/read loop that unit tests
+  cannot, since they mock the container, ORM and decryption helper
+- a user with no display name reads back `null`
+- a whitespace-only display name normalises to `null` rather than an empty label
+- an unauthenticated read is rejected with `401`
 
 ## Risks & Impact Review
 
@@ -250,4 +259,5 @@ No migration is required, for applications or for data.
 
 ## Changelog
 - 2026-05-09: Drafted spec to expose `User.name` in auth admin UI and user API payloads.
+- 2026-07-31: Review follow-up. `name` is declared `.nullable().optional()` on the response schema so the contract is additive for clients generated against an older schema; the endpoint's OpenAPI description now mentions the display name and roles; and `TC-AUTH-PROFILE-NAME-001` adds executable route-level coverage, listed above.
 - 2026-07-30: Added the Profile Self-Read section and implemented it — `GET /api/auth/profile` now returns `name` (blank normalised to `null`). Reported from a downstream app whose backend chrome could only show an email address. Note for a maintainer: the admin-surface phases of this spec appear already implemented on `develop` (`/api/auth/users` accepts `name` on create/update, returns it in list responses, and supports search by display name), so this file may be a candidate for `.ai/specs/implemented/` — not moved here, since confirming that is a maintainer call.

@@ -18,10 +18,9 @@ const logger = createLogger('auth').child({ component: 'profile' })
 
 const profileResponseSchema = z.object({
   email: z.string().email(),
-  // Display name as stored on the user row. Settable via the admin user API (`/api/auth/users`) but
-  // previously unreadable by the signed-in user themselves, so any UI wanting a real label had only
-  // the email address to work with. `null` when unset or blank.
-  name: z.string().nullable(),
+  // Optional so the contract stays additive: a client generated from this schema must not reject a
+  // response from a server that predates the field. Every current response includes it.
+  name: z.string().nullable().optional(),
   roles: z.array(z.string()),
 })
 
@@ -216,7 +215,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get current profile',
-      description: 'Returns the email address for the signed-in user.',
+      description: 'Returns the email address, display name, and roles for the signed-in user. The display name is null when unset.',
       responses: [
         { status: 200, description: 'Profile payload', schema: profileResponseSchema },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },

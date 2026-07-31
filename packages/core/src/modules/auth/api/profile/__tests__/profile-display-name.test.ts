@@ -1,10 +1,5 @@
 /** @jest-environment node */
 
-// `User.name` is settable through the admin user API (`/api/auth/users`) but the self-read profile
-// endpoint did not return it, so a signed-in user's own chrome could only ever show their email
-// address. These cases pin the field onto the GET contract, including the empty-string normalisation
-// that keeps "set but blank" from surfacing as a name.
-
 import { GET } from '../route'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
