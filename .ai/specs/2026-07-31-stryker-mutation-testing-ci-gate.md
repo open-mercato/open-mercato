@@ -39,17 +39,31 @@ wrong. That gap matters more here than in most repositories:
   `ci.yml`, `yarn lint` and `yarn typecheck` all pass on a test that calls a function and asserts
   nothing about the result.
 
-The Phase 0 pilot confirmed this is not hypothetical. Measured on `packages/shared`, before any
-new tests were written:
+The Phase 0 pilot confirmed this is not hypothetical. The clearest case, measured on
+`packages/shared` before any new tests were written, is `src/lib/phone.ts` at **57.1 %**:
+`validatePhoneNumber` rejects a number for four distinct reasons, and on every one of them the
+mutant that flips `valid: false` to `valid: true` survives. The whole suite for the file is three
+tests — empty input, one valid number, one number missing a country code — so the helper could
+start accepting every malformed phone number in the platform and CI would stay green. The boundary
+mutants (`digits.length < PHONE_MIN_DIGITS` → `<=`) survive for the same reason.
 
-- `parseBooleanToken` (`src/lib/boolean.ts`) — the helper `AGENTS.md` **mandates** for all boolean
-  parsing — has an untested empty-string path and an untested non-string path. Both mutants
-  survive: `if (!trimmed) return null` → `if (false)`, and `typeof value === 'string'` → `true`.
-- `src/lib/crud/optimistic-lock.ts`, which guards concurrent edits across every CRUD entity in the
-  platform, scores **74.5 %** — 51 surviving mutants in the code path that decides whether a
-  concurrent write is rejected.
-- `src/lib/phone.ts` scores **57.1 %**: the tests assert that validation fails, never *why* it
-  fails, so every `reason` discriminator can be deleted without a test noticing.
+Equally important, and the reason this spec never proposes chasing a high score: **a surviving
+mutant is a question, not a verdict.** The same pilot run produced two other kinds of survivor,
+both of which a naive gate would have reported as missing tests:
+
+- **Equivalent mutants.** `src/lib/boolean.ts` scores 93.3 %, and both survivors are behaviourally
+  identical to the original — deleting `if (!trimmed) return null` changes nothing, because an
+  empty string is in neither `TRUE_VALUES` nor `FALSE_VALUES` and falls through to the same
+  `return null`. The tests do cover the input; the mutant is simply unkillable.
+- **Redundant source paths.** `src/lib/crud/optimistic-lock.ts` scores 74.5 %, and its `mode: 'off'`
+  survivors are not an untested path — `optimistic-lock.test.ts` explicitly covers it. They survive
+  because the guard checks `config.mode === 'off'` twice, in `isEntityEnabled` and again in the
+  caller, so each check masks mutations of the other. The finding is real and worth acting on, but
+  it points at duplicated logic, not at a missing test.
+
+That distribution is the empirical argument for the design below: the tool produces a shortlist for
+a human to triage, which is why enforcement is deferred and why an escape hatch for equivalent
+mutants is part of Phase 1.
 
 The counter-risk is equally real and is the reason this spec is conservative. A naive mutation
 gate teaches agents (and humans) to write tests that kill mutants rather than tests that describe
@@ -207,6 +221,8 @@ number for a broken build.
 | A widely-imported file is changed | `--findRelatedTests` pulls in a large test set — the pilot measured 530 tests per mutant for `boolean.ts` versus 127 for a leaf file. Bounded by `timeout-minutes: 20`; a timeout is reported as an infrastructure outcome, never as a low score. |
 | Flaky test in the related set | Can mark a mutant killed or timed out incorrectly. Advisory phases surface it as noise to investigate; Phase 3 must not be enabled while a package has known flaky suites. |
 | Stryker "error" mutants (2 of 32 in the pilot's `boolean.ts` run) | Excluded from the score by Stryker itself; reported in the summary so systematic errors are visible. |
+| Behaviour covered only by another package's tests | A per-package run cannot see them, so the mutant survives and the score understates reality. Observed in the pilot: `phone.ts` is also exercised from `packages/ui`, whose test mocks the helper anyway. Survivors are a triage list, never an automatic verdict — and the same reason enforcement waits for Phase 3. |
+| Equivalent mutant (unkillable by construction) | Suppressed at the source with a `// Stryker disable next-line <mutator>` comment carrying a one-line justification, reviewed like any other code change. Never suppressed by silently loosening the threshold. |
 | `inPlace` run killed mid-flight in CI | Runner is ephemeral — no impact. Locally, the wrapper's clean-tree precondition makes `git checkout -- .` a complete recovery, and the summary prints that command. |
 | Stryker or the jest runner breaks on a dependency bump | The workflow is standalone and advisory; it cannot block `ci.yml`. Rollback is deleting one file. |
 | Fork PR | Summary + artifact work without a token. The optional comment step is fork-guarded and silently skipped. |
@@ -265,9 +281,11 @@ Nothing persists between runs; nothing else depends on it.
    succeeds; `yarn stryker --version` resolves.
 2. Add `scripts/stryker/createConfig.mjs` (factory: `inPlace`, `coverageAnalysis: "off"`, jest
    runner wiring, `excludedMutations: ["StringLiteral", "Regex"]`, thresholds, reporters) and
-   `packages/shared/stryker.conf.mjs` calling it. **Test:** unit test asserting the factory output
-   for a given package name; `yarn stryker run --mutate src/lib/boolean.ts` in `packages/shared`
-   reproduces the pilot's 93.3 %.
+   `packages/shared/stryker.conf.mjs` calling it. Document the `// Stryker disable next-line
+   <mutator>` escape hatch for equivalent mutants in the same change, with the requirement that
+   each suppression carries a one-line justification. **Test:** unit test asserting the factory
+   output for a given package name; `yarn stryker run --mutate src/lib/boolean.ts` in
+   `packages/shared` reproduces the pilot's 93.3 %.
 3. Add `scripts/stryker/scope.mjs` with the allowlist, in-scope globs, deletion filter and file
    cap. **Test:** unit tests over a stubbed diff list — in-scope file included, `.tsx` excluded,
    `api/` excluded, deleted file excluded, cap truncates and reports, empty diff yields an empty

@@ -98,14 +98,35 @@ not "lines changed".
 
 ## Score findings (substantive, not tooling)
 
-Real gaps surfaced on the first run, on code the repo treats as load-bearing:
+Every survivor below was traced back to the source and the test file before being classified. The
+three files produced three *different* kinds of survivor, which is the most useful result of the
+pilot.
 
-- `boolean.ts` — `if (!trimmed) return null` and `typeof value === 'string'` both survive:
-  the empty-string and non-string paths of `parseBooleanToken` are untested.
-- `optimistic-lock.ts` — 74.5 %, i.e. **just above** a 70 % gate on a file guarding concurrent edits.
-- `phone.ts` — 57.1 %, would fail the gate today. 24 of 26 survivors are `ObjectLiteral`
-  (`return { valid: false, reason: 'too_long' }` → `return {}`): tests assert `valid` but never
-  the `reason`. Genuine gap, but also the noisiest mutator in the set.
+**1. Genuine test gap — `phone.ts`, 57.1 %.** `validatePhoneNumber` rejects input for four reasons
+(`invalid_characters`, `invalid_plus_sign`, `too_short`, `too_long`) and for each one the
+`BooleanLiteral` mutant flipping `valid: false` → `valid: true` survives, as do the boundary
+mutants `digits.length < PHONE_MIN_DIGITS` → `<=` and `> PHONE_MAX_DIGITS` → `>=`. Verified cause:
+`src/lib/__tests__/phone.test.ts` contains three tests — empty string, one valid number, one
+missing country code. No other real coverage exists; `packages/ui`'s `PhoneNumberField.test.tsx`
+mocks the helper. The function could accept every malformed number and the suite would pass.
+
+**2. Equivalent mutants — `boolean.ts`, 93.3 %.** Both survivors are unkillable, not untested.
+Removing `if (!trimmed) return null` changes no behaviour: an empty string is in neither
+`TRUE_VALUES` nor `FALSE_VALUES`, so control falls through to the same `return null`. Same for
+`if (typeof value === 'string')` in `parseBooleanFromUnknown` — the inner `parseBooleanToken`
+re-checks the type. `boolean.test.ts` does assert `parseBooleanToken('')`, `('   ')`, `(null)` and
+`parseBooleanFromUnknown(1)`. A gate that demanded these be killed would be demanding noise.
+
+**3. Redundant source paths — `optimistic-lock.ts`, 74.5 %.** The `mode: 'off'` survivors
+(`if (config.mode === 'off') return false` → `return true`, and the surrounding block) are not an
+untested path: `optimistic-lock.test.ts` covers `envValue: 'off'` explicitly. They survive because
+the same condition is checked twice — once in `isEntityEnabled`, once in the caller — so each
+check masks mutation of the other. Actionable, but as a duplication finding, not a coverage one.
+
+**Consequence for the design.** Only one of the three headline scores means "write more tests".
+A mutation gate must therefore produce a triage list for a human, ship advisory-first, and offer a
+first-class way to mark an equivalent mutant (`// Stryker disable next-line <mutator>` with a
+justification) instead of pressuring anyone to weaken the threshold.
 
 Survivor distribution on `optimistic-lock.ts` (200 mutants):
 
