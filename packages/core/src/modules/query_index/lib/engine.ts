@@ -20,6 +20,12 @@ import {
   type ResolvedJoin,
 } from '@open-mercato/shared/lib/query/join-utils'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
+import {
+  createSearchTokenAvailability,
+  isSearchFilterOp,
+  hasSearchFilter,
+  type SearchTokenAvailability,
+} from '@open-mercato/shared/lib/search/availability'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
@@ -145,6 +151,7 @@ export class HybridQueryEngine implements QueryEngine {
   private autoReindexEnabled: boolean | null = null
   private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
+  private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
   constructor(
     private em: EntityManager,
@@ -171,6 +178,18 @@ export class HybridQueryEngine implements QueryEngine {
     const emAny = this.em as any
     if (typeof emAny.getKysely === 'function') return emAny.getKysely() as AnyDb
     throw new Error('HybridQueryEngine requires an EntityManager exposing getKysely() (MikroORM v7)')
+  }
+
+  private searchAvailability(): SearchTokenAvailability {
+    if (!this.searchAvailabilityInstance) {
+      this.searchAvailabilityInstance = createSearchTokenAvailability({
+        getDb: () => this.getDb() as any,
+        getConfig: resolveSearchConfig,
+        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(query as AnyBuilder, column, scope) as any,
+        logDebug: (event, payload) => this.logSearchDebug(event, payload),
+      })
+    }
+    return this.searchAvailabilityInstance
   }
 
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -250,7 +269,7 @@ export class HybridQueryEngine implements QueryEngine {
       profiler.mark('query:base_table_resolved')
       const searchConfig = resolveSearchConfig()
       const orgScope = this.resolveOrganizationScope(opts)
-      const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
+      const searchEnabled = await this.searchAvailability().staticEnabled()
 
       const baseExists = await profiler.measure('base_table_exists', () => this.tableExists(baseTable))
       if (!baseExists) {
@@ -415,12 +434,15 @@ export class HybridQueryEngine implements QueryEngine {
       const searchSources: SearchTokenSource[] = indexSources
         .map((src) => ({ entity: String(src.entityId), recordIdColumn: src.recordIdColumn }))
         .filter((src) => src.recordIdColumn && src.entity)
-      const hasSearchTokens = searchEnabled && searchSources.length
-        ? await this.searchSourcesHaveTokens(searchSources, opts.tenantId ?? null, orgScope)
+      const searchFilters = normalizedFilters.filter((filter) => isSearchFilterOp(filter.op))
+      // Probe `search_tokens` only when this query actually searches (#4723). Every consumer of
+      // `searchRuntime.enabled` already sits behind a like/ilike guard, so on a plain list load the
+      // answer is unused — and the probe is a `LIMIT 1` the planner can resolve as a seq scan over a
+      // large `search_tokens`. The join path below already probes lazily for the same reason.
+      const hasSearchTokens = searchEnabled && searchSources.length && searchFilters.length
+        ? await this.searchAvailability().anySourceHasTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
-      const joinSearchAvailability = new Map<string, boolean>()
-      const searchFilters = normalizeFilters(opts.filters).filter((filter) => filter.op === 'like' || filter.op === 'ilike')
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -738,11 +760,7 @@ export class HybridQueryEngine implements QueryEngine {
         if (!['like', 'ilike'].includes(filter.op)) return false
         if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return false
 
-        let searchAvailable = joinSearchAvailability.get(join.entityId)
-        if (searchAvailable === undefined) {
-          searchAvailable = await this.hasSearchTokens(String(join.entityId), opts.tenantId ?? null, orgScope)
-          joinSearchAvailability.set(join.entityId, searchAvailable)
-        }
+        const searchAvailable = await this.searchAvailability().hasTokens(String(join.entityId), opts.tenantId ?? null, orgScope)
         if (!searchAvailable) return false
 
         const tokens = tokenizeText(String(filter.value), searchConfig)
@@ -1636,10 +1654,13 @@ export class HybridQueryEngine implements QueryEngine {
     const orgScope = this.resolveOrganizationScope(opts)
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 
+    const normalizedFilters = normalizeFilters(opts.filters)
+
     const searchConfig = resolveSearchConfig()
-    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
-    const hasSearchTokens = searchEnabled
-      ? await this.hasSearchTokens(entity, opts.tenantId ?? null, orgScope)
+    const searchEnabled = await this.searchAvailability().staticEnabled()
+    // Same gate as `query()` (#4723): without a like/ilike filter the probe's answer is never read.
+    const hasSearchTokens = searchEnabled && hasSearchFilter(normalizedFilters)
+      ? await this.searchAvailability().hasTokens(entity, opts.tenantId ?? null, orgScope)
       : false
     const searchRuntime: SearchRuntime = {
       enabled: searchEnabled && hasSearchTokens,
@@ -1648,8 +1669,6 @@ export class HybridQueryEngine implements QueryEngine {
       tenantId: opts.tenantId ?? null,
       mintAlias: createSearchAliasMinter(),
     }
-
-    const normalizedFilters = normalizeFilters(opts.filters)
 
     const applyScope = (q: AnyBuilder): AnyBuilder => {
       let next = q
@@ -1779,50 +1798,6 @@ export class HybridQueryEngine implements QueryEngine {
       .where('table_name', '=', table)
       .executeTakeFirst()
     return !!exists
-  }
-
-  private async hasSearchTokens(
-    entity: string,
-    tenantId: string | null,
-    orgScope?: { ids: string[]; includeNull: boolean } | null
-  ): Promise<boolean> {
-    try {
-      const db = this.getDb() as any
-      let query = db
-        .selectFrom('search_tokens')
-        .select(sql<number>`1`.as('one'))
-        .where('entity_type', '=', entity)
-      if (tenantId !== undefined) {
-        query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
-      }
-      if (orgScope) {
-        query = this.applyOrganizationScope(query, 'search_tokens.organization_id', orgScope)
-      }
-      const row = await query.limit(1).executeTakeFirst()
-      return !!row
-    } catch (err) {
-      this.logSearchDebug('search:has-tokens-error', {
-        entity, tenantId, organizationScope: orgScope,
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return false
-    }
-  }
-
-  private async searchSourcesHaveTokens(
-    sources: SearchTokenSource[],
-    tenantId: string | null,
-    orgScope?: { ids: string[]; includeNull: boolean } | null
-  ): Promise<boolean> {
-    for (const source of sources) {
-      const ok = await this.hasSearchTokens(source.entity, tenantId, orgScope)
-      this.logSearchDebug('search:source-has-tokens', {
-        entity: source.entity, recordIdColumn: source.recordIdColumn,
-        tenantId, organizationScope: orgScope, hasTokens: ok,
-      })
-      if (ok) return true
-    }
-    return false
   }
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {

@@ -1,6 +1,13 @@
 import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
+import { clearSearchTokenPresenceCache } from '../../search/availability'
+
+// The token-presence answer is cached process-wide (TTL); without clearing it,
+// probe-count assertions would observe hits from earlier tests in this file.
+beforeEach(() => {
+  clearSearchTokenPresenceCache()
+})
 
 // Mock modules with one entity extension
 const mockModules = [
@@ -355,6 +362,8 @@ describe('BasicQueryEngine (Kysely)', () => {
     const fakeDb = createFakeKysely({
       customer_entities: [],
       customer_people: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
       'information_schema.columns': [
         { table_name: 'customer_entities', column_name: 'tenant_id' },
         { table_name: 'customer_people', column_name: 'id' },
@@ -362,8 +371,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
-    jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('customers:customer_entity', {
@@ -409,7 +416,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(false)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('customers:customer_entity', {
@@ -445,10 +451,10 @@ describe('BasicQueryEngine (Kysely)', () => {
   test('uses search tokens for index document fields on base entities', async () => {
     const fakeDb = createFakeKysely({
       todos: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    const tableExistsSpy = jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
-    const hasSearchTokensSpy = jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('example:todo', {
@@ -461,12 +467,14 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(tableExistsSpy).toHaveBeenCalledWith('search_tokens')
-    expect(hasSearchTokensSpy).toHaveBeenCalledWith(
-      'example:todo',
-      't1',
-      expect.objectContaining({ ids: ['org1'] }),
-    )
+    const tableProbe = fakeDb._calls.find((call: any) =>
+      call._ops.table === 'information_schema.tables' &&
+      call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'table_name' && w[2] === 'search_tokens'))
+    expect(tableProbe).toBeTruthy()
+    const tokenProbe = fakeDb._calls.find((call: any) =>
+      call._ops.table === 'search_tokens' &&
+      call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'entity_type' && w[2] === 'example:todo'))
+    expect(tokenProbe).toBeTruthy()
     expect(applySearchTokensSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -488,7 +496,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    const hasSearchTokensSpy = jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('example:todo', {
@@ -501,7 +508,7 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(hasSearchTokensSpy).not.toHaveBeenCalled()
+    expect(fakeDb._calls.some((call: any) => call._ops.table === 'search_tokens')).toBe(false)
     expect(applySearchTokensSpy).not.toHaveBeenCalled()
     const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === 'todos')
     expect(baseCall?._ops.wheres).toContainEqual(['todos.search_text', 'ilike', '%avision%'])
@@ -932,5 +939,41 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
     expect(baseCall._ops.limits).toBe(10)
     expect(baseCall._ops.offsets).toBe(10)
+  })
+
+  describe('search_tokens coverage probe (#4723 parity)', () => {
+    const countProbes = (fakeDb: any): number =>
+      fakeDb._calls.filter((call: any) => call._ops.table === 'search_tokens').length
+
+    const buildDb = () => createFakeKysely({
+      users: [],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
+    })
+
+    test('is skipped when the query carries no like/ilike filter', async () => {
+      const fakeDb = buildDb()
+      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+
+      await engine.query('auth:user', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        filters: { is_active: { $eq: true } },
+      })
+
+      expect(countProbes(fakeDb)).toBe(0)
+    })
+
+    test('still runs when the query actually searches', async () => {
+      const fakeDb = buildDb()
+      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+
+      await engine.query('auth:user', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        filters: { email: { $ilike: '%abc%' } },
+      })
+
+      expect(countProbes(fakeDb)).toBeGreaterThan(0)
+    })
   })
 })

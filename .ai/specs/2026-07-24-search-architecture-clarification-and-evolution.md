@@ -9,7 +9,8 @@
   - `.ai/specs/implemented/SPEC-041-2026-02-24-search-organization-scoping.md` (scopes search **results**)
   - `.ai/specs/2026-05-20-search-presenter-i18n.md`
   - Docs: `apps/docs/docs/framework/database/hybrid-search.mdx`, `.../query-index.mdx`, `.../vector-search.mdx`
-  - Code: `packages/search/**`, `packages/core/src/modules/query_index/**`, `packages/shared/src/{modules/search.ts,lib/search/**}`
+  - Code: `packages/search/**`, `packages/core/src/modules/query_index/**`, `packages/shared/src/{modules/search.ts,lib/search/**,lib/query/engine.ts}`
+  - PRs: #4723 (gates the `search_tokens` probe on the hybrid-engine paths), #4685 (`search_tokens` unbounded growth), #4558 (ground-truth docs for hybrid routing)
 
 ## TLDR
 
@@ -161,7 +162,49 @@ Narrow, legitimate consolidations worth considering instead of a grand merge:
 
 Recommendation: **do not merge the stores.** Invest B.1 (unified control plane) + optional B.2 (Postgres profile) to get most of the operational simplicity people actually want, without the security/relevance regressions a true merge would cause.
 
-### B.4 Decision matrix
+### B.4 Phase 4 — Unify the query-time availability decision (read path)
+
+B.1 unifies the **write-side control plane** (reindex/status). This phase is its read-path twin: one place that answers *"is token search usable for (entity, tenantId, orgScope)?"* at query time, instead of every consumer hand-assembling the decision.
+
+**Problem.** The decision `resolveSearchConfig().enabled && tableExists('search_tokens') && hasSearchTokens(entity, tenantId, orgScope)` is independently assembled at five call sites across two engines:
+
+| Copy | Where | Probe gated on an actual `like`/`ilike` filter? |
+|---|---|---|
+| `HybridQueryEngine.query()` | `packages/core/src/modules/query_index/lib/engine.ts` (~L251–449) | Only after #4723 |
+| `HybridQueryEngine.queryCustomEntity()` | same file (~L1639–1645) | Only after #4723 |
+| Hybrid join path `applyJoinSearchFilterOp` | same file (~L731–760) | Yes (lazy, ad-hoc `joinSearchAvailability` memo map) |
+| `BasicQueryEngine.query()` | `packages/shared/src/lib/query/engine.ts` (~L295–304) | **No — probes unconditionally** |
+| Basic join path | same file (~L401) | Yes (its own ad-hoc memo map) |
+
+Both engines additionally carry **private duplicate copies** of `tableExists`, `hasSearchTokens`, `applySearchTokens`, `logSearchDebug`, and `applyOrganizationScope` (plus `searchSourcesHaveTokens` in the hybrid engine), and the identical `search:init` / `search:disabled` / `search:no-search-tokens` debug block. The copies have already drifted: `BasicQueryEngine` memoizes `tableExists` (`tableCache`); `HybridQueryEngine` re-queries `information_schema` per call. #4723 documents why the un-gated probe is pathological on large `search_tokens` tables (seq-scan plan, p95 12.5 s on plain list loads) — but it is call-site discipline: it fixed the two hybrid paths and nothing prevents the next call site from being written un-gated, and the `BasicQueryEngine` copy (live — it is the delegate the hybrid falls back to, `query_index/di.ts`) still probes unconditionally.
+
+**Design constraint.** Kysely `where((eb) => …)` callbacks are synchronous, so the availability answer must exist **before** builder code runs. Laziness therefore lives at query-orchestration level: resolve once per `query()` invocation, and only when the normalized filters actually contain a `like`/`ilike` op (the #4723 gate, made structural). The join paths are already async and probe lazily per joined entity; they keep that shape, backed by the resolver's memo instead of ad-hoc maps.
+
+**Proposed shape** — a small resolver in `packages/shared/src/lib/search/availability.ts` (final naming at implementer's discretion), constructed by each engine and injected with the engine's `db` accessor, `SearchConfig`, org-scope applier, and debug logger:
+
+```ts
+const availability = createSearchTokenAvailability({ getDb, config, applyOrganizationScope, logDebug })
+await availability.staticEnabled()                              // config.enabled && tableExists('search_tokens'); memoized
+await availability.hasTokens(entity, tenantId, orgScope)        // memoized per (entity, tenantId, org-signature)
+await availability.anySourceHasTokens(sources, tenantId, orgScope) // first-hit semantics of searchSourcesHaveTokens
+```
+
+Memoization is per engine instance; engines are constructed per request (`createRequestContainer`), so entries never outlive a request — the same staleness contract the ad-hoc join maps have today. `staticEnabled()` is the cheap eager half (still needed pre-gate by `shouldAttachCustomSources`); `hasTokens()` is the expensive half that only runs behind the search-filter gate.
+
+**Deliverables:**
+
+1. The resolver in `packages/shared/src/lib/search/availability.ts`, with per-instance memoization and debug hooks that preserve the existing `search:*` event names and payloads (`search:init`, `search:disabled`, `search:no-search-tokens`, `search:has-tokens-error`, `search:source-has-tokens` — operators grep these).
+2. A shared `hasSearchFilter(filters)` predicate next to it, so the gate condition (`op === 'like' || op === 'ilike'`) is defined once instead of re-derived per call site.
+3. `HybridQueryEngine` adoption: `query()`, `queryCustomEntity()`, and `applyJoinSearchFilterOp` consume the resolver; delete the private `hasSearchTokens`, `searchSourcesHaveTokens`, the `joinSearchAvailability` map, and the un-memoized search use of `tableExists`.
+4. `BasicQueryEngine` adoption: same, plus gate its eager probe on `hasSearchFilter` — the **one intended behavior change** of this phase (extends #4723's argument to the base engine: without a search filter the probe's answer is never read).
+5. Optional follow-up (may ship separately): move the module-private `SearchRuntime` / `SearchTokenSource` types to shared and have `BasicQueryEngine` adopt them instead of threading `searchActive`/`searchConfig` through per-helper opts objects.
+6. Tests: #4723's four probe-count tests pass **unchanged**; add `BasicQueryEngine` parity cases (`eq` filter → 0 probes, `ilike` → probe runs) and a memoization case (two joins on the same entity → one probe).
+
+**What this phase deliberately enables:** the durable probe fix from #4723's scope note (reshaping `tenant_id is not distinct from $x` into index-usable predicates, or a coverage-backed existence flag) lands in exactly one function — `hasTokens()` — instead of being re-derived per engine. That fix stays out of this phase's scope.
+
+**Sequencing:** after #4723 merges (this phase edits the same lines and subsumes its gate structurally) and preferably after #4685 (same module, avoids conflicts). Before any durable probe-shape change.
+
+### B.5 Decision matrix
 
 | Direction | Effort | Risk | Operator value | Recommendation |
 |---|---|---|---|---|
@@ -169,6 +212,7 @@ Recommendation: **do not merge the stores.** Invest B.1 (unified control plane) 
 | B.1 Unified control plane (reindex `--target all`, status, admin) | M | Medium | High | **Do next** |
 | B.2 More fulltext/vector drivers + Postgres tsvector | M per driver | Low–Med | Medium (deployment flexibility) | On demand, provider packages |
 | B.3 Merge stores into one | L | High | Low (security/relevance regressions) | **Reject**; do Postgres profile instead |
+| B.4 Read-path availability resolver | S–M | Low–Med (read path of every list endpoint; mitigated by probe-count tests) | Medium (deletes ~5 duplicated decision sites; prevents #4723-class regressions structurally) | **Do after #4723/#4685 land** |
 
 ---
 
@@ -177,12 +221,14 @@ Recommendation: **do not merge the stores.** Invest B.1 (unified control plane) 
 - **Phase 0**: docs + one CLI help string (non-behavioral) + a stale code comment. No contract surface changes. `BACKWARD_COMPATIBILITY.md` unaffected.
 - **Phase 1**: strictly additive — new CLI flags/commands, a new orchestration service, a new admin action. The three existing reindex entry points and their feature IDs (`search.reindex`, `query_index.reindex`, `search.manage`) are preserved and delegated to. Any change to the bare `reindex` default must follow the deprecation protocol (help-text `@deprecated`, bridge ≥1 minor, `UPGRADE_NOTES.md`).
 - **Phase 2/3**: new drivers/packages are additive and env-gated; a Postgres-only profile is opt-in. `SearchStrategyId`, `SearchStrategy`, event IDs (`search.index_record`, `search.delete_record`, `query_index.*`), queue names (`fulltext-indexing`, `vector-indexing`), and DI keys (`searchService`, `searchIndexer`, `searchStrategies`) are FROZEN/STABLE surfaces — extend, never rename.
+- **Phase 4**: no contract surfaces touched — every deleted/moved member is `private` (`hasSearchTokens`, `searchSourcesHaveTokens`, `tableExists`, `applySearchTokens`) or a module-private type (`SearchRuntime`, `SearchTokenSource`); the new shared module is an additive export; no DB schema, API route, event ID, or DI key changes. The only behavior change (gating `BasicQueryEngine`'s probe) is observable solely as absent SQL statements on queries that carry no search filter.
 
 ## Non-goals
 
 - No change to how `SearchService.search()` merges/ranks (RRF) in this spec.
 - No change to tenant-scoping of settings (owned by `2026-06-15-tenant-scoped-search-settings.md`) or results (SPEC-041).
 - Phase 0 changes no runtime search behavior.
+- Phase 4 adds no schema. Of the durable probe fixes discussed on #4723, two no-schema measures landed inside the resolver at the maintainer's direction (index-usable `= / IS NULL` tenant predicates replacing `IS NOT DISTINCT FROM`, and a process-level TTL presence cache, `OM_SEARCH_TOKEN_PRESENCE_CACHE_MS`); the durable worst-case fix is the probe-shaped index specced in `2026-07-31-search-token-probe-index.md` (the earlier "measure after #4685" gate was dropped once multi-million-row `search_tokens` was confirmed as production steady state, not a #4685 artifact).
 
 ## Verification
 
@@ -190,7 +236,12 @@ Recommendation: **do not merge the stores.** Invest B.1 (unified control plane) 
 - **Docs build**: `cd apps/docs && yarn build` (Docusaurus) — no broken MDX/links; sidebar entry resolves.
 - **CLI help**: `yarn mercato search help` and `yarn mercato search reindex-help` read correctly and point to the fulltext reindex endpoint.
 - **Phase 1+ (when implemented)**: integration coverage for every reindex target (tokens/fulltext/vector/all), the status command, and the admin action, per `.ai/qa/AGENTS.md`; self-contained fixtures with teardown.
+- **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
 
 - 2026-07-24 — Initial draft: current-architecture clarification (Part A) + evolution roadmap (Part B).
+- 2026-07-31 — Added Phase 4 (B.4): unified read-path token-availability resolver shared by both query engines — makes the #4723 probe gate structural, extends it to `BasicQueryEngine`, and gives the future durable probe fix a single landing site. Renumbered the decision matrix to B.5 and added its row.
+- 2026-07-31 — Implemented Phase 4: `createSearchTokenAvailability` + `hasSearchFilter`/`isSearchFilterOp` in `packages/shared/src/lib/search/availability.ts`; both engines adopted it (private `hasSearchTokens`/`searchSourcesHaveTokens`, `BasicQueryEngine.tableExists`/`tableCache`, and both ad-hoc join memo maps deleted). Folds in #4723's gate and tests rather than waiting on that PR (its four probe-count cases are ported verbatim and pass unchanged). One deviation from the plan: implemented before #4723/#4685 merge at the maintainer's direction — #4685 was verified non-overlapping (its `engine.ts` hunks touch only the auto-reindex scheduling region). Deliverable 5 (moving `SearchRuntime`/`SearchTokenSource` types to shared) deferred as specced.
+- 2026-07-31 — Cheapened the probe itself (maintainer request on review): (1) tenant predicate reshaped from `IS NOT DISTINCT FROM` to `= / IS NULL` so `search_tokens_lookup_idx` stays usable as an access path; (2) process-level TTL cache for the presence answer (`OM_SEARCH_TOKEN_PRESENCE_CACHE_MS`, default 30 s, `0` disables; module-level on purpose — engines are per-request so instance memos never amortize; error-driven `false` never cached; size-capped at 10 k entries). Documented in both `.env.example` files (template-sync) and `packages/search/AGENTS.md`. Worst case is now one pathological probe per (entity, tenant, org) per process per TTL rather than per request; the guaranteed-O(1)-miss fix stays the schema-backed existence flag noted in Non-goals.
+- 2026-07-31 — Made the probe's worst case cheap via `.ai/specs/2026-07-31-search-token-probe-index.md` after the maintainer confirmed large `search_tokens` is steady state (drops the measure-first gate): a `search_tokens_presence_idx (entity_type, tenant_id, organization_id)` prefix index serves the reshaped probe as a B-tree seek for hit AND miss. A `search_token_presence` marker table was implemented first and then replaced by the index at the maintainer's direction — zero drift risk and zero maintenance code beat the table's smaller disk footprint; the comparison is recorded in that spec.
