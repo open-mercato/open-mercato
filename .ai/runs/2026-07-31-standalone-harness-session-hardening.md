@@ -68,4 +68,4 @@ PR: #4758
 ### Phase 4: Business-language eval refinement
 
 - [x] 4.1 Generalize the OMH-130 user prompt while retaining autonomous safety decisions — 2ce8b4482
-- [ ] 4.2 Re-run focused and configured validation, then complete authoritative review
+- [x] 4.2 Re-run focused and configured validation, then complete authoritative review — 78b843874
