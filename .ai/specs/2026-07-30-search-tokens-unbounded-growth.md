@@ -47,18 +47,56 @@ On a self-hosted 0.6.6 instance the `search_tokens` table grew to 221M rows /
 
 ## Test coverage
 
-- `tokenize.test.ts`: field-char truncation, per-field and per-record token caps.
-- `search-tokens.test.ts`: INSERT uses `ON CONFLICT DO NOTHING`; record cap honored.
-- `engine` auto-reindex debounce: second query within the window schedules once.
+- `packages/shared/src/lib/search/__tests__/tokenize.test.ts` — field-char
+  truncation; per-field cap; single maximum-length token bounded during expansion
+  (no quadratic materialization); default caps applied when a legacy config omits
+  the optional cap fields.
+- `packages/core/src/modules/query_index/__tests__/search-tokens-record-cap.test.ts`
+  — per-record cap across fields; per-field budget spanning array-valued fields.
+- `packages/core/src/modules/query_index/__tests__/indexer.test.ts` — insert path
+  exercises `onConflict(doNothing)`.
+- `packages/core/src/modules/query_index/__tests__/auto-reindex-debounce.test.ts`
+  — burst collapse; debounce across two independently constructed engines
+  (per-request containers); distinct scopes not debounced; disabled window.
+
+## Risks & Impact Review
+
+- **Search recall reduction (medium / search):** the default caps truncate field
+  text beyond `OM_SEARCH_MAX_FIELD_CHARS` and cap tokens per field/record, so
+  matches that relied on tokens deep inside very large fields will no longer hit.
+  Mitigation: defaults are generous (20000 chars / 5000 tokens per field) and every
+  cap is env-tunable (set to `0` to disable a cap). Residual: intentional trade-off
+  to bound index size.
+- **Migration cost on a bloated table (high / operations):** de-duplicating a
+  221M-row table and building the unique index is expensive. Mitigation: the index
+  is built `CONCURRENTLY` (no long write-lock) and the migration is non-transactional;
+  the issue's own workaround (`TRUNCATE search_tokens` + controlled reindex) makes the
+  build instant. Residual: the dedup DELETE still scans the table once.
+- **Concurrent-build invalidation (low / operations):** a `CONCURRENTLY` build can
+  leave an INVALID index if interrupted or if a duplicate is written before the
+  ON CONFLICT code is deployed. Mitigation: the migration drops a leftover index
+  first; on failure, drop the invalid index and rerun. Residual: requires operator
+  awareness, documented in the migration header.
 
 ## Migration & backward compatibility
 
-- Additive migration; the unique index is built after de-duplication so it never
-  fails on existing duplicate rows. New env vars are optional with safe defaults;
-  existing behavior is preserved when unset. No contract surface removed.
+- **DB schema:** additive — a coalesced unique index only. Declared on the entity
+  via `@Unique({ expression })` (mirroring `entity_index_jobs`) and reflected in
+  `migrations/.snapshot-open-mercato.json`, so `yarn db:generate` sees no drift.
+- **Public types:** the three tokenizer caps are **optional** members of the
+  exported `SearchConfig`, so third-party modules that construct the type keep
+  compiling. Consumers normalize missing values to the module defaults via
+  `resolveTokenCaps`; unset env vars therefore preserve the caps' default behavior.
+- **Auto-reindex debounce state** is process-global; cross-process dedupe is not
+  attempted because the now-idempotent token writes make a redundant reindex from
+  another process harmless.
 
 ## Changelog
 
 - 2026-07-30: Initial spec + implementation (A, B, D).
-</content>
-</invoke>
+- 2026-07-31: Addressed `om-auto-review-pr` feedback — `SearchConfig` caps made
+  optional (backward-compatible); migration switched to non-transactional
+  `CONCURRENTLY` build with ctid dedup; unique index declared on the entity +
+  snapshot; debounce state moved process-global; prefix expansion bounded during
+  expansion; per-field budget spans array values; added regression tests.
+
