@@ -78,12 +78,16 @@ Non-goals (deliberately untouched, flagged for a human legal decision on the PR)
 
 ### Phase 1: Consent copy and legal-entity disclosure
 
-- [ ] 1.1 Update marketing-consent controller name in all four onboarding locale files
-- [ ] 1.2 Add `onboarding.form.legalEntity` to all four onboarding locale files
-- [ ] 1.3 Update `OnboardingPageClient.tsx` fallback copy and render the legal-entity line
-- [ ] 1.4 Mirror the demo-feedback fallback copy in app and create-app template widgets
+- [x] 1.1 Update marketing-consent controller name in all four onboarding locale files — e96cce4a0
+- [x] 1.2 Add `onboarding.form.legalEntity` to all four onboarding locale files — e96cce4a0
+- [x] 1.3 Update `OnboardingPageClient.tsx` fallback copy and render the legal-entity line — e96cce4a0
+- [x] 1.4 Mirror the demo-feedback fallback copy in app and create-app template widgets — e96cce4a0
 
 ### Phase 2: Regression test and validation gate
 
-- [ ] 2.1 Add the locale consent-controller regression test
-- [ ] 2.2 Run the full validation gate and fix any failures
+- [x] 2.1 Add the locale consent-controller regression test — 34398fd69
+- [x] 2.2 Run the full validation gate and fix any failures — gate green (`build:packages`, `generate`,
+      `build:packages`, `i18n:check-sync`, `typecheck`, `test` 16,180 passed, `build:app`). `i18n:check-usage`
+      reports 2 missing keys in `packages/ui/src/backend/fields/phone.tsx`
+      (`ui.customFields.phone.defaultCountry`, `...defaultCountryAuto`) — pre-existing on `origin/main`,
+      in a package this branch does not touch, so it is documented rather than fixed here.
