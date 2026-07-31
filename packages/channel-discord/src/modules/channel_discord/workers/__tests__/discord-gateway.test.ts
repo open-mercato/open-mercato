@@ -1,12 +1,13 @@
 import {
+  isConnectionLive,
   reconcileGatewayConnections,
   type GatewayConnectionEntry,
 } from '../discord-gateway'
 import type { DiscordGatewayHandle } from '../../lib/discord-gateway-client'
 
-function fakeEntry(tenantId: string): { entry: GatewayConnectionEntry; close: jest.Mock } {
+function fakeEntry(tenantId: string, active = true): { entry: GatewayConnectionEntry; close: jest.Mock } {
   const close = jest.fn()
-  const handle: DiscordGatewayHandle = { close }
+  const handle: DiscordGatewayHandle = { close, isActive: () => active }
   return { entry: { handle, tenantId }, close }
 }
 
@@ -53,5 +54,31 @@ describe('reconcileGatewayConnections', () => {
     expect(t1.close).toHaveBeenCalledTimes(1)
     expect(t2.close).not.toHaveBeenCalled()
     expect(connections.has('chan-t2')).toBe(true)
+  })
+})
+
+describe('isConnectionLive (refresh must not churn healthy sockets)', () => {
+  it('reports a running session as live so the refresh job leaves it alone', () => {
+    const live = fakeEntry('t1', true)
+    expect(isConnectionLive(live.entry)).toBe(true)
+  })
+
+  it('reports a stopped session as dead so the refresh job replaces it', () => {
+    const dead = fakeEntry('t1', false)
+    expect(isConnectionLive(dead.entry)).toBe(false)
+  })
+
+  it('treats a missing entry and a throwing handle as dead', () => {
+    expect(isConnectionLive(undefined)).toBe(false)
+    const throwing: GatewayConnectionEntry = {
+      tenantId: 't1',
+      handle: {
+        close: jest.fn(),
+        isActive: () => {
+          throw new Error('socket gone')
+        },
+      },
+    }
+    expect(isConnectionLive(throwing)).toBe(false)
   })
 })

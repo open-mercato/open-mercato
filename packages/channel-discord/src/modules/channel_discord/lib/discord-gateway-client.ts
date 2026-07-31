@@ -170,6 +170,13 @@ export interface GatewayWebSocketLike {
 export interface DiscordGatewayHandle {
   /** Close the socket and stop reconnecting. */
   close(): void
+  /**
+   * Whether this handle still owns a running session. A session that is merely
+   * between sockets (reconnect backoff after a resumable close) is still active —
+   * it heals itself. It reports inactive only after `close()` or a fatal close
+   * code, which is exactly when the gateway worker must open a new one.
+   */
+  isActive(): boolean
 }
 
 export interface DiscordGatewayClient {
@@ -185,7 +192,10 @@ class NativeDiscordGatewayClient implements DiscordGatewayClient {
   connect(options: DiscordGatewayConnectOptions): DiscordGatewayHandle {
     const connection = new GatewaySession(options)
     connection.open()
-    return { close: () => connection.stop() }
+    return {
+      close: () => connection.stop(),
+      isActive: () => connection.isRunning(),
+    }
   }
 }
 
@@ -229,8 +239,23 @@ class GatewaySession {
     this.ws = null
   }
 
+  isRunning(): boolean {
+    return !this.stopped
+  }
+
   private canResume(): boolean {
     return Boolean(this.sessionId && this.resumeGatewayUrl)
+  }
+
+  /**
+   * Drop the resume state so the next connect performs a fresh `IDENTIFY`
+   * instead of a `RESUME` that Discord would reject again.
+   */
+  private forgetSession(): void {
+    this.sessionId = undefined
+    this.resumeGatewayUrl = undefined
+    this.sequence = null
+    this.options.onResumeStateChange?.({ sessionId: undefined, sequence: null, resumeGatewayUrl: undefined })
   }
 
   private onMessage(event: unknown): void {
@@ -272,9 +297,21 @@ class GatewaySession {
         break
       }
       case GatewayOpcode.INVALID_SESSION: {
-        // Discord tells us whether the session is resumable via `d` (boolean).
-        this.sessionId = undefined
-        this.resumeGatewayUrl = undefined
+        // `d` is Discord's `resumable` flag. When it is `false` the session is
+        // dead and the next connect MUST re-`IDENTIFY`; when it is `true` the
+        // stored session survives and the next connect may `RESUME`.
+        //
+        // Either way Discord stops serving this socket, so we have to close it
+        // and let `onClose` run the shared backoff + handshake path. Only
+        // clearing the resume state (the previous behaviour) left the socket
+        // open but permanently deaf: no dispatches, no reconnect, no error.
+        if (payload.d !== true) this.forgetSession()
+        this.clearHeartbeat()
+        try {
+          this.ws?.close(4000, 'invalid session')
+        } catch {
+          /* the close handler reconnects */
+        }
         break
       }
       case GatewayOpcode.RECONNECT: {
@@ -332,8 +369,7 @@ class GatewaySession {
       return
     }
     if (!shouldResumeAfterClose(code)) {
-      this.sessionId = undefined
-      this.resumeGatewayUrl = undefined
+      this.forgetSession()
     }
     if (this.stopped) return
     const delay = computeReconnectDelayMs(this.attempt)
