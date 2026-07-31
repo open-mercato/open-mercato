@@ -60,5 +60,5 @@ Turn the reproducible failures from the July 31 standalone-app session into focu
 
 ### Phase 3: Verification and delivery
 
-- [ ] 3.1 Pass focused and full configured validation gates
+- [x] 3.1 Pass focused and full configured validation gates — 8e90b5073
 - [ ] 3.2 Complete authoritative PR review and delivery
