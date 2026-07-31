@@ -1117,43 +1117,48 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         </Alert>
       )}
 
-      {/* Remount when the inspected step changes. A docked rail re-targets on a
-          canvas click, and CrudForm deliberately preserves fields the author has
-          already edited when `initialValues` changes — correct for late-arriving
-          field definitions, wrong here: it would carry an unsaved edit from the
-          previous step onto this one. */}
-      <CrudForm
-        key={node.id}
-        density="compact"
-        fields={fields}
-        groups={groups}
-        initialValues={initialValues}
-        onSubmit={handleSubmit}
-        embedded={true}
-        submitLabel={t('workflows.form.saveStep')}
-        extraActions={
-          canDelete ? (
-            <Button
-              type="button"
-              variant="destructive-outline"
-              onClick={handleDelete}
-            >
-              <Trash2 className="size-4 mr-2" />
-              {t('workflows.form.deleteStep')}
-            </Button>
-          ) : undefined
-        }
-      />
-
-      {/* The rail is too narrow for the side column the 1280px modal used, so
-          the ledger stacks under the form, folded until it is wanted. */}
-      <InputDataPanel
-        entries={ledgerEntries}
-        stepId={node.id}
-        samples={samples}
-        className="mt-4"
-        defaultCollapsed
-      />
+      {/* Wide drawer: the ledger is a sticky right column so a field can be
+          dragged onto any parameter no matter how far the form is scrolled. The
+          narrow docked rail keeps the old stacked-and-folded layout (a side
+          column would leave no room for the form). */}
+      <div className={wide ? 'flex gap-6' : undefined}>
+        <div className={wide ? 'min-w-0 flex-1' : undefined}>
+          {/* Remount when the inspected step changes. CrudForm preserves fields
+              the author already edited across `initialValues` changes, which
+              would leak an unsaved edit from the previous step onto this one —
+              the key forces a fresh mount. */}
+          <CrudForm
+            key={node.id}
+            density="compact"
+            fields={fields}
+            groups={groups}
+            initialValues={initialValues}
+            onSubmit={handleSubmit}
+            embedded={true}
+            submitLabel={t('workflows.form.saveStep')}
+            extraActions={
+              canDelete ? (
+                <Button
+                  type="button"
+                  variant="destructive-outline"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="size-4 mr-2" />
+                  {t('workflows.form.deleteStep')}
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+        <div className={wide ? 'sticky top-0 w-96 shrink-0 self-start' : 'mt-4'}>
+          <InputDataPanel
+            entries={ledgerEntries}
+            stepId={node.id}
+            samples={samples}
+            defaultCollapsed={!wide}
+          />
+        </div>
+      </div>
     </InspectorPanel>
   )
 }
