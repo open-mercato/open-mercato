@@ -299,10 +299,14 @@ test('the business-language cohort includes the OMH-185 parity case without leak
     'OMH-193',
   ]
   const cohort = cases.filter((entry) => entry.tags.includes('business-language'))
+  const releaseMatrix = JSON.parse(read('shared/ai/harness/release-matrix.json')) as {
+    generatedCodeReview: { maxChangedFiles: number }
+  }
 
   assert.equal(new Set(cases.map((entry) => entry.id)).size, cases.length, 'catalog case IDs must be unique')
   assert.equal(cohort.length, 93)
   assert.deepEqual(cohort.map((entry) => entry.id), expectedIds)
+  assert.ok(releaseMatrix.generatedCodeReview.maxChangedFiles >= 22, 'complete library review must admit its canonical artifact layout')
 
   const prohibitedImplementationVocabulary = /(?:\b(?:IntegrationDefinition|ChannelAdapter|GatewayAdapter|ShippingAdapter|availabilityAccessResolver|checkAttachmentAccess|onTenantCreated|seedDefaults|seedExamples|registerGatewayAdapter|registerWebhookHandler|registerPaymentGatewayDescriptor|registerShippingAdapter|tenantId|organizationId)\b|\/api\/staff\/team-members\/assignable\b|--no-examples\b|\bsetup\.ts\b)/
   for (const entry of cohort) {

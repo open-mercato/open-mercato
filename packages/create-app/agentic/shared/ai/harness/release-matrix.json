@@ -97,7 +97,7 @@
       "codex": { "modelSelector": "default" },
       "claude": { "modelSelector": "sonnet" }
     },
-    "maxChangedFiles": 16,
+    "maxChangedFiles": 24,
     "maxChangedBytes": 262144,
     "maxContextFiles": 32,
     "maxContextBytes": 524288
