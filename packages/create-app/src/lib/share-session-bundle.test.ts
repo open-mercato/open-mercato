@@ -9,6 +9,20 @@ import { fileURLToPath } from 'node:url'
 const preparer = fileURLToPath(
   new URL('../../../../.ai/skills/om-share-this-session/scripts/prepare-share-bundle.mjs', import.meta.url),
 )
+const monorepoSkillDirectory = fileURLToPath(
+  new URL('../../../../.ai/skills/om-share-this-session/', import.meta.url),
+)
+const standaloneSkillDirectory = fileURLToPath(
+  new URL('../../agentic/shared/ai/skills/om-share-this-session/', import.meta.url),
+)
+
+function relativeFiles(root: string, current = root): string[] {
+  return fs.readdirSync(current, { withFileTypes: true }).flatMap((entry) => {
+    const absolutePath = path.join(current, entry.name)
+    if (entry.isDirectory()) return relativeFiles(root, absolutePath)
+    return [path.relative(root, absolutePath).split(path.sep).join('/')]
+  }).sort()
+}
 
 function createFixture(): {
   root: string
@@ -197,4 +211,59 @@ test('session-share preparer fails closed for incomplete sessions and unsafe fil
       fs.rmSync(fixture.root, { recursive: true, force: true })
     }
   })
+})
+
+test('monorepo and standalone session-share skills stay byte-identical and default-installed', () => {
+  const monorepoFiles = relativeFiles(monorepoSkillDirectory)
+  const standaloneFiles = relativeFiles(standaloneSkillDirectory)
+  assert.deepEqual(standaloneFiles, monorepoFiles)
+  for (const relativePath of monorepoFiles) {
+    assert.deepEqual(
+      fs.readFileSync(path.join(standaloneSkillDirectory, relativePath)),
+      fs.readFileSync(path.join(monorepoSkillDirectory, relativePath)),
+      `${relativePath} must not drift between the monorepo and create-app bundle`,
+    )
+  }
+
+  for (const manifestPath of [
+    new URL('../../../../.ai/skills/tiers.json', import.meta.url),
+    new URL('../../agentic/shared/ai/skills/tiers.json', import.meta.url),
+  ]) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+      default?: string[]
+      tiers?: Record<string, { skills?: string[] }>
+    }
+    const defaultSkills = new Set((manifest.default ?? []).flatMap((tier) => manifest.tiers?.[tier]?.skills ?? []))
+    assert.equal(defaultSkills.has('om-share-this-session'), true, `${manifestPath.pathname} must install the skill by default`)
+  }
+
+  const skill = fs.readFileSync(path.join(monorepoSkillDirectory, 'SKILL.md'), 'utf8')
+  const consent = fs.readFileSync(path.join(monorepoSkillDirectory, 'references', 'consent-and-review.md'), 'utf8')
+  assert.match(skill, /Invocation, earlier consent, or a generic “yes” never satisfies this gate/)
+  assert.match(consent, /I AGREE TO PUBLICLY SHARE "<share-name>" WITH OPEN-MERCATO/)
+  assert.match(consent, /Deleting the temporary branch later cannot guarantee erasure/)
+})
+
+test('both standalone copy pipelines include the whole skill tree and tracker publication stays atomic', () => {
+  const createAppSource = fs.readFileSync(new URL('../setup/tools/shared.ts', import.meta.url), 'utf8')
+  const cliSource = fs.readFileSync(new URL('../../../cli/src/lib/agentic-setup.ts', import.meta.url), 'utf8')
+  assert.match(createAppSource, /copyTree\(join\(AGENTIC_DIR, 'ai'\), join\(targetDir, '\.ai'\), config\)/)
+  assert.match(cliSource, /copyTree\(join\(srcDir, 'ai'\), join\(targetDir, '\.ai'\), config\)/)
+
+  const monorepoTracker = fs.readFileSync(new URL('../../../../.ai/trackers/github.md', import.meta.url), 'utf8')
+  const standaloneTracker = fs.readFileSync(new URL('../../agentic/shared/ai/trackers/github.md', import.meta.url), 'utf8')
+  const extractSessionOperations = (source: string) => {
+    const start = source.indexOf('### Public session-share artifacts')
+    const end = source.indexOf('\n### Issues', start)
+    assert.ok(start >= 0 && end > start, 'tracker must define the session-share operation block')
+    return source.slice(start, end)
+  }
+  const publication = extractSessionOperations(monorepoTracker)
+  assert.equal(extractSessionOperations(standaloneTracker), publication)
+  assert.ok(
+    publication.indexOf('git/blobs') < publication.indexOf('git/refs" --input -'),
+    'the provider must create private blobs/commit before exposing the branch ref',
+  )
+  assert.match(publication, /#### delete-session-share/)
+  assert.match(publication, /\[ "\$SHARE_BRANCH" = "session-share-\$SHARE_NAME" \] \|\| exit 1/)
 })
