@@ -427,6 +427,12 @@ export function deriveRunExecution(input: RunExecutionInput): RunExecution {
   const waits = new Map<string, StepWaitEvidence>()
   const stepIdByStepInstanceId = new Map<string, string>()
   let forkTally: ForkTally | null = null
+  // Steps whose LATEST attempt only "completed" by advancing down an error /
+  // guardrailBlocked outcome route (§7.2) or a §5.9 error route. The engine
+  // records such a step as COMPLETED (it advanced), but its agent/activity did
+  // not succeed — so the run view must not paint it a green "done". Re-entry
+  // clears the flag, so a successful re-run (retry) shows green again.
+  const erroredRoutedSteps = new Set<string>()
 
   for (const stepInstance of input.stepInstances ?? []) {
     if (stepInstance.id) stepIdByStepInstanceId.set(stepInstance.id, stepInstance.stepId)
@@ -455,6 +461,22 @@ export function deriveRunExecution(input: RunExecutionInput): RunExecution {
       }
       const evidence = waitEvidenceFromEvent(event)
       if (evidence) waits.set(eventStepId, evidence)
+    }
+
+    // Track error/guardrailBlocked routing so a routed-but-failed step is not
+    // painted as a clean completion below. A fresh attempt (STEP_ENTERED) clears
+    // it, so only the latest attempt's outcome counts.
+    if (eventStepId && STEP_ENTERED_EVENT_TYPES.has(event.eventType)) {
+      erroredRoutedSteps.delete(eventStepId)
+    } else if (event.eventType === 'OUTCOME_ROUTED') {
+      const outcome = readStringField(event.eventData, 'outcome')
+      const routedStepId = readStringField(event.eventData, 'stepId')
+      if (routedStepId && (outcome === 'error' || outcome === 'guardrailBlocked')) {
+        erroredRoutedSteps.add(routedStepId)
+      }
+    } else if (event.eventType === 'ERROR_ROUTED') {
+      const failedStepId = readStringField(event.eventData, 'failedStepId')
+      if (failedStepId) erroredRoutedSteps.add(failedStepId)
     }
 
     if (event.eventType === 'PARALLEL_FORK_OPENED') {
@@ -493,6 +515,19 @@ export function deriveRunExecution(input: RunExecutionInput): RunExecution {
   // Step instances are authoritative and overwrite whatever the events implied.
   for (const stepInstance of input.stepInstances ?? []) {
     mergeState(stepStates, stateFromStepInstance(stepInstance))
+  }
+
+  // A step whose latest attempt exited only by routing an error/guardrailBlocked
+  // outcome (or a §5.9 error route) is recorded COMPLETED by the engine, but its
+  // work failed — repaint it errored so the run view never shows a green "done"
+  // for a step whose agent/activity failed. Runs AFTER the authoritative pass;
+  // only flips a currently-completed step (a live/failed one already tells the
+  // truth), and a successful re-run cleared the flag so it stays green.
+  for (const stepId of erroredRoutedSteps) {
+    const existing = stepStates.get(stepId)
+    if (existing && existing.status === 'completed') {
+      stepStates.set(stepId, { ...existing, status: 'failed' })
+    }
   }
 
   applyLiveInstanceStatus(stepStates, input.currentStepId, input.instanceStatus)

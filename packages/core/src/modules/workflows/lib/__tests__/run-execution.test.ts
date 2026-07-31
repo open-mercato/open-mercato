@@ -274,3 +274,77 @@ describe('empty input', () => {
     expect(execution.takenTransitionIds.size).toBe(0)
   })
 })
+
+describe('deriveRunExecution — error/guardrail-routed steps are not painted "done"', () => {
+  const stepInstance = (stepId: string, status: string) => ({
+    stepId,
+    status,
+    enteredAt: '2026-07-29T10:00:00.000Z',
+    exitedAt: '2026-07-29T10:00:03.000Z',
+  })
+
+  test('an agent step that exits via its error outcome shows failed, not completed', () => {
+    const execution = deriveRunExecution({
+      events: [
+        event('STEP_ENTERED', { stepId: 'assess' }, '2026-07-29T10:00:00.000Z'),
+        event('STEP_EXITED', { stepId: 'assess' }, '2026-07-29T10:00:02.000Z'),
+        event('OUTCOME_ROUTED', { stepId: 'assess', outcome: 'error', toStepId: 'retry_wait' }, '2026-07-29T10:00:02.500Z'),
+      ],
+      // The engine records the routed step COMPLETED — the fix must still repaint it.
+      stepInstances: [stepInstance('assess', 'COMPLETED')],
+    })
+    expect(execution.stepStates.get('assess')?.status).toBe('failed')
+  })
+
+  test('a guardrailBlocked outcome also shows failed', () => {
+    const execution = deriveRunExecution({
+      events: [
+        event('STEP_ENTERED', { stepId: 'assess' }, '2026-07-29T10:00:00.000Z'),
+        event('STEP_EXITED', { stepId: 'assess' }, '2026-07-29T10:00:02.000Z'),
+        event('OUTCOME_ROUTED', { stepId: 'assess', outcome: 'guardrailBlocked', toStepId: 'review' }, '2026-07-29T10:00:02.500Z'),
+      ],
+      stepInstances: [stepInstance('assess', 'COMPLETED')],
+    })
+    expect(execution.stepStates.get('assess')?.status).toBe('failed')
+  })
+
+  test('an approved outcome stays completed (green)', () => {
+    const execution = deriveRunExecution({
+      events: [
+        event('STEP_ENTERED', { stepId: 'assess' }, '2026-07-29T10:00:00.000Z'),
+        event('STEP_EXITED', { stepId: 'assess' }, '2026-07-29T10:00:02.000Z'),
+        event('OUTCOME_ROUTED', { stepId: 'assess', outcome: 'approved', toStepId: 'issue' }, '2026-07-29T10:00:02.500Z'),
+      ],
+      stepInstances: [stepInstance('assess', 'COMPLETED')],
+    })
+    expect(execution.stepStates.get('assess')?.status).toBe('completed')
+  })
+
+  test('a successful retry after an error shows completed — the flag is per attempt', () => {
+    const execution = deriveRunExecution({
+      events: [
+        event('STEP_ENTERED', { stepId: 'assess' }, '2026-07-29T10:00:00.000Z'),
+        event('STEP_EXITED', { stepId: 'assess' }, '2026-07-29T10:00:01.000Z'),
+        event('OUTCOME_ROUTED', { stepId: 'assess', outcome: 'error', toStepId: 'retry_wait' }, '2026-07-29T10:00:01.500Z'),
+        // 15m later the retry re-enters and this time the agent succeeds.
+        event('STEP_ENTERED', { stepId: 'assess' }, '2026-07-29T10:15:00.000Z'),
+        event('STEP_EXITED', { stepId: 'assess' }, '2026-07-29T10:15:02.000Z'),
+        event('OUTCOME_ROUTED', { stepId: 'assess', outcome: 'approved', toStepId: 'issue' }, '2026-07-29T10:15:02.500Z'),
+      ],
+      stepInstances: [stepInstance('assess', 'COMPLETED')],
+    })
+    expect(execution.stepStates.get('assess')?.status).toBe('completed')
+  })
+
+  test('a §5.9 error route (ERROR_ROUTED / failedStepId) also shows failed', () => {
+    const execution = deriveRunExecution({
+      events: [
+        event('STEP_ENTERED', { stepId: 'charge' }, '2026-07-29T10:00:00.000Z'),
+        event('STEP_EXITED', { stepId: 'charge' }, '2026-07-29T10:00:02.000Z'),
+        event('ERROR_ROUTED', { failedStepId: 'charge', toStepId: 'handle_error' }, '2026-07-29T10:00:02.500Z'),
+      ],
+      stepInstances: [stepInstance('charge', 'COMPLETED')],
+    })
+    expect(execution.stepStates.get('charge')?.status).toBe('failed')
+  })
+})
