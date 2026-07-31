@@ -326,6 +326,64 @@ test('AGENTS.md routing tables do not hard-code a harness-specific skills path f
   )
 })
 
+test('standalone specs cannot become implementation-ready without UI, traceability, and phase contracts', () => {
+  const agentsTemplate = fs.readFileSync(
+    new URL('../../agentic/shared/AGENTS.md.template', import.meta.url),
+    'utf8',
+  )
+  const specTemplate = fs.readFileSync(
+    new URL('../../agentic/shared/ai/specs/SPEC-000-template.md', import.meta.url),
+    'utf8',
+  )
+
+  const requiredSections = [
+    '## Goals',
+    '## Non-goals',
+    '## Users, Permissions, and Scope',
+    '## Reuse and Ownership Map',
+    '## UI and Interaction Contracts',
+    '## API, Command, and Error Contracts',
+    '## Security, Privacy, and Compliance',
+    '## Integration Coverage',
+    '## Implementation Phases',
+    '## Requirement Traceability',
+    '## Open Questions',
+  ]
+  const missingSections = requiredSections.filter((heading) => !specTemplate.includes(heading))
+  assert.deepEqual(
+    missingSections,
+    [],
+    `The standalone spec template is missing implementation-readiness sections: ${missingSections.join(', ')}`,
+  )
+
+  for (const contract of [
+    '`DataTable`',
+    '`CrudForm`',
+    'loading, empty, error, conflict',
+    'Only the current phase may enter implementation',
+    'self-contained integration coverage',
+    'Status: Ready for implementation',
+  ]) {
+    assert.ok(specTemplate.includes(contract), `The standalone spec template must retain: ${contract}`)
+  }
+
+  assert.match(
+    agentsTemplate,
+    /MUST invoke `om-spec-writing` before authoring or revising the spec/,
+    'routing must invoke om-spec-writing rather than merely mention it',
+  )
+  assert.match(
+    agentsTemplate,
+    /only the current unblocked phase may be in progress/,
+    'generated guidance must prevent blocked phases from running concurrently',
+  )
+  assert.match(
+    agentsTemplate,
+    /If no remote\/tracker exists,[\s\S]*invoke local `om-implement-spec` phase-by-phase/,
+    'generated guidance must use the local phase engine when PR delivery is unavailable',
+  )
+})
+
 test('fallback and agentic root instructions have one routing contract', () => {
   const agentic = fs.readFileSync(
     new URL('../../agentic/shared/AGENTS.md.template', import.meta.url),
