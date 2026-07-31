@@ -1,6 +1,7 @@
 import type { BootstrapData } from './types'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
+import { createLogger } from '../logger'
 import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
   recoverMikroOrmV7GeneratedCacheFromImportError,
@@ -8,6 +9,25 @@ import {
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
+
+const logger = createLogger('shared').child({ component: 'bootstrap' })
+
+/**
+ * Thrown when an expected generated source file is absent.
+ *
+ * Optional registries treat this as the supported compatibility case (an app
+ * that never generated the file), which is what makes it distinguishable from
+ * a file that exists but fails to compile or import.
+ */
+class GeneratedFileNotFoundError extends Error {
+  readonly filePath: string
+
+  constructor(filePath: string) {
+    super(`Generated file not found: ${filePath}`)
+    this.name = 'GeneratedFileNotFoundError'
+    this.filePath = filePath
+  }
+}
 
 /**
  * Compile a TypeScript file to JavaScript using esbuild bundler.
@@ -23,7 +43,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   const jsExists = fs.existsSync(jsPath)
 
   if (!tsExists) {
-    throw new Error(`Generated file not found: ${tsPath}`)
+    throw new GeneratedFileNotFoundError(tsPath)
   }
 
   const needsCompile = !jsExists ||
@@ -91,7 +111,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   // Import the compiled JavaScript
   try {
     const fileUrl = `${pathToFileURL(jsPath).href}?mtime=${fs.statSync(jsPath).mtimeMs}`
-    return import(fileUrl)
+    return await import(fileUrl)
   } catch (error) {
     if (!allowRecovery) {
       throw error
@@ -106,6 +126,39 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   }
 }
 
+
+/**
+ * Load a generated registry that older apps may not have generated yet.
+ *
+ * An absent source file is the supported compatibility case and resolves to
+ * `fallback` quietly. Any other failure — a compile error, a broken import, a
+ * runtime throw at module scope — still resolves to `fallback` so bootstrap
+ * keeps working, but is reported at error level: a registry that silently
+ * degrades to nothing is exactly how command interceptors stopped applying in
+ * worker/CLI processes (#4327, #4491).
+ */
+async function loadOptionalGeneratedModule(
+  tsPath: string,
+  fallback: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  try {
+    return await compileAndImport(tsPath)
+  } catch (error) {
+    if (error instanceof GeneratedFileNotFoundError) {
+      logger.debug('Optional generated registry not present, using empty fallback', {
+        file: path.basename(tsPath),
+      })
+      return fallback
+    }
+
+    logger.error('Failed to load generated registry, continuing without its entries', {
+      file: path.basename(tsPath),
+      filePath: tsPath,
+      err: error,
+    })
+    return fallback
+  }
+}
 
 /**
  * Dynamically load bootstrap data from a resolved app directory.
@@ -155,14 +208,18 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     diModule,
     searchModule,
     commandLoadersModule,
+    commandInterceptorsModule,
     workflowsModule,
   ] = await Promise.all([
     compileAndImport(path.join(generatedDir, 'modules.cli.generated.ts')),
     compileAndImport(path.join(generatedDir, 'entities.generated.ts')),
     compileAndImport(path.join(generatedDir, 'di.generated.ts')),
-    compileAndImport(path.join(generatedDir, 'search.generated.ts')).catch(() => ({ searchModuleConfigs: [] })),
-    compileAndImport(path.join(generatedDir, 'command-loaders.generated.ts')).catch(() => ({ commandLoaderEntries: [] })),
-    compileAndImport(path.join(generatedDir, 'workflows.generated.ts')).catch(() => ({ allCodeWorkflows: [] })),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'search.generated.ts'), { searchModuleConfigs: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'command-loaders.generated.ts'), { commandLoaderEntries: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'command-interceptors.generated.ts'), {
+      commandInterceptorEntries: [],
+    }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'workflows.generated.ts'), { allCodeWorkflows: [] }),
   ])
 
   return {
@@ -173,6 +230,12 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     // Search configs are needed by workers for indexing
     searchModuleConfigs: (searchModule.searchModuleConfigs ?? []) as BootstrapData['searchModuleConfigs'],
     commandLoaderEntries: (commandLoadersModule.commandLoaderEntries ?? []) as BootstrapData['commandLoaderEntries'],
+    // Command interceptors must apply in worker/CLI processes too — the
+    // interceptor registry is per-process, so relying on the Next.js runtime's
+    // registration silently no-ops every interceptor for queued/CLI commands
+    // (#4327).
+    commandInterceptorEntries: (commandInterceptorsModule.commandInterceptorEntries ??
+      []) as BootstrapData['commandInterceptorEntries'],
     // Code workflow definitions are needed by workers to resume code-defined instances
     codeWorkflows: (workflowsModule.allCodeWorkflows ?? []) as BootstrapData['codeWorkflows'],
     // Empty UI-related data - not needed for CLI

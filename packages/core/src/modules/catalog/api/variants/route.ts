@@ -104,6 +104,9 @@ const crud = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   indexer: { entityType: E.catalog.catalog_product_variant },
+  enrichers: {
+    entityId: E.catalog.catalog_product_variant,
+  },
   list: {
     schema: listSchema,
     entityId: E.catalog.catalog_product_variant,

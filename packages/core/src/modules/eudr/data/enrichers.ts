@@ -1,5 +1,6 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
+import { E } from '#generated/entities.ids.generated'
 import { EudrProductMapping } from './entities'
 
 type ProductRecord = Record<string, unknown> & { id: string }
@@ -18,7 +19,7 @@ function hasRecordId(record: Record<string, unknown>): record is ProductRecord {
 
 const productComplianceEnricher: ResponseEnricher<ProductRecord, ProductCompliance> = {
   id: 'eudr.product-compliance',
-  targetEntity: 'catalog.product',
+  targetEntity: E.catalog.catalog_product,
   priority: 10,
   timeout: ENRICHER_TIMEOUT_MS,
   critical: false,

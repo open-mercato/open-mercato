@@ -350,8 +350,7 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
         .getByText('Shipping address', { exact: true })
         .locator('xpath=ancestor::div[contains(@class,"rounded")]')
         .first()
-      await expect(shippingPanel.getByRole('switch', { name: 'Define new address' })).toBeChecked()
-      await shippingPanel.getByRole('switch', { name: 'Define new address' }).click()
+      await expect(shippingPanel.getByRole('switch', { name: 'Define new address' })).not.toBeChecked()
       await expect(shippingPanel.getByRole('combobox').filter({ hasText: selectedAddress.name }).first()).toBeVisible()
     } finally {
       if (token) {

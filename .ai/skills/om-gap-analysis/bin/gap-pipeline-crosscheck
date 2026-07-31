@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+# gap-pipeline-crosscheck — mechanical relevance cross-check for the
+# **Upstream pipeline** field, run ONCE per batch at the Phase 2→3 transition.
+# Usage:  gap-pipeline-crosscheck <md-file> <snapshot-file>
+#                                 [--min-distinctive N] [--max-title-freq N]
+#
+#   <md-file>         The gap-analysis MD after Phase 2's per-story loop
+#                     completed (stories are `done` or `needs-review`).
+#   <snapshot-file>   The one-time Upstream-pipeline snapshot the orchestrator
+#                     fetched in Phase 2 step 1 (open PRs on the platform and
+#                     companion repos + planned specs) — the SAME file every
+#                     subagent read.
+#   --min-distinctive N   Shared scoring stems required for a (story, PR/spec)
+#                     pair to clear the match threshold on the multi-stem
+#                     path. Default 2. A single shared stem ALSO clears it
+#                     when that stem is unique to this one candidate in the
+#                     whole snapshot (df == 1) AND its original token carries
+#                     a capital or digit beyond its first character (the
+#                     proper-noun gate) — engagement-central acronyms and
+#                     product names are exactly the single-token matches worth
+#                     surfacing. Tune per engagement if the report is too
+#                     noisy — a declared config value, never folded silently
+#                     into the stopword list.
+#   --max-title-freq N    A stem appearing in more than N snapshot titles is
+#                     non-distinctive and never contributes to a match.
+#                     Default: max(5, 5% of the snapshot's candidate count) —
+#                     an inverse-document-frequency idea scoped to this run's
+#                     own snapshot, not a fixed external list.
+#
+# Sibling of bin/gap-validate-finding (verdict layer), bin/gap-checklist-gate
+# (intake layer), and bin/gap-orientation-preflight (checkout layer). This one
+# guards the *pipeline-citation* layer.
+#
+# The hole it closes: the Upstream-pipeline field's CONTENT is the only
+# per-story output decided purely by each subagent's isolated judgment against
+# a one-line PR title — gap-validate-finding checks the field's SHAPE only
+# (by design: the field is non-verdict-altering). Observed failure on a real
+# engagement run: a story failed to cite a companion PR even though an
+# engagement-central acronym appeared verbatim in both titles, while two
+# sibling stories cited it correctly; 18 isolated re-trials of the identical
+# prompt never reproduced the miss. Rare per-call variance multiplied across
+# ~90+ independent calls per run keeps producing a handful of misses no matter
+# how good the prompt is. The fix is therefore structural, outside any single
+# subagent's loop (the same principle that grounds verdicts), NOT a prompt
+# rewrite — asking a model to self-police a judgment it already got wrong is a
+# documented anti-pattern.
+#
+# What it does (deterministic, no model in the loop):
+#   1. Scope to `**Status**: done` stories ONLY — `needs-review`/`pending`
+#      stories never passed the verdict gate, so their placeholder field was
+#      never legitimately populated; flagging it would be noise.
+#   2. Tokenize each done story's title + acceptance criteria, and every
+#      snapshot PR/spec title (depth suffix stripped), with the EXACT
+#      stemming/stopword logic gap-validate-finding's strawman check uses
+#      (lowercase, non-alnum split, same stopword list, length>=4,
+#      first-5-char stem) — one heuristic across both checks, not two.
+#   3. A stem contributes to a score only when it is (a) under the
+#      snapshot-frequency cutoff and (b) CENTRAL to the story — in its title,
+#      or occurring 2+ times in its text (kills one-off acceptance-criteria
+#      vocabulary, which otherwise matches some PR for almost every story:
+#      65/89 flagged on a real engagement run without this test).
+#   4. Score per story against EVERY candidate; a pair clears the threshold
+#      on >= --min-distinctive contributing stems, OR on a single
+#      contributing stem UNIQUE to that one candidate in the snapshot
+#      (df == 1) whose original token carries a capital or digit beyond its
+#      first character — engagement-central acronyms and product names
+#      ("ShipSync", "DataTable") are exactly the single-token matches worth
+#      surfacing; snapshot-side uniqueness plus the proper-noun shape is what
+#      mechanically separates them from generic single-token collisions
+#      ("upload", "export") and from title-case ordinary first words, both
+#      observed minting junk flags on a real engagement snapshot. (A
+#      story-side rarity filter was tried instead and REJECTED: an engagement
+#      centered on one acronym mentions it in more stories than any
+#      within-run cutoff allows, so it silently killed the exact true
+#      positive this check exists to catch.)
+#   5. The story is SATISFIED if its current **Upstream pipeline** value
+#      RESOLVES to a real snapshot candidate — one resolving citation is
+#      enough: the subagent already made the pipeline-matching judgment this
+#      check backstops, and second-guessing WHICH entry is more relevant is
+#      semantic work a lexical falsifier has no standing to do. It is FLAGGED
+#      in exactly two cases: it cites nothing (or an unparseable value) while
+#      above-threshold candidates exist — a MISSING citation — or it cites a
+#      well-formed value that resolves to NO snapshot entry — a PHANTOM
+#      citation, flagged for every done story regardless of candidates,
+#      because subagents read only this snapshot, so a legitimate citation
+#      must exist in it.
+#   6. Report (stdout): per flagged story — its ID, its currently-cited
+#      value (phantom citations explicitly labeled), and the FULL ranked
+#      list of above-threshold candidates (IDF-scored: a snapshot-unique
+#      stem outranks stems shared across many titles; ties reported
+#      together, in snapshot order; a human picks, the script never
+#      guesses). NEVER an auto-fix.
+#
+# Scope honesty (mirror the sibling gates' recorded limits):
+#   - Lexical overlap proves lexical relevance, not true relevance — a flag
+#     can be a false positive (unrelated concepts sharing a distinctive word)
+#     and a true match phrased with a synonym can be missed. This closes the
+#     CONSISTENCY gap (90+ isolated guesses vs one deterministic pass over the
+#     same data); it is a net reduction in missed citations, not a zero-miss
+#     guarantee. Dismissing a false-positive flag is a legitimate outcome.
+#   - It only ever reads. It never edits the MD, and it must never be allowed
+#     to change a Verdict, Evidence, or Effort value — those stay grounded
+#     exclusively by bin/gap-validate-finding.
+#   - Snapshot spec entries that are not *.md files (bare directory names in
+#     a specs-dir listing) are skipped — a directory is not a citable spec and
+#     would only mint one-token noise candidates.
+#
+# Exit codes:
+#   0  PASS — every done story either cites a value that resolves to a real
+#             snapshot entry, or cites nothing while having no
+#             above-threshold candidates (or there was nothing to check:
+#             zero done stories / zero candidates).
+#   1  FLAG — at least one done story has a MISSING citation (cites nothing
+#             while above-threshold candidates exist) or a PHANTOM one
+#             (cites a value found nowhere in the snapshot). Report on
+#             stdout. Human/orchestrator reviews and hand-edits ONLY the
+#             **Upstream pipeline** field where a flag is real; a dismissed
+#             false positive is also a valid resolution.
+#   2  USAGE — bad invocation, unreadable file, or a file that does not parse
+#             as its expected format at all (no `## ` sections in the
+#             snapshot / no `### Story` headings in the MD) — fail closed on
+#             wrong-file mistakes rather than passing vacuously.
+
+set -uo pipefail
+
+MD=""
+SNAP=""
+MIN_DISTINCTIVE=2
+MAX_TITLE_FREQ=""
+
+usage() {
+  echo "usage: gap-pipeline-crosscheck <md-file> <snapshot-file> [--min-distinctive N] [--max-title-freq N]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --min-distinctive)    MIN_DISTINCTIVE="${2:-}"; shift 2 || usage ;;
+    --min-distinctive=*)  MIN_DISTINCTIVE="${1#--min-distinctive=}"; shift ;;
+    --max-title-freq)     MAX_TITLE_FREQ="${2:-}"; [ -n "$MAX_TITLE_FREQ" ] || usage; shift 2 || usage ;;
+    --max-title-freq=*)   MAX_TITLE_FREQ="${1#--max-title-freq=}"; [ -n "$MAX_TITLE_FREQ" ] || usage; shift ;;
+    -*)                   usage ;;
+    *)  if   [ -z "$MD" ];   then MD="$1"
+        elif [ -z "$SNAP" ]; then SNAP="$1"
+        else usage; fi
+        shift ;;
+  esac
+done
+
+[ -n "$MD" ] && [ -n "$SNAP" ] || usage
+[ -f "$MD" ]   || { echo "CROSSCHECK USAGE: md-file not found: $MD" >&2; exit 2; }
+[ -f "$SNAP" ] || { echo "CROSSCHECK USAGE: snapshot-file not found: $SNAP" >&2; exit 2; }
+case "$MIN_DISTINCTIVE" in ''|*[!0-9]*) echo "CROSSCHECK USAGE: --min-distinctive must be a positive integer" >&2; exit 2 ;; esac
+[ "$MIN_DISTINCTIVE" -ge 1 ] || { echo "CROSSCHECK USAGE: --min-distinctive must be >= 1" >&2; exit 2; }
+if [ -n "$MAX_TITLE_FREQ" ]; then
+  case "$MAX_TITLE_FREQ" in *[!0-9]*) echo "CROSSCHECK USAGE: --max-title-freq must be a positive integer" >&2; exit 2 ;; esac
+  # 0 would set the cutoff below every stem's df >= 1, silently disabling the
+  # whole check while still exiting 0 — reject it like --min-distinctive does.
+  [ "$MAX_TITLE_FREQ" -ge 1 ] || { echo "CROSSCHECK USAGE: --max-title-freq must be >= 1" >&2; exit 2; }
+fi
+
+# LC_ALL=C: byte-oriented awk. Under a UTF-8 locale, substr(w, 1, 5) can cut a
+# multibyte character in half (diacritics are routine in this data), and some
+# awk builds then FATAL the moment sub()/gsub() touches the invalid sequence —
+# a crashed, truncated report. Under C, both sides tokenize identically
+# byte-wise and nothing is "invalid"; the only cost is that accented letters
+# act as token separators.
+LC_ALL=C awk -v mindist="$MIN_DISTINCTIVE" -v maxfreq="$MAX_TITLE_FREQ" '
+# Tokenize text into stems — the same core logic as bin/gap-validate-finding
+# degenerate_query(): lowercase, non-alnum -> space, drop the same stopwords,
+# drop tokens shorter than 4 chars, stem to the first 5 chars. Keep the two
+# checks on ONE heuristic. out[] accumulates OCCURRENCE COUNTS (callers
+# wanting set semantics test membership only).
+#
+# One DECLARED addition relative to the shared list (not a silent tuning
+# fold): a function-word stoplist. The strawman check tokenizes grounding
+# QUERIES, which contain no English function words; this check tokenizes
+# story PROSE, which is full of 4+-letter function words ("when", "only",
+# "from") that repeat across acceptance criteria, pass the centrality test,
+# and mint junk multi-stem matches (observed on a real engagement run).
+function stems_of(text, out,   t, n, parts, i, w) {
+  t = tolower(text)
+  gsub(/[^[:alnum:]]+/, " ", t)
+  n = split(t, parts, " ")
+  for (i = 1; i <= n; i++) {
+    w = parts[i]
+    if (length(w) < 4) continue
+    if (w ~ /^(modules?|packages?|src|code|the|and|for|with|api|app|page|pages|new|core|ui)$/) continue
+    if (w ~ /^(when|only|from|then|than|that|this|these|those|each|every|into|onto|over|under|after|before|while|where|there|their|them|they|have|been|being|both|same|such|must|should|shall|will|would|could|does|done|also|with|without|within|via|per|not)$/) continue
+    out[substr(w, 1, 5)]++
+  }
+}
+
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+
+# Strip the depth suffix the widened snapshot carries on PR lines
+# (" [+123/-4, 5 files, CHANGES_REQUESTED, updated ...]") — it is metadata,
+# not title text; left in place it would mint junk stems (DRAFT, updat).
+function strip_depth(s) { sub(/ \[\+[0-9]+.*\]$/, "", s); return s }
+
+# Normalize line endings before any rule below runs — a CRLF MD otherwise
+# fails OPEN: "### Story" headings still parse (prefix-anchored), but every
+# Status value reads "done\r", no story is ever in scope, and the run prints
+# a normal-looking "0 done stories checked" PASS. A CRLF snapshot likewise
+# silently drops every $-anchored planned-spec line.
+{ sub(/\r$/, "") }
+
+# ---------------------------------------------------------------------------
+# File 1 — the snapshot: parse candidates (platform PRs, companion PRs,
+# planned *.md specs), tokenize each title, accumulate stem document
+# frequency (once per candidate — set semantics). Guarded by FILENAME, not
+# the NR==FNR idiom — an empty snapshot would otherwise silently route the
+# MD through this block.
+# ---------------------------------------------------------------------------
+FILENAME == ARGV[1] {
+  if ($0 ~ /^## /) {
+    if      (index($0, "companion") > 0)     sec = "companion"
+    else if (index($0, "Open PRs") > 0)      sec = "core"
+    else if (index($0, "Planned specs") > 0) sec = "spec"
+    else                                     sec = ""
+    if (sec != "") nsec++
+    next
+  }
+  if (sec == "core" && $0 ~ /^- PR #[0-9]+: /) {
+    nc++
+    cand_kind[nc] = "core"
+    match($0, /#[0-9]+/); cand_num[nc] = substr($0, RSTART + 1, RLENGTH - 1)
+    match($0, /^- PR #[0-9]+: /); cand_title[nc] = strip_depth(substr($0, RLENGTH + 1))
+  } else if (sec == "companion" && $0 ~ /^- companion PR #[0-9]+: /) {
+    nc++
+    cand_kind[nc] = "companion"
+    match($0, /#[0-9]+/); cand_num[nc] = substr($0, RSTART + 1, RLENGTH - 1)
+    match($0, /^- companion PR #[0-9]+: /); cand_title[nc] = strip_depth(substr($0, RLENGTH + 1))
+  } else if (sec == "spec" && $0 ~ /^- .+\.md[ \t]*$/) {
+    nc++
+    cand_kind[nc] = "spec"
+    cand_num[nc]  = ""
+    cand_title[nc] = trim(substr($0, 3))
+  } else {
+    next
+  }
+  # Tokenize the new candidate; record its stems + document frequency.
+  delete tmp
+  stems_of(cand_title[nc], tmp)
+  cand_stems[nc] = ""
+  for (s in tmp) {
+    cand_stems[nc] = cand_stems[nc] s " "
+    df[s]++
+  }
+  # Mark PROPER stems — original token carries a capital or digit BEYOND its
+  # first character ("ShipSync", "DataTable", "CrudForm"). These gate the
+  # single-stem match path below: an internally-cased/numbered token is an
+  # acronym or product name, the kind of term worth flagging on alone. The
+  # first character is deliberately ignored — real snapshot titles include
+  # title-case ordinary words, and a first-letter capital alone would mint
+  # junk single-stem flags from them (the cost is that single-capital product
+  # names only match via the >= --min-distinctive multi-stem path).
+  n = split(cand_title[nc], rawparts, /[^[:alnum:]]+/)
+  for (i = 1; i <= n; i++) {
+    if (length(rawparts[i]) < 4) continue
+    if (substr(rawparts[i], 2) ~ /[A-Z0-9]/) cand_proper[nc, substr(tolower(rawparts[i]), 1, 5)] = 1
+  }
+  next
+}
+
+# ---------------------------------------------------------------------------
+# File 2 — the MD: parse stories (id, title + acceptance criteria, Status,
+# Upstream pipeline). A story region ends at the next ## / ### heading;
+# #### subheadings (Gap analysis) stay inside it.
+# ---------------------------------------------------------------------------
+{
+  if ($0 ~ /^## / || $0 ~ /^### /) { instory = 0; incrit = 0 }
+  if ($0 ~ /^### Story [0-9]+\.[0-9]+:/) {
+    ns++
+    instory = 1
+    match($0, /[0-9]+\.[0-9]+/); sid[ns] = substr($0, RSTART, RLENGTH)
+    stitle[ns] = $0
+    stext[ns] = $0
+    supline[ns] = ""
+    next
+  }
+  if (!instory) next
+  if ($0 ~ /^- \*\*Acceptance criteria\*\*:/) { incrit = 1; next }
+  if ($0 ~ /^- \*\*/) incrit = 0
+  if (incrit && $0 ~ /^[ \t]+-/) stext[ns] = stext[ns] " " $0
+  if ($0 ~ /^- \*\*Status\*\*:/) {
+    v = $0; sub(/^- \*\*Status\*\*:[ \t]*/, "", v)
+    if (tolower(trim(v)) == "done") sdone[ns] = 1
+  }
+  if ($0 ~ /^- \*\*Upstream pipeline\*\*:/) {
+    v = $0; sub(/^- \*\*Upstream pipeline\*\*:[ \t]*/, "", v)
+    supline[ns] = strip_depth(trim(v))
+  }
+}
+
+END {
+  # Fail closed on wrong-file mistakes (mirror the sibling gates): a snapshot
+  # with no sections, or an MD with no stories, is a mis-invocation — do not
+  # report a vacuous PASS over it.
+  if (nsec == 0) {
+    print "CROSSCHECK USAGE: snapshot has no recognized \"## \" sections (Open PRs / Planned specs) — is this really the Phase-2 pipeline snapshot?" > "/dev/stderr"
+    exit 2
+  }
+  if (ns == 0) {
+    print "CROSSCHECK USAGE: MD has no \"### Story\" headings — is this really the gap-analysis MD?" > "/dev/stderr"
+    exit 2
+  }
+
+  # Distinctiveness cutoff: a stem in more than `cutoff` snapshot titles
+  # never scores, even on the multi-stem path.
+  if (maxfreq != "") cutoff = maxfreq + 0
+  else { cutoff = int(nc * 5 / 100); if (cutoff < 5) cutoff = 5 }
+
+  ndone = 0
+  for (s = 1; s <= ns; s++) if (s in sdone) ndone++
+
+  nflag = 0
+  for (s = 1; s <= ns; s++) {
+    if (!(s in sdone)) continue      # done stories only — never needs-review/pending
+
+    delete sset; delete stset
+    stems_of(stext[s], sset)    # occurrence counts over title + criteria
+    stems_of(stitle[s], stset)  # title membership (centrality signal)
+
+    # Score this story against every candidate. A stem contributes only when
+    # (a) shared, (b) under the snapshot-frequency cutoff, and (c) CENTRAL to
+    # the story — in its title, or occurring 2+ times in its text. A pair
+    # clears the threshold on >= mindist contributing stems, OR on a single
+    # contributing stem that is UNIQUE to this one candidate in the whole
+    # snapshot (df == 1) with the proper-noun shape (see header point 4).
+    delete hits; delete hitshared; nh = 0
+    for (c = 1; c <= nc; c++) {
+      shared = 0; sharedlist = ""; hasunique = 0; score = 0
+      n = split(cand_stems[c], cs, " ")
+      for (i = 1; i <= n; i++) {
+        if (cs[i] == "") continue
+        if ((cs[i] in sset) && df[cs[i]] <= cutoff \
+            && (sset[cs[i]] >= 2 || (cs[i] in stset))) {
+          shared++
+          score += 1 / df[cs[i]]
+          if (df[cs[i]] == 1 && ((c, cs[i]) in cand_proper)) hasunique = 1
+          sharedlist = sharedlist cs[i] " "
+        }
+      }
+      if (shared >= mindist + 0 || hasunique) {
+        nh++
+        hits[nh] = c
+        hitscore[nh] = score
+        hitshared[nh] = sharedlist
+      }
+    }
+    # Parse the cited value — for EVERY done story, before the no-candidates
+    # early-out, so a phantom citation can never pass just because the story
+    # shares no stem with anything. Anything unparseable (or a blank
+    # placeholder) cites nothing — the report prints the raw value either way.
+    up = supline[s]
+    cited_kind = "none"; cited_num = ""; cited_spec = ""
+    if      (up ~ /^PR #[0-9]+ \(open\)$/)           { cited_kind = "core";      match(up, /#[0-9]+/); cited_num = substr(up, RSTART + 1, RLENGTH - 1) }
+    else if (up ~ /^companion PR #[0-9]+ \(open\)$/) { cited_kind = "companion"; match(up, /#[0-9]+/); cited_num = substr(up, RSTART + 1, RLENGTH - 1) }
+    else if (up ~ /^spec: .+ \(planned, unbuilt\)$/) {
+      cited_kind = "spec"
+      cited_spec = up
+      sub(/^spec:[ \t]*/, "", cited_spec)
+      sub(/[ \t]*\(planned, unbuilt\)$/, "", cited_spec)
+    }
+
+    # SATISFIED if the cited value resolves to ANY real snapshot candidate —
+    # not just an above-threshold one: a literal "cited must be
+    # above-threshold" rule false-flags correctly-cited stories whenever the
+    # lexical scorer under-scores the true match (observed on a real
+    # engagement run, including known-correct baselines from that run). A
+    # resolving citation means the subagent already made the
+    # pipeline-matching judgment this check exists to backstop;
+    # second-guessing WHICH entry is more relevant is semantic work a lexical
+    # falsifier has no standing to do. The failure modes under attack are a
+    # MISSING citation and a PHANTOM one, never a disputed one.
+    resolved = 0
+    if (cited_kind != "none") {
+      for (c = 1; c <= nc; c++) {
+        if (cited_kind == cand_kind[c]) {
+          if (cited_kind == "spec") {
+            # Exact basename equality, never substring containment — a cited
+            # path that merely CONTAINS a real snapshot filename (e.g.
+            # "<real-name>.md.bak") must stay a phantom, or the phantom
+            # guarantee is hollow. The one tolerated variation is a citation
+            # missing its ".md" extension.
+            lbp = tolower(cited_spec); sub(/^.*\//, "", lbp)
+            lc = tolower(cand_title[c])
+            if (lbp == lc || lbp ".md" == lc) { resolved = 1; break }
+          } else if (cited_num == cand_num[c]) { resolved = 1; break }
+        }
+      }
+      if (resolved) continue
+      # populated but resolves to nothing -> phantom, always flagged below
+    } else if (nh == 0) {
+      continue                       # cites nothing, nothing relevant available
+    }
+
+    # FLAG — two distinct reasons, both reported:
+    #   - phantom citation: a populated, well-formed value that resolves to
+    #     NO entry in the snapshot (subagents read only this snapshot, so a
+    #     legitimate citation must exist in it) — flagged for EVERY done
+    #     story, even one with zero lexical candidates;
+    #   - missing citation: cites nothing while above-threshold candidates
+    #     exist.
+    # Candidates (when any) are ranked by inverse-document-frequency score
+    # (a stem unique in the snapshot outranks stems shared across many
+    # titles), descending, stable on snapshot order (insertion sort — ties
+    # keep their snapshot order); print ALL of them, ties included, so a
+    # human picks rather than the script silently choosing a "best" one.
+    nflag++
+    if (cited_kind != "none")
+      printf "FLAG [%s] cites: %s — NOT FOUND in the snapshot (phantom citation: fix it or set to none)\n", sid[s], up
+    else
+      printf "FLAG [%s] cites: %s\n", sid[s], (up == "" ? "<blank>" : up)
+    if (nh > 0) {
+      printf "  uncited above-threshold candidates (ranked):\n"
+      for (h = 1; h <= nh; h++) order[h] = h
+      for (i = 2; i <= nh; i++) {
+        t = order[i]
+        for (j = i - 1; j >= 1 && hitscore[order[j]] < hitscore[t]; j--) order[j + 1] = order[j]
+        order[j + 1] = t
+      }
+      for (i = 1; i <= nh; i++) {
+        h = order[i]; c = hits[h]
+        if      (cand_kind[c] == "core")      ref = "PR #" cand_num[c] " (open)"
+        else if (cand_kind[c] == "companion") ref = "companion PR #" cand_num[c] " (open)"
+        else                                  ref = "spec: " cand_title[c] " (planned, unbuilt)"
+        shared = hitshared[h]; sub(/[ \t]+$/, "", shared); gsub(/ /, ", ", shared)
+        if (cand_kind[c] == "spec") printf "  %d. %s [shared stems: %s]\n", i, ref, shared
+        else                        printf "  %d. %s — %s [shared stems: %s]\n", i, ref, cand_title[c], shared
+      }
+    }
+  }
+
+  printf "CROSSCHECK %s: %d done stories checked against %d snapshot candidates (min-distinctive=%d, max-title-freq=%d) — %d flagged\n", \
+         (nflag ? "FLAG" : "PASS"), ndone, nc, mindist + 0, cutoff, nflag > "/dev/stderr"
+  exit (nflag ? 1 : 0)
+}
+' "$SNAP" "$MD"

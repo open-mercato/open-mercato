@@ -66,7 +66,7 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCache
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
-import { mergeIdFilter, parseIdsParam } from './ids'
+import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
@@ -228,6 +228,8 @@ export type ListConfig<TList> = {
    * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
+  disableListCache?: boolean
 }
 
 export type CrudExportColumnConfig = {
@@ -1445,6 +1447,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ...(interceptorRequest.query ?? {}),
       } as Record<string, unknown>
       const parsedIds = parseIdsParam(queryParams.ids)
+      const idsParamProvided = isIdsParamProvided(queryParams.ids)
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
       profiler.mark('before_list_hook')
@@ -1460,7 +1463,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
       profiler.mark('export_configured', { exportRequested, exportFullRequested })
 
-      const cacheEnabled = isCrudCacheEnabled() && !exportRequested
+      const cacheEnabled =
+        isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
         ? process.hrtime.bigint()
         : null
@@ -1664,7 +1668,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filters = exportFullRequested
           ? baseFilters
           : mergeAdvancedFilters(baseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
-        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
+        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds, { idsParamProvided })
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
         if (
@@ -1951,7 +1955,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : mergeAdvancedFilters(fallbackBaseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
       const mergedFallbackFilters = exportFullRequested
         ? fallbackFilters
-        : mergeIdFilter(fallbackFilters, parsedIds)
+        : mergeIdFilter(fallbackFilters, parsedIds, { idsParamProvided })
       const ormFilters = translateFiltersForOrm(
         mergedFallbackFilters as Record<string, any>,
         em,
