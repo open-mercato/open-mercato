@@ -315,10 +315,13 @@ distributed as preview/canary (for example `16.3.0-preview.9` and
 
 An approval-safe diagnostic installed `next`, `@next/env`, and
 `@next/swc-darwin-arm64` at `16.3.0-preview.9` only inside the disposable fixture.
-React and React DOM remained `19.2.7`, within the preview's peer range. Every dev,
-profiler, and browser command used Node 24.13.1; first samples proved the root and
-Next-launcher paths, `next-server` reported the preview version, and browser
-artifacts reported the same pinned Node executable.
+React and React DOM remained `19.2.7`, within the preview's peer range. The
+operator launched the dev, profiler, and browser commands with Node 24.13.1 pinned;
+first samples independently proved the root and Next-launcher paths,
+`next-server` reported the preview version, and browser artifacts independently
+reported the same pinned Node executable. The retained package-state manifest at
+`.mercato/dev-rss/evidence/preview9-package-and-restoration-manifest.txt` records
+the exact preview package versions and package-file hashes.
 
 An empty-cache suppressed-warmup seed passed normal-topology startup, hydrated
 login HTTP 200, protected probe rendering, A-to-B HMR in 3.799 seconds, and a
@@ -345,8 +348,9 @@ passes the 7,066.15 MB ceiling by only 18.48 MB. The secondary class median rema
 228.762 MB above its 5,535.978 MB ceiling. This is a high-signal diagnostic, not a
 production acceptance result: the primary margin is within observed run variance,
 the secondary target still fails. No production manifest, lockfile, or runtime
-source was changed. The fixture was restored byte-for-byte to Next/SWC 16.2.11, React
-19.2.7, the original runtime hashes, and the original 790-file cache manifest.
+source was changed. The retained restoration manifest verifies the fixture back at
+Next/SWC 16.2.11 and React 19.2.7, with the original package/lock/runtime hashes,
+all 8,291 Next/@next file hashes, and all 790 original cache hashes passing.
 
 Production promotion therefore still requires explicit dependency/toolchain
 approval plus full build, typecheck, create-app, browser, and wider-repeat memory

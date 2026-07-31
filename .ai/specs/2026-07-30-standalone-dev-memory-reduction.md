@@ -425,8 +425,10 @@ backport of the 16.3 Turbopack memory work. The
 An approval-safe, fixture-only diagnostic installed Next, `@next/env`, and the
 Darwin ARM64 SWC at `16.3.0-preview.9`; React/React DOM remained `19.2.7`. Package
 and lockfile changes never entered the worktree, and no runtime source changed.
-Node 24.13.1 was pinned and proved for every dev root, Next launcher, profiler,
-and browser process.
+Node 24.13.1 was pinned for every command; profiler samples independently proved
+the dev root and Next launcher, while browser artifacts independently proved the
+browser runner. Exact preview package versions and package-file hashes are retained
+at `.mercato/dev-rss/evidence/preview9-package-and-restoration-manifest.txt`.
 
 After a valid empty-cache seed (normal topology, login HTTP 200, protected render,
 A-to-B HMR, 15-second settle), three exact seed clones produced:
@@ -448,8 +450,9 @@ The primary median is 3,046.83 MB (30.183%) below the 10,094.50 MB comparator an
 passes the 7,066.15 MB ceiling by only 18.48 MB. The secondary class median fails
 its 5,535.978 MB ceiling by 228.762 MB. The preview is therefore diagnostic only:
 the primary margin is too narrow for production confidence, the secondary target
-still fails, and the fixture was restored exactly to its Next/SWC 16.2.11,
-React 19.2.7, runtime-hash, and 790-file cache state.
+still fails, and the retained restoration manifest verifies Next/SWC 16.2.11,
+React 19.2.7, the original package/lock/runtime hashes, all 8,291 Next/@next file
+hashes, and all 790 original cache hashes after restoration.
 
 Promotion remains an explicit production dependency/toolchain decision and would
 require the full package build, typecheck, create-app, real-browser, and wider-repeat
