@@ -275,6 +275,11 @@ export async function resolveBackendChromePayload({
 
   let scopedOrganizationId: string | null = auth.orgId ?? null
   let scopedTenantId: string | null = auth.tenantId ?? null
+  // The organization the caller actually *selected*, as distinct from the one the scope resolver fell
+  // back to. `resolveFeatureCheckContext` resolves `organizationId` to `auth.orgId` when no concrete
+  // organization is selected — which is precisely what an all-organizations view produces — so the
+  // resolved id cannot answer "which organization am I viewing".
+  let concretelySelectedOrganizationId: string | null = null
   let allowNavigation = true
 
   try {
@@ -287,12 +292,14 @@ export async function resolveBackendChromePayload({
     })
     scopedOrganizationId = organizationId
     scopedTenantId = scope.tenantId ?? auth.tenantId ?? null
+    concretelySelectedOrganizationId = scope.selectedId ?? null
     if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
       allowNavigation = false
     }
   } catch {
     scopedOrganizationId = auth.orgId ?? null
     scopedTenantId = auth.tenantId ?? null
+    concretelySelectedOrganizationId = null
   }
 
   const acl = allowNavigation
@@ -425,7 +432,10 @@ export async function resolveBackendChromePayload({
         undefined,
         { tenantId: scopedTenantId, organizationId: brandOrganizationId },
       )
-      if (organization) {
+      // Only when a concrete organization was selected. Under an all-organizations view
+      // `brandOrganizationId` still resolves (to the caller's own organization, which is what keeps
+      // branding working), so gating on the loaded row alone would misreport the scope.
+      if (organization && concretelySelectedOrganizationId === brandOrganizationId) {
         currentOrganization = { id: String(organization.id), name: organization.name }
       }
       if (organization?.logoUrl) {

@@ -85,17 +85,44 @@ function resolve(selectedOrganizationId: string | null = ORG_ID) {
   })
 }
 
+/**
+ * Faithful `FeatureCheckContext` shapes. The real `OrganizationScope`
+ * (`modules/directory/utils/organizationScope.ts:16`) carries
+ * `selectedId`/`filterIds`/`allowedIds`/`tenantId` and has **no** `organizationId`. An earlier version
+ * of this file invented that property, which let the all-organizations case pass while the real
+ * resolver did the opposite — the integration spec `TC-AUTH-NAV-ORG-001` caught it.
+ *
+ * The asymmetry these helpers preserve is the whole point: with no concrete selection, the resolver
+ * still returns an `organizationId`, because it falls back to `auth.orgId`.
+ */
+function concreteSelection(organizationId: string) {
+  return {
+    organizationId,
+    scope: {
+      selectedId: organizationId,
+      filterIds: [organizationId],
+      allowedIds: [organizationId],
+      tenantId: TENANT_ID,
+    },
+    allowedOrganizationIds: [organizationId],
+  }
+}
+
+function allOrganizationsSelection(fallbackOrganizationId: string | null) {
+  return {
+    organizationId: fallbackOrganizationId,
+    scope: { selectedId: null, filterIds: null, allowedIds: null, tenantId: TENANT_ID },
+    allowedOrganizationIds: null,
+  }
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockEm.find.mockResolvedValue([])
   mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: ['*'] })
   mockRbacService.userHasAllFeatures.mockResolvedValue(true)
   mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
-  mockResolveFeatureCheckContext.mockResolvedValue({
-    organizationId: ORG_ID,
-    scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
-    allowedOrganizationIds: [ORG_ID],
-  })
+  mockResolveFeatureCheckContext.mockResolvedValue(concreteSelection(ORG_ID))
 })
 
 describe('resolveBackendChromePayload — currentOrganization', () => {
@@ -124,12 +151,39 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     })
   })
 
-  it('is null under an all-organizations selection', async () => {
-    mockResolveFeatureCheckContext.mockResolvedValue({
-      organizationId: null,
-      scope: { tenantId: TENANT_ID, organizationId: null },
-      allowedOrganizationIds: [ORG_ID],
+  it('is null under an all-organizations selection, even though the resolver still returns an organization id', async () => {
+    // The regression this test exists for: the resolver falls back to `auth.orgId` here, so the
+    // organization row is still loaded (branding depends on it) and a payload built from the resolved
+    // id would name that organization while the operator is viewing all of them.
+    mockResolveFeatureCheckContext.mockResolvedValue(allOrganizationsSelection(ORG_ID))
+    mockFindOneWithDecryption.mockResolvedValue({ id: ORG_ID, name: 'Northwind Ltd', logoUrl: null })
+
+    const payload = await resolve(ALL_ORGS)
+
+    expect(payload.currentOrganization).toBeNull()
+  })
+
+  it('keeps branding working under an all-organizations selection', async () => {
+    // Corollary of the above: the fallback organization is still the branding source, so suppressing
+    // `currentOrganization` must not suppress `brand`.
+    mockResolveFeatureCheckContext.mockResolvedValue(allOrganizationsSelection(ORG_ID))
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: ORG_ID,
+      name: 'Northwind Ltd',
+      logoUrl: 'https://cdn.example.com/logo.png',
     })
+
+    const payload = await resolve(ALL_ORGS)
+
+    expect(payload.currentOrganization).toBeNull()
+    expect(payload.brand).toEqual({
+      name: 'Northwind Ltd',
+      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo' },
+    })
+  })
+
+  it('is null when no organization is in scope at all', async () => {
+    mockResolveFeatureCheckContext.mockResolvedValue(allOrganizationsSelection(null))
 
     const payload = await resolve(ALL_ORGS)
 

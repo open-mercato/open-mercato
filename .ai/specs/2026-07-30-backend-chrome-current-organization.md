@@ -58,7 +58,15 @@ no new dependency.
 
 ### Behavioural rules
 
-- `null` under an all-organizations selection (`isAllOrganizationsSelection`)
+Populated **only from the concrete selection** (`scope.selectedId`), never from the resolver's
+`organizationId`. That distinction is the whole correctness argument:
+`resolveFeatureCheckContext` falls back to `auth.orgId` when nothing concrete is selected
+(`modules/directory/utils/organizationScope.ts:556-559`), so a payload built from the resolved id
+names the caller's own organization while they are viewing *all* organizations. Branding legitimately
+uses that fallback and is unchanged; scope reporting must not.
+
+- `null` under an all-organizations selection — the resolver still returns an organization id there,
+  so the field is gated on `scope.selectedId` matching the loaded row
 - `null` when no organization is in scope
 - `null` when the row cannot be found
 - `null` when the lookup throws — the existing fail-soft posture is preserved, because a failed
@@ -93,8 +101,22 @@ export type BackendChromePayload = {
 }
 ```
 
-Optional and additive. Existing consumers that ignore the field are unaffected; the nav payload route
-serialises it automatically.
+Optional and additive. Existing consumers that ignore the field are unaffected.
+
+`adminNavResponseSchema` in `modules/auth/api/admin/nav.ts` declares the same field, so the generated
+OpenAPI surface and generated clients can discover it — a payload type alone would leave the documented
+contract inconsistent with the runtime one.
+
+### Response caching
+
+`GET /api/auth/admin/nav` caches under a key built from the resolved scope. Two changes are required:
+
+- the cache version moves `v4` → `v5`, because entries written before this ships would otherwise be
+  replayed without the new field
+- the **selection** joins the key. The resolved organization cannot distinguish "all organizations"
+  from "my own organization" — both resolve to `auth.orgId` — so a key built only from the resolved
+  scope would serve one scope's payload for the other once the two payloads differ. This is benign
+  today and becomes a correctness bug the moment `currentOrganization` is added.
 
 ### Relationship to `brand`
 
@@ -121,10 +143,24 @@ oracle.
 
 ## Integration Coverage
 
-Unit coverage over `resolveBackendChromePayload` with the container, ORM, nav builder and sidebar
-preference seams mocked:
+**Route-level coverage** — `modules/auth/__integration__/TC-AUTH-NAV-ORG-001.spec.ts` exercises
+`GET /api/auth/admin/nav` through the *real* scope resolver against a real database:
+
+- a concrete selection is named in the payload
+- an all-organizations selection reports `null`
+- neither scope serves the other's cached payload (concrete → all → concrete ordering)
+- both scopes still return a usable payload
+
+This level is not optional for this feature: the defect it guards lives in the resolver that unit
+tests mock away, and the first version of the unit test "passed" against the broken behaviour.
+
+**Unit coverage** over `resolveBackendChromePayload` with the container, ORM, nav builder and sidebar
+preference seams mocked. The `FeatureCheckContext` fixtures mirror the real `OrganizationScope`
+(`selectedId`/`filterIds`/`allowedIds`/`tenantId`) and preserve its asymmetry — no concrete selection
+still yields a non-null `organizationId`:
 
 - organization without a logo → `currentOrganization` populated, `brand` still `null`
+- all-organizations selection with a non-null fallback organization → `null`, while `brand` still works
 - organization with a logo → both populated, `brand` byte-identical to today
 - all-organizations selection → `null`, and no organization lookup performed
 - lookup rejects → `null`, payload still returned and usable
@@ -203,3 +239,10 @@ No migration is required, for applications or for data.
 - 2026-07-30: Drafted and implemented. Reported from a downstream app that had to fetch
   `/api/directory/organization-switcher` and walk its tree to name the organization its sidebar account
   block was showing.
+
+- 2026-07-31: Corrected during review. `currentOrganization` now derives from `scope.selectedId`
+  rather than the resolver's fallback `organizationId`, which had made it name the caller's own
+  organization during an all-organizations view; the nav route response schema declares the field; and
+  the response cache key gained the selection plus a version bump so the two scopes cannot share an
+  entry. Added `TC-AUTH-NAV-ORG-001` for route-level coverage and rebuilt the unit fixtures to match
+  the real `OrganizationScope` shape.
