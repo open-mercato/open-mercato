@@ -55,13 +55,15 @@ Add a default-installed `om-share-this-session` skill that prepares a structural
 
 ## Progress
 
+PR: #4756
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Privacy-safe bundle preparation
 
-- [ ] 1.1 Add the layered consent, completeness, privacy-review, publication, and reporting workflow
-- [ ] 1.2 Add the local sanitizer/bundle-preparation script
-- [ ] 1.3 Add privacy and archive regression tests
+- [x] 1.1 Add the layered consent, completeness, privacy-review, publication, and reporting workflow — 221270eb1
+- [x] 1.2 Add the local sanitizer/bundle-preparation script — 46a966275
+- [x] 1.3 Add privacy and archive regression tests — ff9a76e13
 
 ### Phase 2: Public publication contract and installation
 
