@@ -1,0 +1,4 @@
+[
+  {"id":"customer-1","displayName":"Jane Doe","kind":"person","personProfile":{"id":"person-profile-1","firstName":"Jane","lastName":"Doe"}},
+  {"id":"customer-2","displayName":"ACME Corp","kind":"company","companyProfile":{"id":"company-profile-2","legalName":"ACME Corp LLC"},"customFields":[{"key":"custom_industry","value":"manufacture","entityId":"customers:customer_company_profile"}]}
+]

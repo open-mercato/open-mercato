@@ -2,6 +2,8 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { randomUUID } from 'crypto'
 import fs from 'fs'
+import { resolveTenantEncryptionService, encryptCustomFieldValue, decryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -3238,6 +3240,256 @@ const interactionsBackfill: ModuleCli = {
   },
 }
 
+const escapeXml = (unsafe: unknown): string => {
+  if (unsafe === null || unsafe === undefined) return ''
+  const valStr = unsafe instanceof Date ? unsafe.toISOString() : String(unsafe)
+  return valStr
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+async function writeChunk(writeStream: fs.WriteStream, chunk: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const handleErr = (err: Error) => {
+      writeStream.off('error', handleErr)
+      reject(err)
+    }
+    writeStream.once('error', handleErr)
+    const canWrite = writeStream.write(chunk)
+    if (canWrite) {
+      writeStream.off('error', handleErr)
+      resolve()
+    } else {
+      writeStream.once('drain', () => {
+        writeStream.off('error', handleErr)
+        resolve()
+      })
+    }
+  })
+}
+
+// Zod schemas for validation
+const customerImportSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string().min(1),
+  description: z.string().nullable().optional(),
+  kind: z.enum(['company', 'person']),
+  primaryEmail: z.string().email().nullable().optional().or(z.string().length(0)).or(z.string().nullable()),
+  primaryPhone: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  lifecycleStage: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+  isActive: z.boolean().optional().default(true),
+  createdAt: z.coerce.date().optional(),
+  updatedAt: z.coerce.date().optional(),
+  companyProfile: z.object({
+    id: z.string().uuid(),
+    legalName: z.string().nullable().optional(),
+    brandName: z.string().nullable().optional(),
+    domain: z.string().nullable().optional(),
+    websiteUrl: z.string().nullable().optional(),
+    industry: z.string().nullable().optional(),
+    sizeBucket: z.string().nullable().optional(),
+    annualRevenue: z.coerce.string().nullable().optional(),
+  }).nullable().optional(),
+  personProfile: z.object({
+    id: z.string().uuid(),
+    companyEntityId: z.string().uuid().nullable().optional(),
+    firstName: z.string().nullable().optional(),
+    lastName: z.string().nullable().optional(),
+    preferredName: z.string().nullable().optional(),
+    jobTitle: z.string().nullable().optional(),
+    department: z.string().nullable().optional(),
+    seniority: z.string().nullable().optional(),
+    timezone: z.string().nullable().optional(),
+    linkedInUrl: z.string().nullable().optional(),
+    twitterUrl: z.string().nullable().optional(),
+  }).nullable().optional(),
+  customFields: z.array(z.object({
+    key: z.string().min(1),
+    value: z.any(),
+    entityId: z.string().min(1),
+  })).optional(),
+})
+
+type CustomerImportType = z.infer<typeof customerImportSchema>
+
+function parseXmlCustomer(xmlStr: string): CustomerImportType {
+  const getTagValue = (str: string, tag: string): string | null => {
+    const regex = new RegExp(`<${tag}>([\\s\\S]*?)<\/${tag}>`)
+    const match = regex.exec(str)
+    return match ? match[1].trim() : null
+  }
+
+  const unescapeXml = (val: string): string => {
+    return val
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+  }
+
+  const parseBoolean = (val: string | null): boolean => val === 'true'
+  const parseDate = (val: string | null): Date | undefined => val ? new Date(unescapeXml(val)) : undefined
+  const parseNullableString = (val: string | null): string | null => val ? unescapeXml(val) : null
+
+  const id = parseNullableString(getTagValue(xmlStr, 'id'))!
+  const displayName = parseNullableString(getTagValue(xmlStr, 'displayName'))!
+  const description = parseNullableString(getTagValue(xmlStr, 'description'))
+  const kind = parseNullableString(getTagValue(xmlStr, 'kind')) as 'company' | 'person'
+  const primaryEmail = parseNullableString(getTagValue(xmlStr, 'primaryEmail'))
+  const primaryPhone = parseNullableString(getTagValue(xmlStr, 'primaryPhone'))
+  const status = parseNullableString(getTagValue(xmlStr, 'status'))
+  const lifecycleStage = parseNullableString(getTagValue(xmlStr, 'lifecycleStage'))
+  const source = parseNullableString(getTagValue(xmlStr, 'source'))
+  const isActive = parseBoolean(getTagValue(xmlStr, 'isActive'))
+  const createdAt = parseDate(getTagValue(xmlStr, 'createdAt'))
+  const updatedAt = parseDate(getTagValue(xmlStr, 'updatedAt'))
+
+  let companyProfile: any = null
+  const companyProfileXml = getTagValue(xmlStr, 'companyProfile')
+  if (companyProfileXml) {
+    companyProfile = {
+      id: parseNullableString(getTagValue(companyProfileXml, 'id'))!,
+      legalName: parseNullableString(getTagValue(companyProfileXml, 'legalName')),
+      brandName: parseNullableString(getTagValue(companyProfileXml, 'brandName')),
+      domain: parseNullableString(getTagValue(companyProfileXml, 'domain')),
+      websiteUrl: parseNullableString(getTagValue(companyProfileXml, 'websiteUrl')),
+      industry: parseNullableString(getTagValue(companyProfileXml, 'industry')),
+      sizeBucket: parseNullableString(getTagValue(companyProfileXml, 'sizeBucket')),
+      annualRevenue: parseNullableString(getTagValue(companyProfileXml, 'annualRevenue')),
+    }
+  }
+
+  let personProfile: any = null
+  const personProfileXml = getTagValue(xmlStr, 'personProfile')
+  if (personProfileXml) {
+    personProfile = {
+      id: parseNullableString(getTagValue(personProfileXml, 'id'))!,
+      companyEntityId: parseNullableString(getTagValue(personProfileXml, 'companyEntityId')),
+      firstName: parseNullableString(getTagValue(personProfileXml, 'firstName')),
+      lastName: parseNullableString(getTagValue(personProfileXml, 'lastName')),
+      preferredName: parseNullableString(getTagValue(personProfileXml, 'preferredName')),
+      jobTitle: parseNullableString(getTagValue(personProfileXml, 'jobTitle')),
+      department: parseNullableString(getTagValue(personProfileXml, 'department')),
+      seniority: parseNullableString(getTagValue(personProfileXml, 'seniority')),
+      timezone: parseNullableString(getTagValue(personProfileXml, 'timezone')),
+      linkedInUrl: parseNullableString(getTagValue(personProfileXml, 'linkedInUrl')),
+      twitterUrl: parseNullableString(getTagValue(personProfileXml, 'twitterUrl')),
+    }
+  }
+
+  const customFields: any[] = []
+  const customFieldsXml = getTagValue(xmlStr, 'customFields')
+  if (customFieldsXml) {
+    const fieldRegex = /<field>([\s\S]*?)<\/field>/g
+    let match
+    while ((match = fieldRegex.exec(customFieldsXml)) !== null) {
+      const fieldXml = match[1]
+      const key = parseNullableString(getTagValue(fieldXml, 'key'))!
+      const valueRaw = getTagValue(fieldXml, 'value')
+      const entityId = parseNullableString(getTagValue(fieldXml, 'entityId'))!
+      
+      let value: any = null
+      if (valueRaw) {
+        const unesc = unescapeXml(valueRaw)
+        if (unesc === 'true') value = true
+        else if (unesc === 'false') value = false
+        else if (/^\d+$/.test(unesc)) value = parseInt(unesc, 10)
+        else if (/^\d+\.\d+$/.test(unesc)) value = parseFloat(unesc)
+        else value = unesc
+      }
+      customFields.push({ key, value, entityId })
+    }
+  }
+
+  return {
+    id,
+    displayName,
+    description,
+    kind,
+    primaryEmail,
+    primaryPhone,
+    status,
+    lifecycleStage,
+    source,
+    isActive,
+    createdAt,
+    updatedAt,
+    companyProfile,
+    personProfile,
+    customFields,
+  }
+}
+
+async function* streamJsonArray(filePath: string): AsyncGenerator<any, void, unknown> {
+  const stream = fs.createReadStream(filePath, { encoding: 'utf8' })
+  let buffer = ''
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let startIndex = -1
+
+  for await (const chunk of stream) {
+    buffer += chunk
+    let i = 0
+    while (i < buffer.length) {
+      const char = buffer[i]
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (char === '\\') {
+          escaped = true
+        } else if (char === '"') {
+          inString = false
+        }
+      } else if (char === '"') {
+        inString = true
+      } else if (char === '{') {
+        if (depth === 0) {
+          startIndex = i
+        }
+        depth++
+      } else if (char === '}') {
+        depth--
+        if (depth === 0 && startIndex !== -1) {
+          const objStr = buffer.slice(startIndex, i + 1)
+          yield JSON.parse(objStr)
+          buffer = buffer.slice(i + 1)
+          i = -1
+          startIndex = -1
+        }
+      }
+      i++
+    }
+  }
+}
+
+async function* streamXmlCustomers(filePath: string): AsyncGenerator<any, void, unknown> {
+  const stream = fs.createReadStream(filePath, { encoding: 'utf8' })
+  let buffer = ''
+
+  for await (const chunk of stream) {
+    buffer += chunk
+    while (true) {
+      const startTag = '<customer>'
+      const endTag = '</customer>'
+      const startIdx = buffer.indexOf(startTag)
+      if (startIdx === -1) break
+      const endIdx = buffer.indexOf(endTag, startIdx)
+      if (endIdx === -1) break
+
+      const xmlNode = buffer.slice(startIdx, endIdx + endTag.length)
+      yield parseXmlCustomer(xmlNode)
+      buffer = buffer.slice(endIdx + endTag.length)
+    }
+  }
+}
+
 const exportCustomersCommand: ModuleCli = {
   command: 'customers:export',
   async run(rest) {
@@ -3260,182 +3512,277 @@ const exportCustomersCommand: ModuleCli = {
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const db = em.getKysely<any>() as any
+    const encryptionService = resolveTenantEncryptionService(em)
 
     console.log(`[export] Exporting customers to ${outputPath} (format: ${format})...`)
 
     const writeStream = fs.createWriteStream(outputPath, { encoding: 'utf8' })
 
-    if (format === 'json') {
-      writeStream.write('[\n')
-    } else {
-      writeStream.write('<?xml version="1.0" encoding="UTF-8"?>\n<customers>\n')
-    }
-
-    let offset = 0
-    const limit = 1000
-    let exportedCount = 0
-    let firstRecord = true
-
-    while (true) {
-      const entities = await db
-        .selectFrom('customer_entities as ce')
-        .leftJoin('customer_companies as cc', 'cc.entity_id', 'ce.id')
-        .leftJoin('customer_people as cp', 'cp.entity_id', 'ce.id')
-        .select([
-          'ce.id',
-          'ce.display_name',
-          'ce.description',
-          'ce.kind',
-          'ce.primary_email',
-          'ce.primary_phone',
-          'ce.status',
-          'ce.lifecycle_stage',
-          'ce.source',
-          'ce.is_active',
-          'ce.created_at',
-          'ce.updated_at',
-          'cc.legal_name',
-          'cc.brand_name',
-          'cc.domain',
-          'cc.website_url',
-          'cc.industry',
-          'cc.size_bucket',
-          'cc.annual_revenue',
-          'cp.first_name',
-          'cp.last_name',
-          'cp.preferred_name',
-          'cp.job_title',
-          'cp.department',
-          'cp.seniority',
-          'cp.timezone',
-          'cp.linked_in_url',
-          'cp.twitter_url',
-          'cp.company_entity_id',
-        ])
-        .where('ce.tenant_id', '=', tenantId)
-        .where('ce.organization_id', '=', organizationId)
-        .where('ce.deleted_at', 'is', null)
-        .orderBy('ce.id', 'asc')
-        .offset(offset)
-        .limit(limit)
-        .execute()
-
-      if (entities.length === 0) break
-
-      const entityIds = entities.map((e: any) => e.id)
-      
-      const customFieldRows = await db
-        .selectFrom('custom_field_values')
-        .select(['record_id', 'field_key', 'value_text', 'value_multiline', 'value_int', 'value_float', 'value_bool'])
-        .where('record_id', 'in', entityIds)
-        .where('tenant_id', '=', tenantId)
-        .where('organization_id', '=', organizationId)
-        .where('deleted_at', 'is', null)
-        .execute()
-
-      const customFieldsMap = new Map<string, Array<{ key: string; value: any }>>()
-      for (const row of customFieldRows) {
-        const val = row.value_bool !== null ? row.value_bool :
-                    row.value_int !== null ? row.value_int :
-                    row.value_float !== null ? row.value_float :
-                    row.value_multiline !== null ? row.value_multiline : row.value_text
-        if (!customFieldsMap.has(row.record_id)) {
-          customFieldsMap.set(row.record_id, [])
-        }
-        customFieldsMap.get(row.record_id)!.push({ key: row.field_key, value: val })
+    try {
+      if (format === 'json') {
+        await writeChunk(writeStream, '[\n')
+      } else {
+        await writeChunk(writeStream, '<?xml version="1.0" encoding="UTF-8"?>\n<customers>\n')
       }
 
-      for (const entity of entities) {
-        const record: any = {
-          id: entity.id,
-          displayName: entity.display_name,
-          description: entity.description,
-          kind: entity.kind,
-          primaryEmail: entity.primary_email,
-          primaryPhone: entity.primary_phone,
-          status: entity.status,
-          lifecycleStage: entity.lifecycle_stage,
-          source: entity.source,
-          isActive: entity.is_active,
-          createdAt: entity.created_at,
-          updatedAt: entity.updated_at,
-        }
+      let offset = 0
+      const limit = 1000
+      let exportedCount = 0
+      let firstRecord = true
 
-        if (entity.kind === 'company') {
-          record.companyProfile = {
-            legalName: entity.legal_name,
-            brandName: entity.brand_name,
-            domain: entity.domain,
-            websiteUrl: entity.website_url,
-            industry: entity.industry,
-            sizeBucket: entity.size_bucket,
-            annualRevenue: entity.annual_revenue,
+      while (true) {
+        const entities = await db
+          .selectFrom('customer_entities as ce')
+          .leftJoin('customer_companies as cc', 'cc.entity_id', 'ce.id')
+          .leftJoin('customer_people as cp', 'cp.entity_id', 'ce.id')
+          .select([
+            'ce.id',
+            'ce.display_name',
+            'ce.description',
+            'ce.kind',
+            'ce.primary_email',
+            'ce.primary_phone',
+            'ce.status',
+            'ce.lifecycle_stage',
+            'ce.source',
+            'ce.is_active',
+            'ce.created_at',
+            'ce.updated_at',
+            'cc.id as company_profile_id',
+            'cc.legal_name',
+            'cc.brand_name',
+            'cc.domain',
+            'cc.website_url',
+            'cc.industry',
+            'cc.size_bucket',
+            'cc.annual_revenue',
+            'cp.id as person_profile_id',
+            'cp.first_name',
+            'cp.last_name',
+            'cp.preferred_name',
+            'cp.job_title',
+            'cp.department',
+            'cp.seniority',
+            'cp.timezone',
+            'cp.linked_in_url',
+            'cp.twitter_url',
+            'cp.company_entity_id',
+          ])
+          .where('ce.tenant_id', '=', tenantId)
+          .where('ce.organization_id', '=', organizationId)
+          .where('ce.deleted_at', 'is', null)
+          .orderBy('ce.id', 'asc')
+          .offset(offset)
+          .limit(limit)
+          .execute()
+
+        if (entities.length === 0) break
+
+        const entityIds = entities.map((e: any) => e.id)
+        const companyProfileIds = entities.map((e: any) => e.company_profile_id).filter(Boolean)
+        const personProfileIds = entities.map((e: any) => e.person_profile_id).filter(Boolean)
+        const recordIds = [...entityIds, ...companyProfileIds, ...personProfileIds]
+        
+        const customFieldRows = await db
+          .selectFrom('custom_field_values')
+          .select(['entity_id', 'record_id', 'field_key', 'value_text', 'value_multiline', 'value_int', 'value_float', 'value_bool'])
+          .where('record_id', 'in', recordIds)
+          .where('tenant_id', '=', tenantId)
+          .where('organization_id', '=', organizationId)
+          .where('deleted_at', 'is', null)
+          .execute()
+
+        const customFieldsMap = new Map<string, Array<{ key: string; value: any; entityId: string }>>()
+        for (const row of customFieldRows) {
+          let val = row.value_bool !== null ? row.value_bool :
+                      row.value_int !== null ? row.value_int :
+                      row.value_float !== null ? row.value_float :
+                      row.value_multiline !== null ? row.value_multiline : row.value_text
+          if (encryptionService) {
+            val = await decryptCustomFieldValue(val, tenantId, encryptionService)
           }
-        } else if (entity.kind === 'person') {
-          record.personProfile = {
-            firstName: entity.first_name,
-            lastName: entity.last_name,
-            preferredName: entity.preferred_name,
-            jobTitle: entity.job_title,
-            department: entity.department,
-            seniority: entity.seniority,
-            timezone: entity.timezone,
-            linkedInUrl: entity.linked_in_url,
-            twitter_url: entity.twitter_url,
-            companyEntityId: entity.company_entity_id,
+          if (!customFieldsMap.has(row.record_id)) {
+            customFieldsMap.set(row.record_id, [])
           }
+          customFieldsMap.get(row.record_id)!.push({ key: row.field_key, value: val, entityId: row.entity_id })
         }
 
-        const fields = customFieldsMap.get(entity.id)
-        if (fields && fields.length > 0) {
-          record.customFields = fields.reduce((acc: any, f: any) => {
-            acc[f.key] = f.value
-            return acc
-          }, {})
-        }
+        for (const entity of entities) {
+          let displayName = entity.display_name
+          let description = entity.description
+          let primaryEmail = entity.primary_email
+          let primaryPhone = entity.primary_phone
 
-        if (format === 'json') {
-          const prefix = firstRecord ? '  ' : ',\n  '
-          writeStream.write(prefix + JSON.stringify(record))
-          firstRecord = false
-        } else {
-          const toXml = (obj: any, indent = '  '): string => {
-            let xml = ''
-            for (const [key, value] of Object.entries(obj)) {
-              if (value === null || value === undefined) continue
-              if (typeof value === 'object' && !(value instanceof Date)) {
-                xml += `${indent}<${key}>\n${toXml(value, indent + '  ')}${indent}</${key}>\n`
-              } else {
-                const valStr = value instanceof Date ? value.toISOString() : String(value)
-                const escaped = valStr
-                  .replace(/&/g, '&amp;')
-                  .replace(/</g, '&lt;')
-                  .replace(/>/g, '&gt;')
-                  .replace(/"/g, '&quot;')
-                  .replace(/'/g, '&apos;')
-                xml += `${indent}<${key}>${escaped}</${key}>\n`
-              }
+          if (encryptionService) {
+            const decRoot = await encryptionService.decryptEntityPayload('customers:customer_entity', {
+              display_name: entity.display_name,
+              description: entity.description,
+              primary_email: entity.primary_email,
+              primary_phone: entity.primary_phone,
+            }, tenantId, organizationId)
+            displayName = decRoot.display_name
+            description = decRoot.description
+            primaryEmail = decRoot.primary_email
+            primaryPhone = decRoot.primary_phone
+          }
+
+          const record: any = {
+            id: entity.id,
+            displayName,
+            description,
+            kind: entity.kind,
+            primaryEmail,
+            primaryPhone,
+            status: entity.status,
+            lifecycleStage: entity.lifecycle_stage,
+            source: entity.source,
+            isActive: entity.is_active,
+            createdAt: entity.created_at,
+            updatedAt: entity.updated_at,
+          }
+
+          const mergedCustomFields: Array<{ key: string; value: any; entityId: string }> = []
+
+          const rootCFs = customFieldsMap.get(entity.id) || []
+          mergedCustomFields.push(...rootCFs)
+
+          if (entity.kind === 'company') {
+            let legalName = entity.legal_name
+            let brandName = entity.brand_name
+            let domain = entity.domain
+            let websiteUrl = entity.website_url
+            let industry = entity.industry
+
+            if (encryptionService) {
+              const decComp = await encryptionService.decryptEntityPayload('customers:customer_company_profile', {
+                legal_name: entity.legal_name,
+                brand_name: entity.brand_name,
+                domain: entity.domain,
+                website_url: entity.website_url,
+                industry: entity.industry,
+              }, tenantId, organizationId)
+              legalName = decComp.legal_name
+              brandName = decComp.brand_name
+              domain = decComp.domain
+              websiteUrl = decComp.website_url
+              industry = decComp.industry
             }
-            return xml
+
+            record.companyProfile = {
+              id: entity.company_profile_id,
+              legalName,
+              brandName,
+              domain,
+              websiteUrl,
+              industry,
+              sizeBucket: entity.size_bucket,
+              annualRevenue: entity.annual_revenue,
+            }
+
+            const compCFs = customFieldsMap.get(entity.company_profile_id) || []
+            mergedCustomFields.push(...compCFs)
+          } else if (entity.kind === 'person') {
+            let firstName = entity.first_name
+            let lastName = entity.last_name
+            let preferredName = entity.preferred_name
+            let jobTitle = entity.job_title
+            let department = entity.department
+            let seniority = entity.seniority
+            let timezone = entity.timezone
+            let linkedInUrl = entity.linked_in_url
+            let twitterUrl = entity.twitter_url
+
+            if (encryptionService) {
+              const decPers = await encryptionService.decryptEntityPayload('customers:customer_person_profile', {
+                first_name: entity.first_name,
+                last_name: entity.last_name,
+                preferred_name: entity.preferred_name,
+                job_title: entity.job_title,
+                department: entity.department,
+                seniority: entity.seniority,
+                timezone: entity.timezone,
+                linked_in_url: entity.linked_in_url,
+                twitter_url: entity.twitter_url,
+              }, tenantId, organizationId)
+              firstName = decPers.first_name
+              lastName = decPers.last_name
+              preferredName = decPers.preferred_name
+              jobTitle = decPers.job_title
+              department = decPers.department
+              seniority = decPers.seniority
+              timezone = decPers.timezone
+              linkedInUrl = decPers.linked_in_url
+              twitterUrl = decPers.twitter_url
+            }
+
+            record.personProfile = {
+              id: entity.person_profile_id,
+              firstName,
+              lastName,
+              preferredName,
+              jobTitle,
+              department,
+              seniority,
+              timezone,
+              linkedInUrl,
+              twitterUrl,
+              companyEntityId: entity.company_entity_id,
+            }
+
+            const persCFs = customFieldsMap.get(entity.person_profile_id) || []
+            mergedCustomFields.push(...persCFs)
           }
-          writeStream.write(`  <customer>\n${toXml(record, '    ')}  </customer>\n`)
+
+          if (mergedCustomFields.length > 0) {
+            record.customFields = mergedCustomFields
+          }
+
+          if (format === 'json') {
+            const prefix = firstRecord ? '  ' : ',\n  '
+            await writeChunk(writeStream, prefix + JSON.stringify(record))
+            firstRecord = false
+          } else {
+            const toXml = (obj: any, indent = '  '): string => {
+              let xml = ''
+              for (const [key, value] of Object.entries(obj)) {
+                if (value === null || value === undefined) continue
+                if (key === 'customFields' && Array.isArray(value)) {
+                  xml += `${indent}<customFields>\n`
+                  for (const field of value) {
+                    xml += `${indent}  <field>\n`
+                    xml += `${indent}    <key>${escapeXml(field.key)}</key>\n`
+                    xml += `${indent}    <value>${escapeXml(field.value)}</value>\n`
+                    xml += `${indent}    <entityId>${escapeXml(field.entityId)}</entityId>\n`
+                    xml += `${indent}  </field>\n`
+                  }
+                  xml += `${indent}</customFields>\n`
+                } else if (typeof value === 'object' && !(value instanceof Date)) {
+                  xml += `${indent}<${key}>\n${toXml(value, indent + '  ')}${indent}</${key}>\n`
+                } else {
+                  xml += `${indent}<${key}>${escapeXml(value)}</${key}>\n`
+                }
+              }
+              return xml
+            }
+            await writeChunk(writeStream, `  <customer>\n${toXml(record, '    ')}  </customer>\n`)
+          }
+          exportedCount++
         }
-        exportedCount++
+
+        offset += limit
       }
 
-      offset += limit
+      if (format === 'json') {
+        await writeChunk(writeStream, '\n]\n')
+      } else {
+        await writeChunk(writeStream, '</customers>\n')
+      }
+      console.log(`[export] Successfully exported ${exportedCount} customer records.`)
+    } catch (err) {
+      console.error('[export] Error during customer export stream:', err)
+    } finally {
+      writeStream.end()
     }
-
-    if (format === 'json') {
-      writeStream.write('\n]\n')
-    } else {
-      writeStream.write('</customers>\n')
-    }
-
-    writeStream.end()
-
-    await new Promise((resolve) => writeStream.on('finish', resolve))
-    console.log(`[export] Successfully exported ${exportedCount} customer records.`)
   }
 }
 
@@ -3466,58 +3813,27 @@ const importCustomersCommand: ModuleCli = {
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const db = em.getKysely<any>() as any
+    const encryptionService = resolveTenantEncryptionService(em)
 
     console.log(`[import] Importing customers from ${inputPath}...`)
 
-    const content = fs.readFileSync(inputPath, 'utf8')
-    let parsedRecords: any[] = []
-
-    if (format === 'json') {
-      parsedRecords = JSON.parse(content)
-    } else {
-      const customerMatches = content.match(/<customer>([\s\S]*?)<\/customer>/g) || []
-      const parseXmlNode = (xmlStr: string): any => {
-        const result: any = {}
-        const regex = /<([^>]+)>([\s\S]*?)<\/\1>/g
-        let match
-        while ((match = regex.exec(xmlStr)) !== null) {
-          const key = match[1]
-          const val = match[2].trim()
-          if (val.includes('<') && val.includes('>')) {
-            result[key] = parseXmlNode(val)
-          } else {
-            const unescaped = val
-              .replace(/&amp;/g, '&')
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>')
-              .replace(/&quot;/g, '"')
-              .replace(/&apos;/g, "'")
-            
-            if (unescaped === 'true') result[key] = true
-            else if (unescaped === 'false') result[key] = false
-            else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(unescaped)) result[key] = new Date(unescaped)
-            else if (/^\d+$/.test(unescaped)) result[key] = parseInt(unescaped, 10)
-            else if (/^\d+\.\d+$/.test(unescaped)) result[key] = parseFloat(unescaped)
-            else result[key] = unescaped
-          }
-        }
-        return result
-      }
-
-      for (const customerXml of customerMatches) {
-        parsedRecords.push(parseXmlNode(customerXml))
-      }
-    }
-
-    console.log(`[import] Parsed ${parsedRecords.length} records. Performing native SQL bulk insert...`)
-
     const batchSize = 1000
     let importedCount = 0
+    let recordIndex = 0
 
     const customerEntityRows: any[] = []
     const companyProfileRows: any[] = []
     const personProfileRows: any[] = []
     const customFieldInsertRows: any[] = []
+    const indexDocRows: any[] = []
+
+    const importedCompanyIds = new Set<string>()
+
+    const companyExists = async (id: string, importedIds: Set<string>, database: any): Promise<boolean> => {
+      if (importedIds.has(id)) return true
+      const res = await database.selectFrom('customer_companies').select('entity_id').where('entity_id', '=', id).executeTakeFirst()
+      return !!res
+    }
 
     const flushBatch = async () => {
       if (customerEntityRows.length === 0) return
@@ -3533,93 +3849,315 @@ const importCustomersCommand: ModuleCli = {
         if (customFieldInsertRows.length > 0) {
           await trx.insertInto('custom_field_values').values(customFieldInsertRows).execute()
         }
+        if (indexDocRows.length > 0) {
+          await trx
+            .insertInto('entity_indexes')
+            .values(indexDocRows.map((row) => ({ ...row, doc: sql`${JSON.stringify(row.doc)}::jsonb` })))
+            .onConflict((oc: any) => oc
+              .columns(['entity_type', 'entity_id', 'organization_id_coalesced'])
+              .doUpdateSet({
+                doc: sql`excluded.doc`,
+                index_version: sql`excluded.index_version`,
+                organization_id: sql`excluded.organization_id`,
+                tenant_id: sql`excluded.tenant_id`,
+                deleted_at: sql`excluded.deleted_at`,
+                updated_at: sql`excluded.updated_at`,
+              }))
+            .execute()
+        }
       })
 
       customerEntityRows.length = 0
       companyProfileRows.length = 0
       personProfileRows.length = 0
       customFieldInsertRows.length = 0
+      indexDocRows.length = 0
     }
 
-    for (const record of parsedRecords) {
-      const entityId = record.id || randomUUID()
+    const recordsStream = format === 'json' ? streamJsonArray(inputPath) : streamXmlCustomers(inputPath)
+
+    for await (const record of recordsStream) {
+      recordIndex++
+      const parsed = customerImportSchema.safeParse(record)
+      if (!parsed.success) {
+        console.warn(`[Record #${recordIndex}] Schema validation failed:`, parsed.error.message)
+        continue
+      }
+
+      const validRecord = parsed.data
+      const entityId = validRecord.id
       const now = new Date()
 
-      customerEntityRows.push({
+      if (validRecord.kind === 'person' && validRecord.personProfile?.companyEntityId) {
+        const hasCompany = await companyExists(validRecord.personProfile.companyEntityId, importedCompanyIds, db)
+        if (!hasCompany) {
+          console.warn(`[Record #${recordIndex}] Warning: Referenced company ID ${validRecord.personProfile.companyEntityId} not found in DB or import batch. Skipping company link.`)
+          validRecord.personProfile.companyEntityId = null
+        }
+      }
+
+      const existingEntity = await db.selectFrom('customer_entities').select('id').where('id', '=', entityId).executeTakeFirst()
+      if (existingEntity) {
+        console.warn(`[Record #${recordIndex}] Warning: Customer entity ID ${entityId} already exists in DB. Skipping to prevent duplicates.`)
+        continue
+      }
+
+      let displayName = validRecord.displayName
+      let description = validRecord.description || null
+      let primaryEmail = validRecord.primaryEmail || null
+      let primaryPhone = validRecord.primaryPhone || null
+
+      if (encryptionService) {
+        const encRoot = await encryptionService.encryptEntityPayload('customers:customer_entity', {
+          display_name: displayName,
+          description,
+          primary_email: primaryEmail,
+          primary_phone: primaryPhone,
+        }, tenantId, organizationId)
+        displayName = encRoot.display_name as string
+        description = encRoot.description as string | null
+        primaryEmail = encRoot.primary_email as string | null
+        primaryPhone = encRoot.primary_phone as string | null
+      }
+
+      const entityRow = {
         id: entityId,
         organization_id: organizationId,
         tenant_id: tenantId,
-        kind: record.kind,
-        display_name: record.displayName,
-        description: record.description || null,
-        owner_user_id: record.ownerUserId || null,
-        primary_email: record.primaryEmail || null,
-        primary_phone: record.primaryPhone || null,
-        status: record.status || null,
-        lifecycle_stage: record.lifecycleStage || null,
-        source: record.source || null,
-        is_active: record.isActive !== undefined ? record.isActive : true,
-        created_at: record.createdAt ? new Date(record.createdAt) : now,
-        updated_at: record.updatedAt ? new Date(record.updatedAt) : now,
+        kind: validRecord.kind,
+        display_name: displayName,
+        description,
+        owner_user_id: null,
+        primary_email: primaryEmail,
+        primary_phone: primaryPhone,
+        status: validRecord.status || null,
+        lifecycle_stage: validRecord.lifecycleStage || null,
+        source: validRecord.source || null,
+        is_active: validRecord.isActive,
+        created_at: validRecord.createdAt || now,
+        updated_at: validRecord.updatedAt || now,
+        deleted_at: null,
+      }
+
+      customerEntityRows.push(entityRow)
+
+      indexDocRows.push({
+        entity_type: CoreEntities.customers.customer_entity,
+        entity_id: entityId,
+        organization_id: organizationId,
+        tenant_id: tenantId,
+        doc: buildIndexDocument({
+          id: entityId,
+          display_name: validRecord.displayName,
+          description: validRecord.description || null,
+          kind: validRecord.kind,
+          primary_email: validRecord.primaryEmail || null,
+          primary_phone: validRecord.primaryPhone || null,
+          status: validRecord.status || null,
+          lifecycle_stage: validRecord.lifecycleStage || null,
+          source: validRecord.source || null,
+          is_active: validRecord.isActive,
+          created_at: validRecord.createdAt || now,
+          updated_at: validRecord.updatedAt || now,
+        }, [], {
+          organizationId,
+          tenantId,
+        }),
+        index_version: 1,
+        created_at: validRecord.createdAt || now,
+        updated_at: validRecord.updatedAt || now,
         deleted_at: null,
       })
 
-      if (record.kind === 'company' && record.companyProfile) {
-        companyProfileRows.push({
-          id: randomUUID(),
+      let companyProfileId = ''
+      let personProfileId = ''
+
+      if (validRecord.kind === 'company') {
+        companyProfileId = validRecord.companyProfile?.id || randomUUID()
+        importedCompanyIds.add(entityId)
+
+        let legalName = validRecord.companyProfile?.legalName || null
+        let brandName = validRecord.companyProfile?.brandName || null
+        let domain = validRecord.companyProfile?.domain || null
+        let websiteUrl = validRecord.companyProfile?.websiteUrl || null
+        let industry = validRecord.companyProfile?.industry || null
+
+        if (encryptionService) {
+          const encComp = await encryptionService.encryptEntityPayload('customers:customer_company_profile', {
+            legal_name: legalName,
+            brand_name: brandName,
+            domain,
+            website_url: websiteUrl,
+            industry,
+          }, tenantId, organizationId)
+          legalName = encComp.legal_name as string | null
+          brandName = encComp.brand_name as string | null
+          domain = encComp.domain as string | null
+          websiteUrl = encComp.website_url as string | null
+          industry = encComp.industry as string | null
+        }
+
+        const profileRow = {
+          id: companyProfileId,
           organization_id: organizationId,
           tenant_id: tenantId,
           entity_id: entityId,
-          legal_name: record.companyProfile.legalName || null,
-          brand_name: record.companyProfile.brandName || null,
-          domain: record.companyProfile.domain || null,
-          website_url: record.companyProfile.websiteUrl || null,
-          industry: record.companyProfile.industry || null,
-          size_bucket: record.companyProfile.sizeBucket || null,
-          annual_revenue: record.companyProfile.annualRevenue || null,
-          created_at: record.createdAt ? new Date(record.createdAt) : now,
-          updated_at: record.updatedAt ? new Date(record.updatedAt) : now,
+          legal_name: legalName,
+          brand_name: brandName,
+          domain,
+          website_url: websiteUrl,
+          industry,
+          size_bucket: validRecord.companyProfile?.sizeBucket || null,
+          annual_revenue: validRecord.companyProfile?.annualRevenue || null,
+          created_at: validRecord.createdAt || now,
+          updated_at: validRecord.updatedAt || now,
+        }
+
+        companyProfileRows.push(profileRow)
+
+        indexDocRows.push({
+          entity_type: CoreEntities.customers.customer_company_profile,
+          entity_id: companyProfileId,
+          organization_id: organizationId,
+          tenant_id: tenantId,
+          doc: buildIndexDocument({
+            id: companyProfileId,
+            entity_id: entityId,
+            legal_name: validRecord.companyProfile?.legalName || null,
+            brand_name: validRecord.companyProfile?.brandName || null,
+            domain: validRecord.companyProfile?.domain || null,
+            website_url: validRecord.companyProfile?.websiteUrl || null,
+            industry: validRecord.companyProfile?.industry || null,
+            size_bucket: validRecord.companyProfile?.sizeBucket || null,
+            annual_revenue: validRecord.companyProfile?.annualRevenue || null,
+            created_at: validRecord.createdAt || now,
+            updated_at: validRecord.updatedAt || now,
+          }, [], {
+            organizationId,
+            tenantId,
+          }),
+          index_version: 1,
+          created_at: validRecord.createdAt || now,
+          updated_at: validRecord.updatedAt || now,
+          deleted_at: null,
         })
-      } else if (record.kind === 'person' && record.personProfile) {
-        personProfileRows.push({
-          id: randomUUID(),
+
+      } else if (validRecord.kind === 'person') {
+        personProfileId = validRecord.personProfile?.id || randomUUID()
+
+        let firstName = validRecord.personProfile?.firstName || null
+        let lastName = validRecord.personProfile?.lastName || null
+        let preferredName = validRecord.personProfile?.preferredName || null
+        let jobTitle = validRecord.personProfile?.jobTitle || null
+        let department = validRecord.personProfile?.department || null
+        let seniority = validRecord.personProfile?.seniority || null
+        let timezone = validRecord.personProfile?.timezone || null
+        let linkedInUrl = validRecord.personProfile?.linkedInUrl || null
+        let twitterUrl = validRecord.personProfile?.twitterUrl || null
+
+        if (encryptionService) {
+          const encPers = await encryptionService.encryptEntityPayload('customers:customer_person_profile', {
+            first_name: firstName,
+            last_name: lastName,
+            preferred_name: preferredName,
+            job_title: jobTitle,
+            department,
+            seniority,
+            timezone,
+            linked_in_url: linkedInUrl,
+            twitter_url: twitterUrl,
+          }, tenantId, organizationId)
+          firstName = encPers.first_name as string | null
+          lastName = encPers.last_name as string | null
+          preferredName = encPers.preferred_name as string | null
+          jobTitle = encPers.job_title as string | null
+          department = encPers.department as string | null
+          seniority = encPers.seniority as string | null
+          timezone = encPers.timezone as string | null
+          linkedInUrl = encPers.linked_in_url as string | null
+          twitterUrl = encPers.twitter_url as string | null
+        }
+
+        const profileRow = {
+          id: personProfileId,
           organization_id: organizationId,
           tenant_id: tenantId,
           entity_id: entityId,
-          company_entity_id: record.personProfile.companyEntityId || null,
-          first_name: record.personProfile.firstName || null,
-          last_name: record.personProfile.lastName || null,
-          preferred_name: record.personProfile.preferredName || null,
-          job_title: record.personProfile.jobTitle || null,
-          department: record.personProfile.department || null,
-          seniority: record.personProfile.seniority || null,
-          timezone: record.personProfile.timezone || null,
-          linked_in_url: record.personProfile.linkedInUrl || null,
-          twitter_url: record.personProfile.twitterUrl || null,
-          created_at: record.createdAt ? new Date(record.createdAt) : now,
-          updated_at: record.updatedAt ? new Date(record.updatedAt) : now,
+          company_entity_id: validRecord.personProfile?.companyEntityId || null,
+          first_name: firstName,
+          last_name: lastName,
+          preferred_name: preferredName,
+          job_title: jobTitle,
+          department,
+          seniority,
+          timezone,
+          linked_in_url: linkedInUrl,
+          twitter_url: twitterUrl,
+          created_at: validRecord.createdAt || now,
+          updated_at: validRecord.updatedAt || now,
+        }
+
+        personProfileRows.push(profileRow)
+
+        indexDocRows.push({
+          entity_type: CoreEntities.customers.customer_person_profile,
+          entity_id: personProfileId,
+          organization_id: organizationId,
+          tenant_id: tenantId,
+          doc: buildIndexDocument({
+            id: personProfileId,
+            entity_id: entityId,
+            company_entity_id: validRecord.personProfile?.companyEntityId || null,
+            first_name: validRecord.personProfile?.firstName || null,
+            last_name: validRecord.personProfile?.lastName || null,
+            preferred_name: validRecord.personProfile?.preferredName || null,
+            job_title: validRecord.personProfile?.jobTitle || null,
+            department: validRecord.personProfile?.department || null,
+            seniority: validRecord.personProfile?.seniority || null,
+            timezone: validRecord.personProfile?.timezone || null,
+            linked_in_url: validRecord.personProfile?.linkedInUrl || null,
+            twitter_url: validRecord.personProfile?.twitterUrl || null,
+            created_at: validRecord.createdAt || now,
+            updated_at: validRecord.updatedAt || now,
+          }, [], {
+            organizationId,
+            tenantId,
+          }),
+          index_version: 1,
+          created_at: validRecord.createdAt || now,
+          updated_at: validRecord.updatedAt || now,
+          deleted_at: null,
         })
       }
 
-      if (record.customFields) {
-        for (const [fieldKey, value] of Object.entries(record.customFields)) {
+      if (validRecord.customFields) {
+        for (const field of validRecord.customFields) {
+          let recId = entityId
+          if (field.entityId === 'customers:customer_company_profile') recId = companyProfileId
+          if (field.entityId === 'customers:customer_person_profile') recId = personProfileId
+
+          let val = field.value
+          if (encryptionService) {
+            val = await encryptCustomFieldValue(val, tenantId, encryptionService)
+          }
+
           const customFieldRow: any = {
-            entity_id: record.kind === 'company' ? CoreEntities.customers.customer_company_profile : CoreEntities.customers.customer_person_profile,
-            record_id: entityId,
+            entity_id: field.entityId,
+            record_id: recId,
             organization_id: organizationId,
             tenant_id: tenantId,
-            field_key: fieldKey,
+            field_key: field.key,
             created_at: now,
             deleted_at: null,
           }
 
-          if (typeof value === 'boolean') {
-            customFieldRow.value_bool = value
-          } else if (typeof value === 'number') {
-            if (Number.isInteger(value)) customFieldRow.value_int = value
-            else customFieldRow.value_float = value
+          if (typeof val === 'boolean') {
+            customFieldRow.value_bool = val
+          } else if (typeof val === 'number') {
+            if (Number.isInteger(val)) customFieldRow.value_int = val
+            else customFieldRow.value_float = val
           } else {
-            customFieldRow.value_text = String(value)
+            customFieldRow.value_text = val !== null ? String(val) : null
           }
 
           customFieldInsertRows.push(customFieldRow)
@@ -3647,6 +4185,12 @@ const importCustomersCommand: ModuleCli = {
             entityType,
             tenantId,
             organizationId,
+            delayMs: 0,
+          })
+          await eventBus.emitEvent('query_index.coverage.refresh', {
+            entityType,
+            tenantId,
+            organizationId: null,
             delayMs: 0,
           })
         })
