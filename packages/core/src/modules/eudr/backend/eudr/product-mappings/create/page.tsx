@@ -12,6 +12,7 @@ import {
   ProductSelectField,
   commodityOptions,
   type ProductSnapshot,
+  translateEudrCrudError,
 } from '../../../../components/formConfig'
 
 type ProductMappingFormValues = {
@@ -176,6 +177,8 @@ export default function CreateEudrProductMappingPage() {
               productSnapshot: isProductSnapshot(values.productSnapshot) ? values.productSnapshot : null,
             }, {
               errorMessage: translate('eudr.productMappings.form.createError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.productMappings.form.createSuccess'), 'success')
             router.push('/backend/eudr/product-mappings')

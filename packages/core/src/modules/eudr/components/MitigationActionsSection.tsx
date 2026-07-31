@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Plus } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -74,11 +74,11 @@ function optionalText(value: unknown): string | null {
   return trimmed.length ? trimmed : null
 }
 
-function formatDate(value: string | null | undefined, emptyLabel: string): string {
+function formatDate(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(locale || undefined)
 }
 
 function formatDateInput(value: string | null | undefined): string {
@@ -116,6 +116,7 @@ export function MitigationActionsSection({
   riskAssessmentId,
 }: MitigationActionsSectionProps) {
   const translate = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<MitigationActionRow[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -289,16 +290,16 @@ export function MitigationActionsSection({
       header: translate('eudr.mitigationActions.columns.dueDate'),
       cell: ({ row }) => (
         <span className={isOverdue(row.original) ? 'text-status-warning-text' : undefined}>
-          {formatDate(row.original.dueDate, translate('eudr.common.empty'))}
+          {formatDate(row.original.dueDate, translate('eudr.common.empty'), locale)}
         </span>
       ),
     },
     {
       accessorKey: 'completedAt',
       header: translate('eudr.mitigationActions.columns.completedAt'),
-      cell: ({ row }) => formatDate(row.original.completedAt, translate('eudr.common.empty')),
+      cell: ({ row }) => formatDate(row.original.completedAt, translate('eudr.common.empty'), locale),
     },
-  ], [translate])
+  ], [locale, translate])
 
   return (
     <section className="space-y-4 rounded-lg border border-border bg-card p-4">

@@ -19,7 +19,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Plus } from 'lucide-react'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EudrActivityType, EudrCommodity, EudrRiskConclusion, EudrRiskTier, EudrStatementStatus } from '../../../data/validators'
 import { commodityOptions, statementStatusOptions, statusBadgeVariant } from '../../../components/formConfig'
 import {
@@ -53,11 +53,11 @@ type StatementsResponse = {
   totalPages: number
 }
 
-function formatDateTime(value: string | null | undefined, emptyLabel: string): string {
+function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString()
+  return date.toLocaleString(locale || undefined)
 }
 
 function formatQuantityKg(value: number | string | null, emptyLabel: string): string {
@@ -68,6 +68,7 @@ function formatQuantityKg(value: number | string | null, emptyLabel: string): st
 
 export default function EudrStatementsPage() {
   const translate = useT()
+  const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -251,9 +252,9 @@ export default function EudrStatementsPage() {
     {
       accessorKey: 'updatedAt',
       header: translate('eudr.statements.list.columns.updatedAt'),
-      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty')),
+      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty'), locale),
     },
-  ], [translate])
+  ], [locale, translate])
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
@@ -274,7 +275,7 @@ export default function EudrStatementsPage() {
         ...statementStatusOptions(translate),
       ],
     },
-  ], [translate])
+  ], [locale, translate])
 
   return (
     <Page>

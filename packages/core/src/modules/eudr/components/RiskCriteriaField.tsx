@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import {
@@ -51,6 +52,31 @@ function normalizeCriteriaValue(value: unknown): RiskCriteriaValue {
     normalized[key] = note ? { answer: rawEntry.answer, note } : { answer: rawEntry.answer }
   }
   return normalized
+}
+
+export function countAnsweredCriteria(value: unknown): { answered: number; total: number } {
+  const criteria = normalizeCriteriaValue(value)
+  return { answered: Object.keys(criteria).length, total: criteriaKeys.size }
+}
+
+export function RiskConclusionCriteriaWarning({
+  conclusion,
+  criteria,
+}: {
+  conclusion: unknown
+  criteria: unknown
+}) {
+  const translate = useT()
+  if (conclusion !== 'negligible') return null
+  const { answered, total } = countAnsweredCriteria(criteria)
+  if (answered >= total) return null
+  return (
+    <Alert status="warning" style="lighter">
+      <div className="text-sm leading-5">
+        {translate('eudr.riskAssessments.form.negligibleCriteriaWarning', { answered, total })}
+      </div>
+    </Alert>
+  )
 }
 
 export function RiskCriteriaField({

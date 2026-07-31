@@ -6,6 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { validatePlotGeometry, type GeometryValidationResult } from '../lib/geometry'
+import { pointAreaExceedsLimit } from './plotForm'
 import { PlotMapPreview } from './PlotMapPreview'
 
 export type GeometryInputProps = {
@@ -13,6 +14,7 @@ export type GeometryInputProps = {
   value: string
   onChange: (value: string) => void
   disabled?: boolean
+  areaHa?: string
 }
 
 type ParsedGeometryState =
@@ -54,11 +56,15 @@ export function GeometryInput({
   value,
   onChange,
   disabled,
+  areaHa,
 }: GeometryInputProps) {
   const translate = useT()
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const [showTextarea, setShowTextarea] = React.useState(() => value.trim().length > 0)
   const validation = React.useMemo(() => validateGeometryText(value), [value])
+  const pointAreaTooLarge =
+    validation.state === 'valid' &&
+    pointAreaExceedsLimit(validation.result.plotType, areaHa)
 
   React.useEffect(() => {
     if (value.trim().length > 0) setShowTextarea(true)
@@ -129,25 +135,31 @@ export function GeometryInput({
 
       {validation.state === 'valid' ? (
         <div className="space-y-3">
-          <div className="rounded-md border border-status-success-border bg-status-success-bg px-3 py-2 text-sm text-status-success-text">
-            <div className="font-medium">
-              {translate('eudr.plots.geometry.valid', {
-                type: translate(`eudr.plotType.${validation.result.plotType}`),
-              })}
+          {pointAreaTooLarge ? (
+            <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
+              {translate('eudr.errors.polygonRequired')}
             </div>
-            {validation.result.computedAreaHa !== null ? (
-              <div>
-                {translate('eudr.plots.geometry.computedArea', {
-                  area: formatArea(validation.result.computedAreaHa),
+          ) : (
+            <div className="rounded-md border border-status-success-border bg-status-success-bg px-3 py-2 text-sm text-status-success-text">
+              <div className="font-medium">
+                {translate('eudr.plots.geometry.valid', {
+                  type: translate(`eudr.plotType.${validation.result.plotType}`),
                 })}
               </div>
-            ) : null}
-            {validation.result.warnings.includes('low_precision') ? (
-              <div className="mt-1 text-status-warning-text">
-                {translate('eudr.errors.low_precision')}
-              </div>
-            ) : null}
-          </div>
+              {validation.result.computedAreaHa !== null ? (
+                <div>
+                  {translate('eudr.plots.geometry.computedArea', {
+                    area: formatArea(validation.result.computedAreaHa),
+                  })}
+                </div>
+              ) : null}
+              {validation.result.warnings.includes('low_precision') ? (
+                <div className="mt-1 text-status-warning-text">
+                  {translate('eudr.errors.low_precision')}
+                </div>
+              ) : null}
+            </div>
+          )}
           <PlotMapPreview features={[validation.result.feature]} />
         </div>
       ) : null}

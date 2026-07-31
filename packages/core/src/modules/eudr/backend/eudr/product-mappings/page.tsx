@@ -18,7 +18,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Plus, Sparkles } from 'lucide-react'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EudrCommodity } from '../../../data/validators'
 import { commodityOptions, type ProductSnapshot } from '../../../components/formConfig'
 import { MappingSuggestionsDialog } from '../../../components/MappingSuggestionsDialog'
@@ -41,11 +41,11 @@ type ProductMappingsResponse = {
   totalPages: number
 }
 
-function formatDateTime(value: string | null | undefined, emptyLabel: string): string {
+function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString()
+  return date.toLocaleString(locale || undefined)
 }
 
 function formatProduct(row: ProductMappingRow, unavailableLabel: string): string {
@@ -61,6 +61,7 @@ function formatProduct(row: ProductMappingRow, unavailableLabel: string): string
 
 export default function EudrProductMappingsPage() {
   const translate = useT()
+  const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -212,9 +213,9 @@ export default function EudrProductMappingsPage() {
     {
       accessorKey: 'updatedAt',
       header: translate('eudr.productMappings.list.columns.updatedAt'),
-      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty')),
+      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty'), locale),
     },
-  ], [translate])
+  ], [locale, translate])
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
@@ -236,7 +237,7 @@ export default function EudrProductMappingsPage() {
         { value: 'false', label: translate('eudr.productMappings.list.filters.outOfScope') },
       ],
     },
-  ], [translate])
+  ], [locale, translate])
 
   return (
     <Page>

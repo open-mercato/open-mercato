@@ -388,7 +388,7 @@ function hasConcernAnswers(criteria: Record<string, { answer: string; note?: str
   return Object.values(criteria).some((entry) => entry.answer === 'concern')
 }
 
-async function loadStatementSubmissionsForGate(
+export async function loadStatementSubmissionsForGate(
   em: EntityManager,
   record: EudrDueDiligenceStatement,
 ): Promise<GateSubmissionView[]> {
@@ -411,7 +411,7 @@ async function loadStatementSubmissionsForGate(
   }))
 }
 
-async function loadLatestAssessmentForGate(
+export async function loadLatestAssessmentForGate(
   em: EntityManager,
   record: EudrDueDiligenceStatement,
 ): Promise<GateAssessmentView> {

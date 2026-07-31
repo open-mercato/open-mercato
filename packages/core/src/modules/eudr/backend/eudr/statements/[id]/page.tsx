@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Copy, Download } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -26,8 +27,10 @@ import {
   type CompanySnapshot,
   type OrderSnapshot,
   type ReferencedStatementValue,
+  translateEudrCrudError,
 } from '../../../../components/formConfig'
 import { StatementLifecycleBar } from '../../../../components/StatementLifecycleBar'
+import { StatementReadinessChecklist } from '../../../../components/StatementReadinessChecklist'
 import { StatementRiskSection, type StatementLatestRisk } from '../../../../components/StatementRiskSection'
 import { PlotMapPreview } from '../../../../components/PlotMapPreview'
 import type {
@@ -630,6 +633,12 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
           onChanged={refreshRecord}
         />
 
+        <StatementReadinessChecklist
+          statementId={record.id}
+          status={record.status}
+          updatedAt={record.updatedAt}
+        />
+
         <CrudForm<StatementFormValues>
           title={translate('eudr.statements.edit.title')}
           backHref="/backend/eudr/statements"
@@ -679,6 +688,8 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
               notes: optionalText(values.notes),
             }, {
               errorMessage: translate('eudr.statements.form.updateError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.statements.form.updateSuccess'), 'success')
             router.push('/backend/eudr/statements')
@@ -686,6 +697,8 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
           onDelete={async () => {
             await deleteCrud('eudr/statements', record.id, {
               errorMessage: translate('eudr.statements.form.deleteError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
           }}
         />
@@ -708,6 +721,14 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
                 size="sm"
                 variant="subtle"
                 title={translate('eudr.statements.detail.submissionsEmpty')}
+                description={translate('eudr.statements.detail.submissionsEmptyHint')}
+                actions={(
+                  <Button asChild type="button" variant="outline">
+                    <Link href={`/backend/eudr/evidence-submissions/create?statementId=${encodeURIComponent(record.id)}`}>
+                      {translate('eudr.statements.detail.createSubmission')}
+                    </Link>
+                  </Button>
+                )}
               />
             )}
             perspective={{ tableId: 'eudr.statements.detail.submissions' }}

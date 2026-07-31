@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -55,18 +55,18 @@ type MutationContext = {
   retryLastMutation: () => Promise<boolean>
 }
 
-function formatDateTime(value: string | null | undefined, emptyLabel: string): string {
+function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString()
+  return date.toLocaleString(locale || undefined)
 }
 
-function formatDate(value: string | null | undefined, emptyLabel: string): string {
+function formatDate(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(locale || undefined)
 }
 
 function isOverdue(value: string | null | undefined): boolean {
@@ -95,6 +95,7 @@ function tierOptions(translate: ReturnType<typeof useT>) {
 
 export default function EudrRiskAssessmentsPage() {
   const translate = useT()
+  const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -105,6 +106,7 @@ export default function EudrRiskAssessmentsPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'assessedAt', desc: true }])
   const [filters, setFilters] = React.useState<FilterValues>({})
+  const [search, setSearch] = React.useState('')
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const mutationContextId = 'eudr-risk-assessments-list:delete'
@@ -126,13 +128,14 @@ export default function EudrRiskAssessmentsPage() {
     if (isDateRangeValue(filters.reviewDueBefore) && typeof filters.reviewDueBefore.to === 'string' && filters.reviewDueBefore.to.trim()) {
       params.set('reviewDueBefore', filters.reviewDueBefore.to.trim())
     }
+    if (search.trim()) params.set('search', search.trim())
     const firstSort = sorting[0]
     if (firstSort) {
       params.set('sortField', firstSort.id)
       params.set('sortDir', firstSort.desc ? 'desc' : 'asc')
     }
     return params.toString()
-  }, [filters.conclusion, filters.overallTier, filters.reviewDueBefore, page, pageSize, sorting])
+  }, [filters.conclusion, filters.overallTier, filters.reviewDueBefore, page, pageSize, search, sorting])
 
   React.useEffect(() => {
     let cancelled = false
@@ -246,23 +249,23 @@ export default function EudrRiskAssessmentsPage() {
     {
       accessorKey: 'assessedAt',
       header: translate('eudr.riskAssessments.list.columns.assessedAt'),
-      cell: ({ row }) => formatDateTime(row.original.assessedAt, translate('eudr.common.empty')),
+      cell: ({ row }) => formatDateTime(row.original.assessedAt, translate('eudr.common.empty'), locale),
     },
     {
       accessorKey: 'reviewDueAt',
       header: translate('eudr.riskAssessments.list.columns.reviewDueAt'),
       cell: ({ row }) => (
         <span className={isOverdue(row.original.reviewDueAt) ? 'text-status-warning-text' : undefined}>
-          {formatDate(row.original.reviewDueAt, translate('eudr.common.empty'))}
+          {formatDate(row.original.reviewDueAt, translate('eudr.common.empty'), locale)}
         </span>
       ),
     },
     {
       accessorKey: 'updatedAt',
       header: translate('eudr.riskAssessments.list.columns.updatedAt'),
-      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty')),
+      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty'), locale),
     },
-  ], [translate])
+  ], [locale, translate])
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
@@ -288,7 +291,7 @@ export default function EudrRiskAssessmentsPage() {
       label: translate('eudr.riskAssessments.list.filters.reviewDueBefore'),
       type: 'dateRange',
     },
-  ], [translate])
+  ], [locale, translate])
 
   return (
     <Page>
@@ -297,6 +300,12 @@ export default function EudrRiskAssessmentsPage() {
           title={translate('eudr.riskAssessments.list.title')}
           columns={columns}
           data={rows}
+          searchValue={search}
+          onSearchChange={(nextSearch) => {
+            setSearch(nextSearch)
+            setPage(1)
+          }}
+          searchPlaceholder={translate('eudr.riskAssessments.list.searchPlaceholder')}
           filters={filterDefs}
           filterValues={filters}
           onFiltersApply={(nextFilters) => {

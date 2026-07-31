@@ -15,7 +15,7 @@ export default function EudrProductColumnWidget({ value }: { value: EudrProductC
   if (!value || typeof value.commodity !== 'string' || value.commodity.length === 0) {
     return (
       <span className="text-muted-foreground" aria-label={t('eudr.productColumn.noMapping')}>
-        —
+        {t('eudr.common.empty')}
       </span>
     )
   }

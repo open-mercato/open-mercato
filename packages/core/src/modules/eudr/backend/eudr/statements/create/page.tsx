@@ -18,6 +18,7 @@ import {
   commodityOptions,
   type OrderSnapshot,
   type ReferencedStatementValue,
+  translateEudrCrudError,
 } from '../../../../components/formConfig'
 import {
   buildDuplicateSeed,
@@ -496,6 +497,8 @@ export default function CreateEudrStatementPage() {
               notes: optionalText(values.notes),
             }, {
               errorMessage: translate('eudr.statements.form.createError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.statements.form.createSuccess'), 'success')
             router.push('/backend/eudr/statements')

@@ -316,6 +316,7 @@ export function MappingSuggestionsDialog({
               size="sm"
               variant="subtle"
               title={t('eudr.suggestions.empty')}
+              description={t('eudr.suggestions.emptyHint')}
             />
           ) : (
             <div className="space-y-3">
@@ -328,6 +329,7 @@ export function MappingSuggestionsDialog({
                     size="sm"
                     variant="subtle"
                     title={t('eudr.suggestions.empty')}
+                    description={t('eudr.suggestions.emptyHint')}
                   />
                 )}
                 perspective={{ tableId: 'eudr.product_mapping_suggestions.dialog' }}

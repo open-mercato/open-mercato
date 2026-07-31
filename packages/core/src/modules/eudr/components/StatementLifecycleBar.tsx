@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { CheckCircle2 } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -90,11 +90,9 @@ function addYears(date: Date, years: number): Date {
   return next
 }
 
-function formatRemaining(ms: number): string {
+function remainingParts(ms: number): { hours: number; minutes: number } {
   const totalMinutes = Math.max(0, Math.ceil(ms / 60_000))
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+  return { hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60 }
 }
 
 function toDateTimeLocalInput(date: Date): string {
@@ -134,6 +132,7 @@ export function StatementLifecycleBar({
   onChanged,
 }: StatementLifecycleBarProps) {
   const translate = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [now, setNow] = React.useState(() => new Date())
   const [referenceDialogOpen, setReferenceDialogOpen] = React.useState(false)
@@ -260,7 +259,7 @@ export function StatementLifecycleBar({
             {statement.status === 'available' && issuedAt ? (
               amendWindowOpen ? (
                 <StatusBadge variant="info">
-                  {translate('eudr.lifecycle.amendWindowRemaining', { remaining: formatRemaining(amendRemainingMs) })}
+                  {translate('eudr.lifecycle.amendWindowRemaining', remainingParts(amendRemainingMs))}
                 </StatusBadge>
               ) : (
                 <StatusBadge variant="neutral">
@@ -276,7 +275,7 @@ export function StatementLifecycleBar({
           </div>
           {retainUntil ? (
             <p className="text-sm text-muted-foreground">
-              {translate('eudr.lifecycle.retainUntil', { date: retainUntil.toLocaleDateString() })}
+              {translate('eudr.lifecycle.retainUntil', { date: retainUntil.toLocaleDateString(locale || undefined) })}
             </p>
           ) : null}
         </div>

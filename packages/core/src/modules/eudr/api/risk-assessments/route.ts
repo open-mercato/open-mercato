@@ -4,6 +4,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
+import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
@@ -34,6 +35,7 @@ const listSchema = z.object({
   reviewDueBefore: z.coerce.date().optional(),
   id: z.string().uuid().optional(),
   ids: z.string().optional(),
+  search: z.string().optional(),
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
 })
@@ -83,6 +85,10 @@ function buildFilters(query: RiskAssessmentListQuery): Record<string, unknown> {
   if (query.conclusion) filters.conclusion = { $eq: query.conclusion }
   if (query.overallTier) filters.overall_tier = { $eq: query.overallTier }
   if (query.reviewDueBefore) filters.review_due_at = { $lte: query.reviewDueBefore }
+  const search = typeof query.search === 'string' ? query.search.trim() : ''
+  if (search) {
+    filters.assessed_by_name = { $ilike: buildIlikeTerm(search) }
+  }
   return filters
 }
 

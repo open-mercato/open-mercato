@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -51,10 +51,10 @@ function resolveCompanyId(context: unknown, data: unknown): string | null {
     ?? readNestedCompanyId(data)
 }
 
-function formatDate(value: string | null, emptyLabel: string): string {
+function formatDate(value: string | null, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? emptyLabel : date.toLocaleDateString()
+  return Number.isNaN(date.getTime()) ? emptyLabel : date.toLocaleDateString(locale || undefined)
 }
 
 async function loadSupplierCompliance(supplierEntityId: string): Promise<SupplierCompliance | null> {
@@ -86,6 +86,7 @@ export default function SupplierComplianceWidget({
   data,
 }: InjectionWidgetComponentProps<unknown, unknown>) {
   const t = useT()
+  const locale = useLocale()
   const companyId = resolveCompanyId(context, data)
   const { data: compliance } = useQuery({
     queryKey: ['eudr-supplier-compliance', companyId],
@@ -125,7 +126,7 @@ export default function SupplierComplianceWidget({
         <div className="space-y-1">
           <dt className="text-xs text-muted-foreground">{t('eudr.supplierPanel.lastSubmission')}</dt>
           <dd className="text-sm font-medium text-foreground">
-            {formatDate(compliance.lastSubmissionAt, emptyLabel)}
+            {formatDate(compliance.lastSubmissionAt, emptyLabel, locale)}
           </dd>
         </div>
       </dl>

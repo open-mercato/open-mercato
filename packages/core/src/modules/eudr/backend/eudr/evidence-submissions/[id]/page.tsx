@@ -23,6 +23,7 @@ import {
   parseGeolocationInput,
   submissionStatusOptions,
   type CompanySnapshot,
+  translateEudrCrudError,
 } from '../../../../components/formConfig'
 import type { EudrCommodity, EudrSubmissionStatus } from '../../../../data/validators'
 
@@ -160,6 +161,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
   const router = useRouter()
   const submissionId = React.useMemo(() => getRouteId(params), [params])
   const [record, setRecord] = React.useState<EvidenceSubmissionRecord | null>(null)
+  const [lockUpdatedAt, setLockUpdatedAt] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
@@ -193,6 +195,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
           return
         }
         setRecord(items[0])
+        setLockUpdatedAt(items[0].updatedAt ?? null)
       } catch {
         if (!cancelled) setError(translate('eudr.evidenceSubmissions.form.loadError'))
       } finally {
@@ -204,6 +207,21 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       cancelled = true
     }
   }, [submissionId, translate])
+
+  const refreshLockSnapshot = React.useCallback(async () => {
+    if (!submissionId) return
+    const call = await apiCall<EvidenceSubmissionDetailResponse>(
+      `/api/eudr/evidence-submissions?id=${encodeURIComponent(submissionId)}`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    if (!call.ok) return
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
+    const nextUpdatedAt = items[0]?.updatedAt
+    if (typeof nextUpdatedAt === 'string' && nextUpdatedAt.length > 0) {
+      setLockUpdatedAt(nextUpdatedAt)
+    }
+  }, [submissionId])
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -464,6 +482,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          optimisticLockUpdatedAt={lockUpdatedAt}
           onSubmit={async (values) => {
             const supplierEntityId = optionalText(values.supplierEntityId)
             if (!supplierEntityId) {
@@ -498,6 +517,8 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
             }
             await updateCrud('eudr/evidence-submissions', payload, {
               errorMessage: translate('eudr.evidenceSubmissions.form.updateError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.evidenceSubmissions.form.updateSuccess'), 'success')
             router.push('/backend/eudr/evidence-submissions')
@@ -505,12 +526,18 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
           onDelete={async () => {
             await deleteCrud('eudr/evidence-submissions', record.id, {
               errorMessage: translate('eudr.evidenceSubmissions.form.deleteError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
           }}
         />
         <div className="rounded-lg border bg-card px-4 py-3 space-y-3">
           <h3 className="text-sm font-semibold">{translate('eudr.evidenceSubmissions.form.documents')}</h3>
-          <AttachmentInput entityId="eudr:eudr_evidence_submission" recordId={record.id} />
+          <AttachmentInput
+            entityId="eudr:eudr_evidence_submission"
+            recordId={record.id}
+            onUploaded={() => { void refreshLockSnapshot() }}
+          />
         </div>
       </PageBody>
     </Page>

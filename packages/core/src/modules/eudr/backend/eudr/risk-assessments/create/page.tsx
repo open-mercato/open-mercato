@@ -8,8 +8,9 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { StatementSelectField } from '../../../../components/formConfig'
+import { StatementSelectField, translateEudrCrudError } from '../../../../components/formConfig'
 import {
+  RiskConclusionCriteriaWarning,
   RiskCriteriaField,
   type RiskCriteriaEntry,
   type RiskCriteriaValue,
@@ -172,6 +173,14 @@ export default function CreateEudrRiskAssessmentPage() {
       ],
     },
     {
+      id: 'criteriaWarning',
+      column: 1,
+      bare: true,
+      component: ({ values }) => (
+        <RiskConclusionCriteriaWarning conclusion={values.conclusion} criteria={values.criteria} />
+      ),
+    },
+    {
       id: 'notes',
       title: translate('eudr.common.notes'),
       column: 2,
@@ -224,6 +233,8 @@ export default function CreateEudrRiskAssessmentPage() {
               notes: optionalText(values.notes),
             }, {
               errorMessage: translate('eudr.riskAssessments.form.createError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.riskAssessments.form.createSuccess'), 'success')
             const id = typeof result.result?.id === 'string' ? result.result.id : null

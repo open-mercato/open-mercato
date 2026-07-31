@@ -15,10 +15,16 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import {
   CompanySelectField,
   CountrySelectField,
+  translateEudrCrudError,
   type CompanySnapshot,
 } from '../../../../components/formConfig'
+import {
+  assertPointAreaWithinLimit,
+  isPolygonGeometry,
+  parsePlotAreaInput,
+  parsePlotGeometryForSubmit,
+} from '../../../../components/plotForm'
 import { GeometryInput } from '../../../../components/GeometryInput'
-import { validatePlotGeometry } from '../../../../lib/geometry'
 
 type PlotRecord = {
   id: string
@@ -61,49 +67,8 @@ function optionalText(value: unknown): string | null {
   return trimmed.length ? trimmed : null
 }
 
-function optionalNumber(value: unknown, translate: ReturnType<typeof useT>): number | null {
-  const text = optionalText(value)
-  if (!text) return null
-  const parsed = Number(text)
-  if (!Number.isFinite(parsed)) {
-    const message = translate('eudr.plots.form.areaHaInvalid')
-    throw createCrudFormError(message, { areaHa: message })
-  }
-  return parsed
-}
-
 function isCompanySnapshot(value: unknown): value is CompanySnapshot {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function parsePlotGeometryInput(raw: unknown, translate: ReturnType<typeof useT>): unknown {
-  if (typeof raw !== 'string' || raw.trim().length === 0) {
-    const message = translate('eudr.errors.geometryRequired')
-    throw createCrudFormError(message, { geometry: message })
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    const message = translate('eudr.errors.geometryInvalid')
-    throw createCrudFormError(message, { geometry: message })
-  }
-  const validation = validatePlotGeometry(parsed)
-  if (!validation.ok) {
-    const message = translate(`eudr.errors.${validation.errorKey}`)
-    throw createCrudFormError(message, { geometry: message })
-  }
-  return parsed
-}
-
-function isPolygonGeometry(raw: unknown): boolean {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return false
-  try {
-    const validation = validatePlotGeometry(JSON.parse(raw))
-    return validation.ok && validation.plotType === 'polygon'
-  } catch {
-    return false
-  }
 }
 
 function formatGeometry(value: unknown): string {
@@ -228,12 +193,13 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
       label: translate('eudr.plots.form.geometry'),
       type: 'custom',
       required: true,
-      component: ({ id, value, setValue, disabled }) => (
+      component: ({ id, value, setValue, values, disabled }) => (
         <GeometryInput
           id={id}
           value={typeof value === 'string' ? value : ''}
           onChange={(nextValue) => setValue(nextValue)}
           disabled={disabled}
+          areaHa={typeof values?.areaHa === 'string' || typeof values?.areaHa === 'number' ? String(values.areaHa) : ''}
         />
       ),
     },
@@ -397,6 +363,9 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
               const message = translate('eudr.plots.form.originCountryRequired')
               throw createCrudFormError(message, { originCountry: message })
             }
+            const { geometry, plotType } = parsePlotGeometryForSubmit(values.geometry, translate)
+            const areaHa = isPolygonGeometry(values.geometry) ? null : parsePlotAreaInput(values.areaHa, translate)
+            assertPointAreaWithinLimit(plotType, areaHa, translate)
             const payload: Record<string, unknown> = {
               id: record.id,
               supplierEntityId,
@@ -404,8 +373,8 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
               name,
               externalId: optionalText(values.externalId),
               originCountry: originCountry.toUpperCase(),
-              geometry: parsePlotGeometryInput(values.geometry, translate),
-              areaHa: isPolygonGeometry(values.geometry) ? null : optionalNumber(values.areaHa, translate),
+              geometry,
+              areaHa,
               producerName: optionalText(values.producerName),
               isActive: values.isActive !== false,
             }
@@ -415,6 +384,8 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
             }
             await updateCrud('eudr/plots', payload, {
               errorMessage: translate('eudr.plots.form.updateError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.plots.form.updateSuccess'), 'success')
             router.push('/backend/eudr/plots')
@@ -422,6 +393,8 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
           onDelete={async () => {
             await deleteCrud('eudr/plots', record.id, {
               errorMessage: translate('eudr.plots.form.deleteError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
           }}
         />

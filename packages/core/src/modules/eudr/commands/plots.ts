@@ -33,7 +33,7 @@ import {
   type PlotCreateInput,
   type PlotUpdateInput,
 } from '../data/validators'
-import { validatePlotGeometry } from '../lib/geometry'
+import { POINT_MAX_AREA_HA, validatePlotGeometry } from '../lib/geometry'
 
 const PLOT_ENTITY_ID = 'eudr:eudr_plot'
 
@@ -158,7 +158,7 @@ function normalizePlotGeometry(input: { geometry: unknown; areaHa?: number | nul
     if (input.areaHa == null || input.areaHa <= 0) {
       throw new CrudHttpError(400, { error: 'eudr.errors.pointAreaRequired' })
     }
-    if (input.areaHa > 4) {
+    if (input.areaHa > POINT_MAX_AREA_HA) {
       throw new CrudHttpError(400, { error: 'eudr.errors.polygonRequired' })
     }
     return {

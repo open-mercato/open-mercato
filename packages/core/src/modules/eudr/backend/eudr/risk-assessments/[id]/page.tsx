@@ -12,8 +12,9 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { StatementSelectField } from '../../../../components/formConfig'
+import { StatementSelectField, translateEudrCrudError } from '../../../../components/formConfig'
 import {
+  RiskConclusionCriteriaWarning,
   RiskCriteriaField,
   type RiskCriteriaEntry,
   type RiskCriteriaValue,
@@ -252,6 +253,14 @@ export default function EditEudrRiskAssessmentPage({ params }: { params?: { id?:
       ],
     },
     {
+      id: 'criteriaWarning',
+      column: 1,
+      bare: true,
+      component: ({ values }) => (
+        <RiskConclusionCriteriaWarning conclusion={values.conclusion} criteria={values.criteria} />
+      ),
+    },
+    {
       id: 'notes',
       title: translate('eudr.common.notes'),
       column: 2,
@@ -347,6 +356,8 @@ export default function EditEudrRiskAssessmentPage({ params }: { params?: { id?:
               notes: optionalText(values.notes),
             }, {
               errorMessage: translate('eudr.riskAssessments.form.updateError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.riskAssessments.form.updateSuccess'), 'success')
             router.push('/backend/eudr/risk-assessments')
@@ -354,24 +365,41 @@ export default function EditEudrRiskAssessmentPage({ params }: { params?: { id?:
           onDelete={async () => {
             await deleteCrud('eudr/risk-assessments', record.id, {
               errorMessage: translate('eudr.riskAssessments.form.deleteError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
           }}
         />
 
         <section className="space-y-3 rounded-lg border border-border bg-card p-4">
           <h2 className="text-lg font-semibold">{translate('eudr.riskAssessments.computed.title')}</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge variant={riskConclusionBadgeVariant(record.conclusion)} dot>
-              {translate(`eudr.conclusion.${record.conclusion}`)}
-            </StatusBadge>
-            <StatusBadge variant={riskTierBadgeVariant(record.overallTier)}>
-              {translate(`eudr.riskTier.${record.overallTier}`)}
-            </StatusBadge>
-            <StatusBadge variant={record.isSimplified ? 'success' : 'neutral'}>
-              {record.isSimplified
-                ? translate('eudr.riskAssessments.computed.simplified')
-                : translate('eudr.riskAssessments.computed.fullDueDiligence')}
-            </StatusBadge>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {translate('eudr.riskAssessments.computed.conclusionLabel')}
+              </span>
+              <StatusBadge variant={riskConclusionBadgeVariant(record.conclusion)} dot>
+                {translate(`eudr.conclusion.${record.conclusion}`)}
+              </StatusBadge>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {translate('eudr.riskAssessments.computed.overallTierLabel')}
+              </span>
+              <StatusBadge variant={riskTierBadgeVariant(record.overallTier)}>
+                {translate(`eudr.riskTier.${record.overallTier}`)}
+              </StatusBadge>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {translate('eudr.riskAssessments.computed.dueDiligenceLabel')}
+              </span>
+              <StatusBadge variant={record.isSimplified ? 'success' : 'neutral'}>
+                {record.isSimplified
+                  ? translate('eudr.riskAssessments.computed.simplified')
+                  : translate('eudr.riskAssessments.computed.fullDueDiligence')}
+              </StatusBadge>
+            </div>
           </div>
           {record.countryRisks.length > 0 ? (
             <div className="flex flex-wrap gap-2">

@@ -14,6 +14,7 @@ import {
   ProductSelectField,
   commodityOptions,
   type ProductSnapshot,
+  translateEudrCrudError,
 } from '../../../../components/formConfig'
 import type { EudrCommodity } from '../../../../data/validators'
 
@@ -290,6 +291,8 @@ export default function EditEudrProductMappingPage({ params }: { params?: { id?:
               productSnapshot: isProductSnapshot(values.productSnapshot) ? values.productSnapshot : null,
             }, {
               errorMessage: translate('eudr.productMappings.form.updateError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             flash(translate('eudr.productMappings.form.updateSuccess'), 'success')
             router.push('/backend/eudr/product-mappings')
@@ -297,6 +300,8 @@ export default function EditEudrProductMappingPage({ params }: { params?: { id?:
           onDelete={async () => {
             await deleteCrud('eudr/product-mappings', record.id, {
               errorMessage: translate('eudr.productMappings.form.deleteError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
           }}
         />

@@ -61,11 +61,11 @@ export function riskConclusionBadgeVariant(conclusion: string | null | undefined
   return 'neutral'
 }
 
-function formatDate(value: string | null | undefined, emptyLabel: string): string {
+function formatDate(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(locale || undefined)
 }
 
 function isOverdue(value: string | null | undefined): boolean {
@@ -130,7 +130,7 @@ export function StatementRiskSection({
     {
       accessorKey: 'assessedAt',
       header: translate('eudr.risk.history.columns.assessedAt'),
-      cell: ({ row }) => formatDate(row.original.assessedAt, translate('eudr.common.empty')),
+      cell: ({ row }) => formatDate(row.original.assessedAt, translate('eudr.common.empty'), locale),
     },
     {
       accessorKey: 'conclusion',
@@ -150,7 +150,7 @@ export function StatementRiskSection({
         </StatusBadge>
       ),
     },
-  ], [translate])
+  ], [locale, translate])
 
   return (
     <section className="space-y-4 rounded-lg border border-border bg-card p-4">
@@ -191,7 +191,7 @@ export function StatementRiskSection({
             ) : null}
             <span className="text-sm text-muted-foreground">
               {translate('eudr.risk.reviewDueAt', {
-                date: formatDate(latestRisk.reviewDueAt, translate('eudr.common.empty')),
+                date: formatDate(latestRisk.reviewDueAt, translate('eudr.common.empty'), locale),
               })}
             </span>
           </div>

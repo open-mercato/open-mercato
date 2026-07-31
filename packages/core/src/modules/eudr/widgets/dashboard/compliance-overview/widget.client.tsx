@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -52,10 +52,10 @@ async function loadOverview(): Promise<ComplianceOverview> {
   return call.result
 }
 
-function formatDeadlineDate(value: string): string {
+function formatDeadlineDate(value: string, locale: string): string {
   const date = new Date(`${value}T00:00:00.000Z`)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(locale || undefined)
 }
 
 function formatCompleteness(value: number | null, t: Translate): string {
@@ -141,6 +141,7 @@ const EudrComplianceOverviewWidget: React.FC<DashboardWidgetComponentProps<EudrC
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [overview, setOverview] = React.useState<ComplianceOverview | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -191,7 +192,7 @@ const EudrComplianceOverviewWidget: React.FC<DashboardWidgetComponentProps<EudrC
     )
   }
 
-  const deadlineDate = formatDeadlineDate(overview.deadline.date)
+  const deadlineDate = formatDeadlineDate(overview.deadline.date, locale)
 
   return (
     <div className="space-y-4">

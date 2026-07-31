@@ -25,6 +25,8 @@ const MAX_IMPORT_SIZE = 1_048_576
 const MAX_FEATURE_COLLECTION_FEATURES = 500
 const EARTH_RADIUS_METERS = 6_371_008.8
 
+export const POINT_MAX_AREA_HA = 4
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

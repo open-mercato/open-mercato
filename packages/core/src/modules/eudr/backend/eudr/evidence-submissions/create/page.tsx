@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
@@ -20,6 +20,7 @@ import {
   parseGeolocationInput,
   submissionStatusOptions,
   type CompanySnapshot,
+  translateEudrCrudError,
 } from '../../../../components/formConfig'
 
 type EvidenceSubmissionFormValues = {
@@ -104,6 +105,8 @@ function EvidenceAdvancedFields({
 export default function CreateEudrEvidenceSubmissionPage() {
   const translate = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const prefilledStatementId = searchParams.get('statementId') ?? ''
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -320,7 +323,7 @@ export default function CreateEudrEvidenceSubmissionPage() {
             supplierSnapshot: null,
             commodity: '',
             productMappingId: '',
-            statementId: '',
+            statementId: prefilledStatementId,
             plotIds: [],
             originCountry: '',
             geolocation: '',
@@ -361,6 +364,8 @@ export default function CreateEudrEvidenceSubmissionPage() {
               notes: optionalText(values.notes),
             }, {
               errorMessage: translate('eudr.evidenceSubmissions.form.createError'),
+            }).catch((err) => {
+              throw translateEudrCrudError(err, translate)
             })
             const createdId = optionalText(call.result?.id)
             if (createdId) {

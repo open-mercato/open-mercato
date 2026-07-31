@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { KpiCard } from '@open-mercato/ui/backend/charts'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
@@ -23,6 +23,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Download } from 'lucide-react'
 import type { AnnualReport } from '../../lib/annual-report'
+import { translatePlural } from '../../lib/plural'
 
 type StatusCounts = Record<string, number>
 
@@ -68,22 +69,22 @@ const STATEMENT_STATUSES = ['draft', 'submitted', 'available', 'withdrawn', 'arc
 const CURRENT_REPORT_YEAR = new Date().getUTCFullYear()
 const REPORT_YEARS = Array.from({ length: 6 }, (_, index) => CURRENT_REPORT_YEAR - index)
 
-function formatDeadlineDate(value: string): string {
+function formatDeadlineDate(value: string, locale: string): string {
   const date = new Date(`${value}T00:00:00.000Z`)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(locale || undefined)
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(locale || undefined)
 }
 
-function formatDateTime(value: string): string {
+function formatDateTime(value: string, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
+  return date.toLocaleString(locale || undefined)
 }
 
 function isPastDue(value: string): boolean {
@@ -100,10 +101,10 @@ function QueueRow({ href, label, meta, metaClassName }: {
   return (
     <Link
       href={href}
-      className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-muted/50"
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-sm hover:bg-muted/50"
     >
-      <span className="truncate font-medium">{label}</span>
-      <span className={`shrink-0 text-xs ${metaClassName ?? 'text-muted-foreground'}`}>{meta}</span>
+      <span className="min-w-0 flex-1 basis-1/2 truncate font-medium">{label}</span>
+      <span className={`min-w-0 max-w-full break-words text-xs ${metaClassName ?? 'text-muted-foreground'}`}>{meta}</span>
     </Link>
   )
 }
@@ -134,6 +135,7 @@ function QueueCard({ title, href, emptyLabel, children }: {
 
 function AnnualReportCard({ scopeVersion }: { scopeVersion: number }) {
   const translate = useT()
+  const locale = useLocale()
   const [year, setYear] = React.useState(CURRENT_REPORT_YEAR)
   const [report, setReport] = React.useState<AnnualReport | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -232,8 +234,8 @@ function AnnualReportCard({ scopeVersion }: { scopeVersion: number }) {
         ) : report && report.statements.total > 0 ? (
           <p className="text-sm text-muted-foreground">
             {translate('eudr.annualReport.totals', {
-              statements: report.statements.total,
-              commodities: report.statements.byCommodity.length,
+              statements: translatePlural(translate, locale, 'eudr.annualReport.statementsCount', report.statements.total),
+              commodities: translatePlural(translate, locale, 'eudr.annualReport.commoditiesCount', report.statements.byCommodity.length),
             })}
           </p>
         ) : (
@@ -271,6 +273,7 @@ function AnnualReportCard({ scopeVersion }: { scopeVersion: number }) {
 
 export default function EudrOverviewPage() {
   const translate = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const [overview, setOverview] = React.useState<ComplianceOverview | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -333,7 +336,7 @@ export default function EudrOverviewPage() {
             <Badge variant="warning">
               {translate('eudr.overview.deadlineCountdown', {
                 daysLeft: overview.deadline.daysLeft,
-                date: formatDeadlineDate(overview.deadline.date),
+                date: formatDeadlineDate(overview.deadline.date, locale),
               })}
             </Badge>
           </div>
@@ -425,7 +428,7 @@ export default function EudrOverviewPage() {
                     key={item.id}
                     href={item.url}
                     label={item.label ?? recordUnavailableLabel}
-                    meta={formatDate(item.dueAt)}
+                    meta={formatDate(item.dueAt, locale)}
                     metaClassName={isPastDue(item.dueAt) ? 'text-status-warning-text' : undefined}
                   />
                 ))}
@@ -442,7 +445,7 @@ export default function EudrOverviewPage() {
                     key={item.id}
                     href={item.url}
                     label={item.label}
-                    meta={translate('eudr.overview.queues.amendWindow.expires', { date: formatDateTime(item.expiresAt) })}
+                    meta={translate('eudr.overview.queues.amendWindow.expires', { date: formatDateTime(item.expiresAt, locale) })}
                   />
                 ))}
               </QueueCard>

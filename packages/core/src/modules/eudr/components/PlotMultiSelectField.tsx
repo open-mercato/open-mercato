@@ -11,6 +11,7 @@ import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/in
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { PICKER_PAGE_SIZE } from './formConfig'
+import { translatePlural } from '../lib/plural'
 
 type PlotOption = {
   id: string
@@ -180,7 +181,7 @@ export function PlotMultiSelectField({
         <>
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              {translate('eudr.evidenceSubmissions.form.plotsSelectedCount', { count: selectedPlotIds.length })}
+              {translatePlural(translate, locale, 'eudr.evidenceSubmissions.form.plotsSelectedCount', selectedPlotIds.length)}
             </p>
             <Button
               type="button"

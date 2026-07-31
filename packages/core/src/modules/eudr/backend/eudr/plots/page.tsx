@@ -69,11 +69,11 @@ function supplierName(row: PlotRow, unavailableLabel: string): string {
   return row.supplierEntityId ? unavailableLabel : ''
 }
 
-function formatDateTime(value: string | null | undefined, emptyLabel: string): string {
+function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString()
+  return date.toLocaleString(locale || undefined)
 }
 
 function formatArea(value: number | string | null | undefined, emptyLabel: string): string {
@@ -302,7 +302,7 @@ export default function EudrPlotsPage() {
     {
       accessorKey: 'updatedAt',
       header: translate('eudr.plots.list.columns.updatedAt'),
-      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty')),
+      cell: ({ row }) => formatDateTime(row.original.updatedAt, translate('eudr.common.empty'), locale),
     },
   ], [locale, translate])
 
