@@ -559,7 +559,17 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
 }
 
 export function buildDocumentOpenApi(binding: DocumentBinding) {
-  const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
+  // The payment-ledger keys exist on the runtime schema only so a supplied value
+  // is rejected with an actionable message instead of silently dropped (#4695);
+  // they are not part of the documented create surface.
+  const createSchema =
+    binding.kind === 'order'
+      ? orderCreateSchema.omit({
+          paidTotalAmount: true,
+          refundedTotalAmount: true,
+          outstandingAmount: true,
+        })
+      : quoteCreateSchema
   const itemSchema = z.object({
     id: z.string().uuid(),
     [binding.numberField]: z.string().nullable(),

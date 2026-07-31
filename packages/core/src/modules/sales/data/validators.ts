@@ -624,6 +624,38 @@ export const quoteAdjustmentUpdateSchema = z
   })
   .merge(quoteAdjustmentCreateSchema.partial())
 
+// An order's payment ledger is a projection of its recorded payments:
+// `recomputeOrderPaymentTotals` (commands/payments.ts) sums the SalesPayment /
+// SalesPaymentAllocation rows and overwrites these three columns on every
+// payment create, update, delete and refund. A value supplied on the document
+// itself has no payment rows behind it, so the next payment touch silently
+// erases it — the order would report a balance its payment history contradicts.
+// Document commands therefore reject them instead of accepting a second,
+// unreconciled source of truth (#4695). Record payments with
+// `sales.payments.create` / `POST /api/sales/payments`.
+export const ORDER_PAYMENT_LEDGER_FIELDS = [
+  'paidTotalAmount',
+  'refundedTotalAmount',
+  'outstandingAmount',
+] as const
+
+export const ORDER_PAYMENT_LEDGER_INPUT_MESSAGE =
+  'Order payment totals are derived from recorded payments and cannot be set on the order. Record a payment instead (POST /api/sales/payments).'
+
+// `z.never()` rather than an omitted key: an undeclared key is stripped silently,
+// which is the bug being fixed. Declaring it rejects any supplied value —
+// including 0 and null — with the message above on that field's path, and makes
+// it a compile error for TypeScript callers. `buildDocumentOpenApi` omits these
+// keys so the documented create surface stays accurate.
+const rejectedPaymentLedgerField = () =>
+  z.never({ error: ORDER_PAYMENT_LEDGER_INPUT_MESSAGE }).optional()
+
+const orderPaymentLedgerShape = {
+  paidTotalAmount: rejectedPaymentLedgerField(),
+  refundedTotalAmount: rejectedPaymentLedgerField(),
+  outstandingAmount: rejectedPaymentLedgerField(),
+}
+
 const orderTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
@@ -634,9 +666,6 @@ const orderTotalsSchema = z.object({
   surchargeTotalAmount: decimal({ min: 0 }).optional(),
   grandTotalNetAmount: decimal({ min: 0 }).optional(),
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
-  paidTotalAmount: decimal({ min: 0 }).optional(),
-  refundedTotalAmount: decimal({ min: 0 }).optional(),
-  outstandingAmount: decimal().optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
 
@@ -690,6 +719,7 @@ export const orderCreateSchema = scoped.extend({
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
   ...orderTotalsSchema.shape,
+  ...orderPaymentLedgerShape,
 })
 
 export const orderUpdateSchema = z

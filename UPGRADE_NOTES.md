@@ -50,6 +50,14 @@ Scheduler-owned `tenantId`/`organizationId`/`_idempotencyKey` are applied after 
 
 **Action for downstream:** workers written to the documented flat contract need no change and now also work under the local scheduler. A worker that relied on the undocumented local envelope (reading `job.payload.payload.*` or `scheduleId`/`scheduleName`/`triggeredAt` from the payload) must switch to the flat fields; include any identifiers it needs in `targetPayload` when registering the schedule.
 
+### Order creation rejects payment totals instead of discarding them (#4695)
+
+`orderCreateSchema` declared `paidTotalAmount`, `refundedTotalAmount` and `outstandingAmount`, so `sales.orders.create` (and `POST /api/sales/orders`) validated them — and then built the order with the ledger hardcoded to `"0"` and recomputed the totals from those zeros. A caller creating a 100.00 order with `paidTotalAmount: 100` got `paid_total_amount 0` and `outstanding_amount 100` back, with no error, warning or log.
+
+These three columns are a projection of the order's payments: `recomputeOrderPaymentTotals` rebuilds them from the `SalesPayment` / `SalesPaymentAllocation` rows on every payment create, update, delete and refund. A value seeded on the document has no payment rows behind it, so the next payment touch overwrites it — honouring the input would have created a second, unreconciled source of truth that silently loses to the first payment. The create surface now rejects them: supplying any of the three (including `0` or `null`) fails validation with `Order payment totals are derived from recorded payments and cannot be set on the order. Record a payment instead (POST /api/sales/payments).` on that field's path, which the CRUD factory returns as a `400`. The documented OpenAPI create schema no longer lists the three keys. `documentUpdateSchema` never declared them and is unchanged.
+
+**Action for downstream:** callers that never sent these fields are unaffected — an order still starts unpaid and its outstanding balance is the grand total. A caller that echoed a full order payload back into `POST /api/sales/orders` (including a `paidTotalAmount: 0` read from a GET) must drop the three keys from the create body; it was already receiving a zeroed ledger, so no behavior it relied on is lost. To create an already-settled order, create the order and then record its payment with `sales.payments.create` / `POST /api/sales/payments`, which recomputes the ledger from the payment rows.
+
 ## 0.6.5 → 0.6.6 (unreleased)
 
 ### Standalone apps: optimistic-lock guard restored; `src/di.ts` now requires explicit bootstrap wiring (#4201)
