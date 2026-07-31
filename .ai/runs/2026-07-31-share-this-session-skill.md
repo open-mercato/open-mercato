@@ -67,9 +67,9 @@ PR: #4756
 
 ### Phase 2: Public publication contract and installation
 
-- [ ] 2.1 Add guarded atomic public-session branch operations to both tracker descriptors
-- [ ] 2.2 Register and mirror the skill in monorepo and standalone default tiers/catalogs
-- [ ] 2.3 Wire both standalone copy pipelines and add parity/install assertions
+- [x] 2.1 Add guarded atomic public-session branch operations to both tracker descriptors — 2b6c45cbb
+- [x] 2.2 Register and mirror the skill in monorepo and standalone default tiers/catalogs — 6d4941bfe
+- [x] 2.3 Wire both standalone copy pipelines and add parity/install assertions — 6d4941bfe
 
 ### Phase 3: Validation and publication
 
