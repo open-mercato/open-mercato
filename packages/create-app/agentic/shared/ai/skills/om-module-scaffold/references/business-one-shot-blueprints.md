@@ -45,7 +45,9 @@ The required procedures plus this bounded contract resolve the library slice's f
 - Keep the first implementation bounded to the required Books vertical slice. Use one `commands/books.ts` with typed `CommandHandler<Input, Result>` objects and keep every transaction, lock, undo, reset-map, and side-effect call inside its owning exported command object—do not hide oracle-significant behavior in shared helpers. Avoid optional locales, standalone widget/event/enricher files, or extra entities until the required slice generates, tests, and typechecks.
 - Do not guess imports or add unsupported convenience options. In particular, `features` needs no invented ACL type, a CRUD list has no `find`, `response` is a callback rather than a schema, `useConfirmDialog` comes from `@open-mercato/ui/backend/confirm-dialog`, and search checksum data is the inline `checksumSource` object rather than a helper import. Re-open the exact reference for any remaining signature before writing it.
 - A current `CommandHandler<Input, Result>` implements `execute(input, ctx)` and returns `Result` directly. It captures undo state with `prepare(input, ctx)`, `captureAfter(input, result, ctx)`, and `buildLog({ result, snapshots })`; never destructure `{ input, ctx }` in `execute` or return `{ result, undo }`. Lock with `enforceCommandOptimisticLock({ resourceKind, resourceId, current, expected, request: ctx.request })`.
+- Treat every lifecycle signature as a compile-time contract, not pseudocode. Use method syntax exactly as shown below: `async prepare(input, ctx)`, `async execute(input, ctx)`, and `async captureAfter(input, result, ctx)`. The only lifecycle callback that receives an object containing `input` is `buildLog({ input, result, ctx, snapshots })`; `undo` receives `{ input, ctx, logEntry }`. Never write `execute: async ({ input, ctx })`, `prepare: async ({ input, ctx })`, or `captureAfter: async ({ result })`.
 - Import only `loadCustomFieldSnapshot` and `buildCustomFieldResetMap` from `@open-mercato/shared/lib/commands/customFieldSnapshots`; call the former with `(em, { entityId, recordId, tenantId, organizationId })`. Persist through `dataEngine.setCustomFields({ entityId, recordId, tenantId, organizationId, values, notify: false })`; there is no shared `lib/data/custom-fields` helper and UI-only `collectCustomFieldValues` never belongs in a command.
+- Normalize command-side `Record<string, unknown>` custom-field payloads with `normalizeCustomFieldValues` from `@open-mercato/shared/lib/commands/helpers` before passing them to `dataEngine.setCustomFields`; do not cast an unknown-valued record to satisfy its primitive-value contract.
 - The concrete direct-book finder calls `findOneWithDecryption(em, Book, { id, tenant_id, organization_id }, undefined, { tenantId, organizationId })` and rejects null. Do not attach a decryption finder to `makeCrudRoute`; its QueryEngine already decrypts the list.
 - Import `Input` from `@open-mercato/ui/primitives/input` and use shared `Input`, `Button`, and `Alert` primitives for any filter/retry controls—never raw `<input>` or `<button>`. Do not create any test outside `commands/__tests__/` until typecheck is green; avoid speculative API tests, and express database uniqueness in the reviewed migration rather than an unsupported `unique` option on `@Index`.
 
@@ -69,12 +71,14 @@ export const updateBook: CommandHandler<UpdateInput, Result> = {
   async prepare(input, ctx) { /* return { before } */ },
   async execute(input, ctx) { /* mutate atomically; return { id, updatedAt } */ },
   async captureAfter(input, result, ctx) { /* return after snapshot */ },
-  buildLog({ result, snapshots }) { /* store snapshots in payload.undo */ },
-  async undo({ logEntry, ctx }) { /* extract payload, call buildCustomFieldResetMap, restore, emit undo effects */ },
+  buildLog({ input, result, ctx, snapshots }) { /* store snapshots in payload.undo */ },
+  async undo({ input, ctx, logEntry }) { /* extract payload, call buildCustomFieldResetMap, restore, emit undo effects */ },
 }
 ```
 
-Create and delete use the same lifecycle signatures. Delete undo must call `buildCustomFieldResetMap` inside the delete command before restoring custom fields; create/update/delete undo each call `extractUndoPayload` and `emitCrudUndoSideEffects` inside their own object.
+Create and delete use these exact same lifecycle signatures; do not convert any of them to single-argument arrow callbacks. Delete undo must call `buildCustomFieldResetMap` inside the delete command before restoring custom fields; create/update/delete undo each call `extractUndoPayload` and `emitCrudUndoSideEffects` inside their own object.
+
+Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic mentioning a lifecycle property on the input type (for example, “Property 'input' does not exist on type …”) proves a callback was incorrectly destructured: repair all create/update/delete callbacks to the method signatures above and rerun until the typecheck is silent. Then run the command test; a written-but-unchecked module is not complete.
 
 ## Customers and CRM
 

@@ -178,12 +178,18 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
     '`CommandHandler<Input, Result>`',
     '`@open-mercato\/ui\/backend\/confirm-dialog`',
     '`execute(input, ctx)`',
+    '`async prepare(input, ctx)`',
+    '`async captureAfter(input, result, ctx)`',
+    '`undo` receives `{ input, ctx, logEntry }`',
+    'Never write `execute: async ({ input, ctx })`',
     '`dataEngine.setCustomFields({ entityId, recordId, tenantId, organizationId, values, notify: false })`',
+    '`normalizeCustomFieldValues`',
     '`findOneWithDecryption(em, Book, { id, tenant_id, organization_id }, undefined, { tenantId, organizationId })`',
     'shared `Input`, `Button`, and `Alert`',
     '`@open-mercato\/ui\/primitives\/input`',
     'async execute(input, ctx)',
     'Delete undo must call `buildCustomFieldResetMap`',
+    '`yarn generate` and then `yarn typecheck`',
   ]) assert.ok(blueprint.includes(expected), `missing complete-library contract ${expected}`)
   assert.match(blueprint, /Do not create any test outside `commands\/__tests__\/`/)
   assert.match(blueprint, /do not hide oracle-significant behavior in shared helpers/)
