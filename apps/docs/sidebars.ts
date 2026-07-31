@@ -185,7 +185,15 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/module-dependencies", "architecture/configuration-decision-guide", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
+      items: [
+        "architecture/system-overview",
+        "architecture/module-dependencies",
+        "architecture/configuration-decision-guide",
+        "architecture/generators",
+        "architecture/standalone-ai-development-harness",
+        "architecture/cache-cli",
+        "architecture/data-encryption",
+      ],
     },
     {
       type: "category",

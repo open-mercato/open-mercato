@@ -66,6 +66,7 @@ test('every file a template script references is shipped by the template', () =>
 
 test('lint does not use `next lint` (removed in Next 16) and a flat config ships', () => {
   const scripts = readScripts()
+  const eslintConfig = fs.readFileSync(new URL('eslint.config.mjs', TEMPLATE_DIR), 'utf8')
   assert.ok(scripts.lint, 'template must define a lint script')
   assert.ok(
     !/\bnext\s+lint\b/.test(scripts.lint),
@@ -74,6 +75,11 @@ test('lint does not use `next lint` (removed in Next 16) and a flat config ships
   assert.ok(
     fs.existsSync(new URL('eslint.config.mjs', TEMPLATE_DIR)),
     'template must ship an eslint.config.mjs so `yarn lint` works out of the box',
+  )
+  assert.match(
+    eslintConfig,
+    /['"]\.ai\/framework-context\/\*\*['"]/,
+    'materialized read-only framework source must stay outside the app lint scope',
   )
 })
 
@@ -111,4 +117,21 @@ test('install-skills is a successful no-op before agentic setup', () => {
 
   assert.equal(result.status, 0, result.stderr || result.stdout)
   assert.match(result.stdout, /mercato agentic:init/)
+})
+
+test('agentic operational placeholders fail closed with actionable setup guidance', () => {
+  for (const script of [
+    'evaluate-agent-harness.mjs',
+    'framework-context.mjs',
+    'prepare-agent-harness-fixture.mjs',
+    'run-agent-harness-release.mjs',
+  ]) {
+    const result = spawnSync(process.execPath, [`scripts/${script}`], {
+      cwd: fileURLToPath(TEMPLATE_DIR),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 2, `${script}: ${result.stderr || result.stdout}`)
+    assert.match(result.stderr, /mercato agentic:init/, `${script} must explain how to install the agentic harness`)
+  }
 })

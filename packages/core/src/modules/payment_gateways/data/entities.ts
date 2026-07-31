@@ -6,7 +6,7 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
 @Index({ properties: ['providerKey', 'providerSessionId', 'organizationId'] })
 @Index({ properties: ['organizationId', 'tenantId', 'unifiedStatus'] })
 export class GatewayTransaction {
-  [OptionalProps]?: 'unifiedStatus' | 'gatewayStatus' | 'providerSessionId' | 'gatewayPaymentId' | 'gatewayRefundId' | 'redirectUrl' | 'clientSecret' | 'gatewayMetadata' | 'webhookLog' | 'lastWebhookAt' | 'lastPolledAt' | 'expiresAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'unifiedStatus' | 'gatewayStatus' | 'providerSessionId' | 'gatewayPaymentId' | 'gatewayRefundId' | 'redirectUrl' | 'clientSecret' | 'capturedAmount' | 'gatewayMetadata' | 'webhookLog' | 'lastWebhookAt' | 'lastPolledAt' | 'expiresAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -40,6 +40,9 @@ export class GatewayTransaction {
 
   @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4 })
   amount!: string
+
+  @Property({ name: 'captured_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  capturedAmount: string = '0'
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -83,7 +86,7 @@ export class GatewayTransaction {
 @Index({ properties: ['transactionId', 'operationType', 'organizationId', 'tenantId'] })
 @Index({ properties: ['status', 'leaseExpiresAt'] })
 export class GatewayPaymentOperation {
-  [OptionalProps]?: 'status' | 'attemptCount' | 'result' | 'leaseExpiresAt' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'status' | 'attemptCount' | 'result' | 'reservedAmount' | 'leaseExpiresAt' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -117,6 +120,9 @@ export class GatewayPaymentOperation {
 
   @Property({ name: 'result', type: 'jsonb', nullable: true })
   result?: Record<string, unknown> | null
+
+  @Property({ name: 'reserved_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  reservedAmount?: string | null
 
   @Property({ name: 'lease_expires_at', type: Date, nullable: true })
   leaseExpiresAt?: Date | null
