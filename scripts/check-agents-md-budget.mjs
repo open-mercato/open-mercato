@@ -90,7 +90,7 @@ export function analyze(root, baseline) {
   if (rootBytes === null) throw new Error(`Missing ${INSTRUCTION_FILE} in ${root}`)
 
   const chains = Object.keys(baseline.chains)
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .map((chainDir) => {
       const files = collectChainFiles(root, chainDir)
       const bytes = files.reduce((total, file) => total + file.bytes, 0)
