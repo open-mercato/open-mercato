@@ -11,6 +11,7 @@ Prevent large standalone-app requests from bypassing `om-spec-writing`, producin
 - Carry the stronger business/domain/architecture checks from the monorepo spec templates into the standalone template, and require cited native page references, semantic tokens, light/dark coverage, and explicit approval for custom UI exceptions.
 - Tighten the local `om-implement-spec` phase reference and add a standalone `om-auto-implement-spec` override for no-remote fallback behavior.
 - Add regression assertions to the create-app harness tests.
+- Restore two WMS locale entries already referenced by the baseline UI when the mandatory locale-usage gate exposes the drift; this is validation-only and does not change WMS behavior.
 
 ## Non-goals
 

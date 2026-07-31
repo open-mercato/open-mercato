@@ -378,6 +378,7 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
   const requiredSections = [
     '## Goals',
     '## Non-goals',
+    '## Proposed Solution',
     '## Users, Permissions, and Scope',
     '## Domain Vocabulary and Business Rules',
     '## Reuse and Ownership Map',
@@ -405,7 +406,7 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     'light-mode, and dark-mode states',
     'Only the current phase may enter implementation',
     'self-contained integration coverage',
-    '## Final Readiness and Compliance Report',
+    '## Final Compliance Report',
     'Status: Ready for implementation',
   ]) {
     assert.ok(specTemplate.includes(contract), `The standalone spec template must retain: ${contract}`)

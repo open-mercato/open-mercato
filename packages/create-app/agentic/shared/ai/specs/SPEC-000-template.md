@@ -29,6 +29,16 @@
 
 - {Explicitly excluded behavior, module, integration, or migration.}
 
+## Proposed Solution
+
+{Describe the product and technical approach, how it closes each stated problem, and why it is the smallest platform-native solution that can deliver the goals.}
+
+### Design Decisions and Alternatives
+
+| Decision | Rationale | Alternative considered | Why rejected / deferred |
+|---|---|---|---|
+| {choice} | {why it fits the requirements and platform} | {alternative} | {tradeoff} |
+
 ## Domain Vocabulary and Business Rules
 
 | Term / invariant | Precise meaning or rule | Source of truth | Failure behavior |
@@ -213,7 +223,7 @@ Cover data integrity and concurrency, cascading/event failures, tenant isolation
 - [ ] Every listed backend surface matches its recorded Open Mercato reference and uses the canonical shell/components, shared API helpers, semantic tokens, and complete loading, empty, error, conflict, keyboard, accessibility, responsive, light-mode, and dark-mode states.
 - [ ] Every affected API and UI path has self-contained integration coverage and the configured validation gate passes.
 
-## Final Readiness and Compliance Report
+## Final Compliance Report
 
 | Check | Status | Evidence / resolution |
 |---|---|---|
