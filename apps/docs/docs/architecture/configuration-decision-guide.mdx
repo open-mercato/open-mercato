@@ -10,7 +10,7 @@ Open Mercato has five ways to make behaviour configurable. They overlap, and pic
 Work through these in order and stop at the first match.
 
 1. **Does only the person who operates the deployment decide it, and should it never vary per tenant?** → [Environment variable](#environment-variables). Timeouts, credentials, cache and profiling switches, infrastructure endpoints.
-2. **Does this installation not ship the capability at all?** → [`modules.ts` overrides](#modulests-overrides). Build-time removal of a route, agent, widget, subscriber, or ACL feature for the whole app.
+2. **Should this installation disable the capability for every tenant at bootstrap?** → [`modules.ts` overrides](#modulests-overrides). App-wide removal of a route, agent, widget, subscriber, or ACL declaration from its runtime registry.
 3. **Is it an on/off (or small typed value) that varies per tenant, and might be read from a client component?** → [Feature toggle](#feature-toggles). UI-surface gating, controlled rollouts, kill switches.
 4. **Is it written by code, for code, with no human ever editing it in a form?** → [Module config](#module-configs). Sync cursors, connector state, cached structural config.
 5. **Is it a business rule a merchant admin would look for under the module's settings page?** → [Domain settings entity](#domain-settings-entities). Numbering formats, editability policy, thresholds with real domain meaning.
@@ -24,11 +24,11 @@ If two answers fit, prefer the earlier one — it is the cheaper and more contai
 | **Scope** | Instance | Instance | Instance default + per-tenant override | Global or per-tenant, with fallback | Per organization + tenant |
 | **Changed by** | Operator, at deploy | App developer, in code | Admin, at runtime | Code | Merchant admin, at runtime |
 | **Takes effect** | Restart | Rebuild / restart | Immediately | Immediately | Immediately |
-| **Admin UI** | — | — | `/backend/feature-toggles` | — | The module's own settings page |
+| **Admin UI** | — | — | `/backend/feature-toggles/global` and `/backend/feature-toggles/overrides` | — | The module's own settings page |
 | **Readable from client components** | No | No (already applied at bootstrap) | Yes | No | Via the module's API |
 | **Typed / validated** | Ad-hoc parsing | TypeScript | boolean / string / number / json | Any JSON, no schema | zod + ORM schema |
 | **Needs a migration** | No | No | No | No | Yes |
-| **Declared by the module** | In the code that reads it | In the app's `modules.ts` | In `defaults.json`, seeded via CLI | In the code that reads it | Entity + command + API |
+| **Declared by the module** | In the code that reads it | In the app's `modules.ts` | Core defaults in `defaults.json`; provisioned via CLI or UI | In the code that reads it | Entity + command + API |
 
 ## Environment variables
 
@@ -58,9 +58,9 @@ export const enabledModules: ModuleEntry[] = [
 ]
 ```
 
-This is the mechanism for building a *thin* installation — one that ships a reduced product footprint. It covers eighteen domains (routes, pages, AI agents and tools, subscribers, workers, widgets, notifications, interceptors, enrichers, guards, CLI commands, setup hooks, ACL features, DI bindings, encryption maps). See [Module overrides](../framework/modules/overrides.mdx) for the full key reference and resolution order.
+This is the mechanism for building a *thin* installation — one with a reduced registered capability surface. It covers eighteen domains (routes, pages, AI agents and tools, subscribers, workers, widgets, notifications, interceptors, enrichers, guards, CLI commands, setup hooks, ACL features, DI bindings, encryption maps). See [Module overrides](../framework/modules/overrides.mdx) for the full key reference and resolution order.
 
-Reach for it instead of a feature toggle when the answer is the same for every tenant on the installation and you would rather the capability not exist than be switchable. It costs nothing at runtime, needs no seeding, and cannot drift.
+Reach for it instead of a feature toggle when the answer is the same for every tenant on the installation and you would rather the capability not be registered than be switchable. It is source-controlled, needs no seeding, and adds no per-request lookup.
 
 > Nulling an `acl.features` entry currently removes the feature from the ACL catalog and the management UI. Work to make a nulled feature runtime-inert for every caller — including wildcard grants and super-admins — is in progress; until it lands, do not rely on `acl.features: null` alone as a security boundary.
 
@@ -73,19 +73,17 @@ Runtime on/off switches (and small typed values) resolved per tenant, with an in
 Server side:
 
 ```ts
-const result = await getFeatureToggleValue('sales_channels_enabled', {
-  tenantId,
-  valueType: 'boolean',
-})
+const service = container.resolve('featureTogglesService') as FeatureTogglesService
+const result = await service.getBoolConfig('sales_channels_enabled', tenantId)
 ```
 
 Client side, `useFeatureFlagBoolean({ id })` and `<FeatureGuard id={...}>` read the same value through `/api/feature_toggles/check/*`.
 
-### Toggles must be seeded
+### Toggles must be provisioned
 
 A toggle with no definition row resolves to `MISSING_TOGGLE`, the check API answers `404`, and the client helpers coerce that to **disabled**. Two consequences:
 
-- Every toggle a module depends on must ship in `packages/core/src/modules/feature_toggles/defaults.json` and be seeded with `yarn mercato feature_toggles seed-defaults`.
+- Every toggle must have a definition row before dependent code runs. Core toggles should ship in `packages/core/src/modules/feature_toggles/defaults.json` and be seeded with `yarn mercato feature_toggles seed-defaults`; third-party definitions currently require explicit operator provisioning.
 - Name toggles so that *missing* is the safe state. Prefer a positive `*_enabled` identifier with `defaultValue: true` over an inverted `disable_*` flag.
 
 Where hiding UI on a failed lookup would be worse than showing it, wrap the check in your own fail-open helper rather than depending on the default coercion — `packages/core/src/modules/sales/lib/salesChannelsToggle.ts` is the reference.
@@ -109,7 +107,7 @@ const cursor = await service.getValue<string>('data_sync', 'akeneo:cursor', {
 await service.setValue('data_sync', 'akeneo:cursor', nextCursor, { tenantId })
 ```
 
-Reads with a `tenantId` resolve the scoped row, then fall back to the global row (`tenant_id IS NULL`); the returned record reports which one answered via `source`. Writes with a `tenantId` only ever touch that tenant's row. Omit `scope` entirely for genuinely instance-global config.
+Reads with a `tenantId` resolve the scoped row, then fall back to the global row (`tenant_id IS NULL`). Use `getRecord` instead of `getValue` when you need the record's `source` field to report which scope answered. Writes with a `tenantId` only ever touch that tenant's row. Omit `scope` entirely for genuinely instance-global config.
 
 Use it for machine-facing state: sync cursors, connector settings, cached structural config, anything written by code rather than typed into a form. It has no admin UI and no client-side read path, so it is the wrong home for anything a human needs to change.
 
@@ -119,7 +117,7 @@ See [configs module](../framework/modules/configs.mdx).
 
 A first-class entity owned by the module, with zod validation, a command for writes, an API, and a settings page. `SalesSettings` behind `/backend/config/sales` is the reference implementation.
 
-Use it when the value is part of the domain model — document numbering formats, order editability rules, policy thresholds — and a merchant admin would expect to find it under the module's own settings. It is the most expensive option (entity, migration, snapshot, command, API, form, translations) and the only one that gets real validation and audit/undo for free.
+Use it when the value is part of the domain model — document numbering formats, order editability rules, policy thresholds — and a merchant admin would expect to find it under the module's own settings. It is the most expensive option (entity, migration, snapshot, command, API, form, translations) and the one that can enforce domain validation and participate in the standard audit/undo patterns. Audit and undo still require the command's explicit `buildLog` and `undo` implementations.
 
 Follow the standard entity workflow: update `data/entities.ts`, run `yarn db:generate`, review the emitted SQL and `migrations/.snapshot-open-mercato.json`. Give the entity an `updated_at` column and return `updatedAt` from its API so optimistic locking works.
 
@@ -134,7 +132,7 @@ Follow the standard entity workflow: update `data/entities.ts`, run `yarn db:gen
 
 A client uses products but has a single sales channel, so the channel picker, column, filter, and management pages are noise for them.
 
-The value varies per tenant, only gates UI surfaces, and has to be read from client components — litmus test step 3, so a **feature toggle**. `sales_channels_enabled` ships in `defaults.json` with `defaultValue: true`; tenant admins override it at `/backend/feature-toggles`. No data-layer change was needed: `channelId` is already nullable and channel-less base prices already resolve.
+The value varies per tenant, only gates UI surfaces, and has to be read from client components — litmus test step 3, so a **feature toggle**. `sales_channels_enabled` ships in `defaults.json` with `defaultValue: true`; tenant admins override it at `/backend/feature-toggles/overrides`. No data-layer change was needed: `channelId` is already nullable and channel-less base prices already resolve.
 
 Two alternatives that would have been wrong:
 
