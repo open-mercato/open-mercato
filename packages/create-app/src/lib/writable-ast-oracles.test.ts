@@ -42,6 +42,16 @@ function stageTarget(relativeFile: string, source: string): string {
   return root
 }
 
+function stageLocaleTarget(source: string, catalogs: Record<string, unknown | string>): string {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', source)
+  const localeDirectory = path.join(root, 'src/modules/library/i18n')
+  fs.mkdirSync(localeDirectory, { recursive: true })
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    fs.writeFileSync(path.join(localeDirectory, `${locale}.json`), typeof catalog === 'string' ? catalog : `${JSON.stringify(catalog)}\n`)
+  }
+  return root
+}
+
 function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessEnv = process.env, caseId = 'OMH-011') {
   const result = spawnSync(process.execPath, [oracle, '--root', root, '--case', caseId, '--phase', phase, '--json'], {
     cwd: root,
@@ -144,6 +154,202 @@ export function BooksPage() {
   try {
     const result = runOracle(root, 'before', process.env, 'OMH-185')
     assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, true)
+    fs.writeFileSync(path.join(root, 'src/modules/library/i18n/de.json'), `${JSON.stringify({
+      library: { books: { title: 'Bücher' }, navigation: { group: 'Bibliothek' } },
+    })}\n`)
+    const missingMetadataResult = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = missingMetadataResult.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /de\.json library\.books\.breadcrumb is missing/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects missing, blank, and non-string locale leaves', () => {
+  const scenarios = [
+    { catalog: { library: { books: {} } }, reason: 'is missing' },
+    { catalog: { library: { books: { title: '   ' } } }, reason: 'is blank' },
+    { catalog: { library: { books: { title: ['Books'] } } }, reason: 'is not a string' },
+  ]
+  for (const scenario of scenarios) {
+    const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`, { en: scenario.catalog })
+    try {
+      const result = runOracle(root, 'before', process.env, 'OMH-185')
+      const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+      assert.equal(localeCheck?.passed, false)
+      assert.match(localeCheck?.requirement ?? '', new RegExp(`en\\.json library\\.books\\.title ${scenario.reason}`))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('the complete module oracle requires sibling parity while excluding shared translation keys', () => {
+  const source = `
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}{t('common.actions.cancel')}</Page>
+}
+`
+  const passingRoot = stageLocaleTarget(source, {
+    en: { library: { books: { title: 'Books' } } },
+    de: { library: { books: { title: 'Bücher' } } },
+  })
+  try {
+    const result = runOracle(passingRoot, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, true)
+  } finally {
+    fs.rmSync(passingRoot, { recursive: true, force: true })
+  }
+
+  const failingRoot = stageLocaleTarget(source, {
+    en: { library: { books: { title: 'Books' } } },
+    de: { library: { books: {} } },
+  })
+  try {
+    const result = runOracle(failingRoot, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /de\.json library\.books\.title is missing/)
+    assert.doesNotMatch(localeCheck?.requirement ?? '', /common\.actions\.cancel/)
+  } finally {
+    fs.rmSync(failingRoot, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects dynamic-only and dangerous module locale keys', () => {
+  const dynamicRoot = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage(name: string) {
+  const t = useT()
+  return <Page>{t(\`library.books.\${name}\`)}</Page>
+}
+`, { en: { library: { books: { title: 'Books' } } } })
+  try {
+    const result = runOracle(dynamicRoot, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /no literal library\./)
+  } finally {
+    fs.rmSync(dynamicRoot, { recursive: true, force: true })
+  }
+
+  const dangerousRoot = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.__proto__.title')}</Page>
+}
+`, { en: '{"library":{"__proto__":{"title":"unsafe"}}}\n' })
+  try {
+    const result = runOracle(dangerousRoot, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /contains a dangerous path segment/)
+  } finally {
+    fs.rmSync(dangerousRoot, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle returns bounded sanitized failures for malformed and excessive locale input', () => {
+  const source = `
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`
+  const scenarios: Array<{ catalogs: Record<string, unknown | string>; expected: RegExp }> = [
+    { catalogs: { en: '{"library":' }, expected: /en\.json contains malformed JSON/ },
+    { catalogs: { en: [] }, expected: /en\.json root is not a plain object/ },
+    { catalogs: { de: { library: { books: { title: 'Bücher' } } } }, expected: /en\.json is missing/ },
+    { catalogs: { en: ' '.repeat(256 * 1024 + 1) }, expected: /en\.json exceeds 262144 bytes/ },
+    {
+      catalogs: Object.fromEntries(['en', ...Array.from({ length: 16 }, (_, index) => `locale-${index}`)]
+        .map((locale) => [locale, { library: { books: { title: 'Books' } } }])),
+      expected: /locale file count exceeds 16/,
+    },
+    {
+      catalogs: Object.fromEntries(['en', ...Array.from({ length: 15 }, (_, index) => `locale-${index}`)]
+        .map((locale) => [locale, `${JSON.stringify({ library: { books: { title: 'Books' } } })}${' '.repeat(70 * 1024)}`])),
+      expected: /locale input exceeds 1048576 total bytes/,
+    },
+  ]
+  for (const scenario of scenarios) {
+    const root = stageLocaleTarget(source, scenario.catalogs)
+    try {
+      const result = runOracle(root, 'before', process.env, 'OMH-185')
+      const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+      assert.equal(localeCheck?.passed, false)
+      assert.match(localeCheck?.requirement ?? '', scenario.expected)
+      assert.doesNotMatch(localeCheck?.requirement ?? '', new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('the complete module oracle bounds literal module locale key extraction', () => {
+  const calls = Array.from({ length: 257 }, (_, index) => `t('library.books.key${index}')`).join('\n  ')
+  const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  ${calls}
+  return <Page />
+}
+`, { en: { library: { books: {} } } })
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /more than 256 literal library\. keys/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle reports a missing locale directory as a structured check failure', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /i18n directory is missing/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects symlinked locale catalogs without leaking absolute paths', { skip: process.platform === 'win32' }, () => {
+  const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`, { en: { library: { books: { title: 'Books' } } } })
+  fs.symlinkSync('en.json', path.join(root, 'src/modules/library/i18n/de.json'))
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /symbolic_link/)
+    assert.doesNotMatch(localeCheck?.requirement ?? '', new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
