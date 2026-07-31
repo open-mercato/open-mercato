@@ -65,6 +65,6 @@ Extend OMH-185's trusted complete-module oracle so literal `library.*` UI and na
 
 ### Phase 3: Synchronization and proof
 
-- [ ] 3.1 Complete malformed, bounds, symlink, and sanitization regression coverage
-- [ ] 3.2 Synchronize OMH-185 generated-review and harness documentation
+- [x] 3.1 Complete malformed, bounds, symlink, and sanitization regression coverage — 2bec5e833
+- [x] 3.2 Synchronize OMH-185 generated-review and harness documentation — 31d22ec61
 - [ ] 3.3 Run focused, deterministic, full repository, and authoritative review gates
