@@ -15,6 +15,19 @@ Load this reference when the user describes a business outcome rather than files
 
 Once a row matches, its route key is binding: invoke every unparenthesized route letter and its skill before implementation. Scalar IDs or snapshots keep modules independent, but they do not remove `U` when the slice still links to, enriches, guards, or renders installed-module behavior. A parenthesized route remains conditional on the parenthesized reason.
 
+## Canonical Staff Record Inference
+
+Business briefs should describe outcomes; translate familiar staff record-management language into the framework's canonical surfaces without making the user name them:
+
+- “Browse/search/filter, add, correct, remove, and recover from mistakes” means a controlled-search `DataTable` with an add link and guarded `RowActions`, backed by `CrudForm` create/edit/delete flows. Preserve `initialValues`, use the documented CRUD helpers, and expose stable DataTable and CrudForm host IDs unless the domain requires a purpose-built interaction.
+- “Extra fields administrators add later must survive create, edit, clear, and reload” means one stable custom-field entity ID across the route and forms, `collectCustomFieldValues` at submission, initial custom-field values on edit, and reset/restore maps during update and delete undo.
+- “Permissions, concurrent editors, audit, all-or-nothing changes, retry, undo, and downstream consistency” means registered create/update/delete commands. Every command owns concrete undo through `extractUndoPayload` and `emitCrudUndoSideEffects`; update and delete each restore custom fields with `buildCustomFieldResetMap`; each multi-part write uses `withAtomicFlush`; update/delete enforce optimistic locking; and event/cache/index effects run only after commit in both forward and undo paths.
+- “Protect sensitive notes” requires both a stable encryption map and scoped read paths through `findWithDecryption`, `findOneWithDecryption`, or `findAndCountWithDecryption`; an encryption declaration alone is incomplete.
+- “Other modules can add fields, columns, actions, or response data later” makes `U` mandatory: publish stable widget/form/table IDs and an intentional API enricher host instead of copying or coupling modules.
+- Activating a new app module is additive. Preserve every statically discoverable baseline entry in `src/modules.ts` and append the new `{ id, from: '@app' }` entry; never rewrite the registry from memory.
+
+Treat this mapping as a completion checklist, not optional examples. Verify each contract in the owning command, read path, form, table, API, and activation file before generation.
+
 ## Customers and CRM
 
 | One-shot business brief | Mechanism | Routes | Smallest complete vertical slice | Key invariants |

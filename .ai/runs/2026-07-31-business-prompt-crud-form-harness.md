@@ -56,7 +56,7 @@ Add OMH-193 as a business-language counterpart to OMH-185 that must produce the 
 
 - [x] 1.1 Add OMH-193 with a business-only library brief and exact OMH-185 outcome-contract parity — 33804a48f5
 - [x] 1.2 Synchronize catalog metadata, fixture/oracle/release registries, focused contract tests, documentation, and the harness spec — 33804a48f5
-- [x] 1.3 Run the schema-valid focused case before any owner change and record sanitized failure evidence — pending progress commit
+- [x] 1.3 Run the schema-valid focused case before any owner change and record sanitized failure evidence — 2bace46392
 
 ### Phase 2: Smallest-owner optimization
 

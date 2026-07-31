@@ -143,6 +143,22 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
+test('business one-shot guidance maps staff record outcomes to canonical complete-module contracts', () => {
+  const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
+  for (const expected of [
+    'controlled-search `DataTable`',
+    '`CrudForm` create/edit/delete flows',
+    '`collectCustomFieldValues`',
+    '`extractUndoPayload`',
+    '`emitCrudUndoSideEffects`',
+    '`buildCustomFieldResetMap`',
+    '`withAtomicFlush`',
+    '`findWithDecryption`',
+    'intentional API enricher host',
+    'Preserve every statically discoverable baseline entry',
+  ]) assert.ok(blueprint.includes(expected), `missing business-to-framework inference ${expected}`)
+})
+
 test('the 193-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
