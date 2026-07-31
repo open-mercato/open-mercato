@@ -48,6 +48,8 @@ Turn the reproducible failures from the July 31 standalone-app session into focu
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
+PR: #4758
+
 ### Phase 1: Standalone template reliability
 
 - [x] 1.1 Force production mode in the generated build script — 7faf316a4
@@ -61,4 +63,4 @@ Turn the reproducible failures from the July 31 standalone-app session into focu
 ### Phase 3: Verification and delivery
 
 - [x] 3.1 Pass focused and full configured validation gates — 8e90b5073
-- [ ] 3.2 Complete authoritative PR review and delivery
+- [x] 3.2 Complete authoritative PR review and delivery — 2ec3b1ada
