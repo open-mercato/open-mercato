@@ -16,6 +16,12 @@ const consentKeys = ['onboarding.form.marketingLabel', 'demoFeedback.form.market
 const controllerName = 'Open Mercato sp. z o.o.'
 const supersededController = 'CT Tornado'
 const registrationIdentifiers = ['0001253104', 'PL8982336029', '545230330']
+const shareCapitalByLocale: Record<string, string> = {
+  de: '80.000,00 PLN',
+  en: 'PLN 80,000.00',
+  es: '80.000,00 PLN',
+  pl: '80 000,00 zł',
+}
 
 describe('marketing consent controller identity', () => {
   for (const [locale, messages] of Object.entries(locales)) {
@@ -36,6 +42,7 @@ describe('marketing consent controller identity', () => {
         for (const identifier of registrationIdentifiers) {
           expect(disclosure).toContain(identifier)
         }
+        expect(disclosure).toContain(shareCapitalByLocale[locale])
       })
     })
   }

@@ -15,8 +15,8 @@ export default function PrivacyPage() {
         a company duly incorporated and existing under the laws of the Republic of Poland, with its principal place of business
         in Wroclaw (address: ul. Wyspa S&#322;odowa 7, 50-266 Wroclaw, Poland; entered in the Register of Entrepreneurs of the
         National Court Register kept by the District Court for Wroc&#322;aw-Fabryczna in Wroclaw, VI Commercial Division of the
-        National Court Register, under KRS no.: 0001253104; REGON: 545230330; NIP (EU VAT) no.: PL8982336029;
-        &ldquo;we&rdquo;) collects, uses, stores, and protects personal data in connection with the services provided through
+        National Court Register, under KRS no.: 0001253104; REGON: 545230330; NIP (EU VAT) no.: PL8982336029; share capital:
+        PLN 80,000.00; &ldquo;we&rdquo;) collects, uses, stores, and protects personal data in connection with the services provided through
         our platform (the &ldquo;<strong>Platform</strong>&rdquo; and &ldquo;<strong>Services</strong>&rdquo;, respectively),
         the browsing of our website at{' '}
         <a href="https://openmercato.com" target="_blank" rel="noreferrer">https://openmercato.com</a>{' '}

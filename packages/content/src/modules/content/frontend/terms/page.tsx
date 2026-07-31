@@ -16,7 +16,8 @@ export default function TermsPage() {
         the laws of the Republic of Poland, with its principal place of business in Wroclaw (address: ul. Wyspa S&#322;odowa 7,
         50-266 Wroclaw, Poland; entered in the Register of Entrepreneurs of the National Court Register kept by the District
         Court for Wroc&#322;aw-Fabryczna in Wroclaw, VI Commercial Division of the National Court Register, under KRS no.:
-        0001253104; REGON: 545230330; NIP (EU VAT) no.: PL8982336029; email address:{' '}
+        0001253104; REGON: 545230330; NIP (EU VAT) no.: PL8982336029; share capital: PLN 80,000.00;
+        email address:{' '}
         <a href="mailto:info@openmercato.com">info@openmercato.com</a>;
         &ldquo;<strong>Open Mercato</strong>&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, and the like) and available at{' '}
         <a href="https://demo.openmercato.com" target="_blank" rel="noreferrer">demo.openmercato.com</a>{' '}

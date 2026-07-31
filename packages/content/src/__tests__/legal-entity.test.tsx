@@ -22,6 +22,7 @@ jest.mock('next/image', () => (props: any) => <img alt={props.alt} {...props} />
 
 const operatorName = 'Open Mercato sp. z o.o.'
 const registrationIdentifiers = ['0001253104', '545230330', 'PL8982336029']
+const shareCapital = 'PLN 80,000.00'
 const supersededIdentity = ['CT Tornado', 'CTT', '873910', 'PL8982262377', 'catchthetornado.com']
 
 const repoRoot = join(__dirname, '..', '..', '..', '..')
@@ -64,6 +65,10 @@ describe.each([
     expect(text).toContain('District Court for Wrocław-Fabryczna')
   })
 
+  it('states the current share capital', () => {
+    expect(text).toContain(shareCapital)
+  })
+
   it('routes contact to the Open Mercato address', () => {
     expect(text).toContain('info@openmercato.com')
   })
@@ -89,5 +94,6 @@ describe('legal documents', () => {
     for (const identifier of registrationIdentifiers) {
       expect(contents).toContain(identifier)
     }
+    expect(contents).toContain(shareCapital)
   })
 })
