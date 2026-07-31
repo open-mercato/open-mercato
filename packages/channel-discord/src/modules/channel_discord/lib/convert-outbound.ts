@@ -2,7 +2,10 @@ import type {
   ChannelNativeContent,
   ConvertOutboundInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DISCORD_MAX_BODY_LENGTH } from './capabilities'
+
+const logger = createLogger('channel_discord').child({ component: 'convert-outbound' })
 
 /**
  * Very small HTML → markdown down-converter for the common inline tags the hub's
@@ -38,8 +41,20 @@ function htmlToMarkdown(html: string): string {
  *   truncated with an ellipsis marker rather than rejected by the API).
  * - `allowed_mentions` defaults to `{ parse: [] }` so an AI/automated reply can
  *   never accidentally @-ping everyone; callers can widen it via `channelMetadata`.
+ * - Attachments are NOT uploaded: `discord-rest` has no multipart upload, so the
+ *   capability profile declares `fileSharing: false` and the hub should never
+ *   route an attachment here. If one arrives anyway we log it rather than drop
+ *   it silently, and report the count in `metadata.droppedAttachmentCount` so the
+ *   caller can surface the gap.
  */
 export async function convertOutboundForDiscord(input: ConvertOutboundInput): Promise<ChannelNativeContent> {
+  const droppedAttachmentCount = input.attachments?.length ?? 0
+  if (droppedAttachmentCount > 0) {
+    logger.warn('discord outbound attachments are not supported — sending text only', {
+      droppedAttachmentCount,
+    })
+  }
+
   const raw = input.body ?? ''
   const markdown = input.bodyFormat === 'html' ? htmlToMarkdown(raw) : raw
 
@@ -59,6 +74,7 @@ export async function convertOutboundForDiscord(input: ConvertOutboundInput): Pr
     },
     metadata: {
       allowedMentions,
+      droppedAttachmentCount,
       // Reply threading: the hub's outbound metadata may carry the id of the
       // Discord message we're replying to.
       messageReferenceId:
