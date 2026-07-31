@@ -162,6 +162,19 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
     "enabledModules.push({ id: '<module>', from: '@app' })",
   ]) assert.ok(blueprint.includes(expected), `missing business-to-framework inference ${expected}`)
   assert.match(blueprint, /do not substitute plausible alternatives/)
+  assert.match(blueprint, /### Complete Library Contract/)
+  for (const expected of [
+    '`library.books.view`',
+    '`library.books.manage`',
+    '`setup: ModuleSetupConfig = { defaultRoleFeatures }`',
+    '`orgField`',
+    '`transformItem`',
+    '`loadCustomFieldSnapshot`',
+    '`@open-mercato\/shared\/lib\/commands\/undo`',
+    '`@open-mercato\/shared\/lib\/encryption\/find`',
+    '`searchConfig`',
+    '`@jest\/globals`',
+  ]) assert.ok(blueprint.includes(expected), `missing complete-library contract ${expected}`)
 })
 
 test('the 193-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {

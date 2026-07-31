@@ -30,6 +30,17 @@ Business briefs should describe outcomes; translate familiar staff record-manage
 
 Treat this mapping as a completion checklist, not optional examples. Verify each contract in the owning command, read path, form, table, API, and activation file before generation.
 
+### Complete Library Contract
+
+When the selected row is the complete library app, do a final source-level check against this bounded contract before generation; do not generalize these library IDs into other domains:
+
+- Export and default-export `features` with exact IDs `library.books.view` and `library.books.manage`. Export `setup: ModuleSetupConfig = { defaultRoleFeatures }`; a detached `defaultRoleFeatures` export is not discovered setup.
+- Use entity ID `library:book`. The `makeCrudRoute` ORM keys are `tenantField` and `orgField`; its list keys are `schema`, `buildFilters`, and `transformItem`. Keep response transforms in supported `response` callbacks, register `library.books.create`, `library.books.update`, and `library.books.delete` with concrete `registerCommand(...)` calls, and use the installed `createCrudOpenApiFactory` signature exactly.
+- Keep custom fields in the framework data engine rather than an entity JSON column. Submission calls `collectCustomFieldValues`; snapshots call `loadCustomFieldSnapshot`; update and delete undo each call `buildCustomFieldResetMap` and restore through `setCustomFields` in the same `withAtomicFlush` boundary.
+- Each command object owns its calls: create/update/delete undo call `extractUndoPayload` from `@open-mercato/shared/lib/commands/undo` and `emitCrudUndoSideEffects`; update/delete execute call the object-form `enforceCommandOptimisticLock`. Direct book reads call a scoped helper from `@open-mercato/shared/lib/encryption/find`.
+- Export `searchConfig` using `fieldPolicy`, `buildSource` with `checksumSource`, `formatResult`, and `resolveUrl`. The list UI connects `searchValue`/`onSearchChange` to the API `search` filter and exposes add, linked edit, and guarded delete actions.
+- Put Jest command/undo proof in `commands/__tests__/` with imports from `@jest/globals`, and put every visible `library.*` key in `i18n/en.json`. Run generation, the focused test, and typecheck; fix every diagnostic instead of leaving a plausible sketch.
+
 ## Customers and CRM
 
 | One-shot business brief | Mechanism | Routes | Smallest complete vertical slice | Key invariants |
