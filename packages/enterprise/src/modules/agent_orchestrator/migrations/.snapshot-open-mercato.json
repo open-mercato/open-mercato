@@ -1524,6 +1524,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "string"
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 200,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
         }
       },
       "indexes": [

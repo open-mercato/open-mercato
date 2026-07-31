@@ -73,6 +73,7 @@ type EvalCaseStatusFilter = 'all' | EvalCaseStatus
 
 type EvalCaseRow = {
   id: string
+  name: string | null
   status: EvalCaseStatus
   processType: string | null
   createdAt: string | null
@@ -130,6 +131,7 @@ function mapCase(item: Record<string, unknown>): EvalCaseRow | null {
   const statusRaw = readString(item, 'status')
   return {
     id,
+    name: readString(item, 'name') || null,
     status: statusRaw === 'approved' ? 'approved' : statusRaw === 'archived' ? 'archived' : 'draft',
     processType: readString(item, 'process_type', 'processType') || null,
     createdAt: readString(item, 'created_at', 'createdAt') || null,
@@ -368,6 +370,18 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
   }, [scoredRuns])
 
   const caseColumns = React.useMemo<ColumnDef<EvalCaseRow>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: t('agent_orchestrator.evalCases.col.name', 'Name'),
+      cell: ({ row }) =>
+        row.original.name ? (
+          <span className="font-medium text-foreground">{row.original.name}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            {t('agent_orchestrator.evalCases.col.unnamed', 'Unnamed case')}
+          </span>
+        ),
+    },
     {
       accessorKey: 'status',
       header: t('agent_orchestrator.evalCases.col.status'),

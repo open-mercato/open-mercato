@@ -1226,6 +1226,7 @@ export type EvalCaseRunListQuery = z.infer<typeof evalCaseRunListQuerySchema>
  */
 export const evalCaseCreateSchema = z.object({
   agentDefinitionId: z.string().min(1).max(100),
+  name: z.string().max(200).nullable().optional(),
   input: z.unknown(),
   expected: z.unknown().optional(),
   processType: z.string().max(100).nullable().optional(),

@@ -24,6 +24,7 @@ const ENTITY_TYPE = 'agent_orchestrator:agent_eval_case'
  */
 export const EVAL_CASE_LIST_FIELDS = [
   'id',
+  'name',
   'status',
   'source_type',
   'source_id',
@@ -65,6 +66,7 @@ const crud = makeCrudRoute<EvalCaseCreateInput, EvalCaseUpdateInput, z.infer<typ
     entityId: ENTITY_TYPE,
     fields: [...EVAL_CASE_LIST_FIELDS],
     sortFieldMap: {
+      name: 'name',
       status: 'status',
       agent: 'agent_definition_id',
       sourceType: 'source_type',
@@ -140,6 +142,7 @@ export const PUT = crud.PUT
 
 const evalCaseListItemSchema = z.object({
   id: z.string().uuid(),
+  name: z.string().nullable().optional(),
   status: z.string(),
   source_type: z.string(),
   source_id: z.string().uuid(),
