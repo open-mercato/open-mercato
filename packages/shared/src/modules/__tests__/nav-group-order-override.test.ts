@@ -17,6 +17,7 @@ jest.mock('../../lib/logger', () => ({
 
 import {
   applyModuleOverridesFromEnabledModules,
+  applyNavGroupOrderOverrides,
   getNavGroupOrderOverride,
   resetModuleContractOverridesForTests,
   resetModuleOverrideAppliersForTests,
@@ -105,5 +106,78 @@ describe('nav.groupOrder override domain', () => {
     resetModuleContractOverridesForTests()
 
     expect(getNavGroupOrderOverride()).toBeNull()
+  })
+})
+
+describe('nav.groupOrder programmatic tier', () => {
+  it('takes precedence over the modules.ts declaration', () => {
+    applyModuleOverridesFromEnabledModules([
+      { id: 'app', overrides: { nav: { groupOrder: ['from-modules.nav.group'] } } },
+    ])
+    applyNavGroupOrderOverrides(['from-code.nav.group'])
+
+    expect(getNavGroupOrderOverride()).toEqual(['from-code.nav.group'])
+  })
+
+  it('falls back to the modules.ts declaration when cleared with null', () => {
+    applyModuleOverridesFromEnabledModules([
+      { id: 'app', overrides: { nav: { groupOrder: ['from-modules.nav.group'] } } },
+    ])
+    applyNavGroupOrderOverrides(['from-code.nav.group'])
+    applyNavGroupOrderOverrides(null)
+
+    expect(getNavGroupOrderOverride()).toEqual(['from-modules.nav.group'])
+  })
+
+  it('applies the same normalisation as the modules.ts tier', () => {
+    applyNavGroupOrderOverrides(['  a.nav.group  ', '', 'a.nav.group', 'b.nav.group'])
+
+    expect(getNavGroupOrderOverride()).toEqual(['a.nav.group', 'b.nav.group'])
+  })
+
+  it('treats an all-blank list as no override', () => {
+    applyNavGroupOrderOverrides(['   ', ''])
+
+    expect(getNavGroupOrderOverride()).toBeNull()
+  })
+
+  it('works before any module override has been dispatched', () => {
+    applyNavGroupOrderOverrides(['standalone.nav.group'])
+
+    expect(getNavGroupOrderOverride()).toEqual(['standalone.nav.group'])
+  })
+})
+
+describe('nav.groupOrder survives module duplication', () => {
+  // Regression for `.ai/lessons.md`, "Global registries in publishable packages must use
+  // `globalThis`". This domain's writer (app bootstrap) and reader (`@open-mercato/core`'s backend
+  // chrome) sit in different packages, and standalone builds can evaluate `@open-mercato/shared`
+  // through more than one module instance. `jest.isolateModules` reproduces that: a second, freshly
+  // loaded copy of the module must still observe what the first copy stored.
+  it('a separately loaded module instance sees the value written by bootstrap', () => {
+    applyModuleOverridesFromEnabledModules([
+      { id: 'app', overrides: { nav: { groupOrder: ['bootstrap.nav.group'] } } },
+    ])
+
+    let observedFromSecondInstance: readonly string[] | null | undefined
+    jest.isolateModules(() => {
+      const freshModule = require('../overrides') as typeof import('../overrides')
+      observedFromSecondInstance = freshModule.getNavGroupOrderOverride()
+    })
+
+    // A module-local variable would leave this second instance blind to the bootstrap value.
+    expect(observedFromSecondInstance).toEqual(['bootstrap.nav.group'])
+  })
+
+  it('a programmatic override is visible to a separately loaded instance too', () => {
+    applyNavGroupOrderOverrides(['programmatic.nav.group'])
+
+    let observed: readonly string[] | null | undefined
+    jest.isolateModules(() => {
+      const freshModule = require('../overrides') as typeof import('../overrides')
+      observed = freshModule.getNavGroupOrderOverride()
+    })
+
+    expect(observed).toEqual(['programmatic.nav.group'])
   })
 })

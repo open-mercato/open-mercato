@@ -90,14 +90,26 @@ well-defined answer.
 
 ## Architecture
 
-### Applier
+### Applier and state
 
 `navOverridesApplier` follows the existing built-in applier pattern (compare `setupOverridesApplier`),
-storing into module-level state exposed by an accessor:
+storing into state exposed by an accessor:
 
 ```ts
 export function getNavGroupOrderOverride(): readonly string[] | null
+export function applyNavGroupOrderOverrides(groupOrder: string[] | null): void
 ```
+
+Two tiers, matching every other domain and the documented resolution order: the programmatic call wins
+over the `modules.ts` declaration, and passing `null` clears it and falls back to the declaration.
+
+State persists on `globalThis` under a stable key, not in a module-local variable. This domain is the
+one whose **reader lives in a different package** from its writer — `@open-mercato/core`'s backend chrome
+reads what the app's bootstrap wrote — and standalone builds can evaluate `@open-mercato/shared` through
+more than one server chunk, which would leave the reader looking at an empty instance. Required by
+`.ai/lessons.md`, "Global registries in publishable packages must use `globalThis`", and covered by an
+isolated-module regression test that loads a second copy of the module and asserts it observes the
+bootstrap value. That test was verified to fail when the state is module-local.
 
 Input is normalised on the way in: non-arrays ignored, non-string and blank entries dropped, values
 trimmed, duplicates removed keeping first position. An empty result is treated as no override.
@@ -160,6 +172,16 @@ Override plumbing (`packages/shared`):
 - two declaring modules → later wins, one warning naming both
 - same module twice → later value, no warning
 - cleared by the store reset hook
+
+Route-level (`packages/core/src/modules/auth/__integration__/TC-AUTH-NAV-OVERRIDE-001.spec.ts`) —
+proves a real declaration survives a real bootstrap, following the pattern already used for the
+API-route domain (`TC-UMES-022`), where the example app applies a genuine override so a test can
+observe it. `apps/mercato/src/modules.ts` therefore applies `nav: { groupOrder: ['example.nav.group'] }`
+on the `example` entry:
+
+- the app-declared group leads the sidebar, outranking `customers.nav.group` (first in the shipped list)
+- a personal sidebar preference still wins over the app default, and clearing it falls back to the
+  app-declared order
 
 Ordering (`packages/core`):
 - **no override → ordering identical to today** (the safety property)
@@ -252,3 +274,11 @@ No migration is required, and no existing installation changes behaviour.
 - 2026-07-30: Drafted and implemented. Reported from a downstream app that could not rank its own
   primary module above the shipped nav groups, and that spent recon time discovering the
   role-preference workaround by reading `auth` internals — now documented alongside the override.
+
+- 2026-07-31: Review follow-up, complying with all findings. Nav ordering state moved to `globalThis`
+  with an isolated-module regression test (verified to fail on module-local state), since this domain's
+  reader sits in another package. Added the programmatic tier `applyNavGroupOrderOverrides` with
+  precedence over the `modules.ts` declaration, matching every other wired domain. Registered the
+  domain in the umbrella spec's status table (phase 19), `packages/shared/AGENTS.md`, the overrides
+  docs page, and the `moduleOverrideExamples` catalogue in both the app and the create-app template.
+  Added `TC-AUTH-NAV-OVERRIDE-001` for route-level proof through a real bootstrap.

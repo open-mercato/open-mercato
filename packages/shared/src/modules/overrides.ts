@@ -460,11 +460,58 @@ const diOverrideStore: OverrideStore<Exclude<DiBindingOverride, null>> = { modul
 const setupOverridesByModule: Record<string, SetupOverridesShape> = {}
 
 /**
- * Sidebar nav group ids to rank ahead of the built-in ordering, with the module entry that supplied
- * them. Single-valued: nav ordering is one app-wide decision, so the last module entry in load order
- * that supplies a non-empty list wins (a warning names the collision).
+ * Sidebar nav ordering state.
+ *
+ * Persisted on `globalThis` rather than in a module-local variable. This is the one override domain
+ * whose consumer lives in a *different package* (`@open-mercato/core`'s backend chrome reads what the
+ * app's bootstrap wrote), and standalone builds can evaluate `@open-mercato/shared` through more than
+ * one server chunk — bootstrap would store the value in one instance while the reader saw `null` from
+ * another. See `.ai/lessons.md`, "Global registries in publishable packages must use `globalThis`".
+ *
+ * Two tiers, matching every other override domain and the documented resolution order: programmatic
+ * calls win over `modules.ts` inline declarations.
  */
-let navGroupOrderOverride: { moduleId: string; groupOrder: string[] } | null = null
+const GLOBAL_NAV_OVERRIDE_STATE_KEY = '__openMercatoNavOverrideState__'
+
+type NavOverrideState = {
+  /** From `modules.ts` inline `overrides.nav`, with the module entry that supplied it. */
+  modules: { moduleId: string; groupOrder: string[] } | null
+  /** From `applyNavGroupOrderOverrides`. Takes precedence over `modules`. */
+  programmatic: string[] | null
+}
+
+function getNavOverrideState(): NavOverrideState {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_NAV_OVERRIDE_STATE_KEY]
+  if (existing && typeof existing === 'object') {
+    const typed = existing as NavOverrideState
+    if ('modules' in typed && 'programmatic' in typed) return typed
+  }
+  const initial: NavOverrideState = { modules: null, programmatic: null }
+  ;(globalThis as Record<string, unknown>)[GLOBAL_NAV_OVERRIDE_STATE_KEY] = initial
+  return initial
+}
+
+/** Drops blank/duplicate ids and returns `null` when nothing usable remains. */
+function normalizeNavGroupOrder(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const ids = Array.from(
+    new Set(
+      value
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map((id) => id.trim()),
+    ),
+  )
+  return ids.length > 0 ? ids : null
+}
+
+/**
+ * Programmatic nav ordering, for env-driven boot decisions and tests. Takes precedence over
+ * `modules.ts` inline `overrides.nav`, consistent with the other domains' programmatic tier. Pass
+ * `null` to clear it and fall back to the inline declaration.
+ */
+export function applyNavGroupOrderOverrides(groupOrder: string[] | null): void {
+  getNavOverrideState().programmatic = groupOrder === null ? null : normalizeNavGroupOrder(groupOrder)
+}
 
 /**
  * Nav group ids an app wants ranked ahead of the built-in order, or `null` when none is configured.
@@ -473,7 +520,8 @@ let navGroupOrderOverride: { moduleId: string; groupOrder: string[] } | null = n
  * beneath role and user sidebar preferences.
  */
 export function getNavGroupOrderOverride(): readonly string[] | null {
-  return navGroupOrderOverride?.groupOrder ?? null
+  const state = getNavOverrideState()
+  return state.programmatic ?? state.modules?.groupOrder ?? null
 }
 
 function normalizeIdOverrideKey(key: string, label: string): string | null {
@@ -756,7 +804,9 @@ export function resetModuleContractOverridesForTests(): void {
   clearStore(encryptionMapOverrideStore)
   clearStore(diOverrideStore)
   for (const key of Object.keys(setupOverridesByModule)) delete setupOverridesByModule[key]
-  navGroupOrderOverride = null
+  const navState = getNavOverrideState()
+  navState.modules = null
+  navState.programmatic = null
 }
 
 /**
@@ -1537,21 +1587,18 @@ function encryptionOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<E
 }
 
 function navOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<NavOverridesShape>>): void {
+  const state = getNavOverrideState()
   for (const entry of entries) {
-    const raw = entry.overrides?.groupOrder
-    if (!Array.isArray(raw)) continue
-    const groupOrder = Array.from(
-      new Set(raw.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim())),
-    )
-    if (groupOrder.length === 0) continue
-    if (navGroupOrderOverride && navGroupOrderOverride.moduleId !== entry.moduleId) {
+    const groupOrder = normalizeNavGroupOrder(entry.overrides?.groupOrder)
+    if (!groupOrder) continue
+    if (state.modules && state.modules.moduleId !== entry.moduleId) {
       logger.warn('nav.groupOrder declared by more than one module — the later one wins', {
-        previousModuleId: navGroupOrderOverride.moduleId,
+        previousModuleId: state.modules.moduleId,
         moduleId: entry.moduleId,
         hint: 'Sidebar group ordering is a single app-wide decision; declare it on one module entry.',
       })
     }
-    navGroupOrderOverride = { moduleId: entry.moduleId, groupOrder }
+    state.modules = { moduleId: entry.moduleId, groupOrder }
   }
 }
 
