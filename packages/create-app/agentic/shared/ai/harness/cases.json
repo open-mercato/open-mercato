@@ -10040,7 +10040,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Publish a demo request form that validates consent and spam signals, derives the business scope on the server, and creates or updates one matching lead. Repeated submissions must not create duplicates, personal data must be protected, attribution must be sanitized, and the form must still fail clearly when the customer system is unavailable.",
+    "prompt": "Publish a demo request form that validates consent and spam signals and creates or updates one matching lead. Resolve its tenant and organization only through an explicit trusted config or domain binding; missing, partial, or ambiguous binding must fail closed, and the implementation must never infer or persist the first/oldest active tenant or organization. Scope both idempotency lookup and database uniqueness by that tenant and organization, use the guarded modified payload, protect personal data with encryption and framework-keyed equality hashing, sanitize attribution, and fail clearly when the customer system is unavailable.",
     "tags": [
       "business-language",
       "customers",
@@ -10103,8 +10103,11 @@
     },
     "requiredDecisions": [
       "public-scope-derived-server-side",
+      "explicit-public-target-binding",
       "idempotent-submission",
+      "scoped-idempotency-key",
       "deterministic-deduplication",
+      "guard-modified-payload",
       "optional-crm"
     ],
     "forbiddenPatterns": [

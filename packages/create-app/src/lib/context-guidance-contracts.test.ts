@@ -554,6 +554,10 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
   assert.match(dataModelSkill, /staff surface showing current state, history, or evidence also adds backend UI/)
   assert.match(implementationSkill, /working app \(`working-phases`\) and report its smallest focused validation gate \(`smallest-validation`\)/)
   assert.match(blueprints, /MUST invoke `om-data-model-design` and report `smallest-validation` for the lead record and scalar CRM link/)
+  assert.match(blueprints, /explicit trusted config\/domain binding/)
+  assert.match(blueprints, /never select or persist the first\/oldest active tenant or organization/)
+  assert.match(blueprints, /idempotency lookup and database uniqueness include tenant\+organization/)
+  assert.match(blueprints, /mutation guards' `modifiedPayload`/)
   assert.match(blueprints, /load both `scheduler` and `customers` facts/)
   assert.match(blueprints, /trusted host scope \(`host-scope-contract`\)/)
 })
@@ -571,4 +575,38 @@ test('API and command fixes load trusted-scope domain contracts', () => {
   assert.match(dataModelSkill, /A persisted concurrency, atomicity, or idempotency implementation or fix cannot stop at this file/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
   assert.match(apiDomain, /runtime scope comes only from the trusted request\/command context/)
+  assert.match(apiDomain, /generated discovery mounts it at `\/api\/<moduleId>\/<resource>`/)
+  assert.match(apiDomain, /guard result's `modifiedPayload`/)
+})
+
+test('public lead certification requires explicit binding and scoped idempotency', () => {
+  const catalog = JSON.parse(readAgentic('shared/ai/harness/cases.json')) as Array<{
+    id: string
+    prompt?: string
+    requiredDecisions?: string[]
+  }>
+  const leadCase = catalog.find((entry) => entry.id === 'OMH-130')
+  const checklist = readAgentic('shared/ai/review-checklist.md')
+  const sensitiveData = readAgentic(
+    'shared/ai/skills/om-data-model-design/references/sensitive-data.md',
+  )
+
+  assert.ok(leadCase, 'OMH-130 must remain in the harness catalog')
+  assert.match(leadCase.prompt ?? '', /explicit trusted config or domain binding/)
+  assert.match(leadCase.prompt ?? '', /missing, partial, or ambiguous binding must fail closed/)
+  for (const decision of [
+    'explicit-public-target-binding',
+    'scoped-idempotency-key',
+    'guard-modified-payload',
+  ]) {
+    assert.ok(leadCase.requiredDecisions?.includes(decision), `OMH-130 must require ${decision}`)
+  }
+  assert.match(checklist, /no path selects or persists the first\/oldest active tenant or organization/)
+  assert.match(checklist, /Idempotency queries and database uniqueness include tenant\+organization/)
+  assert.match(checklist, /dispatches the guard result's `modifiedPayload`/)
+  assert.match(checklist, /client sends that record's version, the server enforces it/)
+  assert.match(checklist, /never a private installed entity import, direct cross-module ORM query\/relation/)
+  assert.match(checklist, /never raw SHA-256 for low-entropy PII/)
+  assert.match(sensitiveData, /read back its registration/)
+  assert.match(sensitiveData, /assert the sensitive database columns are ciphertext/)
 })
