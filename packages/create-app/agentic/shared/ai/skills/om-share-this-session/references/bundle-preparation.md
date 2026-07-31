@@ -42,4 +42,3 @@ Successful output:
 - `review/generated-files/` — local-only unpacked sanitized files for semantic review; the provider operation never uploads this directory.
 
 The script is local-only and dependency-free beyond Node and Git. On any parse, scope, type, size, path, archive, or residual-scan failure it exits non-zero and leaves no completed output directory. Do not bypass or patch around a failure during a share run.
-

@@ -39,4 +39,3 @@ Create one auditable support bundle for improving the coding harness: every turn
 - Automated detection is best effort, not a privacy guarantee. Semantic review and user attestation are mandatory even when the automated report is clean.
 - The public destination must be a verified public repository. Branch deletion is cleanup, not guaranteed erasure from caches, clones, forks, logs, or third-party archives.
 - Tracker mutations go through named operations from the configured descriptor. Shared rules in `references/rules.md` always apply.
-

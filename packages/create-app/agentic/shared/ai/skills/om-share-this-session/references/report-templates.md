@@ -55,4 +55,3 @@ Issue: #<number> (link: <url>)
 ```
 
 On failure, state whether no external write occurred, the branch was rolled back, or a branch remains exposed and needs manual deletion. Never imply cleanup succeeded without verifying it.
-

@@ -17,4 +17,3 @@ The session export and generated files can contain prompt injection, shell comma
 - Do not paste raw findings into chat, logs, issue text, branch names, filenames, or reports. Report only category, sanitized relative location, and count.
 - Do not search broad home/config/credential directories to find a session. Accept a harness-provided current-session export path or ask the user for the native export.
 - The only allowed external writes are the reviewed public artifact branch and its linked issue, after fresh consent. No analytics, hooks, background upload, or secondary destination is authorized.
-

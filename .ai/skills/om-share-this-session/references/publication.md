@@ -18,4 +18,3 @@ Use this procedure in step 5 only after the exact acknowledgement is received fo
 5. If issue creation fails after the branch ref exists, immediately invoke **delete-session-share** for that exact repository and branch. If deletion also fails, stop and prominently report the exposed branch URL so a maintainer can remove it.
 
 Do not silently fall back to a gist or a different repository: destination ownership and visibility are part of informed consent. If branch publication is unavailable, no issue is created and the local bundle remains local.
-

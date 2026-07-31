@@ -37,4 +37,3 @@ I AGREE TO PUBLICLY SHARE "<share-name>" WITH OPEN-MERCATO
 ```
 
 The placeholder is replaced by the validated share name. A skill invocation, consent from an earlier run, a generic “yes”, or consent given before seeing the final hashes does not count. Any bundle regeneration changes the hashes and invalidates consent; show the new preview and ask again.
-
