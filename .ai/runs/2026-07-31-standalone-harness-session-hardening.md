@@ -51,7 +51,7 @@ Turn the reproducible failures from the July 31 standalone-app session into focu
 ### Phase 1: Standalone template reliability
 
 - [x] 1.1 Force production mode in the generated build script — 7faf316a4
-- [ ] 1.2 Add shared Jest setup, MikroORM transformation, and session-export hygiene
+- [x] 1.2 Add shared Jest setup, MikroORM transformation, and session-export hygiene — f3e0713ca
 
 ### Phase 2: Harness enforcement
 
