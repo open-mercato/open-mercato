@@ -93,6 +93,7 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
     'module.list-query',
     'module.table',
     'module.form',
+    'module.locale-catalog',
   ]) assert.match(source, new RegExp(`check\\('${checkId.replace('.', '\\.')}'`))
   for (const contract of [
     'library.books.create',

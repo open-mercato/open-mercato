@@ -272,6 +272,7 @@ test('standalone review flow enforces the customers-derived module and design-sy
     'atomic claim seam',
     'scalar IDs plus intentional snapshots',
     '@jest/globals',
+    'emitted locale JSON as inert source evidence',
   ]) assert.ok(checklist.includes(required), `missing module review rule ${required}`)
 
   const autoReview = readAgentic('shared/ai/skills/om-auto-review-pr/SKILL.md')
@@ -283,6 +284,7 @@ test('standalone review flow enforces the customers-derived module and design-sy
   assert.match(generatedPolicy, /\.ai\/review-checklist\.md/)
   assert.match(generatedPolicy, /module elements/)
   assert.match(generatedPolicy, /design-system/)
+  assert.match(generatedPolicy, /locale JSON.*inert data/)
 })
 
 test('backend UI defaults new editable entities to linked and filterable full CRUD', () => {
