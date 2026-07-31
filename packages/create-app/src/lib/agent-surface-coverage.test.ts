@@ -363,7 +363,10 @@ test('the published case schema accepts the shipped catalog it pins', () => {
 test('every published case count states the shipped catalog or the portability sample', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
   const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
-  const statedCounts = /([0-9]+)[- ](?:live-)?(?:routing |writable |read-only )?cases?\b/g
+  // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
+  // "45 writable implementation/regression cases" and "201 live-routing cases" are checked too; a
+  // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
+  const statedCounts = /([0-9]+)(?:[- ][a-z/-]+)*?[- ]cases?\b/g
   const allowed = new Map([
     [cases.length, 'the shipped catalog'],
     [validators.catalog.writableCaseIds.length, 'the writable/portability sample'],
