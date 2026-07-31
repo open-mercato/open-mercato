@@ -16,8 +16,6 @@ export type InboundDispatchJob = {
   ingestionId: string
   sourceKey: string
   eventType: string
-  data: Record<string, unknown>
-  headers: Record<string, string>
   tenantId: string
   organizationId: string
 }
@@ -36,8 +34,11 @@ function moduleOfHandler(handlerId: string): string {
 /**
  * Process a queued inbound-dispatch job: load the ingestion, run every matching
  * handler independently (a failing handler never blocks the others), record
- * per-handler results, and emit lifecycle events. Idempotent — a job whose
- * ingestion is already `processed` returns early.
+ * per-handler results, and emit lifecycle events. The payload and headers are
+ * read from the (decrypted) ingestion row rather than carried on the job, so the
+ * queue never stores the raw webhook body. Idempotent — a job whose ingestion is
+ * already `processed` returns early, and a retry after a partial failure re-runs
+ * only the handlers that have not already succeeded.
  */
 export async function processInboundDispatchJob(
   em: EntityManager,
@@ -63,19 +64,32 @@ export async function processInboundDispatchJob(
 
   const handlers = resolveWebhookHandlers(job.sourceKey, job.eventType)
   const payload: WebhookHandlerPayload = {
-    data: job.data,
+    data: ingestion.payload,
     eventType: job.eventType,
     sourceKey: job.sourceKey,
-    headers: job.headers,
+    headers: ingestion.headers ?? {},
     ingestionId: job.ingestionId,
     tenantId: job.tenantId,
     organizationId: job.organizationId,
   }
 
+  const previousResults = Array.isArray(ingestion.handlerResults) ? ingestion.handlerResults : []
+  const alreadySucceeded = new Map(
+    previousResults
+      .filter((result) => result?.status === 'success')
+      .map((result) => [result.handlerId, result]),
+  )
+
   const results: WebhookHandlerResult[] = []
   let failedCount = 0
 
   for (const entry of handlers) {
+    const previousSuccess = alreadySucceeded.get(entry.meta.id)
+    if (previousSuccess) {
+      results.push(previousSuccess)
+      continue
+    }
+
     const handlerStartedMs = Date.now()
     const handlerStartedAt = new Date(handlerStartedMs).toISOString()
     try {
