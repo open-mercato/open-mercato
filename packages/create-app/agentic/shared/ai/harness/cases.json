@@ -10040,7 +10040,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Publish a demo request form that validates consent and spam signals and creates or updates one matching lead. Resolve its tenant and organization only through an explicit trusted config or domain binding; missing, partial, or ambiguous binding must fail closed, and the implementation must never infer or persist the first/oldest active tenant or organization. Scope both idempotency lookup and database uniqueness by that tenant and organization, merge and revalidate the guarded modified payload before command dispatch, protect personal data through TenantDataEncryptionService and lookupHashCandidates rather than raw SHA-256, sanitize attribution, and fail clearly when the customer system is unavailable.",
+    "prompt": "Publish a public request-a-demo page that asks prospects for their contact details and consent, filters spam, and records each genuine request once in the CRM. The page must work safely when the app serves multiple businesses, keep personal information secure, preserve useful campaign attribution, and show a clear fallback if the customer system is unavailable.",
     "tags": [
       "business-language",
       "customers",

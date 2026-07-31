@@ -553,7 +553,7 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
   }
   assert.match(dataModelSkill, /staff surface showing current state, history, or evidence also adds backend UI/)
   assert.match(implementationSkill, /working app \(`working-phases`\) and report its smallest focused validation gate \(`smallest-validation`\)/)
-  assert.match(blueprints, /MUST invoke `om-data-model-design` and report `smallest-validation` for the lead record and scalar CRM link/)
+  assert.match(blueprints, /MUST read `\.ai\/guides\/modules\/customers\.md`, invoke `om-data-model-design`, and report `smallest-validation` for the lead record and scalar CRM link/)
   assert.match(blueprints, /explicit trusted config\/domain binding/)
   assert.match(blueprints, /never select or persist the first\/oldest active tenant or organization/)
   assert.match(blueprints, /idempotency lookup and database uniqueness include tenant\+organization/)
@@ -581,7 +581,7 @@ test('API and command fixes load trusted-scope domain contracts', () => {
   assert.match(apiDomain, /parse the merged value again with the route schema/)
 })
 
-test('public lead certification requires explicit binding and scoped idempotency', () => {
+test('public lead eval keeps the request business-oriented while owners enforce safeguards', () => {
   const catalog = JSON.parse(readAgentic('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt?: string
@@ -594,8 +594,15 @@ test('public lead certification requires explicit binding and scoped idempotency
   )
 
   assert.ok(leadCase, 'OMH-130 must remain in the harness catalog')
-  assert.match(leadCase.prompt ?? '', /explicit trusted config or domain binding/)
-  assert.match(leadCase.prompt ?? '', /missing, partial, or ambiguous binding must fail closed/)
+  assert.match(leadCase.prompt ?? '', /public request-a-demo page/)
+  assert.match(leadCase.prompt ?? '', /contact details and consent/)
+  assert.match(leadCase.prompt ?? '', /records each genuine request once in the CRM/)
+  assert.match(leadCase.prompt ?? '', /serves multiple businesses/)
+  assert.match(leadCase.prompt ?? '', /keep personal information secure/)
+  assert.doesNotMatch(
+    leadCase.prompt ?? '',
+    /tenant|organization|idempotency|database uniqueness|modifiedPayload|TenantDataEncryptionService|lookupHashCandidates|SHA-256|command dispatch/,
+  )
   for (const decision of [
     'explicit-public-target-binding',
     'scoped-idempotency-key',
