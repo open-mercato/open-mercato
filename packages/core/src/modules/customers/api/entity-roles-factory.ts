@@ -4,7 +4,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
@@ -16,6 +16,9 @@ import { withScopedPayload } from './utils'
 import { resolveCustomersRequestContext, resolveAuthActorId } from '../lib/interactionRequestContext'
 import { deriveDisplayNameFromEmail } from '../lib/displayName'
 import { withOperationMetadata } from '../lib/operationMetadata'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 const roleIdQuerySchema = z.object({ roleId: z.string().uuid() })
@@ -96,7 +99,7 @@ async function ensureFeatureOnOrganization(
   try {
     rbac = container.resolve('rbacService') as RbacService | undefined
   } catch (err) {
-    console.error('[customers.entity-roles-factory] rbacService resolve failed', err)
+    logger.error('rbacService resolve failed', { component: 'entity-roles-factory', err })
     rbac = undefined
   }
   if (!rbac) {
@@ -127,7 +130,7 @@ async function resolveEntityRouteScope(
     { tenantId: auth.tenantId, organizationId: scope?.selectedId ?? auth.orgId ?? null },
   )
   if (!entity || entity.tenantId !== auth.tenantId) {
-    throw new CrudHttpError(404, { error: translate('customers.errors.customer_not_found', 'Customer not found') })
+    throw notFound(translate('customers.errors.customer_not_found', 'Customer not found'))
   }
   ensureRouteOrganizationAccess(entity.organizationId, scope, auth, translate)
   return {
@@ -159,7 +162,7 @@ async function resolveRoleRouteScope(
     role.entityType !== entityType ||
     role.entityId !== entityId
   ) {
-    throw new CrudHttpError(404, { error: translate('customers.errors.role_not_found', 'Role not found') })
+    throw notFound(translate('customers.errors.role_not_found', 'Role not found'))
   }
   ensureRouteOrganizationAccess(role.organizationId, scope, auth, translate)
   return {
@@ -310,7 +313,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
-      console.error(`${logPrefix}.get failed`, err)
+      logger.error('Entity roles GET failed', { component: logPrefix, err })
       return NextResponse.json({ error: translate('customers.errors.failed_to_load_roles', 'Failed to load roles') }, { status: 500 })
     }
   }
@@ -367,7 +370,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
-      console.error(`${logPrefix}.post failed`, err)
+      logger.error('Entity roles POST failed', { component: logPrefix, err })
       return NextResponse.json({ error: translate('customers.errors.failed_to_assign_role', 'Failed to assign role') }, { status: 500 })
     }
   }
@@ -425,7 +428,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
-      console.error(`${logPrefix}.put failed`, err)
+      logger.error('Entity roles PUT failed', { component: logPrefix, err })
       return NextResponse.json({ error: translate('customers.errors.failed_to_update_role', 'Failed to update role') }, { status: 500 })
     }
   }
@@ -481,7 +484,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
-      console.error(`${logPrefix}.delete failed`, err)
+      logger.error('Entity roles DELETE failed', { component: logPrefix, err })
       return NextResponse.json({ error: translate('customers.errors.failed_to_delete_role', 'Failed to delete role') }, { status: 500 })
     }
   }

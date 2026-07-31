@@ -6,7 +6,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'User-defined entities, custom fields, and dynamic records storage.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
   // Ensure query/index layer is present for hybrid querying of custom entities
   requires: ['query_index'],
 }

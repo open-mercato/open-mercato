@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 
 interface CompanyUser {
   id: string
@@ -59,9 +60,9 @@ export default function CompanyUsersWidget({ context }: CompanyUsersProps) {
                 <div className="text-xs text-muted-foreground">{user.email}</div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`text-xs ${user.isActive ? 'text-green-600' : 'text-red-600'}`}>
+                <StatusBadge variant={user.isActive ? 'success' : 'error'} dot>
                   {user.isActive ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
-                </span>
+                </StatusBadge>
                 <a
                   href={`/backend/customer_accounts/users/${user.id}`}
                   className="text-xs text-primary hover:underline"

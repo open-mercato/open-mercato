@@ -32,6 +32,19 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
     loadCustomFieldDefinitionIndexMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger as createLoggerMocked } from '@open-mercato/shared/lib/logger'
 import authoringAiTools from '../../ai-tools/authoring-pack'
 import aiTools from '../../ai-tools'
 import { knownFeatureIds } from './shared'
@@ -254,7 +267,8 @@ describe('catalog.draft_description_from_media', () => {
       }
       return Promise.resolve([])
     })
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = createLoggerMocked('catalog').warn as jest.Mock
+    warnSpy.mockClear()
     try {
       const ctx = makeAuthoringCtx()
       const result = (await tool.handler(
@@ -270,7 +284,7 @@ describe('catalog.draft_description_from_media', () => {
       expect(userMedia[0].attachmentId).toBe(okAttachmentId)
       expect(warnSpy).toHaveBeenCalled()
     } finally {
-      warnSpy.mockRestore()
+      warnSpy.mockClear()
     }
   })
 

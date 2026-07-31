@@ -138,7 +138,7 @@ export async function GET(req: Request) {
     selectedTenantId = auth.tenantId ?? null
   }
 
-  const cacheVersion = 'v2'
+  const cacheVersion = 'v4'
   const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
   try {
     if (cache?.get) {

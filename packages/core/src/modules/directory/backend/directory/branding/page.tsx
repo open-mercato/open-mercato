@@ -7,7 +7,9 @@ import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -17,6 +19,7 @@ type BrandingPayload = {
   organizationName: string
   tenantId: string
   logoUrl: string | null
+  updatedAt: string | null
 }
 
 type UploadPayload = {
@@ -98,15 +101,17 @@ export default function OrganizationBrandingPage() {
         operation: async () => {
           const uploadedLogoUrl = shouldUpload ? await uploadLogo(data.organizationId) : null
           const resolvedLogoUrl = uploadedLogoUrl ?? nextLogoUrl ?? logoUrl.trim()
-          // optimistic-lock-exempt: selected organization branding uses a scoped command endpoint without an exposed updatedAt token.
-          const response = await apiCallOrThrow<BrandingPayload>(
-            BRANDING_API,
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ logoUrl: resolvedLogoUrl || null }),
-            },
-            { errorMessage: t('directory.branding.errors.save', 'Failed to update organization branding') },
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(data.updatedAt),
+            () => apiCallOrThrow<BrandingPayload>(
+              BRANDING_API,
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ logoUrl: resolvedLogoUrl || null }),
+              },
+              { errorMessage: t('directory.branding.errors.save', 'Failed to update organization branding') },
+            ),
           )
           return response.result
         },
@@ -127,6 +132,7 @@ export default function OrganizationBrandingPage() {
       if (fileInputRef.current) fileInputRef.current.value = ''
       flash(t('directory.branding.flash.saved', 'Organization branding updated'), 'success')
     } catch (err: unknown) {
+      if (surfaceRecordConflict(err, t)) return
       const fallback = t('directory.branding.errors.save', 'Failed to update organization branding')
       const message = err instanceof Error ? err.message : fallback
       flash(message, 'error')

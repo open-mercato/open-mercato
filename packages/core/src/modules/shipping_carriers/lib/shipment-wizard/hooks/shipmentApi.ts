@@ -37,11 +37,12 @@ export type CreateShipmentParams = {
   receiverEmail?: string
   targetPoint?: string
   c2cSendingMethod?: string
+  idempotencyKey?: string
 }
 
 export type CreateShipmentResult =
   | { ok: true }
-  | { ok: false; error: string }
+  | { ok: false; error: string; code?: string }
 
 export type FetchDropOffPointsParams = {
   providerKey: string
@@ -126,6 +127,7 @@ export const createShipment = async (params: CreateShipmentParams): Promise<Crea
     .otherwise(({ result }) => ({
       ok: false as const,
       error: (result as { error?: string } | null)?.error ?? 'Failed to create shipment.',
+      code: (result as { code?: string } | null)?.code,
     }))
 }
 

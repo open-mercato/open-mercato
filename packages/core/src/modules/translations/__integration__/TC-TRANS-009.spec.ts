@@ -107,7 +107,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
       })
-      await managerCard.getByRole('button', { name: 'DE' }).click()
+      await managerCard.getByRole('tab', { name: 'DE' }).click()
 
       const titleInput = await waitForTranslationField(managerCard, 'Deutscher Titel QA')
       await titleInput.click()
@@ -171,7 +171,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
       })
-      await managerCard.getByRole('button', { name: 'DE' }).click()
+      await managerCard.getByRole('tab', { name: 'DE' }).click()
 
       // Verify the original translation is loaded
       const titleInput = await waitForTranslationField(managerCard, 'Original Titel')

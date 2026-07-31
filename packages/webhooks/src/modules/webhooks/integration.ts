@@ -15,7 +15,7 @@ export const integration: IntegrationDefinition = {
   version: '1.0.0',
   author: 'Open Mercato Team',
   company: 'Open Mercato',
-  license: 'Proprietary',
+  license: 'MIT',
   tags: ['webhooks', 'automation', 'events', 'standard-webhooks'],
   detailPage: {
     widgetSpotId: webhookCustomDetailWidgetSpotId,

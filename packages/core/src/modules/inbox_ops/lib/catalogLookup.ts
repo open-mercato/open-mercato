@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityClass } from '@mikro-orm/core'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'catalog-lookup' })
 
 interface CatalogProductForExtraction {
   id: string
@@ -92,7 +95,7 @@ export async function fetchCatalogProductsForExtraction(
       price: priceByProduct.get(product.id),
     }))
   } catch (err) {
-    console.error('[inbox_ops:catalogLookup] Failed to fetch catalog products:', err)
+    logger.error('Failed to fetch catalog products', { err })
     return []
   }
 }

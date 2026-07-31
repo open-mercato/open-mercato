@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-generated-code-review-result.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "sourceResult", "targetFingerprint", "runner", "runnerVersion", "model", "skill", "policyHash", "reviewedPaths", "reviewedBytes", "validationEvidence", "verdict", "report", "findings", "violations", "durationMs", "exitStatus", "status", "actualContext"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
+    "sourceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "targetFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runner": { "enum": ["codex", "claude"] },
+    "runnerVersion": { "type": "string", "maxLength": 200 },
+    "model": { "type": "string", "maxLength": 200 },
+    "reasoningEffort": { "enum": ["minimal", "low", "medium", "high", "xhigh"] },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "ref", "declaredHash", "installedHash", "ownershipLedgerHash", "bundleHash"],
+      "properties": {
+        "name": { "const": "om-code-review" },
+        "source": { "const": "open-mercato/skills" },
+        "ref": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "declaredHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "installedHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "ownershipLedgerHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bundleHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "policyHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "reviewedPaths": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "maxLength": 300 } },
+    "reviewedBytes": { "type": "integer", "minimum": 1 },
+    "reviewReferences": { "type": "array", "maxItems": 6, "uniqueItems": true, "items": { "type": "string", "maxLength": 300 } },
+    "validationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "validationEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9:._-]+$", "maxLength": 100 },
+          "status": { "const": "pass" }
+        }
+      }
+    },
+    "verdict": { "enum": ["approve", "request changes", "error"] },
+    "report": { "type": "string", "maxLength": 16384 },
+    "findings": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "path", "line", "rationale", "fix"],
+        "properties": {
+          "severity": { "enum": ["blocker", "major", "minor", "nit"] },
+          "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
+          "rationale": { "type": "string", "minLength": 8, "maxLength": 1200 },
+          "fix": { "type": "string", "minLength": 8, "maxLength": 1200 }
+        }
+      }
+    },
+    "violations": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
+    "attempts": { "const": 1 },
+    "corrections": { "const": 0 },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "exitStatus": { "type": ["integer", "null"] },
+    "status": { "enum": ["pass", "fail"] },
+    "sanitizedError": { "type": "string", "maxLength": 4096 },
+    "actualContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "files", "bytes", "estimatedTokens", "initialPaths", "initialFiles", "initialBytes", "estimatedInitialTokens", "metadataPaths", "metadataEntries", "metadataBytes"],
+      "properties": {
+        "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "files": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "estimatedTokens": { "type": "integer", "minimum": 0 },
+        "initialPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "initialFiles": { "type": "integer", "minimum": 0 },
+        "initialBytes": { "type": "integer", "minimum": 0 },
+        "estimatedInitialTokens": { "type": "integer", "minimum": 0 },
+        "metadataPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "metadataEntries": { "type": "integer", "minimum": 0 },
+        "metadataBytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

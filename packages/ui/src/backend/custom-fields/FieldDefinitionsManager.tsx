@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '../../primitives/button'
 import { Spinner } from '../../primitives/spinner'
-import { ErrorNotice } from '../../primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '../../primitives/alert'
 import { flash } from '../FlashMessages'
 import { apiCall, readApiResultOrThrow } from '../utils/apiCall'
 import { raiseCrudError } from '../utils/serverErrors'
@@ -355,7 +355,10 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
     return (
       <div className="flex flex-col gap-3 sm:gap-4">
         {statusError ? (
-          <ErrorNotice title={t('entities.customFields.errors.title', 'Something went wrong')} message={statusError} />
+          <Alert variant="destructive">
+            <AlertTitle>{t('entities.customFields.errors.title', 'Something went wrong')}</AlertTitle>
+            <AlertDescription>{statusError}</AlertDescription>
+          </Alert>
         ) : null}
         <div className="rounded-lg border bg-card p-3 sm:p-4 max-h-[70vh] overflow-y-auto">
           {content}

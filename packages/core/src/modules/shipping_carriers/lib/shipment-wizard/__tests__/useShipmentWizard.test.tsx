@@ -9,6 +9,16 @@ const chance = new Chance()
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
+const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+const mockRetryLastMutation = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: jest.fn(() => ({
+    runMutation: mockRunMutation,
+    retryLastMutation: mockRetryLastMutation,
+  })),
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
 }))
@@ -288,6 +298,16 @@ describe('useShipmentWizard', () => {
 
       await runSubmit(result)
 
+      expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
+        operation: expect.any(Function),
+        context: expect.objectContaining({
+          operation: 'create',
+          resourceKind: 'shipping_carriers.shipment',
+          resourceId: orderId,
+          retryLastMutation: mockRetryLastMutation,
+        }),
+        mutationPayload: expect.objectContaining({ orderId }),
+      }))
       await waitFor(() => expect(routerPush).toHaveBeenCalledWith(`/backend/sales/orders/${orderId}`))
       expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'success')
     })

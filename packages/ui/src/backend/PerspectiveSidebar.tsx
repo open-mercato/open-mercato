@@ -32,7 +32,7 @@ export type PerspectiveSidebarProps = {
   activePerspectiveId: string | null
   onActivatePerspective: (perspective: PerspectiveDto | RolePerspectiveDto, source: 'personal' | 'role') => void
   onDeletePerspective: (perspectiveId: string) => Promise<void>
-  onClearRole: (roleId: string) => Promise<void>
+  onClearRole: (perspective: RolePerspectiveDto) => Promise<void>
   onSave: (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings }) => Promise<void>
   canApplyToRoles: boolean
   availableColumns: ColumnChooserField[]
@@ -327,7 +327,7 @@ export function PerspectiveSidebar({
       variant: 'destructive',
     })
     if (confirmed) {
-      await onClearRole(p.roleId)
+      await onClearRole(p)
     }
   }
 

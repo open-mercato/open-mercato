@@ -7,7 +7,7 @@ Open Mercato modules are developed by third-party developers who depend on stabl
 1. **Never remove or rename** a public contract surface in a single release.
 2. **Deprecate first**: add `@deprecated` JSDoc with migration guidance and the target removal version.
 3. **Provide a bridge**: re-export the old name/path, accept the old signature, or keep the old behavior alongside the new one for at least one minor version.
-4. **Document in RELEASE_NOTES.md**: every deprecation and every removal must be listed with migration instructions.
+4. **Document in UPGRADE_NOTES.md**: every deprecation and every removal must be listed with migration instructions.
 5. **Spec requirement**: any PR that modifies a contract surface MUST reference a spec (in `.ai/specs/`) that includes a "Migration & Backward Compatibility" section.
 
 ---

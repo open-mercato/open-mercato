@@ -7,30 +7,32 @@ type FeatureToggleDetailsCardProps = {
 }
 
 function DefaultValueDisplay({ featureToggleItem }: { featureToggleItem?: FeatureToggle }) {
+  const t = useT()
 
-  if (!featureToggleItem?.defaultValue) {
+  const defaultValue = featureToggleItem?.defaultValue
+  if (defaultValue === null || defaultValue === undefined) {
     return <p className="text-base text-muted-foreground">-</p>
   }
 
-  switch (featureToggleItem.type) {
+  switch (featureToggleItem?.type) {
     case 'boolean':
       return (
         <p className="text-base font-semibold text-foreground">
-          {featureToggleItem.defaultValue ? useT()('feature_toggles.values.true', 'True') : useT()('feature_toggles.values.false', 'False')}
+          {defaultValue ? t('feature_toggles.values.true', 'True') : t('feature_toggles.values.false', 'False')}
         </p>
       )
 
     case 'string':
       return (
         <p className="text-base font-semibold text-foreground">
-          {featureToggleItem.defaultValue}
+          {defaultValue}
         </p>
       )
 
     case 'number':
       return (
         <p className="text-base font-semibold text-foreground">
-          {featureToggleItem.defaultValue}
+          {defaultValue}
         </p>
       )
 
@@ -38,9 +40,9 @@ function DefaultValueDisplay({ featureToggleItem }: { featureToggleItem?: Featur
       return (
         <div className="text-base font-semibold text-foreground">
           <pre className="bg-muted/30 p-2 rounded text-sm font-mono overflow-x-auto whitespace-pre-wrap">
-            {typeof featureToggleItem.defaultValue === 'object'
-              ? JSON.stringify(featureToggleItem.defaultValue, null, 2)
-              : featureToggleItem.defaultValue}
+            {typeof defaultValue === 'object'
+              ? JSON.stringify(defaultValue, null, 2)
+              : defaultValue}
           </pre>
         </div>
       )

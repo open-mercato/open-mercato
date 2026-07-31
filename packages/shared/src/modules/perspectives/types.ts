@@ -1,6 +1,8 @@
 export type PerspectiveSettings = {
   columnOrder?: string[]
   columnVisibility?: Record<string, boolean>
+  /** User-resized column widths in pixels, keyed by column id (#1835). */
+  columnSizing?: Record<string, number>
   filters?: Record<string, unknown>
   sorting?: Array<{ id: string; desc?: boolean }>
   pageSize?: number
@@ -29,6 +31,7 @@ export type PerspectivesIndexResponse = {
   perspectives: PerspectiveDto[]
   defaultPerspectiveId: string | null
   rolePerspectives: RolePerspectiveDto[]
+  manageableRolePerspectives: RolePerspectiveDto[]
   roles: Array<{ id: string; name: string; hasPerspective: boolean; hasDefault: boolean }>
   canApplyToRoles: boolean
 }

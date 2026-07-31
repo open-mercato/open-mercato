@@ -3,11 +3,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { TimeInput } from '@open-mercato/ui/backend/inputs/TimeInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('currencies').child({ component: 'CurrencyFetchingConfig' })
 
 interface FetchConfig {
   id: string
@@ -21,6 +28,12 @@ interface FetchConfig {
   updatedAt?: string | null
 }
 
+const STATUS_BADGE_VARIANT: Record<string, StatusBadgeVariant> = {
+  success: 'success',
+  error: 'error',
+  partial: 'warning',
+}
+
 export default function CurrencyFetchingConfig() {
   const t = useT()
   const [configs, setConfigs] = useState<FetchConfig[]>([])
@@ -31,16 +44,35 @@ export default function CurrencyFetchingConfig() {
   // Available providers that should be configured
   const availableProviders = useMemo(() => ['NBP', 'Raiffeisen Bank Polska'], [])
 
+  const mutationContextId = 'currencies-fetch-configs:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
   const createProviderConfig = useCallback(async (provider: string) => {
     try {
-      await apiCall('/api/currencies/fetch-configs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider,
-          isEnabled: false,
-          syncTime: '09:00',
+      await runMutation({
+        operation: () => apiCall('/api/currencies/fetch-configs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider,
+            isEnabled: false,
+            syncTime: '09:00',
+          }),
         }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_config',
+          retryLastMutation,
+        },
+        mutationPayload: { provider, isEnabled: false, syncTime: '09:00' },
       })
     } catch (err: any) {
       // Ignore errors for duplicate providers
@@ -48,7 +80,7 @@ export default function CurrencyFetchingConfig() {
         throw err
       }
     }
-  }, [])
+  }, [mutationContextId, retryLastMutation, runMutation])
 
   const initializeMissingProviders = useCallback(async (providers: string[]) => {
     setInitializing(true)
@@ -62,7 +94,7 @@ export default function CurrencyFetchingConfig() {
         setConfigs(result.configs as FetchConfig[])
       }
     } catch (err: any) {
-      console.error('Failed to initialize providers:', err)
+      logger.error('Failed to initialize providers', { err })
     } finally {
       setInitializing(false)
     }
@@ -96,19 +128,38 @@ export default function CurrencyFetchingConfig() {
 
   const toggleEnabled = useCallback(async (configId: string, currentValue: boolean, updatedAt?: string | null) => {
     try {
-      const { result } = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(updatedAt),
-        () =>
-          apiCall('/api/currencies/fetch-configs', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: configId,
-              isEnabled: !currentValue,
-            }),
-          }),
-      )
+      const call = await runMutation({
+        operation: async () => {
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(updatedAt),
+            () =>
+              apiCall('/api/currencies/fetch-configs', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: configId,
+                  isEnabled: !currentValue,
+                }),
+              }),
+          )
+          if (!response.ok) {
+            throw Object.assign(new Error('[internal] currencies.fetchConfig.toggle failed'), {
+              status: response.status,
+              ...((response.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return response
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_config',
+          resourceId: configId,
+          retryLastMutation,
+        },
+        mutationPayload: { id: configId, isEnabled: !currentValue },
+      })
 
+      const result = call.result as { config?: FetchConfig } | null
       if (result?.config) {
         setConfigs((prev) =>
           prev.map((c) => (c.id === configId ? (result.config as FetchConfig) : c))
@@ -121,47 +172,77 @@ export default function CurrencyFetchingConfig() {
         )
       }
     } catch (err: any) {
+      if (extractOptimisticLockConflict(err)) return
       flash(err.message || t('currencies.fetch.error_update_config'), 'error')
     }
-  }, [t])
+  }, [mutationContextId, retryLastMutation, runMutation, t])
 
   const updateSyncTime = useCallback(async (configId: string, syncTime: string, updatedAt?: string | null) => {
     try {
-      const { result } = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(updatedAt),
-        () =>
-          apiCall('/api/currencies/fetch-configs', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: configId,
-              syncTime: syncTime || null,
-            }),
-          }),
-      )
+      const call = await runMutation({
+        operation: async () => {
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(updatedAt),
+            () =>
+              apiCall('/api/currencies/fetch-configs', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: configId,
+                  syncTime: syncTime || null,
+                }),
+              }),
+          )
+          if (!response.ok) {
+            throw Object.assign(new Error('[internal] currencies.fetchConfig.updateSyncTime failed'), {
+              status: response.status,
+              ...((response.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return response
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_config',
+          resourceId: configId,
+          retryLastMutation,
+        },
+        mutationPayload: { id: configId, syncTime: syncTime || null },
+      })
 
+      const result = call.result as { config?: FetchConfig } | null
       if (result?.config) {
         setConfigs((prev) =>
           prev.map((c) => (c.id === configId ? (result.config as FetchConfig) : c))
         )
       }
     } catch (err: any) {
+      if (extractOptimisticLockConflict(err)) return
       flash(err.message || t('currencies.fetch.error_update_sync_time'), 'error')
     }
-  }, [t])
+  }, [mutationContextId, retryLastMutation, runMutation, t])
 
   const fetchNow = useCallback(async (provider: string) => {
     setFetching(provider)
 
     try {
-      const { result } = await apiCall('/api/currencies/fetch-rates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providers: [provider],
+      const call = await runMutation({
+        operation: () => apiCall('/api/currencies/fetch-rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providers: [provider],
+          }),
         }),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.fetch_rates',
+          retryLastMutation,
+        },
+        mutationPayload: { providers: [provider] },
       })
 
+      const result = call.result as { byProvider?: Record<string, { count: number; errors?: string[] }> } | null
       if (result) {
         const byProvider = result.byProvider as Record<string, { count: number; errors?: string[] }>
         const count = byProvider?.[provider]?.count || 0
@@ -169,7 +250,7 @@ export default function CurrencyFetchingConfig() {
         if (count === 0) {
           flash(t('currencies.fetch.sync_no_rates'), 'warning')
         } else {
-          flash(`${t('currencies.fetch.sync_success')}: ${count} rates fetched`, 'success')
+          flash(t('currencies.fetch.sync_success', { count }), 'success')
         }
         await loadConfigs()
       }
@@ -178,30 +259,24 @@ export default function CurrencyFetchingConfig() {
     } finally {
       setFetching(null)
     }
-  }, [t, loadConfigs])
+  }, [mutationContextId, retryLastMutation, runMutation, t, loadConfigs])
 
   useEffect(() => {
     loadConfigs()
   }, [loadConfigs])
 
   function formatLastSync(date: string | null): string {
-    if (!date) return 'Never'
+    if (!date) return t('currencies.fetch.last_sync_never')
     return new Date(date).toLocaleString()
   }
 
   function getStatusBadge(status: string | null) {
     if (!status) return null
 
-    const styles: Record<string, string> = {
-      success: 'bg-green-100 text-green-800 px-2 py-1 rounded text-xs',
-      error: 'bg-red-100 text-red-800 px-2 py-1 rounded text-xs',
-      partial: 'bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs',
-    }
-
     return (
-      <span className={styles[status] || styles.error}>
+      <StatusBadge variant={STATUS_BADGE_VARIANT[status] ?? 'neutral'}>
         {status}
-      </span>
+      </StatusBadge>
     )
   }
 
@@ -276,11 +351,9 @@ export default function CurrencyFetchingConfig() {
                     <label className="text-xs text-muted-foreground whitespace-nowrap">
                       {t('currencies.fetch.sync_time')}:
                     </label>
-                    <input
-                      type="time"
+                    <TimeInput
                       value={config.syncTime || '09:00'}
-                      onChange={(e) => updateSyncTime(config.id, e.target.value, config.updatedAt)}
-                      className="rounded border bg-background px-2 py-1.5 text-sm"
+                      onChange={(time) => updateSyncTime(config.id, time, config.updatedAt)}
                     />
                   </div>
 
@@ -295,6 +368,7 @@ export default function CurrencyFetchingConfig() {
                   </div>
 
                   <Button
+                    type="button"
                     onClick={() => fetchNow(config.provider)}
                     disabled={fetching === config.provider}
                     size="default"
@@ -313,14 +387,14 @@ export default function CurrencyFetchingConfig() {
 
                 {config.lastSyncCount !== null && (
                   <div className="text-xs text-muted-foreground mt-2">
-                    {t('currencies.fetch.last_sync_count')}: <span className="font-medium">{config.lastSyncCount}</span> rates
+                    {t('currencies.fetch.last_sync_count')}: <span className="font-medium">{config.lastSyncCount}</span>
                   </div>
                 )}
 
                 {config.lastSyncMessage && config.lastSyncStatus === 'error' && (
-                  <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 mt-2">
+                  <Alert status="error" style="lighter" size="xs" className="mt-2">
                     {config.lastSyncMessage}
-                  </div>
+                  </Alert>
                 )}
               </>
             )}
@@ -333,6 +407,7 @@ export default function CurrencyFetchingConfig() {
               {t('currencies.fetch.no_providers')}
             </p>
             <Button
+              type="button"
               onClick={() => initializeMissingProviders(availableProviders)}
             >
               {t('currencies.fetch.initialize_providers')}

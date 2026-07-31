@@ -24,11 +24,23 @@ export const CUSTOMER_DICTIONARY_KINDS = [
   'temperature',
   'renewal-quarters',
   'person-company-roles',
+  'interaction-statuses',
 ] as const
 
 export type CustomerDictionaryKind = typeof CUSTOMER_DICTIONARY_KINDS[number]
 export type CustomerDictionaryDisplayEntry = DictionaryDisplayEntry
 export type CustomerDictionaryMap = DictionaryMap
+
+export const CUSTOMER_DICTIONARIES_MANAGE_HREF = '/backend/config/customers'
+export const CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE = 'customer_dictionary_organization_required'
+
+export function getCustomerDictionarySettingsSectionId(kind: CustomerDictionaryKind) {
+  return `customer-dictionary-${kind}`
+}
+
+export function getCustomerDictionaryManageHref(kind: CustomerDictionaryKind) {
+  return `${CUSTOMER_DICTIONARIES_MANAGE_HREF}#${getCustomerDictionarySettingsSectionId(kind)}`
+}
 
 export function createEmptyCustomerDictionaryMaps(): Record<CustomerDictionaryKind, CustomerDictionaryMap> {
   return CUSTOMER_DICTIONARY_KINDS.reduce<Record<CustomerDictionaryKind, CustomerDictionaryMap>>(

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -12,15 +12,20 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TeamForm, type TeamFormValues, buildTeamPayload } from '@open-mercato/core/modules/staff/components/TeamForm'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Plus } from 'lucide-react'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const TEAM_MEMBERS_PAGE_SIZE = 50
 
@@ -60,6 +65,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
   const teamId = params?.id
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [initialValues, setInitialValues] = React.useState<TeamFormValues | null>(null)
@@ -262,7 +268,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
           : Math.max(1, Math.ceil(items.length / TEAM_MEMBERS_PAGE_SIZE)),
       )
     } catch (error) {
-      console.error('staff.teams.team-members.list', error)
+      logger.error('staff.teams.team-members.list', { err: error })
       flash(memberLabels.errors.load, 'error')
     } finally {
       setMembersLoading(false)
@@ -293,7 +299,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
       flash(memberLabels.messages.unassigned, 'success')
       handleMemberRefresh()
     } catch (error) {
-      console.error('staff.teams.team-members.unassign', error)
+      logger.error('staff.teams.team-members.unassign', { err: error })
       flash(memberLabels.errors.unassign, 'error')
     }
   }, [handleMemberRefresh, memberLabels.errors.unassign, memberLabels.messages.unassigned, teamId])
@@ -314,6 +320,20 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
     })
     router.push('/backend/staff/teams')
   }, [teamId, router, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `staff.team` + id explicitly.
+  // The resourceKind mirrors the TeamForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same team.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'staff.team',
+      resourceId: teamId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (
@@ -343,29 +363,22 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <div className="border-b">
-            <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={memberLabels.tabs.label}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as 'details' | 'members')}
+            variant="underline"
+          >
+            <TabsList className="w-full flex-wrap" aria-label={memberLabels.tabs.label}>
               {[
                 { id: 'details', label: memberLabels.tabs.details },
                 { id: 'members', label: memberLabels.tabs.members },
               ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  onClick={() => setActiveTab(tab.id as 'details' | 'members')}
-                  className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-accent-indigo text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
+                <TabsTrigger key={tab.id} value={tab.id}>
                   {tab.label}
-                </button>
+                </TabsTrigger>
               ))}
-            </nav>
-          </div>
+            </TabsList>
+          </Tabs>
 
           {activeTab === 'details' ? (
             <TeamForm

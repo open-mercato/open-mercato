@@ -56,7 +56,7 @@ function rel(file) {
 
 const allowlist = loadAllowlist()
 const files = [...walk(appDir), ...walk(packagesDir)]
-const clientFiles = files.filter(hasTopLevelUseClient).map(rel).sort()
+const clientFiles = files.filter(hasTopLevelUseClient).map(rel).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 const pageRoots = clientFiles.filter((file) => file.endsWith('/page.tsx'))
 const backendPageRoots = pageRoots.filter((file) => file.includes('/(backend)/') || file.includes('/backend/'))
 const frontendPageRoots = pageRoots.filter((file) => !backendPageRoots.includes(file))

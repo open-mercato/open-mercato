@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { putWithLock, expectConflictBody } from '@open-mercato/core/helpers/integration/optimisticLockUi'
 
 /**
@@ -92,6 +92,7 @@ async function createOrderWithReturn(
   })
   expect(lineResponse.status()).toBe(201)
   const orderLineId = (await readJson(lineResponse)).id as string
+  await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity }])
 
   const returnResponse = await apiRequest(request, 'POST', '/api/sales/returns', {
     token,

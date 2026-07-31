@@ -1,5 +1,9 @@
 import type { JobContext, JobHandler } from '@open-mercato/queue'
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
+import {
+  inferModuleIdFromResourceId,
+  withModuleResourceUsage,
+} from '@open-mercato/shared/lib/modules/resource-usage'
 
 export type WorkerJobContainer = {
   resolve: <T = unknown>(name: string) => T
@@ -30,7 +34,15 @@ export function createPerJobWorkerHandler(
     const container = await createContainer()
     try {
       for (const worker of workers) {
-        await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
+        await withModuleResourceUsage(
+          {
+            moduleId: worker.moduleId ?? inferModuleIdFromResourceId(worker.id),
+            surface: 'worker',
+            operation: worker.id,
+            resourceId: worker.id,
+          },
+          () => worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) }),
+        )
       }
     } finally {
       try {

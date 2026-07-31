@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ruby ruby-dev \
     build-essential \
     ca-certificates openssl \
-    git curl bash zsh sudo \
+    git curl bash zsh sudo jq \
     postgresql-client \
     procps file \
     && rm -rf /var/lib/apt/lists/*

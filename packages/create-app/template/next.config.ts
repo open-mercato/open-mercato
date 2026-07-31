@@ -9,6 +9,13 @@ const nextConfig: NextConfig = {
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
+    // Mirror apps/mercato: treat these barrel-heavy packages as having
+    // modularized exports so only the named exports actually used are
+    // evaluated. Keeps scaffolded apps on the same client-bundle baseline.
+    //   - lucide-react: icons used across the default backend components.
+    //   - recharts: pairs with the next/dynamic chart split in @open-mercato/ui.
+    //   - date-fns: already deep-imported; listed here as defense-in-depth.
+    optimizePackageImports: ['lucide-react', 'recharts', 'date-fns'],
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,

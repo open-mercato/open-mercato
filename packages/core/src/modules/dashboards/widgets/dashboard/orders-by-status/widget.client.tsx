@@ -19,6 +19,9 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { DEFAULT_SETTINGS, hydrateSettings, type OrdersByStatusSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'orders-by-status' })
 
 async function fetchOrdersByStatusData(settings: OrdersByStatusSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -84,7 +87,7 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
       }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load orders by status data', err)
+      logger.error('Failed to load orders by status data', { err })
       setError(t('dashboards.analytics.widgets.ordersByStatus.error', 'Failed to load data'))
     } finally {
       setLoading(false)

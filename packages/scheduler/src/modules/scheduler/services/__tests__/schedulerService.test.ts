@@ -2,6 +2,21 @@ import { SchedulerService, type ScheduleRegistration } from '../schedulerService
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../../data/entities.js'
 import type { BullMQSchedulerService } from '../bullmqSchedulerService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const loggerError = createLogger('scheduler').error as jest.Mock
 
 describe('SchedulerService', () => {
   let service: SchedulerService
@@ -128,16 +143,14 @@ describe('SchedulerService', () => {
       mockForkedEm.flush.mockResolvedValue()
       mockBullMQService.register.mockRejectedValue(new Error('BullMQ error'))
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      loggerError.mockClear()
 
       await expect(service.register(baseRegistration)).resolves.not.toThrow()
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[scheduler] Failed to sync with BullMQ:',
-        expect.any(Error)
+      expect(loggerError).toHaveBeenCalledWith(
+        'Failed to sync with BullMQ',
+        { scheduleId: 'test-1', err: expect.any(Error) }
       )
-
-      consoleErrorSpy.mockRestore()
     })
 
     it('should throw if next run calculation fails', async () => {
@@ -206,12 +219,14 @@ describe('SchedulerService', () => {
       mockForkedEm.flush.mockResolvedValue()
       mockBullMQService.unregister.mockRejectedValue(new Error('BullMQ error'))
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      loggerError.mockClear()
 
       await expect(service.unregister('test-1')).resolves.not.toThrow()
 
-      expect(consoleErrorSpy).toHaveBeenCalled()
-      consoleErrorSpy.mockRestore()
+      expect(loggerError).toHaveBeenCalledWith(
+        'Failed to unregister from BullMQ',
+        { scheduleId: 'test-1', err: expect.any(Error) }
+      )
     })
 
     it('should do nothing if schedule does not exist', async () => {

@@ -13,6 +13,9 @@ import {
   OAuthStateError,
   verifyOAuthState,
 } from '../../../../../lib/oauth-state'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'oauth-callback' })
 
 export const metadata = {
   path: '/communication_channels/oauth/[provider]/callback',
@@ -176,9 +179,9 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       stateExtra: statePayload.extra,
     })
   } catch (err) {
-    console.warn(
-      `[communication_channels:oauth] code exchange failed for provider ${provider}:`,
-      err instanceof Error ? err.message : err,
+    logger.warn(
+      'code exchange failed for provider',
+      { provider, err },
     )
     return redirectWithFlash(req, returnUrl, {
       type: 'error',
@@ -219,9 +222,9 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       )
       credentialsPersisted = true
     } catch (err) {
-      console.warn(
-        `[communication_channels:oauth] persisting credentials failed for provider ${provider}:`,
-        err instanceof Error ? err.message : err,
+      logger.warn(
+        'persisting credentials failed for provider',
+        { provider, err },
       )
     }
   }
@@ -276,9 +279,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     // Same mailbox already connected via another provider — don't create a second
     // channel that double-ingests every message; send the user back with a flash.
     if (err instanceof MailboxAlreadyConnectedError) {
-      console.warn(
-        `[communication_channels:oauth] mailbox ${err.externalIdentifier} already connected via ${err.existingProviderKey}`,
-      )
+      logger.warn('mailbox already connected via another provider', { existingProviderKey: err.existingProviderKey })
       return redirectWithFlash(req, returnUrl, {
         type: 'error',
         code: 'mailbox_already_connected',
@@ -313,10 +314,9 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
         input: { channelId: channel.id },
       })
     } catch (err) {
-      console.warn(
-        `[oauth-callback] best-effort pushRegister failed for ${channel.id}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+      logger.warn(
+        'best-effort pushRegister failed for channel',
+        { channelId: channel.id, err },
       )
     }
   }

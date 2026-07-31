@@ -17,6 +17,7 @@ export function isValidCredentialUrl(value: string): boolean {
   }
   if (!ALLOWED_CREDENTIAL_URL_PROTOCOLS.has(parsed.protocol)) return false
   if (!parsed.hostname) return false
+  if (parsed.username || parsed.password) return false
   return true
 }
 

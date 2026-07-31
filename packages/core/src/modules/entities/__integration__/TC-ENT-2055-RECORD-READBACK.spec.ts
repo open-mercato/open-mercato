@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { createDictionaryFixture } from '@open-mercato/core/helpers/integration/dictionariesFixtures';
 
 /**
  * TC-ENT-2055-RECORD-READBACK: the records surface serves CUSTOM entities only,
@@ -39,14 +40,36 @@ const SYSTEM_ENTITY_CASES: Array<{ entityId: string; values: Record<string, unkn
 
 const RUNTIME_ENTITY_ID = `qa_ent2055:readback_${Date.now()}`;
 
-const RUNTIME_FIELD_DEFS: Array<{ key: string; kind: string; configJson: Record<string, unknown> }> = [
-  { key: 'priority', kind: 'integer', configJson: { label: 'Priority', formEditable: true } },
-  { key: 'severity', kind: 'select', configJson: { label: 'Severity', options: ['low', 'medium', 'high'], formEditable: true } },
-  { key: 'blocked', kind: 'boolean', configJson: { label: 'Blocked', formEditable: true } },
-  { key: 'labels', kind: 'text', configJson: { label: 'Labels', multi: true, input: 'tags', formEditable: true } },
-  { key: 'assignee', kind: 'select', configJson: { label: 'Assignees', options: ['alice', 'bob', 'charlie'], multi: true, input: 'listbox', formEditable: true } },
-  { key: 'description', kind: 'multiline', configJson: { label: 'Description', formEditable: true } },
-];
+function buildRuntimeFieldDefs(dictionaryId: string): Array<{ key: string; kind: string; configJson: Record<string, unknown> }> {
+  return [
+    { key: 'priority', kind: 'integer', configJson: { label: 'Priority', formEditable: true } },
+    { key: 'severity', kind: 'select', configJson: { label: 'Severity', options: ['low', 'medium', 'high'], formEditable: true } },
+    { key: 'blocked', kind: 'boolean', configJson: { label: 'Blocked', formEditable: true } },
+    { key: 'labels', kind: 'text', configJson: { label: 'Labels', multi: true, input: 'tags', formEditable: true } },
+    { key: 'assignee', kind: 'select', configJson: { label: 'Assignees', options: ['alice', 'bob', 'charlie'], multi: true, input: 'listbox', formEditable: true } },
+    { key: 'regions', kind: 'dictionary', configJson: { label: 'Regions', dictionaryId, multi: true, formEditable: true, filterable: true } },
+    { key: 'description', kind: 'multiline', configJson: { label: 'Description', formEditable: true } },
+  ];
+}
+
+async function createDictionaryEntry(
+  request: APIRequestContext,
+  token: string,
+  dictionaryId: string,
+  value: string,
+  label: string,
+): Promise<string> {
+  const response = await apiRequest(
+    request,
+    'POST',
+    `/api/dictionaries/${encodeURIComponent(dictionaryId)}/entries`,
+    { token, data: { value, label } },
+  );
+  expect(response.status(), `dictionary entry ${value} create 201`).toBe(201);
+  const body = (await response.json()) as { id?: string };
+  expect(typeof body.id, `dictionary entry ${value} id`).toBe('string');
+  return body.id as string;
+}
 
 async function readById(
   request: APIRequestContext,
@@ -102,8 +125,19 @@ test.describe('TC-ENT-2055-RECORD-READBACK', () => {
     const token = await getAuthToken(request, 'admin');
     let recordId: string | null = null;
     let entityCreated = false;
+    let dictionaryId: string | null = null;
+    const dictionaryEntryIds: string[] = [];
 
     try {
+      dictionaryId = await createDictionaryFixture(request, token, {
+        key: `qa_ent2055_regions_${Date.now()}`,
+        name: 'QA ENT-2055 Regions',
+      });
+      dictionaryEntryIds.push(
+        await createDictionaryEntry(request, token, dictionaryId, 'north', 'North'),
+        await createDictionaryEntry(request, token, dictionaryId, 'south', 'South'),
+      );
+
       const createEntity = await apiRequest(request, 'POST', '/api/entities/entities', {
         token,
         data: { entityId: RUNTIME_ENTITY_ID, label: 'QA ENT-2055 Readback Item', description: 'Runtime entity for record readback parity' },
@@ -111,7 +145,7 @@ test.describe('TC-ENT-2055-RECORD-READBACK', () => {
       expect(createEntity.status(), `runtime entity upsert 200: ${createEntity.status()}`).toBe(200);
       entityCreated = true;
 
-      for (const def of RUNTIME_FIELD_DEFS) {
+      for (const def of buildRuntimeFieldDefs(dictionaryId)) {
         const res = await apiRequest(request, 'POST', '/api/entities/definitions', {
           token,
           data: { entityId: RUNTIME_ENTITY_ID, key: def.key, kind: def.kind, configJson: def.configJson },
@@ -129,6 +163,7 @@ test.describe('TC-ENT-2055-RECORD-READBACK', () => {
             blocked: true,
             labels: ['ops'],
             assignee: ['charlie'],
+            regions: ['north', 'south'],
             description: 'TC-ENT-2055 round-trip',
           },
         },
@@ -162,7 +197,35 @@ test.describe('TC-ENT-2055-RECORD-READBACK', () => {
       expect(detail!.blocked, 'boolean field').toBe(true);
       expect(detail!.labels, 'multi tags field').toEqual(['ops']);
       expect(detail!.assignee, 'multi-select listbox field').toEqual(['charlie']);
+      expect(detail!.regions, 'multi dictionary field').toEqual(['north', 'south']);
       expect(detail!.description, 'multiline field').toBe('TC-ENT-2055 round-trip');
+
+      const update = await apiRequest(request, 'PUT', '/api/entities/records', {
+        token,
+        data: {
+          entityId: RUNTIME_ENTITY_ID,
+          recordId,
+          values: {
+            priority: 3,
+            severity: 'medium',
+            blocked: false,
+            labels: ['ops', 'qa'],
+            assignee: ['alice', 'bob'],
+            regions: ['south'],
+            description: 'TC-ENT-2055 updated round-trip',
+          },
+        },
+      });
+      expect(update.status(), `update 200: ${update.status()}`).toBe(200);
+      const updatedDetail = await readById(request, token, recordId as string);
+      expect(updatedDetail, 'updated by-id detail returned').toBeTruthy();
+      expect(updatedDetail!.priority, 'updated integer field').toBe(3);
+      expect(updatedDetail!.severity, 'updated single-select field').toBe('medium');
+      expect(updatedDetail!.blocked, 'updated boolean field').toBe(false);
+      expect(updatedDetail!.labels, 'updated multi tags field').toEqual(['ops', 'qa']);
+      expect(updatedDetail!.assignee, 'updated multi-select listbox field').toEqual(['alice', 'bob']);
+      expect(updatedDetail!.regions, 'updated multi dictionary field').toEqual(['south']);
+      expect(updatedDetail!.description, 'updated multiline field').toBe('TC-ENT-2055 updated round-trip');
     } finally {
       if (recordId) {
         await apiRequest(
@@ -177,6 +240,24 @@ test.describe('TC-ENT-2055-RECORD-READBACK', () => {
           token,
           data: { entityId: RUNTIME_ENTITY_ID },
         }).catch(() => {});
+      }
+      if (dictionaryId) {
+        for (const entryId of dictionaryEntryIds) {
+          await apiRequest(
+            request,
+            'DELETE',
+            `/api/dictionaries/${encodeURIComponent(dictionaryId)}/entries/${encodeURIComponent(entryId)}`,
+            { token },
+          ).catch(() => {});
+        }
+      }
+      if (dictionaryId) {
+        await apiRequest(
+          request,
+          'DELETE',
+          `/api/dictionaries/${encodeURIComponent(dictionaryId)}`,
+          { token },
+        ).catch(() => {});
       }
     }
   });

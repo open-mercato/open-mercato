@@ -24,7 +24,15 @@ describe('buildFilterDefsFromCustomFields', () => {
         ],
         multi: true,
       },
+      {
+        key: 'regions',
+        kind: 'dictionary',
+        filterable: true,
+        optionsUrl: '/api/dictionaries/dictionary-1/entries',
+        multi: true,
+      },
       { key: 'notes', kind: 'multiline', filterable: true },
+      { key: 'work_phone', kind: 'phone', filterable: true },
       { key: 'hidden', kind: 'text', filterable: false },
     ]
 
@@ -44,8 +52,15 @@ describe('buildFilterDefsFromCustomFields', () => {
     if (labels.type !== 'select') throw new Error('expected select')
     expect(labels.multiple).toBe(true)
     expect((labels.options || []).map((o) => o.value)).toEqual(['bug','feature'])
+    const regions = out.find(f => f.id === 'cf_regionsIn')!
+    expect(regions.type).toBe('select')
+    if (regions.type !== 'select') throw new Error('expected select')
+    expect(regions.multiple).toBe(true)
+    expect(typeof regions.loadOptions).toBe('function')
     // text-like (multiline) => text
     expect(out.find(f => f.id === 'cf_notes')!.type).toBe('text')
+    // phone filters as free text
+    expect(out.find(f => f.id === 'cf_work_phone')!.type).toBe('text')
     // non-filterable omitted
     expect(out.some(f => f.id === 'cf_hidden')).toBe(false)
   })

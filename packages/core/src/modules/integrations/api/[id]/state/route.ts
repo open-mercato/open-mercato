@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { emitIntegrationsEvent } from '../../../events'
 import { updateStateSchema } from '../../../data/validators'
 import type { IntegrationStateService } from '../../../lib/state-service'
@@ -11,6 +13,7 @@ import {
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
 } from '../../guards'
+import { resolveIntegrationsOrganizationId } from '../../../lib/organization-scope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -25,7 +28,8 @@ export const openApi = {
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveIntegrationsOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -54,7 +58,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     container,
     {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub ?? '',
     resourceKind: 'integrations.integration',
     resourceId: integration.id,
@@ -80,6 +84,22 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
+  const stateScope = { organizationId: organizationId, tenantId: auth.tenantId }
+
+  try {
+    const current = await stateService.resolveState(integration.id, stateScope)
+    enforceCommandOptimisticLock({
+      resourceKind: 'integrations.integration',
+      resourceId: integration.id,
+      current: current.updatedAt,
+      request: req,
+    })
+  } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    throw error
+  }
 
   const state = await stateService.upsert(
     integration.id,
@@ -87,10 +107,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
       isEnabled: payloadData.isEnabled,
       reauthRequired: payloadData.reauthRequired,
     },
-    {
-      organizationId: auth.orgId as string,
-      tenantId: auth.tenantId,
-    },
+    stateScope,
   )
 
   await emitIntegrationsEvent('integrations.state.updated', {
@@ -98,13 +115,13 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     isEnabled: state.isEnabled,
     reauthRequired: state.reauthRequired,
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
   })
 
   await runIntegrationMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub ?? '',
       resourceKind: 'integrations.integration',
       resourceId: integration.id,
@@ -117,5 +134,6 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     isEnabled: state.isEnabled,
     reauthRequired: state.reauthRequired,
     apiVersion: state.apiVersion ?? null,
+    updatedAt: state.updatedAt?.toISOString() ?? null,
   })
 }

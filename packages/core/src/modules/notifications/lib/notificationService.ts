@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
@@ -14,15 +14,18 @@ import {
   type NotificationTenantContext,
 } from './notificationFactory'
 import { toNotificationDto } from './notificationMapper'
-import { getRecipientUserIdsForFeature, getRecipientUserIdsForRole } from './notificationRecipients'
+import {
+  getRecipientUserIdsForFeature,
+  getRecipientUserIdsForRole,
+  getScopedNotificationRecipientUserIds,
+} from './notificationRecipients'
 import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
-const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
+const logger = createLogger('notifications').child({ component: 'service' })
 
-function debug(...args: unknown[]): void {
-  if (DEBUG) {
-    console.log('[notifications]', ...args)
-  }
+function debug(message: string, ...details: unknown[]): void {
+  logger.debug(message, details.length ? { details } : undefined)
 }
 
 function getDb(em: EntityManager): Kysely<any> {
@@ -33,6 +36,23 @@ const UNIQUE_NOTIFICATION_ACTIVE_STATUSES: NotificationStatus[] = ['unread', 're
 
 function normalizeOrgScope(organizationId: string | null | undefined): string | null {
   return organizationId ?? null
+}
+
+async function assertNotificationRecipientsInScope(
+  em: EntityManager,
+  recipientUserIds: string[],
+  ctx: NotificationServiceContext,
+): Promise<void> {
+  const scopedRecipientUserIds = await getScopedNotificationRecipientUserIds(
+    getDb(em),
+    ctx.tenantId,
+    normalizeOrgScope(ctx.organizationId),
+    recipientUserIds,
+  )
+
+  if (scopedRecipientUserIds.length !== recipientUserIds.length) {
+    throw new CrudHttpError(404, { error: 'Notification recipient not found' })
+  }
 }
 
 function applyNotificationContent(
@@ -215,6 +235,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const { recipientUserId, ...content } = input
       const writeEm = rootEm.fork()
       const notification = await writeEm.transactional(async (tx) => {
+        await assertNotificationRecipientsInScope(tx, [recipientUserId], ctx)
         const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
         await tx.flush()
         return entity
@@ -238,6 +259,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
+        await assertNotificationRecipientsInScope(tx, recipientUserIds, ctx)
         for (const recipientUserId of recipientUserIds) {
           const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
           notifications.push(notification)
@@ -448,6 +470,57 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         throw new Error('Action not found')
       }
 
+      // Reject an already-actioned notification before dispatching the command,
+      // so a retry or double-click cannot re-run the side effect.
+      if (notification.status === 'actioned') {
+        throw conflict('Notification action already executed')
+      }
+
+      const actionedAt = new Date()
+      const previousStatus = notification.status
+      const previousActionedAt = notification.actionedAt ?? null
+      const previousActionTaken = notification.actionTaken ?? null
+
+      // Atomically claim the notification so only one concurrent request can run
+      // the side-effecting command. The conditional UPDATE matches only while the
+      // notification has not been actioned yet; a losing request updates 0 rows.
+      const claimResult = (await getDb(em)
+        .updateTable('notifications' as any)
+        .set({
+          status: 'actioned',
+          actioned_at: actionedAt,
+          action_taken: input.actionId,
+        } as any)
+        .where('id' as any, '=', notification.id)
+        .where('recipient_user_id' as any, '=', ctx.userId as any)
+        .where('tenant_id' as any, '=', ctx.tenantId)
+        .where('status' as any, '!=', 'actioned')
+        .executeTakeFirst()) as { numUpdatedRows?: bigint | number } | undefined
+
+      if (Number(claimResult?.numUpdatedRows ?? 0) === 0) {
+        throw conflict('Notification action already executed')
+      }
+
+      // The claim is provisional: if the side-effecting command fails, the action
+      // never actually completed, so release the claim to its prior state. This
+      // lets the user retry the action instead of the notification being locked as
+      // `actioned` forever. Only release while we still own the claim
+      // (status = 'actioned'), so a concurrent winner's state is never clobbered.
+      const releaseClaim = async () => {
+        await getDb(em)
+          .updateTable('notifications' as any)
+          .set({
+            status: previousStatus,
+            actioned_at: previousActionedAt,
+            action_taken: previousActionTaken,
+          } as any)
+          .where('id' as any, '=', notification.id)
+          .where('recipient_user_id' as any, '=', ctx.userId as any)
+          .where('tenant_id' as any, '=', ctx.tenantId)
+          .where('status' as any, '=', 'actioned')
+          .executeTakeFirst()
+      }
+
       let result: unknown = null
 
       if (action.commandId && commandBus && container) {
@@ -469,21 +542,33 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationIds: ctx.organizationId ? [ctx.organizationId] : null,
         }
 
-        const commandResult = await commandBus.execute(action.commandId, {
-          input: commandInput,
-          ctx: commandCtx,
-          metadata: {
-            tenantId: ctx.tenantId,
-            organizationId: ctx.organizationId,
-            resourceKind: 'notifications',
-          },
-        })
+        let commandResult: { result: unknown }
+        try {
+          commandResult = await commandBus.execute(action.commandId, {
+            input: commandInput,
+            ctx: commandCtx,
+            metadata: {
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId,
+              resourceKind: 'notifications',
+            },
+          })
+        } catch (err) {
+          // Never let a rollback failure mask the original command error — the
+          // caller needs the real failure to decide whether to retry.
+          try {
+            await releaseClaim()
+          } catch (releaseErr) {
+            debug('failed to release notification action claim', releaseErr)
+          }
+          throw err
+        }
 
         result = commandResult.result
       }
 
       notification.status = 'actioned'
-      notification.actionedAt = new Date()
+      notification.actionedAt = actionedAt
       notification.actionTaken = input.actionId
       notification.actionResult = result as Record<string, unknown>
 

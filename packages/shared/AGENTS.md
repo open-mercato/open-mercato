@@ -35,6 +35,7 @@ yarn workspace @open-mercato/shared build
 | `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
+| `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
 | `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
 | `commands/runCrudCommandWrite` | When a command writes an entity + custom fields + CRUD/index side effects in one logical operation — composes fork → atomic flush → custom-field write → side-effect queue in the only correct order. **Prefer this over composing the primitives by hand for new commands.** | `@open-mercato/shared/lib/commands/runCrudCommandWrite` — `runCrudCommandWrite({ ctx, entityId, action, scope, phases, customFields?, events?, indexer?, sideEffect })` |
@@ -46,9 +47,12 @@ yarn workspace @open-mercato/shared build
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
+| `logger/` | When emitting diagnostics — `createLogger(namespace)` instead of raw `console.*` (migrate incrementally, Boy Scout rule). Message-first with structured fields (`logger.warn('Payload too large', { event, maxBytes })`), errors under `err`, `child(bindings)` for context, `getLogLevel()`/`isLevelEnabled()` to gate expensive fields; level via `OM_LOG_LEVEL`. Never log credentials, PII, or payload bodies | `@open-mercato/shared/lib/logger` |
 | `modules/` | When registering or listing modules | `@open-mercato/shared/lib/modules/registry` |
+| `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
+| `string.ts` | When parsing comma-separated lists from CLI args/query params, or coercing a string to `undefined` when blank | `@open-mercato/shared/lib/string` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 
 ## Module Types (`src/modules/`)
@@ -91,6 +95,41 @@ const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organ
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 ```
 
+### Comma-Separated List Parsing — MUST use instead of ad-hoc splitting
+
+```typescript
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
+```
+
+`parseCommaSeparatedList(value)` splits on commas, trims each entry, and drops blanks. Non-string
+inputs (`null`/`undefined`) yield `[]`. MUST use it instead of hand-rolling
+`value.split(',').map((s) => s.trim()).filter(Boolean)` when reading CLI flags or query params.
+
+Keep the surrounding guard when a call site distinguishes "not supplied" (`undefined`) from
+"supplied but empty" (`[]`) — the helper always returns an array:
+
+```typescript
+const roleNames = rolesCsv ? parseCommaSeparatedList(rolesCsv) : undefined
+```
+
+### Browser Storage — use the shared helpers instead of raw `localStorage`
+
+Persisted client UI state MUST go through the shared `browser/` helpers, never raw `window.localStorage` reads/writes scattered per component:
+
+```typescript
+import { readJsonFromLocalStorage, writeJsonToLocalStorage } from '@open-mercato/shared/lib/browser/safeLocalStorage'
+import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
+```
+
+- `safeLocalStorage` — SSR-safe, error-swallowing JSON get/set/remove. Use for raw values.
+- `versionedPreference` — wraps a value in a `{ v, data }` envelope so schema changes can migrate or safely discard stale data. `readVersionedPreference(key, version, isValid, fallback, { legacyIsValid })` validates the envelope, discards version-mismatched or malformed data, and (when `legacyIsValid` is supplied) migrates a pre-envelope bare value forward on the next write. `readVersionedIdSet`/`writeVersionedIdSet` are convenience wrappers for the common "set of ids" shape.
+
+**Versioning threshold** — when to reach for `versionedPreference` vs. a raw scalar:
+
+- **Trivial scalar flags** (a single boolean/number/string with no schema to evolve, e.g. `om:sidebarCollapsed`, `om:progress:expanded`) MAY stay raw via `safeLocalStorage` (or a plain `'1'`/`'0'`). Add a one-line comment noting the deliberate choice.
+- **Structured values** (objects, records, arrays of objects — anything whose shape can change incompatibly, e.g. a perspective snapshot, a model-picker selection, a sessions cache) MUST use a versioned envelope so a future shape change can migrate or discard old data instead of crashing or silently corrupting state.
+- A slot that already carries its own inline version discriminator (e.g. `{ v, ... }` checked on read) is already migratable and need not be re-wrapped — re-wrapping changes the on-disk format and discards existing user data.
+
 ### i18n — MUST use for all user-facing strings
 
 ```typescript
@@ -128,6 +167,30 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 - Use `hasFeature(granted, 'module.action')` for single-feature checks.
 - Use `hasAllFeatures(granted, required)` for arrays such as `features`, `requireFeatures`, or handler guard lists.
 - MUST NOT gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks in shared registries or runners; wildcard grants like `module.*` and `*` are part of the RBAC contract.
+
+### CRUD HTTP Errors — MUST use the shared helpers instead of hand-rolling `CrudHttpError`
+
+`@open-mercato/shared/lib/crud/errors` owns the standardized error shapes. Use the helper, not a raw `new CrudHttpError(...)`:
+
+```typescript
+import { assertFound, notFound, badRequest, forbidden, conflict } from '@open-mercato/shared/lib/crud/errors'
+
+const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))
+```
+
+| Status | Helper |
+|--------|--------|
+| 400 | `badRequest(message)` |
+| 403 | `forbidden(message?)` |
+| 404 | `notFound(message?)` — or `assertFound(value, message)` when guarding a lookup |
+| 409 | `conflict(message)` |
+
+MUST rules:
+- MUST NOT hand-roll `throw new CrudHttpError(404, { error: msg })`. Pick the helper that fits the call site:
+  - **Inline lookup** → `const deal = assertFound(await em.findOne(Deal, { id }), msg)`. It throws the standardized 404 and returns the value narrowed to `T`, so there is no nullable intermediate binding.
+  - **Guard statement** (multi-line lookup, or a compound condition such as `if (!entity || entity.tenantId !== auth.tenantId)`) → `throw notFound(msg)`. TypeScript already narrows the value after the throw, so this keeps tenant-scoping conditions explicit without losing type safety.
+- `message` is passed through verbatim and is never derived from an entity name — keep routing 404 copy through `translate(...)` so it stays translatable.
+- `assertFound` treats every falsy value as missing. Use it for entity/object lookups only, never to guard numbers or strings where `0`/`''` are valid results.
 
 ### CRUD Multi-ID Filtering
 

@@ -18,6 +18,7 @@ import { MetadataEditor } from './MetadataEditor'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
+import { CATALOG_GTIN_TYPES } from '../../data/types'
 import { E } from '#generated/entities.ids.generated'
 
 type VariantBuilderProps = {
@@ -122,6 +123,48 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
             onChange={(event) => setValue('barcode', event.target.value)}
             placeholder={t('catalog.variants.form.barcodePlaceholder', 'EAN, UPC, etc.')}
           />
+          {errors.barcode ? <p className="text-xs text-destructive">{errors.barcode}</p> : null}
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="catalog-variant-gtin-type">
+            {t('catalog.variants.form.gtinTypeLabel', 'Identifier type (GTIN)')}
+          </Label>
+          <Select
+            value={values.gtinType ?? 'none'}
+            onValueChange={(value) => setValue('gtinType', value === 'none' ? null : value)}
+          >
+            <SelectTrigger id="catalog-variant-gtin-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">{t('catalog.variants.form.gtinTypeNone', 'Untyped')}</SelectItem>
+              {CATALOG_GTIN_TYPES.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {t(`catalog.variants.form.gtinTypes.${type}`, type.toUpperCase())}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'catalog.variants.form.gtinTypeHint',
+              'Typed barcodes are validated and kept unique per organization.',
+            )}
+          </p>
+          {errors.gtinType ? <p className="text-xs text-destructive">{errors.gtinType}</p> : null}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="catalog-variant-hs-code">
+            {t('catalog.variants.form.hsCodeLabel', 'HS code (customs tariff)')}
+          </Label>
+          <Input
+            id="catalog-variant-hs-code"
+            value={values.hsCode}
+            onChange={(event) => setValue('hsCode', event.target.value)}
+          />
+          {errors.hsCode ? <p className="text-xs text-destructive">{errors.hsCode}</p> : null}
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2">

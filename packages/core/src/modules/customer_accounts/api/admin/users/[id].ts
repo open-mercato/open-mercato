@@ -12,7 +12,7 @@ import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accou
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {}
@@ -41,7 +41,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const user = await findOneWithDecryption(
     em,
     CustomerUser,
-    { id: params.id, tenantId: auth.tenantId, deletedAt: null } as any,
+    { id: params.id, tenantId: auth.tenantId, organizationId: auth.orgId, deletedAt: null } as any,
     undefined,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
   )
@@ -131,7 +131,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const user = await findOneWithDecryption(
     em,
     CustomerUser,
-    { id: params.id, tenantId: auth.tenantId, deletedAt: null } as any,
+    { id: params.id, tenantId: auth.tenantId, organizationId: auth.orgId, deletedAt: null } as any,
     undefined,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
   )
@@ -143,7 +143,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // customer user in parallel cannot silently clobber each other (#2055). The
   // check is strictly additive — a no-op when the client sends no expected-version header.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.user',
       resourceId: user.id,
       current: user.updatedAt ?? null,
@@ -179,7 +179,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (parsed.data.personEntityId !== undefined) updates.personEntityId = parsed.data.personEntityId
   if (parsed.data.customerEntityId !== undefined) updates.customerEntityId = parsed.data.customerEntityId
 
-  await em.nativeUpdate(CustomerUser, { id: user.id }, updates)
+  await em.nativeUpdate(CustomerUser, {
+    id: user.id,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
+  }, updates)
 
   let rolesChanged = false
   if (parsed.data.roleIds !== undefined) {
@@ -230,8 +234,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     id: user.id,
     recipientUserId: user.id,
     email: user.email,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
     updatedBy: auth.sub,
   }).catch(() => undefined)
 
@@ -256,7 +260,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const user = await findOneWithDecryption(
     em,
     CustomerUser,
-    { id: params.id, tenantId: auth.tenantId, deletedAt: null } as any,
+    { id: params.id, tenantId: auth.tenantId, organizationId: auth.orgId, deletedAt: null } as any,
     undefined,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
   )
@@ -267,7 +271,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   // Optimistic lock: refuse a stale delete (e.g. deleting a record another admin
   // already modified). Strictly additive — a no-op without the expected-version header.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.user',
       resourceId: user.id,
       current: user.updatedAt ?? null,
@@ -281,14 +285,17 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
 
-  await customerUserService.softDelete(user.id)
+  await customerUserService.softDelete(user.id, {
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
+  })
   await customerSessionService.revokeAllUserSessions(user.id)
 
   void emitCustomerAccountsEvent('customer_accounts.user.deleted', {
     id: user.id,
     email: user.email,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
     deletedBy: auth.sub,
   }).catch(() => undefined)
 

@@ -1,10 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AgenticConfig } from '../wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const AGENTIC_DIR = join(__dirname, 'agentic', 'codex')
+const bundledAgenticRoot = join(__dirname, 'agentic')
+const AGENTIC_ROOT = existsSync(bundledAgenticRoot)
+  ? bundledAgenticRoot
+  : join(__dirname, '..', '..', '..', 'agentic')
+const AGENTIC_DIR = join(AGENTIC_ROOT, 'codex')
 
 const MARKER_START = '<!-- CODEX_ENFORCEMENT_RULES_START -->'
 const MARKER_END = '<!-- CODEX_ENFORCEMENT_RULES_END -->'
@@ -56,17 +60,6 @@ export function generateCodex(config: AgenticConfig): void {
   // .codex/mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.codex', 'mcp.json.example'))
 
-  // Symlink .codex/skills → ../.ai/skills
-  ensureSkillsLink(join(targetDir, '.codex', 'skills'), join('..', '.ai', 'skills'))
-}
-
-function ensureSkillsLink(linkPath: string, target: string): void {
-  ensureDir(linkPath)
-  if (existsSync(linkPath) && !lstatSync(linkPath).isSymbolicLink()) {
-    return
-  }
-  if (lstatSync(linkPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
-    unlinkSync(linkPath)
-  }
-  symlinkSync(target, linkPath)
+  // No .codex/skills directory: Codex reads the canonical .agents/skills/,
+  // which scripts/install-skills.sh populates.
 }

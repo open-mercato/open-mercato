@@ -7,6 +7,9 @@ import type {
 } from '@open-mercato/shared/modules/middleware/page'
 import { CONTINUE_PAGE_MIDDLEWARE, matchPageMiddlewareTarget } from '@open-mercato/shared/modules/middleware/page'
 import { applyPageGuardOverridesToEntries } from '@open-mercato/shared/modules/overrides'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'middleware' })
 
 type ExecutePageMiddlewareArgs = {
   entries: PageMiddlewareRegistryEntry[]
@@ -49,7 +52,7 @@ export async function executePageMiddleware(args: ExecutePageMiddlewareArgs): Pr
       if (onError) {
         onError(error, { id: middleware.id, priority: middleware.priority })
       } else {
-        console.error('[middleware:page] execution failed', { id: middleware.id, error })
+        logger.error('Page middleware execution failed', { id: middleware.id, err: error })
       }
       throw error
     }

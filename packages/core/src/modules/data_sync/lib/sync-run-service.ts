@@ -1,7 +1,25 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { SyncCursor, SyncRun } from '../data/entities'
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function buildRunSearchFilter(search: string): FilterQuery<SyncRun>[] | null {
+  const trimmed = search.trim()
+  if (!trimmed) return null
+  const pattern = `%${escapeLikePattern(trimmed)}%`
+  const conditions: FilterQuery<SyncRun>[] = [
+    { integrationId: { $ilike: pattern } },
+    { entityType: { $ilike: pattern } },
+    { status: { $ilike: pattern } },
+  ]
+  if (UUID_PATTERN.test(trimmed)) {
+    conditions.push({ id: trimmed })
+  }
+  return conditions
+}
 
 type SyncScope = {
   organizationId: string
@@ -89,6 +107,7 @@ export function createSyncRunService(em: EntityManager) {
       entityType?: string
       direction?: 'import' | 'export'
       status?: string
+      search?: string
       page: number
       pageSize: number
     }, scope: SyncScope): Promise<{ items: SyncRun[]; total: number }> {
@@ -102,6 +121,10 @@ export function createSyncRunService(em: EntityManager) {
       if (query.entityType) where.entityType = query.entityType
       if (query.direction) where.direction = query.direction
       if (query.status) where.status = query.status as SyncRun['status']
+      if (query.search) {
+        const searchConditions = buildRunSearchFilter(query.search)
+        if (searchConditions) where.$or = searchConditions
+      }
 
       const [items, total] = await findAndCountWithDecryption(
         em,

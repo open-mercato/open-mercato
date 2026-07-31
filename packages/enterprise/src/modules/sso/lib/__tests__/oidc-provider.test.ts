@@ -1,10 +1,105 @@
-jest.mock('openid-client', () => ({}))
+jest.mock('openid-client', () => ({
+  customFetch: Symbol('openid-client.customFetch'),
+  discovery: jest.fn(),
+}))
+
+import * as client from 'openid-client'
 
 import {
+  OidcProvider,
   extractIdentityGroups,
   coerceClaimValues,
   normalizeEmailVerifiedClaim,
 } from '../oidc-provider'
+
+describe('OidcProvider outbound request safety', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('installs a guarded custom fetch for discovery and subsequent provider requests', async () => {
+    const discovery = client.discovery as jest.MockedFunction<typeof client.discovery>
+    discovery.mockResolvedValue({} as client.Configuration)
+
+    const provider = new OidcProvider()
+    await provider.validateConfig({
+      id: 'config-id',
+      organizationId: 'organization-id',
+      protocol: 'oidc',
+      issuer: 'https://idp.example.com',
+      clientId: 'client-id',
+      allowedDomains: [],
+      jitEnabled: false,
+      autoLinkByEmail: false,
+      isActive: false,
+      ssoRequired: false,
+      appRoleMappings: {},
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    })
+
+    expect(discovery).toHaveBeenCalledWith(
+      new URL('https://idp.example.com'),
+      'client-id',
+      undefined,
+      undefined,
+      expect.objectContaining({
+        [client.customFetch]: expect.any(Function),
+      }),
+    )
+  })
+
+  test('coalesces discovery for an unchanged configuration', async () => {
+    const discovery = client.discovery as jest.MockedFunction<typeof client.discovery>
+    discovery.mockResolvedValue({} as client.Configuration)
+    const config = {
+      id: 'config-id',
+      organizationId: 'organization-id',
+      protocol: 'oidc',
+      issuer: 'https://idp.example.com',
+      clientId: 'client-id',
+      allowedDomains: [],
+      jitEnabled: false,
+      autoLinkByEmail: false,
+      isActive: false,
+      ssoRequired: false,
+      appRoleMappings: {},
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    }
+
+    const provider = new OidcProvider()
+    await provider.validateConfig(config)
+    await provider.validateConfig(config)
+
+    expect(discovery).toHaveBeenCalledTimes(1)
+  })
+
+  test('shares cached discovery across request-scoped provider instances', async () => {
+    const discovery = client.discovery as jest.MockedFunction<typeof client.discovery>
+    discovery.mockResolvedValue({ serverMetadata: jest.fn() } as unknown as client.Configuration)
+    const config = {
+      id: 'cross-request-config-id',
+      organizationId: 'organization-id',
+      protocol: 'oidc',
+      issuer: 'https://idp.example.com',
+      clientId: 'client-id',
+      allowedDomains: [],
+      jitEnabled: false,
+      autoLinkByEmail: false,
+      isActive: false,
+      ssoRequired: false,
+      appRoleMappings: {},
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    }
+
+    await new OidcProvider().validateConfig(config)
+    await new OidcProvider().validateConfig(config)
+
+    expect(discovery).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('normalizeEmailVerifiedClaim', () => {
   test('preserves explicit true', () => {

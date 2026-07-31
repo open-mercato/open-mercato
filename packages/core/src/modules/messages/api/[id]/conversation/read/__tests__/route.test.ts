@@ -1,4 +1,4 @@
-import { DELETE } from '@open-mercato/core/modules/messages/api/[id]/conversation/read/route'
+import { DELETE, PUT } from '@open-mercato/core/modules/messages/api/[id]/conversation/read/route'
 
 const resolveMessageContextMock = jest.fn()
 
@@ -41,6 +41,24 @@ describe('messages /api/messages/[id]/conversation/read', () => {
     expect(response.status).toBe(200)
     expect(commandBus.execute).toHaveBeenCalledWith(
       'messages.conversation.mark_unread_for_actor',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          anchorMessageId: 'message-1',
+          userId: 'user-1',
+        }),
+      }),
+    )
+    await expect(response.json()).resolves.toEqual({ ok: true, affectedCount: 2 })
+  })
+
+  it('marks conversation recipients read for current actor', async () => {
+    const response = await PUT(new Request('http://localhost', { method: 'PUT' }), {
+      params: { id: 'message-1' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.conversation.mark_read_for_actor',
       expect.objectContaining({
         input: expect.objectContaining({
           anchorMessageId: 'message-1',

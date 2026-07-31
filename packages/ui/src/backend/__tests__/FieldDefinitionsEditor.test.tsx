@@ -1,6 +1,8 @@
 /**
  * @jest-environment jsdom
  */
+import * as fs from 'fs'
+import * as path from 'path'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { FieldDefinitionsEditor, type FieldDefinition } from '../custom-fields/FieldDefinitionsEditor'
@@ -19,7 +21,22 @@ if (typeof window !== 'undefined') {
   }
 }
 
+const repoRoot = path.resolve(__dirname, '../../../../..')
+const readEditorSource = () =>
+  fs.readFileSync(path.join(repoRoot, 'packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx'), 'utf8')
+
 describe('FieldDefinitionsEditor', () => {
+  it('uses DS primitives and semantic status tokens for editor controls', () => {
+    const source = readEditorSource()
+
+    expect(source).not.toMatch(/<input\b/)
+    expect(source).not.toMatch(/<select\b/)
+    expect(source).not.toMatch(/<textarea\b/)
+    expect(source).not.toMatch(/\b(?:border-red|text-red|bg-amber|text-amber|text-blue)-\d{2,3}\b/)
+    expect(source).toMatch(/from ['"]\.\.\/\.\.\/primitives\/input['"]/)
+    expect(source).toMatch(/from ['"]\.\.\/\.\.\/primitives\/checkbox-field['"]/)
+  })
+
   it('assigns a field to a fieldset without triggering a render-time parent update warning', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     const handleDefinitionChange = jest.fn()

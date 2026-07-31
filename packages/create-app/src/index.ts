@@ -326,7 +326,7 @@ async function maybeInitializeGitRepository(targetDir: string, options: Options)
   return result
 }
 
-function buildRegistryConfig(registryUrl: string): string {
+export function buildRegistryConfig(registryUrl: string): string {
   let parsedRegistryUrl: URL
 
   try {
@@ -354,12 +354,14 @@ function buildRegistryConfig(registryUrl: string): string {
   configLines.push('npmScopes:')
   configLines.push('  open-mercato:')
   configLines.push(`    npmRegistryServer: "${registryUrl}"`)
+  configLines.push('    npmMinimalAgeGate: 0')
 
   return configLines.join('\n')
 }
 
 const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
+  gitattributes: '.gitattributes',
 }
 
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])
@@ -452,15 +454,13 @@ function resolveAgentSelection(options: Options): AgentSelection {
   return { mode: 'tools', tools: parsed.tools }
 }
 
-async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection): Promise<void> {
+async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection): Promise<boolean> {
   if (selection.mode === 'skip') {
-    await runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
-    return
+    return runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
   }
 
   if (selection.mode === 'tools') {
-    await runAgenticSetup(targetDir, async () => '', { tool: selection.tools.join(',') })
-    return
+    return runAgenticSetup(targetDir, async () => '', { tool: selection.tools.join(',') })
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -468,13 +468,13 @@ async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection
     new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
 
   try {
-    await runAgenticSetup(targetDir, ask)
+    return await runAgenticSetup(targetDir, ask)
   } finally {
     rl.close()
   }
 }
 
-function printTemplateNextSteps(appName: string): void {
+function printTemplateNextSteps(appName: string, agenticConfigured: boolean): void {
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
@@ -502,6 +502,14 @@ function printTemplateNextSteps(appName: string): void {
   console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
   console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
   console.log('')
+
+  if (agenticConfigured) {
+    console.log(pc.green('Agent pipeline:'))
+    console.log(pc.dim('  # .ai/agentic.config.json ships preconfigured (GitHub tracker, labels off) — skills work out of the box.'))
+    console.log(pc.dim('  # To tailor it (enable pipeline labels + QA gate, switch tracker, change validation commands), run in your agent CLI:'))
+    console.log(pc.cyan('  /om-setup-agent-pipeline'))
+    console.log('')
+  }
 }
 
 function printImportedReadyAppNextSteps(appName: string): void {
@@ -607,8 +615,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
   console.log('')
 
+  let agenticConfigured = false
   if (!readyAppSource) {
-    await maybeRunAgenticSetup(targetDir, agentSelection)
+    agenticConfigured = await maybeRunAgenticSetup(targetDir, agentSelection)
   }
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)
@@ -616,7 +625,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (readyAppSource) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    printTemplateNextSteps(appName)
+    printTemplateNextSteps(appName, agenticConfigured)
   }
   printGitHubSyncInstructions(gitResult)
 

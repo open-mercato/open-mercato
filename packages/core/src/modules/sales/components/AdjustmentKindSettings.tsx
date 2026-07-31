@@ -18,12 +18,16 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type AdjustmentKind = {
   id: string
@@ -75,10 +79,28 @@ const normalizeEntry = (raw: any): AdjustmentKind | null => {
   }
 }
 
+const SAVE_CONTEXT_ID = 'sales-adjustment-kind-settings'
+
 export function AdjustmentKindSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: SAVE_CONTEXT_ID,
+      resourceKind: 'sales.adjustmentKinds',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
   const [items, setItems] = React.useState<AdjustmentKind[]>([])
   const [search, setSearch] = React.useState('')
   const [loading, setLoading] = React.useState(false)
@@ -163,7 +185,7 @@ export function AdjustmentKindSettings() {
         : []
       setItems(mapped)
     } catch (err) {
-      console.error('sales.adjustment-kinds.list failed', err)
+      logger.error('sales.adjustment-kinds.list failed', { err })
       flash(labels.loadError, 'error')
     } finally {
       setLoading(false)
@@ -222,27 +244,37 @@ export function AdjustmentKindSettings() {
 
       const lockHeader =
         dialog.mode === 'edit' ? buildOptimisticLockHeader(dialog.entry.updatedAt) : {}
-      const call = await withScopedApiRequestHeaders(lockHeader, () =>
-        apiCall('/api/sales/adjustment-kinds', {
-          method,
-          headers: { 'content-type': 'application/json' },
-          body,
-        })
-      )
-      if (!call.ok) {
-        await raiseCrudError(call.response, labels.saveError)
-      }
+      await runMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(lockHeader, () =>
+            apiCall('/api/sales/adjustment-kinds', {
+              method,
+              headers: { 'content-type': 'application/json' },
+              body,
+            })
+          )
+          if (!call.ok) {
+            await raiseCrudError(call.response, labels.saveError)
+          }
+          return call
+        },
+        context: mutationContext,
+        mutationPayload:
+          dialog.mode === 'create'
+            ? { action: 'create', ...payload }
+            : { action: 'update', id: dialog.entry.id, ...payload },
+      })
       flash(dialog.mode === 'create' ? labels.created : labels.updated, 'success')
       closeDialog()
       await loadItems()
     } catch (err) {
-      console.error('sales.adjustment-kinds.save failed', err)
+      logger.error('sales.adjustment-kinds.save failed', { err })
       const message = err instanceof Error ? err.message : labels.saveError
       setError(message)
     } finally {
       setSubmitting(false)
     }
-  }, [closeDialog, dialog, form.color, form.icon, form.label, form.value, labels, loadItems])
+  }, [closeDialog, dialog, form.color, form.icon, form.label, form.value, labels, loadItems, mutationContext, runMutation])
 
   const handleDelete = React.useCallback(
     async (entry: AdjustmentKind) => {
@@ -253,27 +285,34 @@ export function AdjustmentKindSettings() {
       })
       if (!confirmed) return
       try {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(entry.updatedAt),
-          () =>
-            apiCall('/api/sales/adjustment-kinds', {
-              method: 'DELETE',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: entry.id }),
-            })
-        )
-        if (!call.ok) {
-          await raiseCrudError(call.response, labels.deleteError)
-        }
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(entry.updatedAt),
+              () =>
+                apiCall('/api/sales/adjustment-kinds', {
+                  method: 'DELETE',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id: entry.id }),
+                })
+            )
+            if (!call.ok) {
+              await raiseCrudError(call.response, labels.deleteError)
+            }
+            return call
+          },
+          context: mutationContext,
+          mutationPayload: { action: 'delete', id: entry.id },
+        })
         flash(labels.deleted, 'success')
         await loadItems()
       } catch (err) {
-        console.error('sales.adjustment-kinds.delete failed', err)
+        logger.error('sales.adjustment-kinds.delete failed', { err })
         const message = err instanceof Error ? err.message : labels.deleteError
         flash(message, 'error')
       }
     },
-    [confirm, labels, loadItems]
+    [confirm, labels, loadItems, mutationContext, runMutation]
   )
 
   const formKeyHandler = React.useCallback(

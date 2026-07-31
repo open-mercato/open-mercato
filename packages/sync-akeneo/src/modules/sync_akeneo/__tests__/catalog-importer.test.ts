@@ -1,4 +1,5 @@
 import {
+  createAkeneoImporter,
   filterAkeneoAttributeMappingsByAvailableAttributes,
   normalizeAkeneoSelectValue,
   readLayeredAkeneoValue,
@@ -7,6 +8,21 @@ import {
   resolveAkeneoFieldsetMemberships,
   resolveAkeneoFieldKeysToDetach,
 } from '../lib/catalog-importer'
+
+const mockContainerResolve = jest.fn()
+const mockFindOneWithDecryption = jest.fn()
+const mockFindWithDecryption = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => ({
+    resolve: mockContainerResolve,
+  })),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
+}))
 
 describe('akeneo catalog importer value resolution', () => {
   it('does not fall back to a different locale when a base locale is selected', () => {
@@ -203,5 +219,57 @@ describe('akeneo catalog importer value resolution', () => {
       'akeneo_product_multifunctionals',
       'akeneo_product_digital_cameras',
     ])
+  })
+})
+
+describe('akeneo catalog importer option schemas', () => {
+  beforeEach(() => {
+    mockContainerResolve.mockReset()
+    mockFindOneWithDecryption.mockReset()
+    mockFindWithDecryption.mockReset()
+  })
+
+  it('scopes mapped option schema template lookups by tenant and organization', async () => {
+    const scope = { organizationId: 'org-1', tenantId: 'tenant-1' }
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: undefined })),
+    }
+    const externalIdMappingService = {
+      lookupLocalId: jest.fn(async () => 'schema-1'),
+      storeExternalIdMapping: jest.fn(async () => undefined),
+    }
+
+    mockContainerResolve.mockImplementation((key: string) => {
+      if (key === 'em') return {}
+      if (key === 'commandBus') return commandBus
+      if (key === 'dataEngine') return {}
+      if (key === 'externalIdMappingService') return externalIdMappingService
+      if (key === 'cache') throw new Error('[internal] no cache in test')
+      throw new Error(`[internal] unexpected dependency: ${key}`)
+    })
+    mockFindOneWithDecryption.mockResolvedValue({ id: 'schema-1' })
+
+    const importer = await createAkeneoImporter({} as never, scope)
+    await importer.upsertAttributeFamily(
+      { code: 'family-a', labels: { en_US: 'Family A' }, attributes: [] } as never,
+      'en_US',
+      true,
+      true,
+    )
+
+    expect(externalIdMappingService.lookupLocalId).toHaveBeenCalledWith(
+      'sync_akeneo',
+      'catalog_option_schema',
+      'family-a',
+      scope,
+    )
+    const where = mockFindOneWithDecryption.mock.calls[0]?.[2] as Record<string, unknown>
+    expect(where).toMatchObject({
+      id: 'schema-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      deletedAt: null,
+    })
+    expect(commandBus.execute).toHaveBeenCalledWith('catalog.optionSchemas.update', expect.any(Object))
   })
 })

@@ -13,6 +13,11 @@ export interface FetchOptions {
   forceUpdate?: boolean
 }
 
+type ProviderFetchOutcome =
+  | { kind: 'skipped'; providerSource: string; error: string }
+  | { kind: 'failed'; providerSource: string; error: string }
+  | { kind: 'fetched'; providerSource: string; rates: RateProviderResult[] }
+
 const exchangeRateKey = (
   fromCurrencyCode: string,
   toCurrencyCode: string,
@@ -54,44 +59,76 @@ export class RateFetchingService {
       ? options.providers
       : Array.from(this.providers.keys())
 
-    for (const providerSource of providerList) {
-      const provider = this.providers.get(providerSource)
+    // Fetch every provider concurrently: provider calls are independent network I/O,
+    // so overlapping them caps total latency at the slowest provider instead of the sum
+    // of all provider timeouts. Each provider is isolated in its own try/catch so a
+    // single failure never rejects the batch.
+    const outcomes = await Promise.all(
+      providerList.map((providerSource) =>
+        this.fetchFromProvider(providerSource, date, scope, currencyCodeSet)
+      )
+    )
 
-      if (!provider) {
-        result.errors.push(`Unknown provider: ${providerSource}`)
+    // Persist sequentially in provider order: a single EntityManager is not safe for
+    // concurrent transactions, and stable ordering keeps DB writes and the byProvider
+    // response shape deterministic regardless of which fetch resolved first.
+    for (const outcome of outcomes) {
+      if (outcome.kind === 'skipped') {
+        result.errors.push(outcome.error)
         continue
       }
 
-      if (!provider.isAvailable()) {
-        result.errors.push(`Provider not available: ${providerSource}`)
+      if (outcome.kind === 'failed') {
+        result.errors.push(`${outcome.providerSource}: ${outcome.error}`)
+        result.byProvider[outcome.providerSource] = { count: 0, errors: [outcome.error] }
         continue
       }
 
       try {
-        const rates = await provider.fetchRates(date, scope, currencyCodeSet)
-
-        // Filter: only currencies that exist in both directions
-        const validRates = rates.filter(
-          (r) =>
-            currencyCodeSet.has(r.fromCurrencyCode) &&
-            currencyCodeSet.has(r.toCurrencyCode)
-        )
-
-        const stored = await this.storeRates(validRates, scope)
-
-        result.byProvider[providerSource] = { count: stored }
+        const stored = await this.storeRates(outcome.rates, scope)
+        result.byProvider[outcome.providerSource] = { count: stored }
         result.totalFetched += stored
-      } catch (err: any) {
-        const errorMsg = `${providerSource}: ${err.message}`
-        result.errors.push(errorMsg)
-        result.byProvider[providerSource] = {
-          count: 0,
-          errors: [err.message],
-        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        result.errors.push(`${outcome.providerSource}: ${message}`)
+        result.byProvider[outcome.providerSource] = { count: 0, errors: [message] }
       }
     }
 
     return result
+  }
+
+  private async fetchFromProvider(
+    providerSource: string,
+    date: Date,
+    scope: { tenantId: string; organizationId: string },
+    currencyCodeSet: Set<string>
+  ): Promise<ProviderFetchOutcome> {
+    const provider = this.providers.get(providerSource)
+
+    if (!provider) {
+      return { kind: 'skipped', providerSource, error: `Unknown provider: ${providerSource}` }
+    }
+
+    if (!provider.isAvailable()) {
+      return { kind: 'skipped', providerSource, error: `Provider not available: ${providerSource}` }
+    }
+
+    try {
+      const rates = await provider.fetchRates(date, scope, currencyCodeSet)
+
+      // Filter: only currencies that exist in both directions
+      const validRates = rates.filter(
+        (r) =>
+          currencyCodeSet.has(r.fromCurrencyCode) &&
+          currencyCodeSet.has(r.toCurrencyCode)
+      )
+
+      return { kind: 'fetched', providerSource, rates: validRates }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { kind: 'failed', providerSource, error: message }
+    }
   }
 
   private async getExistingCurrencies(scope: {

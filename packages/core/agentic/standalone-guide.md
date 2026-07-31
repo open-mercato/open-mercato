@@ -2,44 +2,9 @@
 
 `@open-mercato/core` contains all built-in business modules. This guide covers module development patterns for standalone apps that build on top of these modules.
 
-## Auto-Discovery Paths
+## Module anatomy, auto-discovery & convention files
 
-Place files in your module directory (`src/modules/<module>/`) — the framework discovers them automatically:
-
-| Path Pattern | Becomes |
-|---|---|
-| `frontend/<path>.tsx` | `/<path>` (public page) |
-| `backend/<path>.tsx` | `/backend/<path>` (admin page) |
-| `backend/page.tsx` | `/backend/<module>` (module root page) |
-| `api/<method>/<path>.ts` | `/api/<path>` dispatched by HTTP method |
-| `subscribers/*.ts` | Event subscriber (export `metadata` + default handler) |
-| `workers/*.ts` | Background worker (export `metadata` + default handler) |
-
-Run `yarn generate` after adding any auto-discovered file.
-
-## Module Files Reference
-
-| File | Export | Purpose |
-|------|--------|---------|
-| `index.ts` | `metadata` | Module metadata |
-| `di.ts` | `register(container)` | DI registrations (Awilix) |
-| `acl.ts` | `features` | Permission features: `['mod.view', 'mod.create', ...]` |
-| `setup.ts` | `setup: ModuleSetupConfig` | Tenant init, role features, seed data |
-| `ce.ts` | `entities` | Custom entities / custom field sets |
-| `events.ts` | `eventsConfig` | Typed event declarations |
-| `search.ts` | `searchConfig` | Search indexing config |
-| `translations.ts` | `translatableFields` | Translatable fields per entity |
-| `notifications.ts` | `notificationTypes` | Notification type definitions |
-| `notifications.client.ts` | — | Client-side notification renderers |
-| `notifications.handlers.ts` | `notificationHandlers` | Reactive notification side-effects |
-| `data/entities.ts` | — | MikroORM entity classes |
-| `data/validators.ts` | — | Zod validation schemas |
-| `data/extensions.ts` | `extensions` | Entity extensions (cross-module links) |
-| `data/enrichers.ts` | `enrichers` | Response enrichers |
-| `api/interceptors.ts` | `interceptors` | API route interception hooks |
-| `widgets/injection/` | — | Injected UI widgets |
-| `widgets/injection-table.ts` | — | Widget-to-slot mappings |
-| `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper definitions |
+> Moved to the conceptual guide. See **`.ai/guides/module-system.md` → Module anatomy** for the auto-discovery path table and the convention-file reference — they are framework-wide, not core-specific. The sections below cover `@open-mercato/core`-specific development patterns.
 
 ## API Routes
 
@@ -75,8 +40,10 @@ makeCrudRoute({
 ### Custom Write Routes
 
 For non-CRUD write routes (`POST`/`PUT`/`PATCH`/`DELETE`), MUST wire mutation guards:
-- Call `validateCrudMutationGuard` before mutation
-- Call `runCrudMutationGuardAfterSuccess` after successful mutation
+- Map the route to the closest registry operation (`create`, `update`, or `delete`; state-changing action endpoints usually use `update`)
+- Collect registered guards with `getAllMutationGuardInstances()` and append `bridgeLegacyGuard(container)` when present
+- Call `runMutationGuards(...)` from `@open-mercato/shared/lib/crud/mutation-guard-registry` before mutation, passing the caller's granted features as `{ userFeatures }`
+- Return guard rejection bodies/statuses, merge `modifiedPayload` into validated input when present, and run returned `afterSuccessCallbacks` after successful mutation, catching/logging callback failures so committed writes still return successfully
 
 ## Module Setup (`setup.ts`)
 

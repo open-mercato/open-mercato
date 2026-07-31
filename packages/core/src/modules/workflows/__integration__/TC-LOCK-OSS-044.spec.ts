@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Locator, type Page, type Request } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -14,6 +14,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
 import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 /**
  * TC-LOCK-OSS-044 — workflows definition + custom-entity record + checkout
@@ -70,7 +71,7 @@ import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/he
 
 const DEFINITIONS_BASE = '/api/workflows/definitions'
 
-type DefinitionDetail = { id: string; workflowName: string; updatedAt: string }
+type DefinitionDetail = { id: string; workflowName: string; updatedAt: string; enabled: boolean }
 
 async function readDefinition(
   request: APIRequestContext,
@@ -312,6 +313,218 @@ test.describe('TC-LOCK-OSS-044: workflows definition + custom-entity optimistic-
       if (entityCreated) {
         await apiRequest(page.request, 'DELETE', '/api/entities/entities', { token, data: { entityId } }).catch(() => {})
       }
+    }
+  })
+})
+
+/**
+ * WF-TOGGLE — workflow-definition list-page "Enabled" toggle optimistic-lock
+ * coverage (follow-up to #3333 / PR #3397).
+ *
+ * The edit/delete CrudForm paths are covered by WF-01 above. The surface #3333
+ * actually fixes is the **list page** (`/backend/definitions`): both the inline
+ * *Enabled* badge and the row-action *Enable/Disable* menu item PUT
+ * `/api/workflows/definitions/:id` and must attach the optimistic-lock header
+ * (`x-om-ext-optimistic-lock-expected-updated-at`) derived from the row's
+ * `updatedAt`, so a stale toggle is refused with a 409 instead of silently
+ * overwriting a concurrent change.
+ *
+ * Heads-up encoded below (from the follow-up's manual run): clicking the *badge*
+ * also bubbles to the DataTable row-click → navigates to the visual editor. We
+ * therefore assert the badge's lock header from the network capture + an API
+ * read-back rather than asserting post-click badge text, and drive the live
+ * conflict-banner case through the **row action** (its `onSelect` stays on the
+ * list). Definitions are given an `AAA …` name so they sort to page 1 of the
+ * `workflowName ASC` list without needing a search — safe because these are the
+ * only specs that create `AAA`-prefixed workflow definitions, each is deleted in
+ * its own `finally`, and the integration suite runs against a fresh ephemeral DB,
+ * so page 1 (20 rows) is never crowded out from under the row locator.
+ */
+const DEFINITIONS_LIST_PATH = '/backend/definitions'
+
+/**
+ * Open the row's RowActions (⋮) menu and click the Enable/Disable `menuitem`,
+ * returning the single toggle `PUT` request the browser fired.
+ *
+ * The menu is portalled to document.body and the list re-renders as data
+ * settles, so the trigger/menu can detach between "open" and "click"; we retry
+ * the open+click atomically inside `toPass` (mirrors the SAL-13 list pattern).
+ * Crucially the retry is guarded by `firedRequest`: once the toggle PUT has been
+ * observed we stop clicking, so a click that dispatched the request but then
+ * threw on a detached element cannot fire a *second* toggle (which would flip
+ * `enabled` back and break the read-back / change the menu item label).
+ *
+ * Only the browser fetch (via `apiCall`) raises `page.on('request')`; the
+ * out-of-band bump uses `page.request` (APIRequestContext) which does NOT, so
+ * `firedRequest` captures exactly the in-browser toggle.
+ */
+async function toggleViaRowActionAndCapturePut(
+  row: Locator,
+  page: Page,
+  definitionId: string,
+  name: RegExp,
+): Promise<Request> {
+  const actionsTrigger = row.getByRole('button', { name: /open actions/i })
+  const item = page.getByRole('menuitem', { name })
+  let firedRequest: Request | null = null
+  const onRequest = (request: Request) => {
+    if (
+      !firedRequest &&
+      request.method() === 'PUT' &&
+      request.url().includes(`${DEFINITIONS_BASE}/${definitionId}`)
+    ) {
+      firedRequest = request
+    }
+  }
+  page.on('request', onRequest)
+  try {
+    await expect(async () => {
+      if (firedRequest) return
+      if (!(await item.isVisible().catch(() => false))) {
+        await actionsTrigger.click({ timeout: 2_000 }).catch(() => {})
+        await expect(item).toBeVisible({ timeout: 1_500 })
+      }
+      await item.click({ timeout: 2_000 })
+      // Confirm the click actually dispatched the toggle before the loop exits,
+      // so a no-op click never leaves us thinking the PUT fired.
+      await expect(() => expect(firedRequest).not.toBeNull()).toPass({ timeout: 2_000 })
+    }).toPass({ timeout: 20_000 })
+  } finally {
+    page.off('request', onRequest)
+  }
+  return firedRequest as unknown as Request
+}
+
+async function createToggleDefinition(
+  request: APIRequestContext,
+  token: string,
+  stamp: number,
+  label: string,
+  suffix: string,
+): Promise<{ id: string; workflowName: string }> {
+  const workflowName = `AAA WF Toggle ${label} ${stamp}`
+  const id = await createWorkflowDefinitionFixture(request, token, {
+    ...buildMinimalDefinitionPayload(stamp, suffix),
+    workflowName,
+  })
+  return { id, workflowName }
+}
+
+test.describe('TC-LOCK-OSS-044: workflow-definition list toggle optimistic-lock (#3333)', () => {
+  // Full browser login + navigation + list-row interaction does not fit the 20s
+  // default under parallel CI shard load; 60s matches the other UI specs here.
+  test('WF-TOGGLE-01 enabled badge toggle sends the optimistic-lock header and persists', async ({ page }) => {
+    test.setTimeout(60_000)
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    let definitionId: string | null = null
+    try {
+      const created = await createToggleDefinition(page.request, token, stamp, 'Badge', '-toggle01a')
+      definitionId = created.id
+      const before = await readDefinition(page.request, token, definitionId)
+      expect(before.enabled, 'fixture should start enabled').toBe(true)
+
+      await login(page, 'admin')
+      await page.goto(DEFINITIONS_LIST_PATH)
+
+      const row = page.locator('tr', { hasText: created.workflowName }).first()
+      await expect(row).toBeVisible({ timeout: 20_000 })
+
+      // The Enabled badge renders as a button labelled Yes/No. Clicking it also
+      // bubbles to the row-click (→ visual editor), so capture the PUT and assert
+      // its lock header from the network layer instead of the post-click badge.
+      const lockHeaderPut = page.waitForRequest(
+        (request) =>
+          request.method() === 'PUT' &&
+          request.url().includes(`${DEFINITIONS_BASE}/${definitionId}`),
+        { timeout: 20_000 },
+      )
+      await row.getByRole('button', { name: /^yes$/i }).click()
+      const putRequest = await lockHeaderPut
+      expect(
+        putRequest.headers()[OPTIMISTIC_LOCK_HEADER_NAME],
+        'badge toggle PUT must carry the optimistic-lock expected-updated-at header equal to the row updatedAt',
+      ).toBe(before.updatedAt)
+
+      // The write must have taken effect: enabled flips true → false.
+      await expect(async () => {
+        const after = await readDefinition(page.request, token, definitionId as string)
+        expect(after.enabled, 'badge toggle should persist enabled=false').toBe(false)
+      }).toPass({ timeout: 10_000 })
+    } finally {
+      await deleteWorkflowDefinitionIfExists(page.request, token, definitionId)
+    }
+  })
+
+  test('WF-TOGGLE-01 row-action Enable/Disable sends the optimistic-lock header and persists', async ({ page }) => {
+    test.setTimeout(60_000)
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    let definitionId: string | null = null
+    try {
+      const created = await createToggleDefinition(page.request, token, stamp, 'Action', '-toggle01b')
+      definitionId = created.id
+      const before = await readDefinition(page.request, token, definitionId)
+      expect(before.enabled, 'fixture should start enabled').toBe(true)
+
+      await login(page, 'admin')
+      await page.goto(DEFINITIONS_LIST_PATH)
+
+      const row = page.locator('tr', { hasText: created.workflowName }).first()
+      await expect(row).toBeVisible({ timeout: 20_000 })
+
+      // The row-action "Disable" item `stopPropagation`s (stays on the list) and
+      // PUTs the same toggle carrying the per-row lock header (single fire).
+      const putRequest = await toggleViaRowActionAndCapturePut(row, page, definitionId, /^disable$/i)
+      expect(
+        putRequest.headers()[OPTIMISTIC_LOCK_HEADER_NAME],
+        'row-action toggle PUT must carry the optimistic-lock expected-updated-at header equal to the row updatedAt',
+      ).toBe(before.updatedAt)
+
+      await expect(async () => {
+        const after = await readDefinition(page.request, token, definitionId as string)
+        expect(after.enabled, 'row-action toggle should persist enabled=false').toBe(false)
+      }).toPass({ timeout: 10_000 })
+    } finally {
+      await deleteWorkflowDefinitionIfExists(page.request, token, definitionId)
+    }
+  })
+
+  // With the row holding a now-stale updatedAt, the toggle PUT carries a stale
+  // lock header → server 409 → `surfaceRecordConflict` renders the unified OSS
+  // conflict bar (no record_locks dialog on a non-CrudForm list toggle).
+  test('WF-TOGGLE-02 stale row-action toggle is refused (409) and surfaces the conflict banner', async ({ page }) => {
+    test.setTimeout(60_000)
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    let definitionId: string | null = null
+    try {
+      const created = await createToggleDefinition(page.request, token, stamp, 'Conflict', '-toggle02')
+      definitionId = created.id
+
+      await login(page, 'admin')
+      await page.goto(DEFINITIONS_LIST_PATH)
+
+      const row = page.locator('tr', { hasText: created.workflowName }).first()
+      await expect(row).toBeVisible({ timeout: 20_000 })
+
+      // The list now holds the pre-bump updatedAt. Advance updated_at out-of-band
+      // (header-less PUT, additive path) so the row's captured token is stale.
+      await bumpDefinition(page.request, token, definitionId, `${created.workflowName} bumped`)
+
+      const refusedToggle = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'PUT' &&
+          response.url().includes(`${DEFINITIONS_BASE}/${definitionId}`),
+        { timeout: 20_000 },
+      )
+      await toggleViaRowActionAndCapturePut(row, page, definitionId, /^disable$/i)
+      const response = await refusedToggle
+      expect(response.status(), 'stale list toggle should be refused with 409').toBe(409)
+
+      await expectConflictBanner(page)
+    } finally {
+      await deleteWorkflowDefinitionIfExists(page.request, token, definitionId)
     }
   })
 })

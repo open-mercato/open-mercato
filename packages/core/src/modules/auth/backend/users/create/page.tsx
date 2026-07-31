@@ -15,6 +15,9 @@ import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'users-create-page' })
 
 type CreateUserFormValues = {
   email: string
@@ -134,7 +137,7 @@ export default function CreateUserPage() {
           setWidgetCatalog(normalized)
         }
       } catch (err) {
-        console.error('Failed to load dashboard widget catalog', err)
+        logger.error('Failed to load dashboard widget catalog', { err })
         if (!cancelled) {
           setWidgetError(t(
             'auth.users.widgets.errors.load',
@@ -156,7 +159,7 @@ export default function CreateUserPage() {
         const { ok, result } = await apiCall<UserListResponse>('/api/auth/users?page=1&pageSize=1')
         if (!cancelled && ok) setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch (err) {
-        console.error('Failed to resolve actor super admin flag', err)
+        logger.error('Failed to resolve actor super admin flag', { err })
       } finally {
         if (!cancelled) setActorResolved(true)
       }

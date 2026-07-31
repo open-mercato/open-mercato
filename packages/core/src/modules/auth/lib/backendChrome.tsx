@@ -95,8 +95,9 @@ const settingsSectionOrder: Record<string, number> = {
   'customer-portal': 3,
   'data-designer': 4,
   'module-configs': 5,
-  directory: 6,
-  'feature-toggles': 7,
+  currencies: 6,
+  directory: 7,
+  'feature-toggles': 8,
 }
 
 type NavGroupWithWeight = Omit<BackendChromeNavGroup, 'id' | 'defaultName' | 'items'> & {
@@ -151,11 +152,12 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
     'customers.nav.group',
     'catalog.nav.group',
     'customers~sales.nav.group',
+    'wms.nav.group',
     'resources.nav.group',
     'staff.nav.group',
     'entities.nav.group',
     'directory.nav.group',
-    'customers.storage.nav.group',
+    'attachments.nav.group',
   ]
   const groupOrderIndex = new Map(defaultGroupOrder.map((id, index) => [id, index]))
   groups.sort((a, b) => {

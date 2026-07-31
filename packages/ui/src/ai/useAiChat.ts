@@ -195,6 +195,13 @@ const SESSION_UPDATED_EVENT = 'om-ai-chat-session-updated'
 const SESSION_STREAM_STATE_EVENT = 'om-ai-chat-session-stream-state'
 const activeSessionStreams = new Set<string>()
 
+// This slot already implements its own versioned, migratable shape: the inline
+// `v` discriminator is checked on read and the value is discarded on mismatch
+// (see `readPersistedSession`). It is intentionally NOT migrated to the generic
+// `{ v, data }` envelope from `@open-mercato/shared/lib/browser/versionedPreference`
+// — doing so would change the on-disk format and discard users' in-progress
+// sessions, and the write path needs bespoke transient-blob-URL stripping that
+// the generic helper does not express.
 interface PersistedAiChatSession {
   v: number
   conversationId: string

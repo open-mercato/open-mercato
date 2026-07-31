@@ -228,6 +228,16 @@ describe('url-safety — createPinnedDnsLookup', () => {
     expect(cb).toHaveBeenCalledWith(null, '93.184.216.34', 4)
   })
 
+  it('returns an address array when Node requests all lookup results', () => {
+    const pinned = { address: '93.184.216.34', family: 4 }
+    const lookup = createPinnedDnsLookup('good.example', pinned)
+    const cb = jest.fn()
+
+    lookup('good.example', { all: true }, cb)
+
+    expect(cb).toHaveBeenCalledWith(null, [pinned])
+  })
+
   it('refuses to resolve a different hostname (defeats redirect to private host via Host header)', () => {
     const lookup = createPinnedDnsLookup('good.example', { address: '93.184.216.34', family: 4 })
     const cb = jest.fn()
@@ -304,5 +314,23 @@ describe('url-safety — safeOutboundFetch', () => {
       { fetchImpl, lookupHost, allowPrivate: false },
     )
     expect(lookupHost).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the dispatcher-compatible fetch implementation for pinned requests', async () => {
+    const pinnedFetchImpl = jest.fn(async () => new Response('ok', { status: 200 }))
+    const lookupHost = jest.fn(async () => [{ address: '93.184.216.34', family: 4 }])
+
+    const response = await safeOutboundFetch(
+      'https://good.example/hook',
+      {},
+      { lookupHost, pinnedFetchImpl },
+    )
+
+    expect(response.status).toBe(200)
+    expect(pinnedFetchImpl).toHaveBeenCalledTimes(1)
+    expect(pinnedFetchImpl).toHaveBeenCalledWith(
+      'https://good.example/hook',
+      expect.objectContaining({ dispatcher: expect.any(Object), redirect: 'manual' }),
+    )
   })
 })

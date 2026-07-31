@@ -81,4 +81,17 @@ describe('messages action execution route', () => {
       error: 'Actions have expired',
     })
   })
+
+  it('maps a disallowed action command to 403', async () => {
+    commandBus.execute.mockRejectedValueOnce(new Error('Action command is not allowed'))
+
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), {
+      params: { id: 'message-1', actionId: 'acknowledge' },
+    })
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Action command is not allowed',
+    })
+  })
 })

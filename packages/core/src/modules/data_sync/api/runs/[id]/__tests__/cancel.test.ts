@@ -22,6 +22,11 @@ const mockIntegrationLogService = {
   write: jest.fn(),
 }
 
+const mockCrudMutationGuardService = {
+  validateMutation: jest.fn(),
+  afterMutationSuccess: jest.fn(),
+}
+
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))
@@ -52,9 +57,12 @@ describe('data_sync cancel run route', () => {
         if (token === 'progressService') return mockProgressService
         if (token === 'integrationStateService') return mockIntegrationStateService
         if (token === 'integrationLogService') return mockIntegrationLogService
+        if (token === 'crudMutationGuardService') return mockCrudMutationGuardService
         throw new Error(`Unexpected token: ${token}`)
       },
     })
+    mockCrudMutationGuardService.validateMutation.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: null })
+    mockCrudMutationGuardService.afterMutationSuccess.mockResolvedValue(undefined)
     mockSyncRunService.getRun.mockResolvedValue({
       id: '11111111-1111-4111-8111-111111111111',
       integrationId: 'sync_excel',
@@ -114,5 +122,33 @@ describe('data_sync cancel run route', () => {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
     })
+    expect(mockCrudMutationGuardService.validateMutation).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'data_sync.run',
+      resourceId: '11111111-1111-4111-8111-111111111111',
+      operation: 'custom',
+    }))
+    expect(mockCrudMutationGuardService.afterMutationSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'data_sync.run',
+      resourceId: '11111111-1111-4111-8111-111111111111',
+    }))
+  })
+
+  it('short-circuits the cancellation when the mutation guard blocks it', async () => {
+    mockCrudMutationGuardService.validateMutation.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      body: { error: 'Blocked by guard' },
+    })
+
+    const response = await postHandler(
+      new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
+      { params: { id: '11111111-1111-4111-8111-111111111111' } },
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Blocked by guard' })
+    expect(mockSyncRunService.markStatus).not.toHaveBeenCalled()
+    expect(mockProgressService.markCancelled).not.toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.afterMutationSuccess).not.toHaveBeenCalled()
   })
 })

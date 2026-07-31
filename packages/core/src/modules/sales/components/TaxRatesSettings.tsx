@@ -18,6 +18,9 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type TaxRateRow = {
   id: string
@@ -168,7 +171,7 @@ export function TaxRatesSettings() {
         }),
       )
     } catch (err) {
-      console.error('sales.tax-rates.list failed', err)
+      logger.error('sales.tax-rates.list failed', { err })
       flash(translations.errors.load, 'error')
     } finally {
       setLoading(false)
@@ -224,7 +227,7 @@ export function TaxRatesSettings() {
       closeDialog()
       await loadEntries()
     } catch (err) {
-      console.error('sales.tax-rates.save failed', err)
+      logger.error('sales.tax-rates.save failed', { err })
       flash(translations.errors.save, 'error')
     }
   }, [dialog, translations.errors.save, translations.messages.saved, closeDialog, loadEntries])
@@ -251,7 +254,7 @@ export function TaxRatesSettings() {
       flash(translations.messages.deleted, 'success')
       await loadEntries()
     } catch (err) {
-      console.error('sales.tax-rates.delete failed', err)
+      logger.error('sales.tax-rates.delete failed', { err })
       flash(translations.errors.delete, 'error')
     }
   }, [confirm, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted, loadEntries])

@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncExternalIdMapping } from '../../integrations/data/entities'
 
 type MappingScope = {
@@ -118,6 +118,63 @@ export function createExternalIdMappingService(em: EntityManager) {
 
       await em.persist(created).flush()
       return created
+    },
+
+    async deleteExternalIdMapping(
+      integrationId: string,
+      entityType: string,
+      localId: string,
+      scope: MappingScope,
+    ): Promise<boolean> {
+      const row = await findOneWithDecryption(
+        em,
+        SyncExternalIdMapping,
+        {
+        integrationId,
+        internalEntityType: entityType,
+        internalEntityId: localId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
+      if (!row) return false
+      row.deletedAt = new Date()
+      await em.flush()
+      return true
+    },
+
+    async deleteExternalIdMappings(
+      integrationId: string,
+      entityType: string,
+      localIds: string[],
+      scope: MappingScope,
+    ): Promise<number> {
+      const uniqueLocalIds = Array.from(new Set(localIds))
+      if (uniqueLocalIds.length === 0) return 0
+      const rows = await findWithDecryption(
+        em,
+        SyncExternalIdMapping,
+        {
+        integrationId,
+        internalEntityType: entityType,
+        internalEntityId: { $in: uniqueLocalIds },
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
+      if (rows.length === 0) return 0
+      const now = new Date()
+      for (const row of rows) {
+        row.deletedAt = now
+      }
+      await em.flush()
+      return rows.length
     },
   }
 }

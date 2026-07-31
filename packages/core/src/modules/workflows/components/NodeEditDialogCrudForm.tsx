@@ -1,6 +1,6 @@
 'use client'
 
-import { Node } from '@xyflow/react'
+import type { Node } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'

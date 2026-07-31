@@ -9,6 +9,23 @@ import {
   seedAgentRegistryForTests,
 } from '../agent-registry'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAgent(overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id' | 'moduleId'>): AiAgentDefinition {
   return {
     label: `${overrides.id} label`,
@@ -29,7 +46,8 @@ describe('agent-registry', () => {
   })
 
   it('loads generated agents when present and otherwise falls back to an empty registry', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const errorSpy = testLogger.error
+    errorSpy.mockClear()
 
     await loadAgentRegistry()
 
@@ -37,7 +55,7 @@ describe('agent-registry', () => {
     if (errorSpy.mock.calls.length > 0) {
       expect(agents).toEqual([])
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[AI Agents] Could not load ai-agents.generated.ts'),
+        expect.stringContaining('Could not load ai-agents.generated.ts'),
         expect.any(Object),
       )
     } else {
@@ -98,7 +116,8 @@ describe('agent-registry', () => {
   })
 
   it('skips malformed entries with a warning, valid entries still load', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
 
     const valid = makeAgent({ id: 'catalog.merchandiser', moduleId: 'catalog' })
     const malformed = {
@@ -114,7 +133,7 @@ describe('agent-registry', () => {
     expect(getAgent('catalog.broken')).toBeUndefined()
     expect(getAgent('catalog.merchandiser')).toBe(valid)
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[AI Agents] Skipping malformed agent entry')
+      expect.stringContaining('Skipping malformed agent entry')
     )
     warnSpy.mockRestore()
   })
@@ -263,7 +282,8 @@ describe('agent-registry', () => {
   })
 
   it('loadAgentRegistry is idempotent — repeat calls do not duplicate entries', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const errorSpy = testLogger.error
+    errorSpy.mockClear()
 
     await loadAgentRegistry()
     const firstIds = listAgents().map((agent) => agent.id)

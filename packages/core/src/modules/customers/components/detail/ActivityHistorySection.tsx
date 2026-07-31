@@ -30,6 +30,8 @@ type ActivityHistorySectionProps = {
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
+  /** Interaction type hidden from the history by default ('task' unless overridden); pass null to show every type. */
+  excludeInteractionType?: string | null
 }
 
 type InteractionListResponse = {
@@ -170,6 +172,7 @@ export function ActivityHistorySection({
   refreshKey = 0,
   onEditActivity,
   runMutation,
+  excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
   const t = useT()
   const [searchInput, setSearchInput] = React.useState('')
@@ -231,14 +234,14 @@ export function ActivityHistorySection({
       let firstPageHasMore = false
       let pagesLoaded = 0
 
-      const taskFilterActive = activeTypes.includes('task')
+      const excludedFilterActive = excludeInteractionType ? activeTypes.includes(excludeInteractionType) : true
       do {
         const params = new URLSearchParams({
           entityId,
           limit: String(pageSize),
           from: rangeStart,
         })
-        if (!taskFilterActive) params.set('excludeInteractionType', 'task')
+        if (excludeInteractionType && !excludedFilterActive) params.set('excludeInteractionType', excludeInteractionType)
         if (activeTypes.length > 0) params.set('type', activeTypes.join(','))
         if (search) params.set('search', search)
         if (sortMode === 'recent') {
@@ -265,17 +268,23 @@ export function ActivityHistorySection({
       let combined = canonicalItems
 
       if (!useCanonicalInteractions) {
+        // Legacy fallback uses known page numbers, so request every page in
+        // parallel (sharing the abort signal) and merge them in page order.
+        const legacyPageNumbers = Array.from({ length: loadedPages }, (_, index) => index + 1)
+        const legacyPayloads = await Promise.all(
+          legacyPageNumbers.map((legacyPage) =>
+            readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
+              `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&page=${legacyPage}&pageSize=20&sortField=occurredAt&sortDir=desc`,
+              { signal },
+            ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 })),
+          ),
+        )
+        if (isStale()) return
         const legacyItems: InteractionSummary[] = []
         let legacyTotalPages = 1
-        for (let legacyPage = 1; legacyPage <= loadedPages; legacyPage += 1) {
-          const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
-            `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&page=${legacyPage}&pageSize=20&sortField=occurredAt&sortDir=desc`,
-            { signal },
-          ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
-          if (isStale()) return
+        for (const legacyPayload of legacyPayloads) {
           legacyItems.push(...(Array.isArray(legacyPayload.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []))
           legacyTotalPages = typeof legacyPayload.totalPages === 'number' ? legacyPayload.totalPages : legacyTotalPages
-          if (legacyPage >= legacyTotalPages) break
         }
         const rangeStartDate = computeRangeStart(dateRange)
         const filteredLegacy = legacyItems.filter((item) => {
@@ -304,7 +313,7 @@ export function ActivityHistorySection({
     } finally {
       if (!isStale()) setLoading(false)
     }
-  }, [activeTypes, dateRange, entityId, loadedPages, search, sortMode, t, useCanonicalInteractions])
+  }, [activeTypes, dateRange, entityId, excludeInteractionType, loadedPages, search, sortMode, t, useCanonicalInteractions])
 
   React.useEffect(() => {
     const controller = new AbortController()

@@ -102,6 +102,7 @@ export default function LoginPage() {
   const searchParams = useSearchParams()
   const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
   const requireFeature = (searchParams.get('requireFeature') || '').trim()
+  const redirectParam = searchParams.get('redirect') || ''
   const requiredRoles = requireRole ? requireRole.split(',').map((value) => value.trim()).filter(Boolean) : []
   const requiredFeatures = requireFeature ? requireFeature.split(',').map((value) => value.trim()).filter(Boolean) : []
   const translatedRoles = requiredRoles.map((role) => translate(`auth.roles.${role}`, role))
@@ -148,7 +149,7 @@ export default function LoginPage() {
         // producing an infinite loop (see GH #2070). Stay on the login page so
         // the access-denied banner is visible.
         if (hasAclChallenge) return
-        const rawRedirect = searchParams.get('redirect') || ''
+        const rawRedirect = redirectParam
         let destination = '/backend'
         if (rawRedirect) {
           try {
@@ -170,7 +171,7 @@ export default function LoginPage() {
       }
     })()
     return () => { cancelled = true }
-  }, [router, searchParams, requiredFeatures.length, requiredRoles.length])
+  }, [router, redirectParam, requiredFeatures.length, requiredRoles.length])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -383,15 +384,15 @@ export default function LoginPage() {
                 </div>
               ) : null}
               {showTenantInvalid ? (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-center text-xs text-status-error-text">
                   <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2 border-red-300 text-red-700" onClick={handleClearTenant}>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-status-error-border text-status-error-text hover:text-status-error-text" onClick={handleClearTenant}>
                     <X className="mr-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>
               ) : tenantId ? (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-900">
+                <div className="rounded-md border border-status-success-border bg-status-success-bg px-3 py-2 text-center text-xs text-status-success-text">
                   <div className="font-medium">
                     {tenantLoading
                       ? translate('auth.login.tenantLoading', 'Loading tenant details...')
@@ -399,14 +400,14 @@ export default function LoginPage() {
                           tenant: tenantName || tenantId,
                         })}
                   </div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-status-success-border text-status-success-text hover:text-status-success-text" onClick={handleClearTenant}>
                     <X className="mr-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>
               ) : null}
               {error && !showTenantInvalid && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-center text-sm text-status-error-text" role="alert" aria-live="polite">
                   {error}
                 </div>
               )}

@@ -34,6 +34,30 @@ function collectUsersWithFeature(
   }
 }
 
+export async function getScopedNotificationRecipientUserIds(
+  db: Kysely<any>,
+  tenantId: string,
+  organizationId: string | null,
+  recipientUserIds: string[],
+): Promise<string[]> {
+  const builder: any = db
+  let query = builder
+    .selectFrom('users')
+    .where('users.id', 'in', recipientUserIds)
+    .where('users.deleted_at', 'is', null)
+    .where('users.tenant_id', '=', tenantId)
+
+  if (organizationId) {
+    query = query.where('users.organization_id', '=', organizationId)
+  }
+
+  const users = await query
+    .select('users.id as user_id')
+    .execute() as Array<{ user_id: string }>
+
+  return users.map((user) => user.user_id)
+}
+
 export async function getRecipientUserIdsForRole(
   db: Kysely<any>,
   tenantId: string,

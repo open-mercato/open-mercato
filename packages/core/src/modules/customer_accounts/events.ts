@@ -16,6 +16,7 @@ const events = [
   { id: 'customer_accounts.role.created', label: 'Customer Role Created', entity: 'role', category: 'crud' },
   { id: 'customer_accounts.role.updated', label: 'Customer Role Updated', entity: 'role', category: 'crud', portalBroadcast: true },
   { id: 'customer_accounts.role.deleted', label: 'Customer Role Deleted', entity: 'role', category: 'crud' },
+  { id: 'customer_accounts.user.invited', label: 'Customer User Invited', entity: 'user', category: 'lifecycle', clientBroadcast: true },
   { id: 'customer_accounts.invitation.accepted', label: 'Customer Invitation Accepted', category: 'lifecycle', clientBroadcast: true },
   { id: 'customer_accounts.password_reset.requested', label: 'Customer Password Reset Requested', category: 'lifecycle' },
   // Custom domain mapping lifecycle (see .ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md)

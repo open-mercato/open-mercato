@@ -1,1 +1,17 @@
+# Normalize all text files to LF on checkout for every platform so Windows
+# (CRLF) clones cannot corrupt files consumed by Docker, shell, and Next.js.
+# A CRLF in docker-compose turned NODE_ENV into "development\r", which disabled
+# Next.js dev optimizations and triggered an OOM compilation loop (see #3470).
+# text=auto leaves detected binary files (images, fonts, archives) untouched.
+* text=auto eol=lf
+
+# Shell scripts must always be LF.
 *.sh text eol=lf
+
+# Batch files are stored with literal CRLF bytes (-text disables all
+# normalization): `eol=crlf` would only fix git checkouts, while the
+# documented bare-machine path downloads the raw blob from GitHub — raw
+# serves repo bytes, and cmd.exe parsing of LF-only batch files is fragile.
+*.bat -text
+# PowerShell is newline-agnostic; CRLF checkout is just editor-friendliness.
+*.ps1 text eol=crlf

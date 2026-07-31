@@ -76,49 +76,16 @@ import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
 import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
 import { AiIcon } from './AiIcon'
+import { readModelPickerValue, writeModelPickerValue } from './modelPickerStorage'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'AiChat' })
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
 const COMPACT_FOOTER_MAX_WIDTH = 640
-
-const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
-
-function readModelPickerValue(agentId: string): ModelPickerValue | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(`${MODEL_PICKER_STORAGE_PREFIX}${agentId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as unknown
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as Record<string, unknown>).providerId === 'string' &&
-      typeof (parsed as Record<string, unknown>).modelId === 'string'
-    ) {
-      const value = parsed as ModelPickerValue
-      return { providerId: value.providerId, modelId: value.modelId }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-function writeModelPickerValue(agentId: string, value: ModelPickerValue | null): void {
-  if (typeof window === 'undefined') return
-  try {
-    const key = `${MODEL_PICKER_STORAGE_PREFIX}${agentId}`
-    if (value === null) {
-      window.localStorage.removeItem(key)
-    } else {
-      window.localStorage.setItem(key, JSON.stringify({ providerId: value.providerId, modelId: value.modelId }))
-    }
-  } catch {
-    // Quota exceeded / privacy mode — silently ignore.
-  }
-}
 
 interface ModelsApiResponse {
   agentId: string
@@ -972,10 +939,7 @@ function AiUiPartRenderer({
     if (Component) return
     if (isReserved) return
     try {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[AiChat] No component registered for UI part "${part.componentId}".`,
-      )
+      logger.warn('No component registered for UI part', { componentId: part.componentId })
     } catch {
       // noop
     }

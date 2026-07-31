@@ -175,6 +175,13 @@ export type InjectionWidgetMetadata = {
    * may still pass the feature gate even when the dependency module is absent.
    */
   requiredModules?: string[]
+  /**
+   * Field ids that this widget treats as required (enforced by its own
+   * `onBeforeSave` validation). Host forms add a visual required marker to the
+   * matching fields while the widget is active. The marker is presentational
+   * only — enforcement still comes from the widget's `onBeforeSave` result.
+   */
+  requiredFields?: string[]
 }
 
 /**
@@ -241,6 +248,13 @@ export type InjectionWidgetModule<TContext = unknown, TData = unknown> = {
 
 export type InjectionColumnDefinition = {
   id: string
+  /**
+   * i18n translation key for the column header.
+   * When present, consumers should call `t(headerKey, header)` instead of treating `header` as a key.
+   * Follows the same `label`/`labelKey` convention used by `InjectionFieldDefinition`.
+   */
+  headerKey?: string
+  /** Display text (and i18n fallback) for the column header. */
   header: string
   accessorKey: string
   cell?: (props: { getValue: () => unknown }) => ReactNode

@@ -6,10 +6,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type OrderStatusOption = {
   id: string
@@ -35,6 +39,8 @@ const normalizeStatusList = (list: unknown): string[] | null => {
   return Array.from(set)
 }
 
+const SAVE_CONTEXT_ID = 'sales-order-editing-settings'
+
 export function OrderEditingSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
@@ -43,6 +49,15 @@ export function OrderEditingSettings() {
   const [options, setOptions] = React.useState<OrderStatusOption[]>([])
   const [customerStatuses, setCustomerStatuses] = React.useState<string[] | null>(null)
   const [addressStatuses, setAddressStatuses] = React.useState<string[] | null>(null)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const translations = React.useMemo(
     () => ({
@@ -84,7 +99,7 @@ export function OrderEditingSettings() {
       setCustomerStatuses(normalizeStatusList(call.result?.orderCustomerEditableStatuses))
       setAddressStatuses(normalizeStatusList(call.result?.orderAddressEditableStatuses))
     } catch (err) {
-      console.error('sales.order-editing-settings.load failed', err)
+      logger.error('sales.order-editing-settings.load failed', { err })
       flash(translations.messages.loadError, 'error')
     } finally {
       setLoading(false)
@@ -121,27 +136,37 @@ export function OrderEditingSettings() {
         orderCustomerEditableStatuses: customerStatuses,
         orderAddressEditableStatuses: addressStatuses,
       }
-      // optimistic-lock-exempt: single-row tenant order-editing settings blob — no per-record version / concurrent record edit
-      const call = await apiCall<SettingsResponse>('/api/sales/settings/order-editing', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+      const call = await runMutation({
+        // optimistic-lock-exempt: single-row tenant order-editing settings blob — no per-record version / concurrent record edit
+        operation: async () => {
+          const response = await apiCall<SettingsResponse>('/api/sales/settings/order-editing', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          if (!response.ok) {
+            throw new Error(translations.messages.saveError)
+          }
+          return response
+        },
+        context: {
+          formId: SAVE_CONTEXT_ID,
+          resourceKind: 'sales.settings',
+          retryLastMutation,
+        },
+        mutationPayload: payload,
       })
-      if (!call.ok) {
-        flash(translations.messages.saveError, 'error')
-        return
-      }
       setCustomerStatuses(normalizeStatusList(call.result?.orderCustomerEditableStatuses))
       setAddressStatuses(normalizeStatusList(call.result?.orderAddressEditableStatuses))
       setOptions(Array.isArray(call.result?.orderStatuses) ? call.result.orderStatuses : [])
       flash(translations.messages.saved, 'success')
     } catch (err) {
-      console.error('sales.order-editing-settings.save failed', err)
+      logger.error('sales.order-editing-settings.save failed', { err })
       flash(translations.messages.saveError, 'error')
     } finally {
       setSaving(false)
     }
-  }, [addressStatuses, customerStatuses, translations.messages.saveError, translations.messages.saved])
+  }, [addressStatuses, customerStatuses, retryLastMutation, runMutation, translations.messages.saveError, translations.messages.saved])
 
   const renderStatusList = React.useCallback(
     (kind: 'customer' | 'address', values: string[] | null, label: string) => {

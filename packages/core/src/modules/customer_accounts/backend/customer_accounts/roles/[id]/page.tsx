@@ -7,6 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import type { CrudField, CrudFormGroup, CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -106,12 +107,9 @@ function PortalPermissionsEditor({ values, setValue }: CrudFormGroupComponentPro
             <div className="flex items-center justify-between border-b px-4 py-3">
               <span className="text-sm font-semibold">{t(group.labelKey, group.fallback)}</span>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected }}
-                  onChange={() => handleGroupToggle(groupFeatures)}
-                  className="rounded border-border"
+                <Checkbox
+                  checked={allSelected ? true : (someSelected ? 'indeterminate' : false)}
+                  onCheckedChange={() => handleGroupToggle(groupFeatures)}
                 />
                 {t('customer_accounts.admin.roleDetail.selectAll', 'Select all')}
               </label>
@@ -121,11 +119,10 @@ function PortalPermissionsEditor({ values, setValue }: CrudFormGroupComponentPro
                 const feature = PORTAL_FEATURES.find((portalFeature) => portalFeature.id === featureId)
                 return (
                   <label key={featureId} className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={features.includes(featureId)}
-                      onChange={() => handleFeatureToggle(featureId)}
-                      className="mt-0.5 rounded border-border"
+                      onCheckedChange={() => handleFeatureToggle(featureId)}
+                      className="mt-0.5"
                     />
                     <div className="space-y-0.5">
                       <div className="text-sm font-medium">{feature ? t(feature.labelKey, feature.fallback) : featureId}</div>
@@ -273,15 +270,23 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       return
     }
     const features = Array.isArray(values.features) ? values.features : []
-    const aclCall = await apiCall(
-      `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}/acl`,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ features }),
-      },
-    )
+    // The role PUT just bumped the aggregate's `updatedAt`; the ACL write guards
+    // the SAME role aggregate, so send its NEW version (not the stale pre-edit one)
+    // to avoid a false 409 while still blocking a concurrent overwrite (#3194).
+    const roleResult = (roleCall.result ?? null) as { updatedAt?: string | null } | null
+    const aclHeaders = buildOptimisticLockHeader(roleResult?.updatedAt ?? data?.updatedAt ?? data?.updated_at ?? null)
+    const aclCall = await withScopedApiRequestHeaders(aclHeaders, () => (
+      apiCall(
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}/acl`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features }),
+        },
+      )
+    ))
     if (!aclCall.ok) {
+      if (surfaceRecordConflict({ status: aclCall.status, body: aclCall.result }, t)) return
       flash(t('customer_accounts.admin.roleDetail.error.saveAcl', 'Failed to save permissions'), 'error')
       return
     }
@@ -365,7 +370,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
           optimisticLockUpdatedAt={data.updatedAt ?? data.updated_at ?? null}
           entityId="customer_accounts:customer_role"
           onSubmit={handleSubmit}
-          onDelete={!data.isSystem ? handleDelete : undefined}
+          onDelete={!data.isDefault ? handleDelete : undefined}
           cancelHref="/backend/customer_accounts/roles"
         />
       </PageBody>

@@ -327,7 +327,10 @@ export default function PaymentGatewayDemoPage() {
   async function refreshStatus(transactionId = transaction?.transactionId) {
     if (!transactionId) return
     try {
-      const response = await apiCall(`/api/payment_gateways/status?transactionId=${encodeURIComponent(transactionId)}`)
+      const response = await apiCall('/api/payment_gateways/status', {
+        method: 'POST',
+        body: JSON.stringify({ transactionId }),
+      })
       if (response.ok) {
         const data = response.result as { status?: string } | null
         setTransaction((prev) => prev ? { ...prev, status: data?.status ?? prev.status } : prev)

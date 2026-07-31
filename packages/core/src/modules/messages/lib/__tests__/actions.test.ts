@@ -1,9 +1,12 @@
 import {
+  getMessageSafeCommandIds,
+  isMessageSafeCommandId,
   isTerminalMessageAction,
   resolveActionCommandInput,
   resolveActionHref,
   type ResolvedMessageAction,
 } from '../actions'
+import { registerMessageTypes } from '../message-types-registry'
 import type { Message } from '../../data/entities'
 
 function createMessage(overrides: Partial<Message> = {}): Message {
@@ -181,5 +184,37 @@ describe('resolveActionHref', () => {
     const message = createMessage({ id: '../../evil?x=1#y' } as Partial<Message>)
     const resolved = resolveActionHref(action, message, resolutionContext)
     expect(resolved).toBe('/backend/search/..%2F..%2Fevil%3Fx%3D1%23y')
+  })
+})
+
+describe('message-safe command allowlist', () => {
+  it('includes command ids declared by registered message type default actions', () => {
+    registerMessageTypes([
+      {
+        type: 'test.confused-deputy',
+        module: 'test',
+        labelKey: 'test.confusedDeputy',
+        icon: 'bell',
+        defaultActions: [
+          { id: 'safe', label: 'Safe', commandId: 'test.safe_command' },
+        ],
+      },
+    ])
+
+    expect(getMessageSafeCommandIds().has('test.safe_command')).toBe(true)
+    expect(isMessageSafeCommandId('test.safe_command')).toBe(true)
+  })
+
+  it('rejects command ids that no message type or object type declares', () => {
+    expect(isMessageSafeCommandId('auth.users.delete')).toBe(false)
+    expect(isMessageSafeCommandId('any.unregistered.command')).toBe(false)
+  })
+
+  it('rejects empty, blank, and non-string command ids', () => {
+    expect(isMessageSafeCommandId('')).toBe(false)
+    expect(isMessageSafeCommandId('   ')).toBe(false)
+    expect(isMessageSafeCommandId(undefined)).toBe(false)
+    expect(isMessageSafeCommandId(null)).toBe(false)
+    expect(isMessageSafeCommandId(42)).toBe(false)
   })
 })

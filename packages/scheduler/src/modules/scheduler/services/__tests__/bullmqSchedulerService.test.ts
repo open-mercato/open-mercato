@@ -1,6 +1,24 @@
 import { BullMQSchedulerService } from '../bullmqSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../../data/entities.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockedLogger = createLogger('scheduler')
+const loggerDebug = mockedLogger.debug as jest.Mock
+const loggerInfo = mockedLogger.info as jest.Mock
+const loggerError = mockedLogger.error as jest.Mock
 
 // Mock BullMQ module
 const mockQueue = {
@@ -27,6 +45,9 @@ describe('BullMQSchedulerService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockQueue.add.mockResolvedValue({})
+    mockQueue.getRepeatableJobs.mockResolvedValue([])
+    mockQueue.removeRepeatableByKey.mockResolvedValue(true)
 
     // Create mock forked EM
     mockForkedEm = {
@@ -49,16 +70,13 @@ describe('BullMQSchedulerService', () => {
         isEnabled: false,
       } as ScheduledJob
 
-      const consoleDebugSpy = jest.spyOn(console, 'debug').mockImplementation()
-
       await service.register(schedule)
 
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Skipping disabled schedule: test-1'
+      expect(loggerDebug).toHaveBeenCalledWith(
+        'Skipping disabled schedule',
+        { scheduleId: 'test-1' }
       )
       expect(mockQueue.add).not.toHaveBeenCalled()
-
-      consoleDebugSpy.mockRestore()
     })
 
     it('should register cron schedule with BullMQ', async () => {
@@ -75,8 +93,6 @@ describe('BullMQSchedulerService', () => {
       } as ScheduledJob
 
       mockQueue.add.mockResolvedValue({})
-
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
       await service.register(schedule)
 
@@ -96,8 +112,6 @@ describe('BullMQSchedulerService', () => {
           }),
         })
       )
-
-      consoleLogSpy.mockRestore()
     })
 
     it('should register interval schedule with BullMQ', async () => {
@@ -114,8 +128,6 @@ describe('BullMQSchedulerService', () => {
       } as ScheduledJob
 
       mockQueue.add.mockResolvedValue({})
-
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
       await service.register(schedule)
 
@@ -135,8 +147,6 @@ describe('BullMQSchedulerService', () => {
           }),
         })
       )
-
-      consoleLogSpy.mockRestore()
     })
 
     it('should include organization scope in job data', async () => {
@@ -167,6 +177,44 @@ describe('BullMQSchedulerService', () => {
           }),
         }),
         expect.any(Object)
+      )
+    })
+
+    it('should remove stale repeatable jobs before registering an updated schedule', async () => {
+      const schedule = {
+        id: 'test-1',
+        name: 'Test',
+        isEnabled: true,
+        scheduleType: 'cron',
+        scheduleValue: '*/15 * * * *',
+        timezone: 'UTC',
+        scopeType: 'system',
+      } as ScheduledJob
+
+      mockQueue.getRepeatableJobs.mockResolvedValue([
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'old-cron-key' },
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'older-cron-key' },
+        { id: 'schedule-other', name: 'schedule-other', key: 'other-key' },
+      ])
+      mockQueue.removeRepeatableByKey.mockResolvedValue(true)
+      mockQueue.add.mockResolvedValue({})
+
+      await service.register(schedule)
+
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledTimes(2)
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(1, 'old-cron-key')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(2, 'older-cron-key')
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'schedule-test-1',
+        expect.any(Object),
+        expect.objectContaining({
+          repeat: expect.objectContaining({
+            pattern: '*/15 * * * *',
+          }),
+        }),
+      )
+      expect(mockQueue.removeRepeatableByKey.mock.invocationCallOrder[1]).toBeLessThan(
+        mockQueue.add.mock.invocationCallOrder[0],
       )
     })
 
@@ -225,16 +273,12 @@ describe('BullMQSchedulerService', () => {
       const error = new Error('BullMQ connection failed')
       mockQueue.add.mockRejectedValue(error)
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
-
       await expect(service.register(schedule)).rejects.toThrow('BullMQ connection failed')
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Failed to register schedule: test-1',
-        error
+      expect(loggerError).toHaveBeenCalledWith(
+        'Failed to register schedule',
+        { scheduleId: 'test-1', err: error }
       )
-
-      consoleErrorSpy.mockRestore()
     })
 
     it('should throw on invalid cron expression', async () => {
@@ -274,17 +318,31 @@ describe('BullMQSchedulerService', () => {
       ])
       mockQueue.removeRepeatableByKey.mockResolvedValue(true)
 
-      const consoleDebugSpy = jest.spyOn(console, 'debug').mockImplementation()
-
       await service.unregister('test-1')
 
       expect(mockQueue.getRepeatableJobs).toHaveBeenCalled()
       expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith('key-1')
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Unregistered schedule: test-1'
+      expect(loggerDebug).toHaveBeenCalledWith(
+        'Unregistered schedule',
+        { scheduleId: 'test-1' }
       )
+    })
 
-      consoleDebugSpy.mockRestore()
+    it('should remove all repeatable jobs for the same schedule id', async () => {
+      mockQueue.getRepeatableJobs.mockResolvedValue([
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'key-1' },
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'key-2' },
+        { name: 'schedule-test-1', key: 'key-3' },
+        { id: 'schedule-other', name: 'schedule-other', key: 'other-key' },
+      ])
+      mockQueue.removeRepeatableByKey.mockResolvedValue(true)
+
+      await service.unregister('test-1')
+
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledTimes(3)
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(1, 'key-1')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(2, 'key-2')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(3, 'key-3')
     })
 
     it('should handle schedule not found', async () => {
@@ -292,16 +350,13 @@ describe('BullMQSchedulerService', () => {
         { id: 'schedule-other', name: 'schedule-other', key: 'key-1' },
       ])
 
-      const consoleDebugSpy = jest.spyOn(console, 'debug').mockImplementation()
-
       await service.unregister('test-1')
 
       expect(mockQueue.removeRepeatableByKey).not.toHaveBeenCalled()
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] No repeatable job found for schedule: test-1'
+      expect(loggerDebug).toHaveBeenCalledWith(
+        'No repeatable job found for schedule',
+        { scheduleId: 'test-1' }
       )
-
-      consoleDebugSpy.mockRestore()
     })
 
     it('should match by name if id is not present', async () => {
@@ -319,16 +374,12 @@ describe('BullMQSchedulerService', () => {
       const error = new Error('BullMQ error')
       mockQueue.getRepeatableJobs.mockRejectedValue(error)
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
-
       await expect(service.unregister('test-1')).rejects.toThrow('BullMQ error')
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Failed to unregister schedule: test-1',
-        error
+      expect(loggerError).toHaveBeenCalledWith(
+        'Failed to unregister schedule',
+        { scheduleId: 'test-1', err: error }
       )
-
-      consoleErrorSpy.mockRestore()
     })
   })
 
@@ -345,8 +396,6 @@ describe('BullMQSchedulerService', () => {
       ])
       mockQueue.add.mockResolvedValue({})
 
-      const consoleDebugSpy = jest.spyOn(console, 'debug').mockImplementation()
-
       await service.syncAll()
 
       expect(mockForkedEm.find).toHaveBeenCalledWith(ScheduledJob, {
@@ -358,11 +407,10 @@ describe('BullMQSchedulerService', () => {
         expect.any(Object),
         expect.any(Object)
       )
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Registering missing schedule: Schedule 2'
+      expect(loggerDebug).toHaveBeenCalledWith(
+        'Registering missing schedule',
+        { scheduleId: 'schedule-2', scheduleName: 'Schedule 2' }
       )
-
-      consoleDebugSpy.mockRestore()
     })
 
     it('should remove orphaned BullMQ jobs', async () => {
@@ -377,34 +425,55 @@ describe('BullMQSchedulerService', () => {
       ])
       mockQueue.removeRepeatableByKey.mockResolvedValue(true)
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-
       await service.syncAll()
 
       expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith('key-2')
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Removing orphaned schedule: schedule-2'
+      expect(loggerInfo).toHaveBeenCalledWith(
+        'Removing orphaned schedule',
+        { scheduleId: 'schedule-2' }
       )
+    })
 
-      consoleLogSpy.mockRestore()
+    it('should repair duplicate repeatable jobs for existing schedules', async () => {
+      const dbSchedules = [
+        { id: 'schedule-1', name: 'Schedule 1', isEnabled: true, scheduleType: 'cron', scheduleValue: '0 0 * * *', timezone: 'UTC', scopeType: 'system' },
+      ] as ScheduledJob[]
+
+      mockForkedEm.find.mockResolvedValue(dbSchedules)
+      mockQueue.getRepeatableJobs.mockResolvedValue([
+        { id: 'schedule-schedule-1', name: 'schedule-schedule-1', key: 'old-key-1' },
+        { id: 'schedule-schedule-1', name: 'schedule-schedule-1', key: 'old-key-2' },
+      ])
+      mockQueue.removeRepeatableByKey.mockResolvedValue(true)
+      mockQueue.add.mockResolvedValue({})
+
+      await service.syncAll()
+
+      expect(loggerInfo).toHaveBeenCalledWith(
+        'Repairing duplicate repeatable jobs',
+        { scheduleId: 'schedule-1' }
+      )
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledTimes(2)
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(1, 'old-key-1')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(2, 'old-key-2')
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'schedule-schedule-1',
+        expect.any(Object),
+        expect.any(Object),
+      )
     })
 
     it('should log sync completion', async () => {
       mockForkedEm.find.mockResolvedValue([])
       mockQueue.getRepeatableJobs.mockResolvedValue([])
 
-      const consoleDebugSpy = jest.spyOn(console, 'debug').mockImplementation()
-
       await service.syncAll()
 
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Starting full sync...'
+      expect(loggerDebug).toHaveBeenCalledWith('Starting full sync')
+      expect(loggerDebug).toHaveBeenCalledWith(
+        'Sync complete',
+        { activeSchedules: 0 }
       )
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Sync complete - 0 schedules active'
-      )
-
-      consoleDebugSpy.mockRestore()
     })
   })
 
@@ -426,17 +495,13 @@ describe('BullMQSchedulerService', () => {
     it('should return empty array on error', async () => {
       mockQueue.getRepeatableJobs.mockRejectedValue(new Error('BullMQ error'))
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
-
       const result = await service.getRepeatableJobs()
 
       expect(result).toEqual([])
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[scheduler:bullmq] Failed to get repeatable jobs:',
-        expect.any(Error)
+      expect(loggerError).toHaveBeenCalledWith(
+        'Failed to get repeatable jobs',
+        { err: expect.any(Error) }
       )
-
-      consoleErrorSpy.mockRestore()
     })
   })
 

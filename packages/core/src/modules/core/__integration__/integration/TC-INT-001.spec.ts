@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@open-mercato/core/helpers/integration/salesUi';
 
 /**
  * TC-INT-001: Quote to Order to Invoice to Payment

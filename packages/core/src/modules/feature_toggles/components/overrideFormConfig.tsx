@@ -20,7 +20,7 @@ export function booleanOverrideSelectValue(value: unknown): 'true' | 'false' {
   return value === true || value === 'true' ? 'true' : 'false'
 }
 
-export function renderOverrideValueComponent(props: CrudCustomFieldRenderProps) {
+export function OverrideValueField(props: CrudCustomFieldRenderProps) {
     const t = useT()
     const toggleType = props.values?.toggleType as string;
     const isOverride = props.values?.isOverride as boolean;
@@ -119,7 +119,7 @@ export function createOverrideFieldDefinitions(
             id: 'overrideValue',
             label: '',
             type: 'custom',
-            component: renderOverrideValueComponent,
+            component: (props) => <OverrideValueField {...props} />,
             description: t('feature_toggles.override.fields.overrideValue.description'),
         },
     ]

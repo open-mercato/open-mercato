@@ -118,6 +118,9 @@ test('isIgnorableConsolidatedWatchLine catches consolidated watcher progress onl
   assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: rebuild complete'), true)
   assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: no source files found, skipping rebuild'), true)
   assert.equal(isIgnorableConsolidatedWatchLine('[watch] no workspace packages with a `watch` script and `src/` directory were found'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] watch scope: 🌐 all — watching all packages'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] watch scope: 3 of 19 package(s) are not watched (set OM_WATCH_SCOPE=all to watch everything)'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] watch scope: expanded to newly-touched package shared'), true)
   // Real errors must NOT be filtered — they pass through to the failure surface
   assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: rebuild failed: ENOENT'), false)
   assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: failed to start fs.watch: EMFILE'), false)

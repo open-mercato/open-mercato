@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
@@ -5,6 +6,8 @@ import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { notificationTypes } from '../notifications'
 import type { AiConversationSharedPayload } from '../events'
+
+const logger = createLogger('ai_assistant')
 
 export const metadata = {
   event: 'ai_assistant.conversation.shared',
@@ -73,6 +76,6 @@ export default async function handleConversationShared(
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.warn('[ai_assistant.conversationSharedNotify] create failed', err)
+    logger.warn('ai_assistant.conversationSharedNotify — create failed', { err: err })
   }
 }

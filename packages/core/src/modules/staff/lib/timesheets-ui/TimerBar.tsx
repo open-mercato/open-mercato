@@ -5,9 +5,13 @@ import { Play, Square } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ProjectColorDot } from './ProjectColorDot'
+import { useActiveTimesheetTimer } from './useActiveTimesheetTimer'
+import { startTimerEntry } from './startTimer'
+import { resolveTimerActionError } from './timerErrors'
 
 type ProjectOption = {
   id: string
@@ -20,6 +24,17 @@ type TimerBarProps = {
   projects: ProjectOption[]
   staffMemberId: string | null
   onTimerStopped: () => void
+}
+
+const TIMER_MUTATION_CONTEXT_ID = 'staff-timesheets-timer-bar'
+
+type TimerMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  staffMemberId: string | null
+  action: 'timer-create' | 'timer-start' | 'timer-stop'
+  retryLastMutation: () => Promise<boolean>
 }
 
 function formatElapsed(seconds: number): string {
@@ -39,9 +54,11 @@ function getToday(): string {
 
 export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarProps) {
   const t = useT()
+  const { runMutation, retryLastMutation } = useGuardedMutation<TimerMutationContext>({
+    contextId: TIMER_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
-  const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [description, setDescription] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
@@ -52,10 +69,15 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeTimer = useActiveTimesheetTimer({ staffMemberId })
 
-  const isRunning = activeEntryId !== null
+  const activeEntryId = activeTimer.entryId
+  const activeProjectId = activeTimer.projectId
+  const isRunning = activeTimer.running
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
+  const activeProjectName = activeProject?.name ?? activeTimer.projectName
+  const activeProjectColor = activeProject?.color ?? activeTimer.projectColor
   const selectedProject = projects.find((p) => p.id === selectedProjectId)
 
   const filteredProjects = projects.filter((p) =>
@@ -64,13 +86,12 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
   const startElapsedCounter = useCallback((startedAt: string) => {
     const startTime = new Date(startedAt).getTime()
-    const now = Date.now()
-    const initialElapsed = Math.max(0, Math.floor((now - startTime) / 1000))
-    setElapsedSeconds(initialElapsed)
+    const calcElapsed = () => Math.max(0, Math.floor((Date.now() - startTime) / 1000))
+    setElapsedSeconds(calcElapsed())
 
     if (intervalRef.current) clearInterval(intervalRef.current)
     intervalRef.current = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1)
+      setElapsedSeconds(calcElapsed())
     }, 1000)
   }, [])
 
@@ -83,33 +104,13 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
   }, [])
 
   useEffect(() => {
-    if (!staffMemberId) return
-
-    const today = getToday()
-    const checkActiveTimer = async () => {
-      const response = await apiCall(
-        `/api/staff/timesheets/time-entries?staffMemberId=${staffMemberId}&from=${today}&to=${today}&pageSize=50`,
-      )
-      if (!response.ok) return
-
-      const data = response.result as Record<string, unknown> | null
-      const items = (data?.items ?? data?.data ?? []) as Array<Record<string, unknown>>
-
-      const activeEntry = items.find(
-        (entry: Record<string, unknown>) =>
-          entry.started_at && !entry.ended_at,
-      )
-
-      if (activeEntry) {
-        setActiveEntryId(String(activeEntry.id ?? ''))
-        setActiveProjectId(String(activeEntry.time_project_id ?? ''))
-        setDescription(String(activeEntry.notes ?? ''))
-        startElapsedCounter(String(activeEntry.started_at ?? ''))
-      }
+    if (activeTimer.running && activeTimer.startedAt) {
+      startElapsedCounter(activeTimer.startedAt)
+      if (activeTimer.notes != null) setDescription(activeTimer.notes)
+      return
     }
-
-    checkActiveTimer()
-  }, [staffMemberId, startElapsedCounter])
+    stopElapsedCounter()
+  }, [activeTimer.running, activeTimer.startedAt, activeTimer.notes, startElapsedCounter, stopElapsedCounter])
 
   useEffect(() => {
     return () => {
@@ -140,36 +141,29 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
     setIsStarting(true)
     try {
       const today = getToday()
-      const createResponse = await apiCallOrThrow(
-        '/api/staff/timesheets/time-entries',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            staffMemberId,
-            timeProjectId: selectedProjectId,
-            date: today,
-            durationMinutes: 0,
-            source: 'timer',
-            notes: description || null,
-          }),
+      const startPayload = {
+        staffMemberId,
+        timeProjectId: selectedProjectId,
+        date: today,
+        notes: description || null,
+      }
+      await runMutation({
+        operation: () => startTimerEntry(startPayload),
+        context: {
+          formId: TIMER_MUTATION_CONTEXT_ID,
+          resourceKind: 'staff.timesheets.time_entry',
+          resourceId: staffMemberId,
+          staffMemberId,
+          action: 'timer-start',
+          retryLastMutation,
         },
-      )
+        mutationPayload: startPayload,
+      })
 
-      const created = createResponse.result as Record<string, unknown> | null
-      const entryId = created?.id as string | undefined
-
-      await apiCallOrThrow(
-        `/api/staff/timesheets/time-entries/${entryId}/timer-start`,
-        { method: 'POST' },
-      )
-
-      setActiveEntryId(entryId ?? null)
-      setActiveProjectId(selectedProjectId)
-      startElapsedCounter(new Date().toISOString())
-    } catch {
+      await activeTimer.refresh()
+    } catch (err) {
       flash(
-        t('staff.timesheets.my.timer.startError', 'Failed to start timer'),
+        resolveTimerActionError(err, t('staff.timesheets.my.timer.startError', 'Failed to start timer')),
         'error',
       )
     } finally {
@@ -182,19 +176,34 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
     setIsStopping(true)
     try {
-      await apiCallOrThrow(
-        `/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`,
-        { method: 'POST' },
-      )
+      const stopPayload = {
+        id: activeEntryId,
+        action: 'timer-stop',
+        staffMemberId,
+      }
+      await runMutation({
+        operation: () =>
+          apiCallOrThrow(
+            `/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`,
+            { method: 'POST' },
+          ),
+        context: {
+          formId: TIMER_MUTATION_CONTEXT_ID,
+          resourceKind: 'staff.timesheets.time_entry',
+          resourceId: activeEntryId,
+          staffMemberId,
+          action: 'timer-stop',
+          retryLastMutation,
+        },
+        mutationPayload: stopPayload,
+      })
 
-      setActiveEntryId(null)
-      setActiveProjectId(null)
       setDescription('')
-      stopElapsedCounter()
+      await activeTimer.refresh()
       onTimerStopped()
-    } catch {
+    } catch (err) {
       flash(
-        t('staff.timesheets.my.timer.stopError', 'Failed to stop timer'),
+        resolveTimerActionError(err, t('staff.timesheets.my.timer.stopError', 'Failed to stop timer')),
         'error',
       )
     } finally {
@@ -218,10 +227,10 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
       <div className="relative" ref={dropdownRef}>
         {isRunning ? (
-          activeProject ? (
+          activeProjectName ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded border bg-muted">
-              <ProjectColorDot colorKey={activeProject.color} projectName={activeProject.name} size="xs" />
-              {activeProject.name}
+              <ProjectColorDot colorKey={activeProjectColor} projectName={activeProjectName} size="xs" />
+              {activeProjectName}
             </span>
           ) : null
         ) : (
@@ -300,11 +309,10 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       {isRunning ? (
         <IconButton
           type="button"
-          variant="outline"
+          variant="destructive"
           size="default"
           onClick={handleStop}
           disabled={isStopping}
-          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           aria-label={t('staff.timesheets.my.timer.stop', 'Stop timer')}
         >
           <Square className="size-4" />
@@ -312,11 +320,10 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       ) : (
         <IconButton
           type="button"
-          variant="outline"
+          variant="primary"
           size="default"
           onClick={handleStart}
           disabled={isStarting || !selectedProjectId}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
           aria-label={t('staff.timesheets.my.timer.start', 'Start timer')}
         >
           <Play className="size-4" />

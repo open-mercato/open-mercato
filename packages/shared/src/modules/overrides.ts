@@ -59,6 +59,7 @@ export interface AiOverridesShape {
   extensions?: unknown[]
 }
 
+
 type LooseOverrideMap = Record<string, unknown>
 
 /**
@@ -270,9 +271,7 @@ export function applyModuleOverridesFromEnabledModules(
       if (!warnedUnwiredDomains.has(domain)) {
         warnedUnwiredDomains.add(domain)
         const moduleIds = Array.from(new Set(entries.map((e) => e.moduleId))).join(', ')
-        console.warn(
-          `[Module Overrides] Domain "${domain}" not yet wired — entry.overrides.${domain} for module(s) [${moduleIds}] was ignored. ${TRACKING_ISSUE_HINT}`,
-        )
+        logger.warn('Override domain not yet wired — entry ignored', { domain, moduleIds, hint: TRACKING_ISSUE_HINT })
       }
       continue
     }
@@ -330,6 +329,7 @@ import type {
   ModuleSubscriber,
   ModuleWorker,
 } from './registry'
+import { createLogger } from '../lib/logger'
 import type { ModuleInjectionTable } from './widgets/injection'
 import type { ComponentOverride } from './widgets/component-registry'
 import type { NotificationHandler } from './notifications/handler'
@@ -340,6 +340,8 @@ import type { ApiInterceptor } from '../lib/crud/api-interceptor'
 import type { ResponseEnricher } from '../lib/crud/response-enricher'
 import type { CommandInterceptor } from '../lib/commands/command-interceptor'
 import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from './middleware/page'
+
+const logger = createLogger('shared').child({ component: 'module-overrides' })
 
 /** Override for a single API route entry: replace handler/metadata, or `null` to disable. */
 export interface ApiRouteOverrideDefinition {
@@ -443,7 +445,7 @@ function normalizeIdOverrideKey(key: string, label: string): string | null {
   if (typeof key !== 'string') return null
   const trimmed = key.trim()
   if (trimmed) return trimmed
-  console.warn(`[Module Overrides] Skipping malformed ${label} key "${key}" — expected a non-empty string.`)
+  logger.warn('Skipping malformed override key — expected a non-empty string', { label, key })
   return null
 }
 
@@ -514,17 +516,13 @@ function applyArrayOverrides<T>(
     const replacement = overrides[id]
     if (replacement === null) continue
     if (options.isReplacement && !options.isReplacement(replacement)) {
-      console.warn(
-        `[Module Overrides] Skipping malformed ${options.label} override for "${id}" — replacement has the wrong shape.`,
-      )
+      logger.warn('Skipping malformed override — replacement has the wrong shape', { label: options.label, id })
       result.push(item)
       continue
     }
     const replacementId = options.getId(replacement)
     if (replacementId !== id) {
-      console.warn(
-        `[Module Overrides] Skipping malformed ${options.label} override for "${id}" — replacement id must match the override key.`,
-      )
+      logger.warn('Skipping malformed override — replacement id must match the override key', { label: options.label, id })
       result.push(item)
       continue
     }
@@ -537,7 +535,7 @@ function applyArrayOverrides<T>(
 function warnStaleOverrides(label: string, overrides: Readonly<Record<string, unknown>>, consumed: ReadonlySet<string>): void {
   for (const key of Object.keys(overrides)) {
     if (!consumed.has(key)) {
-      console.warn(`[Module Overrides] ${label} override "${key}" did not match any registered entry — override skipped.`)
+      logger.warn('Override did not match any registered entry — override skipped', { label, key })
     }
   }
 }
@@ -686,9 +684,7 @@ export function applyApiRouteOverrides(overrides: ApiRouteOverridesMap): void {
   for (const [rawKey, value] of Object.entries(overrides)) {
     const key = normalizeApiRouteOverrideKey(rawKey)
     if (!key) {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.api key "${rawKey}" — expected "METHOD /api/path".`,
-      )
+      logger.warn('Skipping malformed routes.api key — expected "METHOD /api/path"', { key: rawKey })
       continue
     }
     programmaticApiRouteOverrides[key] = value
@@ -929,9 +925,7 @@ export function applyApiOverridesToManifests<T extends ApiRouteManifestEntry>(
         methodOverrides.set(method, value)
         remainingMethods.push(method)
       } else {
-        console.warn(
-          `[Module Overrides] Skipping malformed routes.api override for "${key}" — expected { handler, metadata? } or null.`,
-        )
+        logger.warn('Skipping malformed routes.api override — expected { handler, metadata? } or null', { key })
         remainingMethods.push(method)
       }
     }
@@ -971,9 +965,7 @@ export function applyApiOverridesToManifests<T extends ApiRouteManifestEntry>(
 
   for (const key of overrideKeys) {
     if (!consumedKeys.has(key)) {
-      console.warn(
-        `[Module Overrides] routes.api override "${key}" did not match any registered API route — override skipped.`,
-      )
+      logger.warn('routes.api override did not match any registered API route — override skipped', { key })
     }
   }
 
@@ -990,9 +982,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
   for (const [rawKey, value] of Object.entries(overrides)) {
     const key = normalizePageRouteOverrideKey(rawKey)
     if (!key) {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.pages key "${rawKey}" — expected "/backend/path" or "/frontend/path".`,
-      )
+      logger.warn('Skipping malformed routes.pages key — expected "/backend/path" or "/frontend/path"', { key: rawKey })
       continue
     }
     normalizedOverrides[key] = value
@@ -1015,9 +1005,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
     const override = normalizedOverrides[key]
     if (override === null) continue
     if (!override || typeof override !== 'object') {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.pages override for "${key}" — expected { load?, Component?, metadata? } or null.`,
-      )
+      logger.warn('Skipping malformed routes.pages override — expected { load?, Component?, metadata? } or null', { key })
       result.push(entry)
       continue
     }
@@ -1025,9 +1013,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
     const hasLoad = typeof override.load === 'function'
     const hasComponent = typeof override.Component === 'function'
     if (!hasLoad && !hasComponent && override.metadata === undefined) {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.pages override for "${key}" — expected a loader, component, metadata, or null.`,
-      )
+      logger.warn('Skipping malformed routes.pages override — expected a loader, component, metadata, or null', { key })
       result.push(entry)
       continue
     }
@@ -1182,13 +1168,13 @@ export function applyComponentOverridesToEntries(
     const value = overrides[key]
     if (value === null) continue
     if (!isComponentOverrideValue(value)) {
-      console.warn(`[Module Overrides] Skipping malformed widgets.components override for "${key}" — expected ComponentOverride, ComponentOverride[], or null.`)
+      logger.warn('Skipping malformed widgets.components override — expected ComponentOverride, ComponentOverride[], or null', { key })
       continue
     }
     const values = Array.isArray(value) ? value : [value]
     for (const override of values) {
       if (override.target.componentId !== key) {
-        console.warn(`[Module Overrides] Skipping malformed widgets.components override for "${key}" — target.componentId must match the override key.`)
+        logger.warn('Skipping malformed widgets.components override — target.componentId must match the override key', { key })
         continue
       }
       additions.push(override)
@@ -1415,9 +1401,7 @@ function routesOverridesApplier(
       for (const [rawKey, value] of Object.entries(api)) {
         const key = normalizeApiRouteOverrideKey(rawKey)
         if (!key) {
-          console.warn(
-            `[Module Overrides] Skipping malformed routes.api key "${rawKey}" — expected "METHOD /api/path".`,
-          )
+          logger.warn('Skipping malformed routes.api key — expected "METHOD /api/path"', { key: rawKey })
           continue
         }
         modulesConfigApiRouteOverrides[key] = value as ApiRouteOverride

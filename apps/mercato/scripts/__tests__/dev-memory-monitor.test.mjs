@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 
 import {
+  getProcessTreeMemorySample,
   getProcessTreeMemoryBytes,
   parseProcessTreeMemoryBytes,
 } from '../dev-memory-monitor.mjs'
@@ -52,6 +53,19 @@ test('sums RSS of the process subtree on the happy path', async () => {
   child.emit('close', 0)
 
   assert.equal(await result, (2048 + 1024) * 1024)
+})
+
+test('returns a rich process-tree memory sample for injected ps output', async () => {
+  const child = createFakeChild()
+  const result = getProcessTreeMemorySample(100, { spawn: () => child })
+
+  child.stdout.emit('data', '100 1 2048\n')
+  child.stdout.emit('data', '200 100 1024\n300 999 4096\n')
+  child.emit('close', 0)
+
+  const sample = await result
+  assert.equal(sample.totalRssBytes, (2048 + 1024) * 1024)
+  assert.equal(sample.totalRssMb, 3)
 })
 
 test('parseProcessTreeMemoryBytes returns null when the root pid is absent', () => {

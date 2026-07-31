@@ -17,6 +17,7 @@ export function MessageDetailComposerDialogs(props: ComposerDialogsProps) {
     <MessageComposer
       variant="compose"
       messageId={props.id}
+      expectedUpdatedAt={props.detail.updatedAt}
       open={props.editOpen && props.detail.isDraft && props.detail.canEditDraft}
       onOpenChange={props.setEditOpen}
       defaultValues={{

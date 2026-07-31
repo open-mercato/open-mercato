@@ -18,6 +18,9 @@ import type {
   ProgressService,
   ProgressServiceContext,
 } from '../../progress/lib/progressService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'channel-import-history' })
 
 /**
  * Spec B § Phase B6 — operator-triggered backlog import worker.
@@ -161,7 +164,7 @@ export default async function handle(
     // enforced by the schema, so this only trips on adapter bugs.
     const MAX_PAGES = 100
     for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
-      if (await progressService.isCancellationRequested(progressJobId, scope.tenantId)) {
+      if (await progressService.isCancellationRequested(progressJobId, scope.tenantId, scope.organizationId)) {
         await progressService.markCancelled(progressJobId, progressContext)
         return
       }
@@ -208,9 +211,7 @@ export default async function handle(
           if (classification.transient) {
             throw err
           }
-          console.warn(
-            `[communication_channels:channel-import-history] permanent ingest failure on channel ${channel.id}; skipping message ${message.externalMessageId}. Reason: ${classification.message}`,
-          )
+          logger.warn('permanent ingest failure; skipping message', { channelId: channel.id, externalMessageId: message.externalMessageId, reason: classification.message })
         }
         processedCount += 1
       }
@@ -241,11 +242,7 @@ export default async function handle(
         progressContext,
       )
     } catch (failErr) {
-      console.error(
-        `[communication_channels:channel-import-history] failed to mark progress job ${progressJobId} as failed: ${
-          failErr instanceof Error ? failErr.message : String(failErr)
-        }`,
-      )
+      logger.error('failed to mark progress job as failed', { progressJobId, err: failErr })
     }
     throw err
   }
