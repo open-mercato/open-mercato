@@ -111,4 +111,4 @@ PR: #4755
 ### Phase 6: Revalidation and delivery
 
 - [x] 6.1 Re-run the full configured validation gate — full gate passed; `i18n:check-usage` reports only the pre-existing advisory phone-field keys
-- [ ] 6.2 Re-run `om-auto-review-pr` and apply any resulting fixes
+- [x] 6.2 Re-run `om-auto-review-pr` and apply any resulting fixes — APPROVED; trailing-space cleanup in 78b22354b
