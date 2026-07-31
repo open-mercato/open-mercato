@@ -365,6 +365,10 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     new URL('../../agentic/shared/ai/specs/SPEC-000-template.md', import.meta.url),
     'utf8',
   )
+  const deliveryGuide = fs.readFileSync(
+    new URL('../../agentic/guides/spec-delivery.md', import.meta.url),
+    'utf8',
+  )
 
   const requiredSections = [
     '## Goals',
@@ -399,18 +403,18 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
 
   assert.match(
     agentsTemplate,
-    /MUST invoke `om-spec-writing` before authoring or revising the spec/,
-    'routing must invoke om-spec-writing rather than merely mention it',
+    /Write\/revise spec \| MUST invoke `om-spec-writing`.*`\.ai\/guides\/spec-delivery\.md`/,
+    'routing must invoke om-spec-writing and load the readiness guide',
   )
   assert.match(
-    agentsTemplate,
-    /only the current unblocked phase may be in progress/,
-    'generated guidance must prevent blocked phases from running concurrently',
+    deliveryGuide,
+    /Only the current unblocked phase may be in progress/,
+    'the routed delivery guide must prevent blocked phases from running concurrently',
   )
   assert.match(
-    agentsTemplate,
+    deliveryGuide,
     /If no remote\/tracker exists,[\s\S]*invoke local `om-implement-spec` phase-by-phase/,
-    'generated guidance must use the local phase engine when PR delivery is unavailable',
+    'the routed delivery guide must use the local phase engine when PR delivery is unavailable',
   )
 })
 
