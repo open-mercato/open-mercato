@@ -35,7 +35,7 @@ When semantic review finds a literal name or project/customer identifier that pa
 
 Successful output:
 
-- `session.json` — structurally complete sanitized JSON, preserving turn order.
+- `session.json` — structurally complete sanitized JSON, preserving turn order and using run-local salted pseudonyms for identifier fields.
 - `generated-files.zip` — ZIP of the sanitized generated-file tree.
 - `manifest.json` — share name, turn/file counts, sanitized relative paths, modes, sizes, and SHA-256 hashes.
 - `privacy-report.json` — redaction-category counts and mandatory manual-review status.

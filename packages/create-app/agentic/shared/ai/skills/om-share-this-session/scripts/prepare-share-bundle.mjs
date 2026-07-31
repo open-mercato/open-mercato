@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import {
   chmodSync,
   copyFileSync,
@@ -64,8 +64,9 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function pseudonym(value, label) {
-  return `«redacted:${label}:${sha256(value).slice(0, 12)}»`
+function pseudonym(value, label, salt) {
+  const digest = createHash('sha256').update(salt).update('\0').update(value).digest('hex')
+  return `«redacted:${label}:${digest.slice(0, 12)}»`
 }
 
 function escapeRegExp(value) {
@@ -125,7 +126,7 @@ function sanitizeString(input, key, state) {
   }
   if (pseudonymKeyPattern.test(key) && input.length > 0) {
     countReplacement(state, 'identifiers')
-    return pseudonym(input, 'identifier')
+    return pseudonym(input, 'identifier', state.pseudonymSalt)
   }
   if (commandKeyPattern.test(key) && isDangerousPath(input)) {
     countReplacement(state, 'dangerous')
@@ -313,6 +314,7 @@ function createResidualScanState(state) {
     customLiterals: state.customLiterals,
     projectRootPattern: state.projectRootPattern,
     homePattern: state.homePattern,
+    pseudonymSalt: state.pseudonymSalt,
     redactions: { secrets: 0, pii: 0, paths: 0, dangerous: 0, identifiers: 0, custom: 0 },
   }
 }
@@ -377,6 +379,7 @@ function main() {
       customLiterals: loadCustomLiterals(args['redact-list']),
       projectRootPattern: new RegExp(escapeRegExp(projectRoot), 'g'),
       homePattern: homeDirectory ? new RegExp(escapeRegExp(homeDirectory), 'g') : null,
+      pseudonymSalt: randomBytes(32),
       redactions: { secrets: 0, pii: 0, paths: 0, dangerous: 0, identifiers: 0, custom: 0 },
     }
 
