@@ -789,6 +789,63 @@ function layoutWithDagre(
   return positions
 }
 
+/** Gap between the main flow and the return lane a loop node is dropped into. */
+export const RETURN_LANE_GAP = 64
+
+/**
+ * Drop dedicated return nodes into a lane BELOW the main flow (issue: loop route
+ * lines cross-cutting the cards).
+ *
+ * dagre lays out LR and ranks a loop node (e.g. a retry `WAIT_FOR_TIMER`) to the
+ * RIGHT of the step it routes back to, so its back-edge curves across the row and
+ * reads as spaghetti. This post-pass finds a node whose ONLY outgoing edge is a
+ * back-edge (its target sits left of it) — i.e. a node that exists purely to
+ * route back — and lowers it beneath every card its return arc spans, keeping its
+ * x. The forward edge then drops down to it and the return edge rises back up as
+ * one clean arc under the row.
+ *
+ * Guards keep it conservative: only single-out-edge return nodes move, so a
+ * genuine business loop through a multi-branch step is left to dagre. PURE.
+ */
+export function liftReturnNodesBelow(
+  positions: Map<string, { x: number; y: number }>,
+  sizeById: Map<string, { width: number; height: number }>,
+  transitions: { fromStepId: string; toStepId: string }[],
+  gap: number = RETURN_LANE_GAP,
+): Map<string, { x: number; y: number }> {
+  const outDegree = new Map<string, number>()
+  for (const transition of transitions) {
+    outDegree.set(transition.fromStepId, (outDegree.get(transition.fromStepId) ?? 0) + 1)
+  }
+
+  const widthOf = (id: string) => sizeById.get(id)?.width ?? NODE_MIN_WIDTH
+  const heightOf = (id: string) => sizeById.get(id)?.height ?? NODE_HEIGHT
+
+  const result = new Map(positions)
+  for (const transition of transitions) {
+    const from = result.get(transition.fromStepId)
+    const to = result.get(transition.toStepId)
+    if (!from || !to) continue
+    // A back-edge in an LR layout: the target sits left of the source.
+    if (to.x >= from.x) continue
+    // Only a DEDICATED return node moves — one whose sole job is to route back.
+    if ((outDegree.get(transition.fromStepId) ?? 0) !== 1) continue
+
+    const spanLeft = to.x
+    const spanRight = from.x + widthOf(transition.fromStepId)
+    let laneTop = Number.NEGATIVE_INFINITY
+    for (const [id, pos] of result) {
+      if (id === transition.fromStepId) continue
+      const nodeRight = pos.x + widthOf(id)
+      if (nodeRight < spanLeft || pos.x > spanRight) continue // no horizontal overlap
+      laneTop = Math.max(laneTop, pos.y + heightOf(id))
+    }
+    if (laneTop === Number.NEGATIVE_INFINITY) continue
+    result.set(transition.fromStepId, { x: from.x, y: Math.round(laneTop + gap) })
+  }
+  return result
+}
+
 /**
  * Re-run the dagre layered layout (`rankdir: 'LR'`) directly over React Flow
  * nodes + edges and return a NEW node array with refreshed `position` values.
@@ -832,8 +889,19 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
     nodeHeight: NODE_HEIGHT,
   })
 
+  // Post-pass: lower dedicated return nodes (retry timers, loop-back waits) into
+  // a lane below the row so their return arc reads cleanly instead of cutting
+  // across the cards.
+  const sizeById = new Map<string, { width: number; height: number }>(
+    steps.map((step) => [
+      step.stepId as string,
+      { width: step.width ?? NODE_MIN_WIDTH, height: step.height ?? NODE_HEIGHT },
+    ]),
+  )
+  const laidOut = liftReturnNodesBelow(positions, sizeById, transitions)
+
   return nodes.map((node) => {
-    const next = positions.get(node.id)
+    const next = laidOut.get(node.id)
     return next ? { ...node, position: { x: next.x, y: next.y } } : node
   })
 }

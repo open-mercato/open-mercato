@@ -8,7 +8,7 @@
 
 import { describe, test, expect } from '@jest/globals'
 import type { Node, Edge } from '@xyflow/react'
-import { definitionToGraph, applyAutoLayout, graphToDefinition } from '../graph-utils'
+import { definitionToGraph, applyAutoLayout, graphToDefinition, liftReturnNodesBelow, RETURN_LANE_GAP } from '../graph-utils'
 
 const baseDefinition = {
   steps: [
@@ -250,5 +250,66 @@ describe('applyAutoLayout', () => {
     // START/END render as auto-width pills, so they take less horizontal room
     // than the described step card they used to be indistinguishable from.
     expect(downstreamX(withTerminal)).toBeLessThan(downstreamX(withStep))
+  })
+})
+
+describe('liftReturnNodesBelow — loop nodes drop into a return lane', () => {
+  const size = (ids: string[]) =>
+    new Map(ids.map((id) => [id, { width: 200, height: 100 }]))
+
+  test('a dedicated return node is lowered below the cards its arc spans, keeping x', () => {
+    const positions = new Map([
+      ['assess', { x: 0, y: 0 }],
+      ['ocena', { x: 264, y: 0 }],
+      ['timer', { x: 528, y: 0 }], // dagre ranked it inline, to the right
+    ])
+    const transitions = [
+      { fromStepId: 'assess', toStepId: 'ocena' },
+      { fromStepId: 'assess', toStepId: 'timer' }, // error -> retry timer
+      { fromStepId: 'timer', toStepId: 'assess' }, // back-edge (return)
+    ]
+    const result = liftReturnNodesBelow(positions, size(['assess', 'ocena', 'timer']), transitions)
+
+    // timer keeps its x but drops into the lane below the 100px-tall row.
+    expect(result.get('timer')!.x).toBe(528)
+    expect(result.get('timer')!.y).toBe(100 + RETURN_LANE_GAP)
+    // the main-flow nodes are untouched.
+    expect(result.get('assess')).toEqual({ x: 0, y: 0 })
+    expect(result.get('ocena')).toEqual({ x: 264, y: 0 })
+  })
+
+  test('a multi-branch step on a real business loop is left to dagre (not lowered)', () => {
+    const positions = new Map([
+      ['review', { x: 400, y: 0 }],
+      ['start', { x: 0, y: 0 }],
+      ['done', { x: 800, y: 0 }],
+    ])
+    const transitions = [
+      { fromStepId: 'start', toStepId: 'review' },
+      { fromStepId: 'review', toStepId: 'start' }, // back-edge, but review also branches forward
+      { fromStepId: 'review', toStepId: 'done' },
+    ]
+    const result = liftReturnNodesBelow(positions, size(['review', 'start', 'done']), transitions)
+    // review has out-degree 2 → not a dedicated return node → unchanged.
+    expect(result.get('review')).toEqual({ x: 400, y: 0 })
+  })
+
+  test('applyAutoLayout puts a retry timer below the main row', () => {
+    const nodes: Node[] = [
+      { id: 'start', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start' } },
+      { id: 'assess', type: 'invokeAgent', position: { x: 0, y: 0 }, data: { label: 'Assess' } },
+      { id: 'timer', type: 'waitForTimer', position: { x: 0, y: 0 }, data: { label: 'Retry wait' } },
+      { id: 'end', type: 'end', position: { x: 0, y: 0 }, data: { label: 'End' } },
+    ]
+    const edges: Edge[] = [
+      { id: 'e1', source: 'start', target: 'assess', type: 'workflowTransition' },
+      { id: 'e2', source: 'assess', target: 'end', type: 'workflowTransition' },
+      { id: 'e3', source: 'assess', target: 'timer', type: 'workflowTransition' }, // error -> timer
+      { id: 'e4', source: 'timer', target: 'assess', type: 'workflowTransition' }, // retry back
+    ]
+    const result = applyAutoLayout(nodes, edges)
+    const assessY = result.find((node) => node.id === 'assess')!.position.y
+    const timerY = result.find((node) => node.id === 'timer')!.position.y
+    expect(timerY).toBeGreaterThan(assessY)
   })
 })
