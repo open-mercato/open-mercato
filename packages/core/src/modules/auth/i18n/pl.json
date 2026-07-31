@@ -128,6 +128,7 @@
   "auth.roles.form.group.details": "Szczegóły",
   "auth.roles.form.group.widgets": "Widżety pulpitu",
   "auth.roles.form.loading": "Ładowanie danych...",
+  "auth.roles.form.tenantReassignWarning": "Ta rola jest przypisywana do innego najemcy. Wybrane tutaj uprawnienia zostaną zapisane pod nowym najemcą po zatwierdzeniu.",
   "auth.roles.form.title.create": "Utwórz rolę",
   "auth.roles.form.title.edit": "Edytuj rolę",
   "auth.roles.list.actions.create": "Utwórz",

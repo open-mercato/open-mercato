@@ -69,6 +69,6 @@ PR: #4507
 ### Maintenance
 
 - [x] M.1 Merge `develop` into the branch and resolve the `UPGRADE_NOTES.md` conflict (both the #4488 and the #4201 entry now live side by side under 0.6.5 → 0.6.6) — efb8ccb74
-- [x] M.2 Add the integration coverage the review pass found missing: `TC-PGWY-022` plus the `Integration coverage:` line in SPEC-044 §16.5, verified against a live app and by a negative control — 6530373a7
+- [x] M.2 Add the integration coverage the review pass found missing: `TC-PGWY-023` plus the `Integration coverage:` line in SPEC-044 §16.5, verified against a live app and by a negative control — 6530373a7
 - [x] M.3 Clear the red required `test` job: the failure was the `explicit-sort-comparators` guard flagging `scripts/check-agents-md-budget.mjs:93`, a `develop` file this PR never touched, already fixed on `develop` by `c9fe3d62a` — merging current `develop` (36 commits) into the branch removes it
 - [x] M.4 Route the three new 409 conflict messages through the `payment_gateways` translation catalog (en/pl/es/de) instead of hardcoded English, with a fallback for contexts that have no registered dictionary — dfbc8ea61

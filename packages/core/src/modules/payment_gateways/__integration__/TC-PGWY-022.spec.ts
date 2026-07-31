@@ -1,133 +1,134 @@
-import { expect, test, type APIResponse } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { expect, test, type APIRequestContext } from '@playwright/test'
+import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { createPaymentSession, getTransactionStatus } from './helpers/fixtures'
 
 /**
- * TC-PGWY-022: Payment-session amount reconciliation against the order total
+ * TC-PGWY-022: Captures cannot add up past the authorized amount (#4487)
  *
- * Spec: .ai/specs/implemented/SPEC-044-2026-02-24-payment-gateway-integrations.md §16.5
- * Issue #4488 (follow-up to the capture-side guard of #4486).
- *
- * `POST /api/payment_gateways/sessions` reconciles a caller-supplied `amount` and
- * `currencyCode` against the authoritative amount due for a referenced order before any
- * provider is contacted. The unit suites mock the resolver and the entity manager; this
- * spec exercises the real wiring end to end — the `sales` module registering
- * `paymentOrderTotalResolver`, the tenant/organization-scoped order lookup, and the route
- * answering `409` rather than collapsing the conflict into `502`.
- *
- * Covered: mismatched amount, mismatched currency, an order id that does not resolve in the
- * caller's scope, and the matching amount that is allowed through.
+ * #4486 rejected a single capture larger than the authorization, but each request was
+ * compared against the full amount in isolation, so repeated partial captures (60 + 60
+ * against 100) still slipped through. The service now keeps a captured-to-date ledger on
+ * the transaction and reserves the requested slice before the provider is called, so the
+ * sum of all captures against one authorization can never exceed it.
  */
-
-type JsonRecord = Record<string, unknown>
-
-const UNRESOLVABLE_ORDER_ID = '00000000-0000-4000-8000-000000000000'
-const ORDER_GROSS = 100
-
-async function readJson(response: APIResponse): Promise<JsonRecord> {
-  const raw = await response.text()
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw) as JsonRecord
-  } catch {
-    return {}
+test.describe('TC-PGWY-022: Cumulative capture ceiling', () => {
+  async function capture(
+    request: APIRequestContext,
+    token: string,
+    transactionId: string,
+    amount: number | undefined,
+    operationId: string,
+  ) {
+    return apiRequest(request, 'POST', '/api/payment_gateways/capture', {
+      token,
+      data: { transactionId, amount, operationId },
+    })
   }
-}
 
-function listItems(body: JsonRecord): JsonRecord[] {
-  return Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
-}
+  test('rejects a second partial capture that would exceed the authorized amount', async ({ request }) => {
+    const token = await getAuthToken(request)
+    const suffix = `${Date.now()}`
 
-function num(value: unknown): number {
-  if (typeof value === 'number') return value
-  if (typeof value === 'string' && value.trim().length) return Number(value)
-  return Number.NaN
-}
-
-async function postSession(
-  request: Parameters<typeof apiRequest>[0],
-  token: string,
-  data: JsonRecord,
-): Promise<APIResponse> {
-  return apiRequest(request, 'POST', '/api/payment_gateways/sessions', {
-    token,
-    data: {
+    const session = await createPaymentSession(request, token, {
       providerKey: 'mock',
+      amount: 100.00,
       currencyCode: 'USD',
       captureMethod: 'manual',
-      description: `QA PGWY-022 ${Date.now()}`,
-      ...data,
-    },
+    })
+    expect(session.status).toBe('authorized')
+
+    const first = await capture(request, token, session.transactionId, 60.00, `cap-a-${suffix}`)
+    expect(first.ok()).toBe(true)
+    expect((await first.json()).capturedAmount).toBe(60.00)
+
+    // 60 + 60 = 120 against an authorization of 100: each request passes a per-capture
+    // check on its own, so only the cumulative ceiling can reject this one.
+    const second = await capture(request, token, session.transactionId, 60.00, `cap-b-${suffix}`)
+    expect(second.status()).toBe(409)
+    expect((await second.json()).code).toBe('payment_capture_ceiling_exceeded')
+
+    // The rejected capture must not have consumed any of the remaining 40.
+    const third = await capture(request, token, session.transactionId, 40.00, `cap-c-${suffix}`)
+    expect(third.ok()).toBe(true)
+    expect((await third.json()).capturedAmount).toBe(40.00)
+
+    const fourth = await capture(request, token, session.transactionId, 0.01, `cap-d-${suffix}`)
+    expect(fourth.status()).toBe(409)
+    expect((await fourth.json()).code).toBe('payment_capture_ceiling_exceeded')
+
+    const status = await getTransactionStatus(request, token, session.transactionId)
+    expect(status.status).toBe('captured')
   })
-}
 
-test.describe('TC-PGWY-022 payment-session amount reconciliation', () => {
-  test('rejects amounts and currencies that do not match the order, and accepts the amount due', async ({ request }) => {
-    test.slow()
-    const token = await getAuthToken(request, 'admin')
-    let orderId: string | null = null
+  test('captures only the remainder when a later request omits the amount', async ({ request }) => {
+    const token = await getAuthToken(request)
+    const suffix = `${Date.now()}`
 
-    try {
-      const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
-        token,
-        data: { currencyCode: 'USD' },
-      })
-      expect(orderResponse.status(), 'POST /api/sales/orders should be 201').toBe(201)
-      orderId = (await readJson(orderResponse)).id as string
-      expect(orderId, 'order create response should carry an id').toBeTruthy()
+    const session = await createPaymentSession(request, token, {
+      providerKey: 'mock',
+      amount: 80.00,
+      currencyCode: 'USD',
+      captureMethod: 'manual',
+    })
+    expect(session.status).toBe('authorized')
 
-      const lineResponse = await apiRequest(request, 'POST', '/api/sales/order-lines', {
-        token,
-        data: {
-          orderId,
-          currencyCode: 'USD',
-          quantity: 1,
-          name: `QA PGWY-022 line ${Date.now()}`,
-          unitPriceNet: ORDER_GROSS,
-          unitPriceGross: ORDER_GROSS,
-        },
-      })
-      expect(lineResponse.status(), 'POST /api/sales/order-lines should be 201').toBe(201)
+    const first = await capture(request, token, session.transactionId, 30.00, `rest-a-${suffix}`)
+    expect(first.ok()).toBe(true)
 
-      const order = listItems(
-        await readJson(await apiRequest(request, 'GET', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })),
-      ).find((row) => row.id === orderId) ?? {}
-      const amountDue = num(order.grandTotalGrossAmount ?? order.grand_total_gross_amount)
-      expect(amountDue, 'the seeded order should be due its single line gross total').toBe(ORDER_GROSS)
+    const rest = await capture(request, token, session.transactionId, undefined, `rest-b-${suffix}`)
+    expect(rest.ok()).toBe(true)
+    expect((await rest.json()).capturedAmount).toBe(50.00)
 
-      const tooHigh = await postSession(request, token, { orderId, amount: amountDue + 25 })
-      expect(tooHigh.status(), 'an amount above the amount due should be rejected with 409').toBe(409)
-      const tooHighBody = await readJson(tooHigh)
-      expect(typeof tooHighBody.error, '409 responses carry an error message').toBe('string')
-      expect(tooHighBody.transactionId, 'a rejected request must not create a transaction').toBeUndefined()
+    const extra = await capture(request, token, session.transactionId, 1.00, `rest-c-${suffix}`)
+    expect(extra.status()).toBe(409)
+    expect((await extra.json()).code).toBe('payment_capture_ceiling_exceeded')
+  })
 
-      const tooLow = await postSession(request, token, { orderId, amount: amountDue - 25 })
-      expect(tooLow.status(), 'an amount below the amount due should be rejected with 409').toBe(409)
+  test('replays a repeated operation id instead of capturing a second time', async ({ request }) => {
+    const token = await getAuthToken(request)
+    const suffix = `${Date.now()}`
 
-      const wrongCurrency = await postSession(request, token, {
-        orderId,
-        amount: amountDue,
-        currencyCode: 'EUR',
-      })
-      expect(wrongCurrency.status(), 'a currency other than the order currency should be rejected with 409').toBe(409)
+    const session = await createPaymentSession(request, token, {
+      providerKey: 'mock',
+      amount: 50.00,
+      currencyCode: 'USD',
+      captureMethod: 'manual',
+    })
 
-      const unresolvableOrder = await postSession(request, token, {
-        orderId: UNRESOLVABLE_ORDER_ID,
-        amount: amountDue,
-      })
-      expect(
-        unresolvableOrder.status(),
-        'an order that does not resolve in the caller scope should be rejected with 409',
-      ).toBe(409)
-      const unresolvableBody = await readJson(unresolvableOrder)
-      expect(typeof unresolvableBody.error, 'the out-of-scope response carries an error message').toBe('string')
+    const operationId = `replay-${suffix}`
+    const first = await capture(request, token, session.transactionId, 20.00, operationId)
+    expect(first.ok()).toBe(true)
 
-      const matching = await postSession(request, token, { orderId, amount: amountDue })
-      expect(matching.status(), 'the amount due should be accepted').toBe(201)
-      const matchingBody = await readJson(matching)
-      expect(matchingBody.transactionId, 'an accepted request creates a gateway transaction').toBeTruthy()
-    } finally {
-      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
-    }
+    const replay = await capture(request, token, session.transactionId, 20.00, operationId)
+    expect(replay.ok()).toBe(true)
+    expect(await replay.json()).toEqual(await first.json())
+
+    // The replay must not have consumed a second 20 from the authorization.
+    const remainder = await capture(request, token, session.transactionId, 30.00, `remainder-${suffix}`)
+    expect(remainder.ok()).toBe(true)
+    expect((await remainder.json()).capturedAmount).toBe(30.00)
+  })
+
+  test('rejects concurrent captures that would jointly exceed the authorization', async ({ request }) => {
+    const token = await getAuthToken(request)
+    const suffix = `${Date.now()}`
+
+    const session = await createPaymentSession(request, token, {
+      providerKey: 'mock',
+      amount: 100.00,
+      currencyCode: 'USD',
+      captureMethod: 'manual',
+    })
+
+    const [left, right] = await Promise.all([
+      capture(request, token, session.transactionId, 60.00, `race-a-${suffix}`),
+      capture(request, token, session.transactionId, 60.00, `race-b-${suffix}`),
+    ])
+
+    const statuses = [left.status(), right.status()].sort((a, b) => a - b)
+    expect(statuses).toEqual([200, 409])
+
+    const loser = left.status() === 409 ? left : right
+    expect((await loser.json()).code).toMatch(/payment_capture_(ceiling_exceeded|reservation_conflict)/)
   })
 })
