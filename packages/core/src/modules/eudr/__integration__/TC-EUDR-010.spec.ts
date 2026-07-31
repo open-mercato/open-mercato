@@ -116,7 +116,7 @@ test.describe('TC-EUDR-010: Searchable product picker', () => {
         'typing in the product picker should trigger a server-side search request',
       ).toContain(stamp)
 
-      const option = productField.getByRole('button').filter({ hasText: productTitle }).first()
+      const option = productField.getByRole('option').filter({ hasText: productTitle }).first()
       await expect(option, 'picker option should show the product name').toBeVisible({ timeout: 15_000 })
       const optionText = await option.innerText()
       expect(optionText).toContain(productTitle)
