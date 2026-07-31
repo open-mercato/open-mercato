@@ -116,7 +116,9 @@ async function addStep(name: RegExp) {
 }
 
 async function openCodeView() {
-  await click(screen.getByRole('button', { name: /Show the definition JSON/i }))
+  // Code now lives in the toolbar's "More" overflow menu.
+  await click(screen.getByRole('button', { name: /^More$/i }))
+  await click(screen.getByRole('menuitem', { name: /^Code$/i }))
 }
 
 function codeViewEditor(): HTMLTextAreaElement {

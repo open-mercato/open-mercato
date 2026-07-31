@@ -146,7 +146,9 @@ function nodeLabels(): string[] {
 }
 
 async function openAiDraft() {
-  await click(screen.getByRole('button', { name: /Draft this workflow with AI/i }))
+  // AI draft now lives in the toolbar's "More" overflow menu.
+  await click(screen.getByRole('button', { name: /^More$/i }))
+  await click(screen.getByRole('menuitem', { name: /AI draft/i }))
 }
 
 async function typePrompt(text: string) {

@@ -158,8 +158,13 @@ describe('workflow definition metadata drawer', () => {
   }
 
   async function openDrawer() {
+    // Settings (the metadata drawer trigger) now lives in the toolbar's "More"
+    // overflow menu.
     await act(async () => {
-      fireEvent.click(screen.getByTestId('workflow-details-trigger'))
+      fireEvent.click(screen.getByRole('button', { name: /^More$/i }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: /^Settings$/i }))
     })
   }
 

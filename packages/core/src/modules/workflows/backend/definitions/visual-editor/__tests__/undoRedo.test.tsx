@@ -180,8 +180,12 @@ describe('visual editor undo/redo (spec section 4.5)', () => {
     // The definition fields live in the details drawer. Cmd+Z is suppressed
     // both because a field has focus and because a modal overlay is up — the
     // guarantee under test is that neither path reaches the canvas history.
+    // Settings (the details drawer trigger) now lives in the "More" overflow menu.
     act(() => {
-      fireEvent.click(screen.getByTestId('workflow-details-trigger'))
+      fireEvent.click(screen.getByRole('button', { name: /^More$/i }))
+    })
+    act(() => {
+      fireEvent.click(screen.getByRole('menuitem', { name: /^Settings$/i }))
     })
     const nameInput = document.getElementById('workflowName') as HTMLInputElement
     act(() => {

@@ -108,8 +108,12 @@ function pressSaveWasClaimed(overrides: Partial<KeyboardEventInit> = {}): boolea
 // opening it. Closed again afterwards, because the canvas bindings under test
 // are suppressed while a modal overlay is up.
 function openDetails() {
+  // Settings (the details drawer trigger) now lives in the "More" overflow menu.
   act(() => {
-    fireEvent.click(screen.getByTestId('workflow-details-trigger'))
+    fireEvent.click(screen.getByRole('button', { name: /^More$/i }))
+  })
+  act(() => {
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Settings$/i }))
   })
 }
 

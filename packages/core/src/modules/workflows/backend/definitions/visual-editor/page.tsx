@@ -3247,149 +3247,95 @@ export default function VisualEditorPage() {
                   {autosaveState === 'saving' ? t('workflows.visualEditor.autosaving') : t('workflows.visualEditor.autosaved')}
                 </span>
               )}
-              {/* The palette is the non-pointer authoring path (spec §4.6); the
-                  button is how a pointer user discovers the shortcut exists. */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCommandPalette(true)}
-                className="h-8 px-2 text-xs"
-                aria-label={t('workflows.commandPalette.open', 'Commands (Cmd+K)')}
-              >
-                <Command className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                {t('workflows.commandPalette.buttonLabel', 'Commands')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={toggleFocus}
-                disabled={isSaving}
-                className="h-8 px-2 text-xs"
-                aria-label={focusMode ? t('workflows.visualEditor.exitFocusMode') : t('workflows.visualEditor.enterFocusMode')}
-              >
-                {focusMode ? <Minimize2 className="mr-1.5 h-4 w-4" /> : <Maximize2 className="mr-1.5 h-4 w-4" />}
-                {focusMode ? t('workflows.visualEditor.exitFocusMode') : t('workflows.visualEditor.enterFocusMode')}
-              </Button>
-              {!focusMode && (
-              <>
-              {/* Details drawer trigger. When the required id/name are still
-                  blank it carries a marker — the fields are behind an overlay
-                  now, so their absence has to be visible from the toolbar and
-                  not only after a refused save. Shape + text, never colour
-                  alone (spec §4.6). */}
-              <Button
-                variant="outline"
-                size="sm"
-                data-testid="workflow-details-trigger"
-                onClick={() => setMetadataOpen(true)}
-                disabled={isSaving}
-                className="h-8 px-2 text-xs"
-                aria-label={metadataIncomplete
-                  ? `${t('workflows.visualEditor.metadata.open')} — ${t('workflows.visualEditor.metadata.requiredFields')}`
-                  : t('workflows.visualEditor.metadata.open')}
-              >
-                <PanelRightOpen className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                {t('workflows.visualEditor.metadata.buttonLabel')}
-                {metadataIncomplete && (
-                  <>
-                    <TriangleAlert className="ml-1.5 h-3.5 w-3.5 text-status-warning-text" aria-hidden="true" />
-                    <span className="sr-only">{t('workflows.visualEditor.metadata.requiredFields')}</span>
-                  </>
-                )}
-              </Button>
-              {/* Validate — surfaces the last Problems pass's error count so
-                  the author sees "3 errors" without opening the panel; icon +
-                  count, never colour alone (spec §4.6). */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleValidate}
-                disabled={isSaving}
-                className="h-8 px-2 text-xs"
-                aria-label={problemErrorCount > 0
-                  ? t('workflows.visualEditor.validateWithErrors', '{count} validation errors', { count: problemErrorCount })
-                  : t('workflows.visualEditor.validate')}
-              >
-                {problemErrorCount > 0 ? (
-                  <CircleAlert className="mr-1.5 h-4 w-4 text-destructive" aria-hidden="true" />
-                ) : (
-                  <CircleQuestionMark className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                )}
-                {t('workflows.visualEditor.validate')}
-                {problemErrorCount > 0 && (
-                  <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold text-white">
-                    {problemErrorCount}
-                  </span>
-                )}
-              </Button>
-              {/* Prompt-to-draft (spec §9). Offered for every author who can
-                  create definitions; the route 403s otherwise and the dialog
-                  says so rather than the button quietly doing nothing. */}
-              {!isCodeOnly && (
+              {focusMode ? (
+                // Focus mode collapses the toolbar to the essentials; the toggle
+                // stays reachable so the author can leave, and Cmd+K still opens
+                // every command.
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowAiDraft(true)}
-                  className="h-8 px-2 text-xs"
-                  aria-label={t('workflows.aiDraft.open', 'Draft this workflow with AI')}
-                >
-                  <Sparkles className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                  {t('workflows.aiDraft.toggleShort', 'AI draft')}
-                </Button>
-              )}
-              {/* Code view (spec §2.2): read-only definition JSON plus the
-                  schema-validation display — the retirement precondition for
-                  the form editor. */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCodeView(true)}
-                className="h-8 px-2 text-xs"
-                aria-label={t('workflows.visualEditor.codeView.open', 'Show the definition JSON')}
-              >
-                <Code className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                {t('workflows.visualEditor.codeView.title', 'Code')}
-              </Button>
-              {definitionId && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setStartOpen(true)}
+                  onClick={toggleFocus}
                   disabled={isSaving}
-                  className="h-8 text-xs"
+                  className="h-8 px-2 text-xs"
+                  aria-label={t('workflows.visualEditor.exitFocusMode')}
                 >
-                  <Play className="mr-1.5 h-4 w-4" />
-                  {t('workflows.actions.startInstance')}
+                  <Minimize2 className="mr-1.5 h-4 w-4" />
+                  {t('workflows.visualEditor.exitFocusMode')}
                 </Button>
-              )}
-              {/* Overflow: the low-frequency view/canvas tools and the
-                  destructive Clear, kept out of the always-visible row so the
-                  essentials (Details, Validate, AI draft, Code, Start instance)
-                  read at a glance. Clear sits last, behind a separator, in the
-                  destructive token. */}
-              {(() => {
-                const moreActions: ActionMenuEntry[] = []
-                if (!isCodeOnly) moreActions.push({ id: 'load-example', label: t('workflows.visualEditor.loadExample'), onSelect: handleOpenTemplateGallery, disabled: isSaving })
-                if (!isCodeOnly) moreActions.push({ id: 'auto-arrange', label: t('workflows.visualEditor.autoArrange'), icon: Network, onSelect: handleAutoArrange, disabled: isSaving || nodes.length === 0 })
-                moreActions.push({ id: 'compensation', label: t('workflows.compensation.toggleShort', 'Compensation'), icon: ShieldMinus, onSelect: toggleCompensation })
-                if (definitionId) moreActions.push({ id: 'last-run', label: t('workflows.lastRun.toggleShort', 'Last run'), icon: History, onSelect: toggleLastRun })
-                if (isCodeOverride) moreActions.push({ id: 'reset-to-code', label: t('workflows.actions.resetToCode'), onSelect: handleResetToCode, disabled: isSaving })
-                if (!isCodeOnly) {
-                  moreActions.push({ separator: true, id: 'sep-destructive' })
-                  moreActions.push({ id: 'clear', label: t('workflows.visualEditor.clear'), icon: Trash2, onSelect: handleClear, disabled: isSaving, destructive: true })
-                }
-                if (moreActions.length === 0) return null
-                return (
-                  <ActionsDropdown
-                    items={moreActions}
-                    label={t('workflows.visualEditor.more', 'More')}
-                    ariaLabel={t('workflows.visualEditor.more', 'More')}
-                    triggerClassName="h-8 px-2 text-xs"
-                    triggerIcon={false}
-                  />
-                )
-              })()}
-              </>
+              ) : (
+                <>
+                {/* Validate — surfaces the last Problems pass's error count so the
+                    author sees "3 errors" without opening the panel; icon + count,
+                    never colour alone (spec §4.6). */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleValidate}
+                  disabled={isSaving}
+                  className="h-8 px-2 text-xs"
+                  aria-label={problemErrorCount > 0
+                    ? t('workflows.visualEditor.validateWithErrors', '{count} validation errors', { count: problemErrorCount })
+                    : t('workflows.visualEditor.validate')}
+                >
+                  {problemErrorCount > 0 ? (
+                    <CircleAlert className="mr-1.5 h-4 w-4 text-destructive" aria-hidden="true" />
+                  ) : (
+                    <CircleQuestionMark className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  )}
+                  {t('workflows.visualEditor.validate')}
+                  {problemErrorCount > 0 && (
+                    <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold text-white">
+                      {problemErrorCount}
+                    </span>
+                  )}
+                </Button>
+                {/* One grouped overflow keeps only the essentials — Validate,
+                    Start instance, Update — in the row. The metadata-incomplete
+                    warning rides the trigger (attention dot) and the Settings
+                    item, so hiding Settings here never buries it. */}
+                {(() => {
+                  const moreActions: ActionMenuEntry[] = []
+                  moreActions.push({ id: 'group-tools', header: t('workflows.visualEditor.menuGroups.tools', 'Tools') })
+                  moreActions.push({ id: 'commands', label: t('workflows.commandPalette.buttonLabel', 'Commands'), icon: Command, onSelect: () => setShowCommandPalette(true) })
+                  if (!isCodeOnly) moreActions.push({ id: 'ai-draft', label: t('workflows.aiDraft.toggleShort', 'AI draft'), icon: Sparkles, onSelect: () => setShowAiDraft(true) })
+                  moreActions.push({ id: 'group-view', header: t('workflows.visualEditor.menuGroups.view', 'View') })
+                  moreActions.push({ id: 'focus', label: t('workflows.visualEditor.enterFocusMode'), icon: Maximize2, onSelect: toggleFocus, disabled: isSaving })
+                  moreActions.push({ id: 'settings', label: t('workflows.visualEditor.metadata.buttonLabel', 'Settings'), icon: metadataIncomplete ? TriangleAlert : PanelRightOpen, onSelect: () => setMetadataOpen(true), disabled: isSaving })
+                  moreActions.push({ id: 'code', label: t('workflows.visualEditor.codeView.title', 'Code'), icon: Code, onSelect: () => setShowCodeView(true) })
+                  moreActions.push({ id: 'group-canvas', header: t('workflows.visualEditor.menuGroups.canvas', 'Canvas') })
+                  if (!isCodeOnly) moreActions.push({ id: 'load-example', label: t('workflows.visualEditor.loadExample'), onSelect: handleOpenTemplateGallery, disabled: isSaving })
+                  if (!isCodeOnly) moreActions.push({ id: 'auto-arrange', label: t('workflows.visualEditor.autoArrange'), icon: Network, onSelect: handleAutoArrange, disabled: isSaving || nodes.length === 0 })
+                  moreActions.push({ id: 'compensation', label: t('workflows.compensation.toggleShort', 'Compensation'), icon: ShieldMinus, onSelect: toggleCompensation })
+                  if (definitionId) moreActions.push({ id: 'last-run', label: t('workflows.lastRun.toggleShort', 'Last run'), icon: History, onSelect: toggleLastRun })
+                  if (isCodeOverride) moreActions.push({ id: 'reset-to-code', label: t('workflows.actions.resetToCode'), onSelect: handleResetToCode, disabled: isSaving })
+                  if (!isCodeOnly) {
+                    moreActions.push({ separator: true, id: 'sep-destructive' })
+                    moreActions.push({ id: 'clear', label: t('workflows.visualEditor.clear'), icon: Trash2, onSelect: handleClear, disabled: isSaving, destructive: true })
+                  }
+                  return (
+                    <ActionsDropdown
+                      items={moreActions}
+                      label={t('workflows.visualEditor.more', 'More')}
+                      ariaLabel={t('workflows.visualEditor.more', 'More')}
+                      triggerClassName="h-8 px-2 text-xs"
+                      triggerIcon={false}
+                      attention={metadataIncomplete}
+                    />
+                  )
+                })()}
+                {definitionId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStartOpen(true)}
+                    disabled={isSaving}
+                    className="h-8 text-xs"
+                  >
+                    <Play className="mr-1.5 h-4 w-4" />
+                    {t('workflows.actions.startInstance')}
+                  </Button>
+                )}
+                </>
               )}
               {isCodeOnly ? (
                 <Button
