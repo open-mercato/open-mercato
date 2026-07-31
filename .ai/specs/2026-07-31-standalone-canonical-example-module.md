@@ -55,6 +55,10 @@ The starter preset resolver currently removes `src/modules/example` and `src/mod
 - Duplicating specialist AI, workflow, provider, queue, cache, portal, or CLI examples.
 - Expanding issue #4670's multi-runner certification scope beyond the new affected-case lane.
 
+### Harness-axis coverage boundary
+
+This reference deliberately strengthens the `module-data`, `backend-ui`, and `umes` axes that need a local, copyable CRUD/extension vertical slice. It does not claim to close the remaining `integration` or `ai-workflow` context-density gaps: those stay covered by their dedicated route guides and skills, the bounded `framework-context` fallback for a named installed-version gap, and focused harness cases such as OMH-189 and OMH-191. The new source-selection regression must not report those specialist axes as covered by `reference_module`.
+
 ## Research and Existing-System Findings
 
 ### Repository findings
@@ -119,7 +123,10 @@ packages/create-app/template/src/modules/reference_module/
 ├── acl.ts
 ├── index.ts
 ├── setup.ts
-├── commands.ts
+├── commands/
+│   ├── tasks.ts
+│   └── __tests__/
+│       └── tasks.test.ts
 ├── events.ts
 ├── search.ts
 ├── api/
@@ -128,6 +135,7 @@ packages/create-app/template/src/modules/reference_module/
 │       └── [id]/route.ts
 ├── data/
 │   ├── entities.ts
+│   ├── entity-id.ts
 │   ├── validators.ts
 │   ├── enrichers.ts
 │   └── custom-fields.ts
@@ -151,7 +159,6 @@ packages/create-app/template/src/modules/reference_module/
 │   └── pl.json
 └── __tests__/
     ├── api.test.ts
-    ├── commands.test.ts
     └── enrichers.test.ts
 ```
 
@@ -170,15 +177,20 @@ The example uses stable, grep-friendly identifiers so agents can rename them mec
 | Surface | Identifier |
 |---|---|
 | Module | `reference_module` |
-| Entity ID | `reference_module.task` |
+| ORM entity class | `ReferenceTask` |
+| Generated/query/search entity ID | `reference_module:reference_task`; after activation, the generated accessor is `E.reference_module.reference_task` |
+| Response-enricher `targetEntity` | `reference_module.reference_task` |
 | Table | `reference_module_tasks` |
 | ACL features | `reference_module.view`, `reference_module.manage` |
-| Events | `reference_module.task.created`, `.updated`, `.deleted`, `.restored` |
-| Search entity | `reference_module.task` |
-| Widget host | `reference_module.task.detail:summary` |
-| CrudForm field host | `crud-form:reference_module.task:fields` |
+| Events | `reference_module.reference_task.created`, `.updated`, `.deleted`, `.restored` |
+| Widget host | `reference_module.reference_task.detail:summary` |
+| CrudForm field host | `crud-form:reference_module.reference_task:fields` |
 
 `reference_module` is an intentional teaching-fixture exception to the normal plural module-ID convention, analogous to the existing `example` special case. It must not be cited as permission to use singular IDs for product modules. The implementation must verify the exact enricher and widget ID syntax against the installed contracts rather than introducing a new convention.
+
+The colon and dot forms are not interchangeable. `ReferenceTask` deterministically generates the registry entry `reference_module:reference_task`; once the module is registered and generation runs, its canonical accessor is `E.reference_module.reference_task` from `@/.mercato/generated/entities.ids.generated`. Only the response enricher's `targetEntity` uses the dot-form `reference_module.reference_task` as an entity identity; event and widget strings belong to their own explicitly named namespaces.
+
+The disabled source tree has one necessary bootstrap exception. The entity-ID generator intentionally omits unregistered modules, and the existing #601 regression forbids disabled app modules from accessing their absent `E.<module>.*` members. Therefore `data/entity-id.ts` defines one source-only `REFERENCE_TASK_ENTITY_ID` with `entityId('reference_module', 'reference_task')` from `@open-mercato/shared/modules/dsl`; every CRUD/query/indexer, search, custom-field, DataTable, and CrudForm call site imports that constant rather than repeating a literal. The emitted README tells agents that an enabled copied module should run `yarn generate` and use its generated app-alias `E` accessor for new code. The activated fixture must assert `REFERENCE_TASK_ENTITY_ID === E.reference_module.reference_task`, prove the generated key exists, and exercise the list route, because generation, typecheck, and lint alone do not detect a semantically wrong but well-typed ID.
 
 ## Data Models and Security
 
@@ -247,7 +259,7 @@ The enricher batches by task ID, maintains tenant and organization scope, does n
 ## Events, Search, and Setup
 
 - `events.ts` uses `createModuleEvents` for created, updated, deleted, and restored task events. Events contain IDs and safe snapshots only; encrypted values and credentials are excluded.
-- `search.ts` registers `reference_module.task`, indexes only the explicitly non-sensitive title plus status through the supported search contract, and scopes every indexing and query operation. Encrypted description content is never indexed.
+- `search.ts` registers the shared `REFERENCE_TASK_ENTITY_ID`; the activated fixture proves it equals `E.reference_module.reference_task` from the standalone app alias. Search indexes only the explicitly non-sensitive title plus status through the supported search contract and scopes every indexing and query operation. Encrypted description content is never indexed.
 - `acl.ts` declares immutable view/manage features. `setup.ts` registers features and grants them to the appropriate default administrative role using the existing ACL sync helper.
 - Tenant initialization does not seed demo rows. A reference that is disabled by default must remain side-effect free even after source generation.
 
@@ -284,8 +296,8 @@ Frontend budgets are zero new page-root `"use client"` directives, zero client l
 
 The module demonstrates both sides of stable local extension contracts:
 
-1. A detail summary host at `reference_module.task.detail:summary` with a real injected status/due summary widget.
-2. A `crud-form:reference_module.task:fields` injection that contributes the concrete `source` custom field.
+1. A detail summary host at `reference_module.reference_task.detail:summary` with a real injected status/due summary widget.
+2. A `crud-form:reference_module.reference_task:fields` injection, auto-derived from the colon-form generated entity ID, that contributes the concrete `source` custom field.
 
 Both hosts have stable IDs, typed contexts, translated labels, deterministic order, and visible fallback behavior when no contribution is registered. The example must use the current `InjectionPosition` and injection-data APIs from the installed UI package.
 
@@ -346,8 +358,9 @@ The user-provided trace is PR evidence only. Do not commit the raw screenshot or
 6. UI integration coverage: list/filter, create, edit, delete, conflict recovery, widget rendering, injected field persistence, keyboard behavior, and translated empty/error states.
 7. Search test: indexing and scoped discovery after mutation.
 8. Compile fixture: copy the template, explicitly register the module, run generation, and typecheck/build without applying local migrations.
-9. Context-budget assertions for file count, total bytes, README size, and client-component line count.
-10. Failure-first harness case and affected range refresh described above.
+9. Generated-ID runtime contract: keep the disabled tree free of absent `E.reference_module.*` access, assert its single `REFERENCE_TASK_ENTITY_ID` equals `E.reference_module.reference_task === 'reference_module:reference_task'` after activation, use the `@/.mercato/generated/entities.ids.generated` alias rather than package-internal `#generated` imports in that activated proof, reserve `reference_module.reference_task` as an entity identity for the enricher, and load the list endpoint without an entity-resolution 500.
+10. Context-budget assertions for file count, total bytes, README size, and client-component line count.
+11. Failure-first harness case and affected range refresh described above.
 
 Every integration test creates its own tenant-scoped fixtures and removes them in `finally`; none relies on seeded/demo data.
 
@@ -385,6 +398,7 @@ Also execute the focused harness case/range through its documented runner and in
 | Example and skill drift apart or the emitted skill disappears | High | Generated agent correctness | Keep one knowledge owner in `module-surfaces.md`; assert the skill in every preset; keep the README operational as a fallback; validate both through the harness. | Medium; cross-version package changes can still need coordinated refreshes. |
 | Disabled source is accidentally activated | High | Generated-app runtime and migrations | Assert absence from every preset registry and verify no runtime routes, migrations, or navigation. | Low after preset contract tests. |
 | Agents copy identifiers without renaming | Medium | Consumer module collisions | Use grep-friendly stable IDs, an explicit rename checklist, and harness assertions for residue. | Low; manual users can still ignore guidance. |
+| Colon/dot identifiers or the class-derived entity key drift | High | CRUD list/search resolution and enricher matching | Centralize the disabled-source ID through `entityId('reference_module', 'reference_task')`, prove equality with `E.reference_module.reference_task` after activation, reserve the dot form for `targetEntity`, and exercise the activated list route at runtime. | Low; future generator changes still require the focused contract test to fail visibly. |
 | “All surfaces” encourages weak placeholders | Medium | Architecture quality | Limit the example to a complete real vertical slice and route specialist capabilities to specialist skills. | Low while scope budgets are enforced. |
 | Time-based enricher results become stale | Medium | API correctness | Namespace output and disable list-cache reuse for the enricher. | Low; clock-boundary tests remain necessary. |
 | Encrypted content leaks through search | High | Data confidentiality | Mark only title as non-sensitive/searchable; encrypt description and exclude it from search documents, events, and logs. | Low after search-document assertions. |
@@ -404,7 +418,7 @@ Exit criterion: failures prove both the missing local reference and the agent-se
 ### Phase 2 — Build the compact vertical slice
 
 1. Scaffold `reference_module` using the installed `om-module-scaffold` workflow.
-2. Implement the scoped entity, migration/snapshot, validators, custom field, commands/undo, ACL/setup, events, search, CRUD/OpenAPI, and enricher.
+2. Implement the scoped entity, migration/snapshot, validators, the single disabled-source entity-ID bridge, custom field, `commands/tasks.ts` command/undo handlers, ACL/setup, events, search, CRUD/OpenAPI, and enricher; after activation, prove that bridge equals the generated `E.reference_module.reference_task` accessor.
 3. Implement DataTable/CrudForm pages, stable injection hosts/contributions, and four-locale i18n.
 4. Add focused unit and integration coverage, then run `yarn generate`.
 
@@ -460,6 +474,7 @@ Exit criterion: the agent selects the local reference, the harness is green, and
 | API and compatibility | Additive routes exist only after activation; no current contract is removed or renamed. |
 | UI architecture | Server-first pages, bounded client islands, serializable props, shared component families, DS tokens, accessibility, and i18n specified. |
 | Events/search/enrichers/widgets | Concrete registrations with real callers, stable identifiers, scoped data, and focused tests. |
+| Entity identity | `ReferenceTask` maps to `E.reference_module.reference_task` / `reference_module:reference_task`; only enricher `targetEntity` uses `reference_module.reference_task` as an entity identity. The disabled tree uses one `entityId()` bridge because #601 forbids absent generated members, and the activated proof imports `E` through the app alias. |
 | Testing | API and key UI paths, fixture isolation, preset contracts, frontend/context budgets, generator validation, and failure-first harness coverage included. |
 | Harness registration | The writable case is required in the catalog, validator map, fixed AST oracle, release matrix, focused tests, counts/docs, and emitted copies. |
 | Operational impact | No default runtime, migration, seed, route, navigation, or provider effect. |
@@ -488,6 +503,7 @@ None. `reference_module` is an approved teaching-fixture naming exception scoped
 
 - 2026-07-31: Initial draft based on the observed `ratelimit_probe` selection trace, repository/spec/tracker duplicate research, and the standalone harness merged in PR #4529.
 - 2026-07-31: Renamed the proposed module to `reference_module`, documented the naming exception, and enumerated the harness catalog, validator, oracle, matrix, test, count, and generated-copy registration surfaces required for complete coverage.
+- 2026-07-31: Corrected class-derived colon-form entity IDs versus dot-form enricher targets, added a #601-safe disabled-source ID bridge plus activated generated-entity/runtime proof, aligned command files with `commands/**`, and made the intentionally uncovered `integration`/`ai-workflow` harness axes explicit.
 
 ### Review — 2026-07-31
 
@@ -498,4 +514,5 @@ None. `reference_module` is an approved teaching-fixture naming exception scoped
 - **Cache:** Passed; the time-sensitive enricher remains non-cacheable on list hits and no new cache surface is introduced.
 - **Commands:** Passed; all proposed mutations retain command, undo, mutation-guard, and optimistic-lock requirements.
 - **Risks:** Passed; harness registration drift and accidental naming-precedent risks are now explicit and testable.
+- **Identifier review:** Passed; the disabled tree centralizes the colon form through the canonical `entityId()` helper, activation proves equality with `E.reference_module.reference_task`, the enricher uses the distinct dot form, and runtime coverage catches silent entity-resolution mistakes.
 - **Verdict:** Approved.
