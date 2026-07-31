@@ -1,0 +1,100 @@
+# Legal entity migration: CT Tornado sp. z o.o. → Open Mercato sp. z o.o. (terms, privacy, CLA, licences)
+
+## Goal
+
+The operating legal entity behind the Open Mercato platform moved from **CT Tornado sp. z o.o.** to
+**Open Mercato sp. z o.o.** Every public legal document still names the old entity and its old
+registration identifiers, which makes the published Terms of Service, Privacy Policy, Contributor
+Licence Agreement and the commercial-licence notices legally incorrect. This run replaces the
+identity and registration data everywhere it appears in legal copy.
+
+## New entity data (authoritative, English rendering)
+
+| Field | Old (CT Tornado) | New (Open Mercato) |
+|-------|------------------|--------------------|
+| Legal name | CT Tornado sp. z o.o. | Open Mercato sp. z o.o. |
+| Defined short term | "CTT" | "Open Mercato" |
+| Registered address | ul. Wyspa Słodowa 7, 50-266 Wrocław, Poland | unchanged |
+| Registry court | District Court for Wrocław-Fabryczna in Wrocław | District Court for Wrocław-Fabryczna in Wrocław, VI Commercial Division of the National Court Register, Register of Entrepreneurs |
+| KRS / company no. | 873910 | 0001253104 |
+| NIP / EU VAT no. | PL8982262377 | PL8982336029 |
+| REGON | (not stated) | 545230330 |
+| Share capital | PLN 5,000.00 | **omitted** — no figure was supplied for the new entity |
+| Contact email | info@catchthetornado.com | info@openmercato.com |
+
+**Decisions recorded (autonomous run, no user in the loop):**
+
+1. **Share capital is dropped rather than carried over.** The old figure (PLN 5,000.00) belongs to the
+   old entity and no figure was supplied for Open Mercato sp. z o.o. Restating an unverified share
+   capital in a binding legal document is worse than omitting it; Polish law does not require it in
+   the body of terms of service. Flagged in the PR for the user to add later if desired.
+2. **"CTT" is expanded to "Open Mercato" rather than re-abbreviated to "OM".** The Terms define the
+   short term once and then use it ~65 times. "Open Mercato" is already the product name used
+   throughout the same document, so a single consistent term removes an abbreviation the reader has
+   to hold in their head.
+3. **The registry description gains the division and register name** (VI Commercial Division of the
+   National Court Register, Register of Entrepreneurs), rendered in English as the user requested,
+   because the supplied KRS data names them explicitly.
+4. **`info@catchthetornado.com` becomes `info@openmercato.com`** in legal copy. That address is
+   already the contact address used in 20+ places elsewhere in the repository, so this is an
+   alignment rather than a new choice.
+
+## Scope
+
+In scope — documents that make a legal-entity statement:
+
+- `packages/content/src/modules/content/frontend/terms/page.tsx` (the rendered Terms of Service)
+- `packages/content/src/modules/content/frontend/privacy/page.tsx` (the rendered Privacy Policy)
+- `apps/docs/cla.md` (Contributor Licence Agreement)
+- `packages/enterprise/LICENSE.md` (commercial-licence grantor)
+- `.ai/specs/LICENSE.md` (commercial-licence grantor)
+- `SECURITY.md` (vulnerability-disclosure contact address)
+
+## Non-goals
+
+- **`README.md`'s "proudly supported by Catch The Tornado" sponsorship credit and logo.** This is an
+  attribution to a supporter, not a statement about who operates the platform, and it remains
+  factually true after the entity move. Untouched deliberately; raised in the PR body for the user.
+- **`ADMIN_EMAIL` fallbacks (`piotr@catchthetornado.com`) in the onboarding module.** These are
+  operational environment defaults, not legal-entity statements, and changing them would silently
+  redirect demo-feedback and onboarding notification mail. Raised in the PR body.
+- **The onboarding marketing-consent strings.** Already migrated on `main` by PR #4751
+  (`fix(onboarding): name Open Mercato sp. z o.o. as the marketing-consent controller`), merged
+  2026-07-31. Verified as already correct rather than changed again.
+- Re-dating the documents ("Effective as of January 1, 2026"). The effective dates are a legal
+  decision for the user, not a mechanical consequence of the entity change.
+
+## Risks
+
+- **Legal copy is user-visible and binding.** A wrong identifier is worse than no change, so every
+  number is transcribed from the brief and locked in by a regression test rather than trusted to
+  review-by-eye.
+- **The Terms page has ~65 `CTT` occurrences.** A careless global replace could hit unrelated
+  substrings. Mitigated by asserting on the rendered output that no `CT Tornado` / `CTT` / old
+  identifier survives anywhere in the content module.
+- Existing content tests assert section headings and links only; they will not catch identity drift.
+  Phase 3 closes that gap.
+
+## Progress
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Rendered legal pages
+
+- [ ] 1.1 Replace the entity block and every CTT reference in the Terms of Service page
+- [ ] 1.2 Replace the entity block, controller identity and contact details in the Privacy Policy page
+
+### Phase 2: Contributor agreement and licence notices
+
+- [ ] 2.1 Update the CLA's entity definition and every CTT reference
+- [ ] 2.2 Update the commercial-licence grantor in `packages/enterprise/LICENSE.md` and `.ai/specs/LICENSE.md`
+- [ ] 2.3 Point the SECURITY.md disclosure contact at the Open Mercato address
+
+### Phase 3: Regression coverage
+
+- [ ] 3.1 Add a content-module test asserting the new entity data renders and no legacy identifier survives
+
+### Phase 4: Validation and delivery
+
+- [ ] 4.1 Run the full validation gate
+- [ ] 4.2 Run `om-auto-review-pr` and apply any resulting fixes
