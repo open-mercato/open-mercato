@@ -100,6 +100,9 @@ function makeEm() {
       return this
     },
     transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
+    begin: jest.fn(async () => {}),
+    commit: jest.fn(async () => {}),
+    rollback: jest.fn(async () => {}),
     find: jest.fn(async (entityClass: unknown) => {
       const entityName = (entityClass as { name?: string })?.name ?? ''
       if (entityName === 'SalesOrderLine') return [world().orderLine]
@@ -117,13 +120,35 @@ function makeEm() {
   return em
 }
 
+type LineSnapshotLike = {
+  quantity?: number | string | null
+  unitPriceNet?: number | string | null
+  unitPriceGross?: number | string | null
+}
+
+function calculateLineResult(line: LineSnapshotLike) {
+  const quantity = Number(line.quantity ?? 0)
+  const netAmount = quantity * Number(line.unitPriceNet ?? 0)
+  const grossAmount = quantity * Number(line.unitPriceGross ?? 0)
+  return {
+    line,
+    netAmount,
+    grossAmount,
+    taxAmount: grossAmount - netAmount,
+    discountAmount: 0,
+  }
+}
+
 function makeCtx(em: unknown) {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   container.register({
     em: asValue(em),
     dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
     salesCalculationService: asValue({
-      calculateDocumentTotals: jest.fn(async () => ({ totals: {}, lines: [{}] })),
+      calculateDocumentTotals: jest.fn(async (input: { lines: LineSnapshotLike[] }) => ({
+        totals: {},
+        lines: input.lines.map(calculateLineResult),
+      })),
     }),
   })
   return {
@@ -157,12 +182,13 @@ async function runUpsert(input: ReturnType<typeof lineBody>) {
   const handler = commandRegistry.get('sales.orders.lines.upsert')!
   const em = makeEm()
   let caught: unknown
+  let result: { orderId?: string; lineId?: string } | undefined
   try {
-    await handler.execute(input as never, makeCtx(em) as never)
+    result = (await handler.execute(input as never, makeCtx(em) as never)) as typeof result
   } catch (err) {
     caught = err
   }
-  return { caught, em }
+  return { caught, result, em }
 }
 
 function isFulfilledConflict(caught: unknown): boolean {
@@ -199,13 +225,22 @@ describe('sales.orders.lines.upsert fulfilled-order guard (issue #4088)', () => 
 
   it('allows adding a new item to a non-fulfilled order', async () => {
     setWorld({ status: 'draft' })
-    const { caught } = await runUpsert(lineBody())
-    expect(isFulfilledConflict(caught)).toBe(false)
+    const { caught, result, em } = await runUpsert(lineBody())
+    expect(caught).toBeUndefined()
+    expect(result?.orderId).toBe(ORDER_ID)
+    expect(typeof result?.lineId).toBe('string')
+    expect(result?.lineId).not.toBe(LINE_ID)
+    expect(em.flush).toHaveBeenCalled()
   })
 
   it('allows editing an existing line on a fulfilled order', async () => {
     setWorld({ status: 'fulfilled' })
-    const { caught } = await runUpsert(lineBody({ id: LINE_ID, quantity: ORDERED_QUANTITY }))
-    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+    const { caught, result, em } = await runUpsert(
+      lineBody({ id: LINE_ID, quantity: ORDERED_QUANTITY }),
+    )
+    expect(caught).toBeUndefined()
+    expect(result?.orderId).toBe(ORDER_ID)
+    expect(result?.lineId).toBe(LINE_ID)
+    expect(em.flush).toHaveBeenCalled()
   })
 })
