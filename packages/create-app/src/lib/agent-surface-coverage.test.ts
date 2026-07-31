@@ -143,7 +143,7 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 192-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 193-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -151,7 +151,7 @@ test('the 192-case catalog routes audited installed-module, runtime, and AI/prov
     requiredDecisions: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 192)
+  assert.equal(cases.length, 193)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -231,24 +231,38 @@ test('the 192-case catalog routes audited installed-module, runtime, and AI/prov
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-192')?.expectedRouter.required, ['module-data', 'umes', 'testing'])
+  assert.deepEqual(byId.get('OMH-193')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
 })
 
-test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {
+test('the business-language cohort includes the OMH-185 parity case without leaked framework contracts', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
+    [key: string]: unknown
     id: string
     prompt: string
     tags: string[]
   }>
-  const expectedIds = Array.from({ length: 92 }, (_, index) => `OMH-${String(index + 93).padStart(3, '0')}`)
+  const expectedIds = [
+    ...Array.from({ length: 92 }, (_, index) => `OMH-${String(index + 93).padStart(3, '0')}`),
+    'OMH-193',
+  ]
   const cohort = cases.filter((entry) => entry.tags.includes('business-language'))
 
   assert.equal(new Set(cases.map((entry) => entry.id)).size, cases.length, 'catalog case IDs must be unique')
-  assert.equal(cohort.length, 92)
+  assert.equal(cohort.length, 93)
   assert.deepEqual(cohort.map((entry) => entry.id), expectedIds)
 
   const prohibitedImplementationVocabulary = /(?:\b(?:IntegrationDefinition|ChannelAdapter|GatewayAdapter|ShippingAdapter|availabilityAccessResolver|checkAttachmentAccess|onTenantCreated|seedDefaults|seedExamples|registerGatewayAdapter|registerWebhookHandler|registerPaymentGatewayDescriptor|registerShippingAdapter|tenantId|organizationId)\b|\/api\/staff\/team-members\/assignable\b|--no-examples\b|\bsetup\.ts\b)/
   for (const entry of cohort) {
     assert.doesNotMatch(entry.prompt, prohibitedImplementationVocabulary, `${entry.id} leaks an implementation contract into its business prompt`)
+  }
+
+  const technicalCase = cases.find((entry) => entry.id === 'OMH-185')
+  const businessCase = cases.find((entry) => entry.id === 'OMH-193')
+  assert.ok(technicalCase)
+  assert.ok(businessCase)
+  assert.doesNotMatch(businessCase.prompt, /CrudForm|DataTable|makeCrudRoute|src\/modules|\/backend\/|\.tsx?\b|optimistic locking|UMES|i18n|Jest/)
+  for (const field of ['owner', 'expectedRouter', 'requiredSkills', 'context', 'requiredDecisions', 'forbiddenPatterns', 'validators', 'fixture', 'oracle', 'allowedWrites', 'timeoutMs'] as const) {
+    assert.deepEqual(businessCase[field], technicalCase[field], `OMH-193 must preserve OMH-185 ${field}`)
   }
 })
 
