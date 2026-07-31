@@ -126,6 +126,10 @@ for ARTIFACT in session.json generated-files.zip manifest.json privacy-report.js
   ARTIFACT_BYTES=$(wc -c < "$ARTIFACT_PATH" | tr -d ' ')
   TOTAL_BYTES=$((TOTAL_BYTES + ARTIFACT_BYTES))
   [ "$ARTIFACT_BYTES" -le 26214400 ] && [ "$TOTAL_BYTES" -le 31457280 ] || exit 1
+done
+
+for ARTIFACT in session.json generated-files.zip manifest.json privacy-report.json; do
+  ARTIFACT_PATH="$BUNDLE_DIR/$ARTIFACT"
   base64 < "$ARTIFACT_PATH" | tr -d '\n' > "$SESSION_SHARE_TMP/content.b64"
   BLOB_SHA=$(jq -n --rawfile content "$SESSION_SHARE_TMP/content.b64" '{content:$content,encoding:"base64"}' \
     | gh api -X POST "repos/${TARGET_REPO}/git/blobs" --input - --jq .sha) || exit 1
@@ -183,7 +187,9 @@ gh issue view {issueId} --repo {owner}/{repo} --json number,title,body,state,aut
 #### search-issues
 Query (text, `in:title,body`, state) → matching issues.
 ```bash
-gh issue list --repo {owner}/{repo} --state open --search "<query> in:title,body" --json number,title,url
+ISSUE_STATE="{state}"
+case "$ISSUE_STATE" in open|closed|all) ;; *) exit 1 ;; esac
+gh issue list --repo {owner}/{repo} --state "$ISSUE_STATE" --search "<query> in:title,body" --json number,title,url
 ```
 
 #### create-issue

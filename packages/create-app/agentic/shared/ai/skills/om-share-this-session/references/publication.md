@@ -12,7 +12,7 @@ Use this procedure in step 5 only after the exact acknowledgement is received fo
 ## Publish safely
 
 1. Recompute the four artifact hashes and compare them byte-for-byte with the consent preview and `manifest.json`. A mismatch invalidates consent; return to the preview.
-2. Run **search-issues** in the issue repository for the exact marker `[session-share:<share-name>]`. If an open or closed issue exists, stop and return it rather than creating a duplicate or overwriting its branch.
+2. Run **search-issues** in the issue repository with state `all` for the exact marker `[session-share:<share-name>]`. If an open or closed issue exists, stop and return it rather than creating a duplicate or overwriting its branch.
 3. Invoke **publish-session-share** with the validated storage repository, derived branch, share name, and exact bundle directory. The operation must verify public visibility, reject an existing branch, create blobs/tree/commit privately through the API, and create the public ref last. Capture the returned commit and branch URL.
 4. Build the issue body from `references/report-templates.md`, using only sanitized metadata and public links. Invoke **create-issue** against `open-mercato/open-mercato`; do not assign a user or assume labels exist.
 5. If issue creation fails after the branch ref exists, immediately invoke **delete-session-share** for that exact repository and branch. If deletion also fails, stop and prominently report the exposed branch URL so a maintainer can remove it.

@@ -15,14 +15,16 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { TextDecoder } from 'node:util'
 
 const MAX_SESSION_BYTES = 20 * 1024 * 1024
 const MAX_FILE_BYTES = 5 * 1024 * 1024
 const MAX_TOTAL_FILE_BYTES = 20 * 1024 * 1024
-const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
+const MAX_PUBLIC_ARTIFACT_BYTES = 25 * 1024 * 1024
+const MAX_ARCHIVE_BYTES = MAX_PUBLIC_ARTIFACT_BYTES
+const MAX_PUBLIC_BUNDLE_BYTES = 30 * 1024 * 1024
 const SHARE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/
 const textDecoder = new TextDecoder('utf-8', { fatal: true })
 
@@ -31,6 +33,7 @@ const pseudonymKeyPattern = /^(session[_-]?id|thread[_-]?id|user[_-]?id|account[
 const pathKeyPattern = /^(cwd|file|filePath|file_path|filename|path)$/i
 const commandKeyPattern = /^(command|cmd|shell)$/i
 const dangerousPathPattern = /(^|\/)(\.env(?:\.[^/]*)?|\.ssh|\.aws|\.gcloud|\.kube|id_(?:rsa|dsa|ecdsa|ed25519)|credentials(?:\.json)?|service-account(?:\.json)?|\.npmrc|\.pypirc)(\/|$)|\.(?:pem|key|p12|pfx|keystore)$/i
+const completeRedactionMarkerPattern = /^«redacted:[a-z0-9-]+(?::[a-f0-9]{12})?»$/
 
 function fail(message) {
   throw new Error(message)
@@ -70,7 +73,7 @@ function escapeRegExp(value) {
 }
 
 function normalizeSlashes(value) {
-  return value.split(sep).join('/')
+  return value.replaceAll('\\', '/')
 }
 
 function isWithin(root, candidate) {
@@ -115,6 +118,7 @@ function redactHighEntropy(value, state) {
 }
 
 function sanitizeString(input, key, state) {
+  if (completeRedactionMarkerPattern.test(input)) return input
   if (sensitiveValueKeyPattern.test(key) && input.length > 0) {
     countReplacement(state, 'secrets')
     return '«redacted:secret-value»'
@@ -161,6 +165,8 @@ function sanitizeString(input, key, state) {
   value = replaceMatches(value, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '«redacted:email»', state, 'pii')
   value = replaceMatches(value, /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b(?:[A-F0-9]{1,4}:){2,7}[A-F0-9]{1,4}\b/gi, '«redacted:ip»', state, 'pii')
+  value = replaceMatches(value, /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '«redacted:identifier»', state, 'identifiers')
+  value = replaceMatches(value, /\b[0-9a-f]{64,}\b/gi, '«redacted:hex-secret»', state, 'secrets')
   value = value.replace(/\+?\d[\d ()-]{7,}\d/g, (candidate) => {
     const digits = candidate.replace(/\D/g, '')
     if (digits.length < 9 || digits.length > 15) return candidate
@@ -183,9 +189,11 @@ function sanitizeNode(value, key, state) {
     }
   }
 
-  const output = {}
+  const output = Object.create(null)
   for (const [childKey, childValue] of Object.entries(value)) {
-    output[childKey] = sanitizeNode(childValue, childKey, state)
+    const sanitizedKey = sanitizeString(childKey, 'object-key', state)
+    if (Object.hasOwn(output, sanitizedKey)) fail('Sanitization produced duplicate object keys.')
+    output[sanitizedKey] = sanitizeNode(childValue, childKey, state)
   }
   return output
 }
@@ -258,10 +266,12 @@ function loadCustomLiterals(path) {
 
 function validateRelativePath(value) {
   if (value.includes('\0') || isAbsolute(value)) fail('Generated-file paths must be relative and contain no NUL bytes.')
-  const normalized = normalizeSlashes(value).replace(/^\.\//, '')
-  if (!normalized || normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) {
+  const withSlashes = normalizeSlashes(value)
+  if (withSlashes.startsWith('../') || withSlashes.includes('/../')) {
     fail('Generated-file paths must stay below the project root.')
   }
+  const normalized = posix.normalize(withSlashes.replace(/^\.\//, ''))
+  if (!normalized || normalized === '.' || normalized.startsWith('../')) fail('Generated-file paths must stay below the project root.')
   if (isDangerousPath(normalized)) fail(`Dangerous generated-file path rejected: ${normalized}`)
   if (/@|(?:\/Users|\/home)\//i.test(normalized)) fail(`Potentially identifying generated-file path rejected: ${normalized}`)
   return normalized
@@ -272,10 +282,11 @@ function loadGeneratedFiles(manifestPath, projectRoot, state) {
   const relativePaths = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'))
   if (relativePaths.length === 0) fail('Files manifest must name at least one generated or modified file.')
   if (new Set(relativePaths).size !== relativePaths.length) fail('Files manifest contains duplicate paths.')
+  const safePaths = relativePaths.map(validateRelativePath)
+  if (new Set(safePaths).size !== safePaths.length) fail('Files manifest contains paths that resolve to the same normalized path.')
 
   let totalBytes = 0
-  return relativePaths.map((entry) => {
-    const safePath = validateRelativePath(entry)
+  return safePaths.map((safePath) => {
     const resolvedPath = resolve(projectRoot, safePath)
     if (!existsSync(resolvedPath)) fail(`Generated file does not exist: ${safePath}`)
     const stat = lstatSync(resolvedPath)
@@ -295,6 +306,30 @@ function loadGeneratedFiles(manifestPath, projectRoot, state) {
       sha256: sha256(sanitizedContent),
     }
   }).sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+}
+
+function createResidualScanState(state) {
+  return {
+    customLiterals: state.customLiterals,
+    projectRootPattern: state.projectRootPattern,
+    homePattern: state.homePattern,
+    redactions: { secrets: 0, pii: 0, paths: 0, dangerous: 0, identifiers: 0, custom: 0 },
+  }
+}
+
+function verifyResidualScan(sanitizedSession, files, state) {
+  const scanState = createResidualScanState(state)
+  if (JSON.stringify(sanitizeNode(sanitizedSession, '', scanState)) !== JSON.stringify(sanitizedSession)) {
+    fail('Residual privacy scan found sensitive session content after sanitization.')
+  }
+  for (const file of files) {
+    if (sanitizeString(file.relativePath, 'generated-file-path', scanState) !== file.relativePath) {
+      fail('Residual privacy scan found a sensitive generated-file path after sanitization.')
+    }
+    if (sanitizeString(file.sanitizedContent, 'file-content', scanState) !== file.sanitizedContent) {
+      fail('Residual privacy scan found sensitive generated-file content after sanitization.')
+    }
+  }
 }
 
 function runGit(argumentsList, cwd) {
@@ -359,6 +394,7 @@ function main() {
     writeFileSync(sessionOutputPath, sanitizedSessionText, 'utf8')
 
     const files = loadGeneratedFiles(manifestPath, projectRoot, state)
+    verifyResidualScan(sanitizedSession, files, state)
     const archivePath = join(bundleDirectory, 'generated-files.zip')
     const archive = createArchive(files, archiveSourceDirectory, archivePath)
 
@@ -405,7 +441,20 @@ function main() {
         'privacy-report.json': { bytes: Buffer.byteLength(privacyReportText), sha256: sha256(privacyReportText) },
       },
     }
-    writeFileSync(join(bundleDirectory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    const manifestText = `${JSON.stringify(manifest, null, 2)}\n`
+    const publishedArtifactSizes = [
+      Buffer.byteLength(sanitizedSessionText),
+      archive.length,
+      Buffer.byteLength(manifestText),
+      Buffer.byteLength(privacyReportText),
+    ]
+    if (publishedArtifactSizes.some((size) => size > MAX_PUBLIC_ARTIFACT_BYTES)) {
+      fail('A public session-share artifact exceeds the provider size limit.')
+    }
+    if (publishedArtifactSizes.reduce((total, size) => total + size, 0) > MAX_PUBLIC_BUNDLE_BYTES) {
+      fail('Public session-share artifacts exceed the provider total size limit.')
+    }
+    writeFileSync(join(bundleDirectory, 'manifest.json'), manifestText, 'utf8')
 
     renameSync(bundleDirectory, outputPath)
     rmSync(stagingDirectory, { recursive: true, force: true })

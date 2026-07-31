@@ -63,14 +63,19 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
   const fixture = createFixture()
   try {
     const fakeToken = 'github_pat_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    const fakeHexSecret = 'a1'.repeat(32)
+    const fakeIdentifier = '123e4567-e89b-42d3-a456-426614174000'
     const session = [
       {
         type: 'user',
         sessionId: 'session-private-123',
         cwd: '/Users/alice/Customer Alpha',
+        metadata: JSON.parse(
+          '{"alice@example.com":"Customer Alpha","__proto__":{"safe":"value"}}',
+        ) as Record<string, unknown>,
         message: {
           role: 'user',
-          content: `Please contact alice@example.com and use token=${fakeToken}`,
+          content: `Please contact alice@example.com and use token=${fakeToken}, id=${fakeIdentifier}, checksum=${fakeHexSecret}`,
         },
       },
       {
@@ -84,7 +89,7 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
     fs.writeFileSync(fixture.sessionPath, `${JSON.stringify(session)}\n`)
     fs.writeFileSync(
       path.join(fixture.root, 'src', 'generated.ts'),
-      `export const owner = 'alice@example.com'\nexport const token = '${fakeToken}'\nexport const customer = 'Customer Alpha'\n`,
+      `export const owner = 'alice@example.com'\nexport const token = '${fakeToken}'\nexport const customer = 'Customer Alpha'\nexport const id = '${fakeIdentifier}'\nexport const opaqueSecret = '${fakeHexSecret}'\n`,
     )
     fs.writeFileSync(fixture.manifestPath, 'src/generated.ts\n')
     const redactionListPath = path.join(fixture.root, 'redact-literals.txt')
@@ -103,11 +108,15 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
     )
 
     const sanitizedSession = fs.readFileSync(path.join(fixture.outputPath, 'session.json'), 'utf8')
-    assert.doesNotMatch(sanitizedSession, /alice@example\.com|github_pat_|Customer Alpha|\/Users\/alice|192\.168\.10\.12/)
+    assert.doesNotMatch(sanitizedSession, /alice@example\.com|github_pat_|Customer Alpha|\/Users\/alice|192\.168\.10\.12|123e4567|a1a1a1a1/)
     assert.match(sanitizedSession, /redacted:email/)
     assert.match(sanitizedSession, /redacted:credential/)
     assert.match(sanitizedSession, /redacted:custom-literal/)
     assert.match(sanitizedSession, /redacted:identifier/)
+    assert.match(sanitizedSession, /redacted:hex-secret/)
+    const sanitizedSessionJson = JSON.parse(sanitizedSession) as Array<{ metadata: Record<string, unknown> }>
+    assert.equal(Object.hasOwn(sanitizedSessionJson[0].metadata, '__proto__'), true, 'JSON __proto__ keys must remain own data properties')
+    assert.equal(Object.keys(sanitizedSessionJson[0].metadata).some((key) => key.includes('redacted:email')), true)
 
     const manifest = JSON.parse(fs.readFileSync(path.join(fixture.outputPath, 'manifest.json'), 'utf8')) as {
       session: { entries: number; userTurns: number; assistantTurns: number }
@@ -211,6 +220,21 @@ test('session-share preparer fails closed for incomplete sessions and unsafe fil
       fs.rmSync(fixture.root, { recursive: true, force: true })
     }
   })
+
+  await t.test('normalized duplicate path', () => {
+    const fixture = createFixture()
+    try {
+      fs.writeFileSync(fixture.sessionPath, JSON.stringify([{ type: 'user' }, { type: 'assistant' }]))
+      fs.writeFileSync(path.join(fixture.root, 'src', 'generated.ts'), 'export {}\n')
+      fs.writeFileSync(fixture.manifestPath, 'src/generated.ts\n./src/generated.ts\n')
+      const result = runPreparer(fixture)
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /same normalized path/)
+      assert.equal(fs.existsSync(fixture.outputPath), false)
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
 })
 
 test('monorepo and standalone session-share skills stay byte-identical and default-installed', () => {
@@ -252,6 +276,7 @@ test('both standalone copy pipelines include the whole skill tree and tracker pu
 
   const monorepoTracker = fs.readFileSync(new URL('../../../../.ai/trackers/github.md', import.meta.url), 'utf8')
   const standaloneTracker = fs.readFileSync(new URL('../../agentic/shared/ai/trackers/github.md', import.meta.url), 'utf8')
+  assert.equal(standaloneTracker, monorepoTracker, 'standalone tracker descriptor must mirror the monorepo provider')
   const extractSessionOperations = (source: string) => {
     const start = source.indexOf('### Public session-share artifacts')
     const end = source.indexOf('\n### Issues', start)
@@ -264,6 +289,12 @@ test('both standalone copy pipelines include the whole skill tree and tracker pu
     publication.indexOf('git/blobs') < publication.indexOf('git/refs" --input -'),
     'the provider must create private blobs/commit before exposing the branch ref',
   )
+  assert.ok(
+    publication.indexOf('[ "$ARTIFACT_BYTES" -le 26214400 ]') < publication.indexOf('git/blobs'),
+    'the provider must validate the complete local bundle before the first remote blob write',
+  )
+  assert.equal(publication.match(/for ARTIFACT in session\.json generated-files\.zip manifest\.json privacy-report\.json/g)?.length, 2)
   assert.match(publication, /#### delete-session-share/)
   assert.match(publication, /\[ "\$SHARE_BRANCH" = "session-share-\$SHARE_NAME" \] \|\| exit 1/)
+  assert.match(monorepoTracker, /--state "\$ISSUE_STATE"/, 'issue deduplication must support open and closed shares')
 })
