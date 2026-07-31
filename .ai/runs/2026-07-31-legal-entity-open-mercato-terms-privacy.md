@@ -81,18 +81,18 @@ In scope — documents that make a legal-entity statement:
 
 ### Phase 1: Rendered legal pages
 
-- [ ] 1.1 Replace the entity block and every CTT reference in the Terms of Service page
-- [ ] 1.2 Replace the entity block, controller identity and contact details in the Privacy Policy page
+- [x] 1.1 Replace the entity block and every CTT reference in the Terms of Service page — b04804414
+- [x] 1.2 Replace the entity block, controller identity and contact details in the Privacy Policy page — b04804414
 
 ### Phase 2: Contributor agreement and licence notices
 
-- [ ] 2.1 Update the CLA's entity definition and every CTT reference
-- [ ] 2.2 Update the commercial-licence grantor in `packages/enterprise/LICENSE.md` and `.ai/specs/LICENSE.md`
-- [ ] 2.3 Point the SECURITY.md disclosure contact at the Open Mercato address
+- [x] 2.1 Update the CLA's entity definition and every CTT reference — 5c3a92150
+- [x] 2.2 Update the commercial-licence grantor in `packages/enterprise/LICENSE.md` and `.ai/specs/LICENSE.md` — 5c3a92150
+- [x] 2.3 Point the SECURITY.md disclosure contact at the Open Mercato address — 5c3a92150
 
 ### Phase 3: Regression coverage
 
-- [ ] 3.1 Add a content-module test asserting the new entity data renders and no legacy identifier survives
+- [x] 3.1 Add a content-module test asserting the new entity data renders and no legacy identifier survives — 87eb28529
 
 ### Phase 4: Validation and delivery
 
