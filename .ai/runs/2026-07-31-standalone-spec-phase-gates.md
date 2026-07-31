@@ -46,6 +46,8 @@ Prevent large standalone-app requests from bypassing `om-spec-writing`, producin
 
 ## Progress
 
+PR: #4752
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Specification readiness contract
@@ -62,4 +64,4 @@ Prevent large standalone-app requests from bypassing `om-spec-writing`, producin
 ### Phase 3: Validation and publication
 
 - [x] 3.1 Run focused and configured validation gates — 075f2f5a7
-- [ ] 3.2 Complete automated review, PR evidence, and ready-for-review handoff
+- [x] 3.2 Complete automated review, PR evidence, and ready-for-review handoff — d8b3fb4ad
