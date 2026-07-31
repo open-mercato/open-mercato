@@ -55,7 +55,7 @@ Turn the reproducible failures from the July 31 standalone-app session into focu
 
 ### Phase 2: Harness enforcement
 
-- [ ] 2.1 Fail closed on incomplete validation, missing review, and unsafe baseline diagnosis
+- [x] 2.1 Fail closed on incomplete validation, missing review, and unsafe baseline diagnosis — 461eaba8b
 - [ ] 2.2 Enforce explicit public target binding and scoped lead idempotency contracts
 
 ### Phase 3: Verification and delivery
