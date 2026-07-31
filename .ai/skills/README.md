@@ -68,7 +68,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
-| `core` | yes | 11 | Daily-driver skills installed by default. |
+| `core` | yes | 12 | Daily-driver skills installed by default. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `analysis` | opt-in | 2 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
@@ -160,7 +160,7 @@ claude
 # With the default install you should see the core tier (e.g. ds-guardian,
 # backend-ui-design, implement-spec, pre-implement-spec, smart-test,
 # create-agents-md, skill-creator, fix-specs, migrate-mikro-orm,
-# create-ai-agent, help) plus the external collection (code-review,
+# create-ai-agent, help, refresh-standalone-harness) plus the external collection (code-review,
 # check-and-commit, spec-writing, integration-tests, auto-create-pr, ...).
 
 # Codex
@@ -201,6 +201,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-migrate-mikro-orm` | Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely". |
 | `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
 | `om-help` | Open Mercato workflow navigator. Use when asking "what should I do now?", "which skill?", "next steps?", "where do I start?", or "how do I add/build X in Open Mercato?". Covers navigation (recommends the next skill based on git/spec/PR state) and knowledge (answers how-to questions grounded in AGENTS.md). |
+| `om-refresh-standalone-harness` | Refresh the standalone-app AI harness from an explicit local Git release range. Use for "refresh standalone harness", "release harness audit", "scan release range", `--from/--to`, "odśwież harness", or when platform work changes a module, UMES extension point, installed public contract, generator surface, or release. |
 
 ### automation
 

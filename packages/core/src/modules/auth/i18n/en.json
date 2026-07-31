@@ -128,6 +128,7 @@
   "auth.roles.form.group.details": "Details",
   "auth.roles.form.group.widgets": "Dashboard Widgets",
   "auth.roles.form.loading": "Loading data...",
+  "auth.roles.form.tenantReassignWarning": "This role is being reassigned to a different tenant. The permissions selected here will be saved under the new tenant when you submit.",
   "auth.roles.form.title.create": "Create Role",
   "auth.roles.form.title.edit": "Edit Role",
   "auth.roles.list.actions.create": "Create",
