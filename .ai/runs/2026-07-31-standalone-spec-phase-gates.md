@@ -53,7 +53,7 @@ Prevent large standalone-app requests from bypassing `om-spec-writing`, producin
 
 ### Phase 2: Phase-safe implementation routing
 
-- [ ] 2.1 Enforce sequential phase checkpoints in local spec implementation
+- [x] 2.1 Enforce sequential phase checkpoints in local spec implementation — 94b7c1f4d
 - [ ] 2.2 Add and test the standalone auto-implementation fallback contract
 
 ### Phase 3: Validation and publication
