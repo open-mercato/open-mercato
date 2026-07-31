@@ -174,7 +174,11 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
     '`@open-mercato\/shared\/lib\/encryption\/find`',
     '`searchConfig`',
     '`@jest\/globals`',
+    '`CommandHandler<Input, Result>`',
+    '`@open-mercato\/ui\/backend\/confirm-dialog`',
   ]) assert.ok(blueprint.includes(expected), `missing complete-library contract ${expected}`)
+  assert.match(blueprint, /do not hide oracle-significant behavior in shared helpers/)
+  assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
 test('the 193-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
