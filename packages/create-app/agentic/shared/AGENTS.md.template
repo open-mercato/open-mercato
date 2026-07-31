@@ -101,6 +101,18 @@ Pinned delivery skills: `yarn install-skills` (refresh: `--update`). Read BOTH `
 
 Absent skill: run `yarn install-skills` once; never substitute.
 
+### Spec Readiness and Phase Gate
+
+For a new application, multi-module feature, or other non-trivial business slice:
+
+- MUST invoke `om-spec-writing` before authoring or revising the spec; mentioning the skill or reading only `SPEC-000-template.md` does not satisfy the route.
+- Keep the spec `Draft` and do not implement until it has no blocking open questions, is marked `Ready for implementation`, and maps every requirement to a measurable acceptance criterion, implementation phase, and self-contained test oracle.
+- Every UI route needs a text mockup/structure, actions, data source/mutations, permissions, and loading/empty/error/conflict/keyboard/a11y states. Tabular admin data names `DataTable`; CRUD create/edit names `CrudForm`; exceptions require an explicit rationale.
+- Phases MUST be dependency ordered, close complete vertical slices, name their deliverables and validation/exit gates, and leave the app working. Do not hide required behavior in a final “integration/polish” phase.
+- During implementation, only the current unblocked phase may be in progress. Parallelize independent work inside that phase only; never launch later modules/phases while their prerequisite gate is open.
+- Delegation does not bypass routing: load the matched guides/skills first and include the active phase, canonical primitives, acceptance IDs, owned files, and validation oracle in every implementation-agent brief.
+- Whole-spec PR delivery uses `om-auto-implement-spec`. If no remote/tracker exists, report that PR delivery is unavailable and invoke local `om-implement-spec` phase-by-phase; never improvise a concurrent whole-spec build.
+
 ### Token-Efficient Assembly Policy
 
 - Load matched guides once, then only needed references/facts.
