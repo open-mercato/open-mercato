@@ -146,6 +146,9 @@ test('UMES selector documents additive command interceptors across execute and u
 test('business one-shot guidance maps staff record outcomes to canonical complete-module contracts', () => {
   const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
   for (const expected of [
+    'references/api-and-domain.md',
+    'references/module-surfaces.md',
+    'references/verification.md',
     'controlled-search `DataTable`',
     '`CrudForm` create/edit/delete flows',
     '`collectCustomFieldValues`',
@@ -156,7 +159,9 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
     '`findWithDecryption`',
     'intentional API enricher host',
     'Preserve every statically discoverable baseline entry',
+    "enabledModules.push({ id: '<module>', from: '@app' })",
   ]) assert.ok(blueprint.includes(expected), `missing business-to-framework inference ${expected}`)
+  assert.match(blueprint, /do not substitute plausible alternatives/)
 })
 
 test('the 193-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {

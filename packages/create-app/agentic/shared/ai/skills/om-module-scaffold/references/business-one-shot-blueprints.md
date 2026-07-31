@@ -17,6 +17,8 @@ Once a row matches, its route key is binding: invoke every unparenthesized route
 
 ## Canonical Staff Record Inference
 
+Before applying this mapping or writing files, directly read all three complete-module procedures: `.ai/skills/om-module-scaffold/references/api-and-domain.md`, `.ai/skills/om-module-scaffold/references/module-surfaces.md`, and `.ai/skills/om-module-scaffold/references/verification.md`. Their canonical exports, callbacks, placements, and verification paths are binding; do not substitute plausible alternatives such as `locales/` for `i18n/` or module-level tests for `commands/__tests__/`.
+
 Business briefs should describe outcomes; translate familiar staff record-management language into the framework's canonical surfaces without making the user name them:
 
 - “Browse/search/filter, add, correct, remove, and recover from mistakes” means a controlled-search `DataTable` with an add link and guarded `RowActions`, backed by `CrudForm` create/edit/delete flows. Preserve `initialValues`, use the documented CRUD helpers, and expose stable DataTable and CrudForm host IDs unless the domain requires a purpose-built interaction.
@@ -24,7 +26,7 @@ Business briefs should describe outcomes; translate familiar staff record-manage
 - “Permissions, concurrent editors, audit, all-or-nothing changes, retry, undo, and downstream consistency” means registered create/update/delete commands. Every command owns concrete undo through `extractUndoPayload` and `emitCrudUndoSideEffects`; update and delete each restore custom fields with `buildCustomFieldResetMap`; each multi-part write uses `withAtomicFlush`; update/delete enforce optimistic locking; and event/cache/index effects run only after commit in both forward and undo paths.
 - “Protect sensitive notes” requires both a stable encryption map and scoped read paths through `findWithDecryption`, `findOneWithDecryption`, or `findAndCountWithDecryption`; an encryption declaration alone is incomplete.
 - “Other modules can add fields, columns, actions, or response data later” makes `U` mandatory: publish stable widget/form/table IDs and an intentional API enricher host instead of copying or coupling modules.
-- Activating a new app module is additive. Preserve every statically discoverable baseline entry in `src/modules.ts` and append the new `{ id, from: '@app' }` entry; never rewrite the registry from memory.
+- Activating a new app module is additive. Preserve every statically discoverable baseline entry in `src/modules.ts` and append with exactly `enabledModules.push({ id: '<module>', from: '@app' })`; never rewrite the registry from memory or fold the new entry into the baseline array.
 
 Treat this mapping as a completion checklist, not optional examples. Verify each contract in the owning command, read path, form, table, API, and activation file before generation.
 
