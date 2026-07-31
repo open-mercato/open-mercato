@@ -51,10 +51,13 @@ async function loadRemoteOptions(url: string): Promise<Array<{ value: string; la
     // request.
     const pages = await fetchAllOffsetPages(url)
     if (!pages.ok) return []
-    return pages.items.map((it: any) => ({
-      value: String(it?.value ?? it),
-      label: String(it?.label ?? it?.value ?? it),
-    }))
+    return pages.items.map((item) => {
+      const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : null
+      return {
+        value: String(record?.value ?? item),
+        label: String(record?.label ?? record?.value ?? item),
+      }
+    })
   } catch {
     return []
   }
