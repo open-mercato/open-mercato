@@ -137,7 +137,7 @@ export function useT() { return (key: string) => key }
 export const metadata = {
   pageTitleKey: 'library.books.title',
   pageGroupKey: 'library.navigation.group',
-  breadcrumb: [{ label: 'library.books.breadcrumb' }],
+  breadcrumb: [{ label: 'Books', labelKey: 'library.books.breadcrumb' }],
 }
 export function BooksPage() {
   const t = useT()
@@ -162,6 +162,33 @@ export function BooksPage() {
     const localeCheck = missingMetadataResult.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
     assert.equal(localeCheck?.passed, false)
     assert.match(localeCheck?.requirement ?? '', /de\.json library\.books\.breadcrumb is missing/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle ignores locale-like literals outside routed UI and navigation sources', () => {
+  const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`, { en: { library: { books: { title: 'Books' } } } })
+  const sources = {
+    'src/modules/library/backend/books/books.test.tsx': `t('library.tests.backend')\n`,
+    'src/modules/library/commands/__tests__/books.test.ts': `t('library.tests.command')\n`,
+    'src/modules/library/data/validators.ts': `t('library.validation.internal')\n`,
+    'src/modules/library/migrations/Migration20260731000000.ts': `t('library.migrations.internal')\n`,
+  }
+  for (const [relative, source] of Object.entries(sources)) {
+    const absolute = path.join(root, relative)
+    fs.mkdirSync(path.dirname(absolute), { recursive: true })
+    fs.writeFileSync(absolute, source)
+  }
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, true)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

@@ -17,7 +17,7 @@ const MAX_LOCALE_FILES = 16
 const MAX_LOCALE_FILE_BYTES = 256 * 1024
 const MAX_TOTAL_LOCALE_BYTES = 1024 * 1024
 const DANGEROUS_LOCALE_KEY_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
-const LOCALIZED_METADATA_KEYS = new Set(['pageTitleKey', 'pageGroupKey'])
+const LOCALIZED_METADATA_KEYS = new Set(['pageTitleKey', 'pageGroupKey', 'labelKey'])
 
 const WRITABLE_CASES = Object.freeze({
   'OMH-009': {
@@ -467,6 +467,14 @@ function literalString(ts, node) {
     : undefined
 }
 
+function isModuleLocaleReferenceSource(file) {
+  const normalized = file.replaceAll(path.sep, '/')
+  if (normalized.includes('/__tests__/') || /\.(?:test|spec)\.(?:cts|mts|ts|tsx)$/.test(normalized)) return false
+  if (normalized.includes('/migrations/')) return false
+  const isRoutedUi = ['/backend/', '/frontend/', '/widgets/'].some((segment) => normalized.includes(segment))
+  return isRoutedUi && (normalized.endsWith('.tsx') || normalized.endsWith('/page.meta.ts'))
+}
+
 function collectModuleLocaleKeys(ts, sourceFiles) {
   const keys = new Set()
   let excessive = false
@@ -478,7 +486,7 @@ function collectModuleLocaleKeys(ts, sourceFiles) {
     }
     keys.add(value)
   }
-  for (const file of sourceFiles) {
+  for (const file of sourceFiles.filter(isModuleLocaleReferenceSource)) {
     const source = ts.createSourceFile(
       file,
       fs.readFileSync(file, 'utf8'),
@@ -486,11 +494,6 @@ function collectModuleLocaleKeys(ts, sourceFiles) {
       true,
       file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
     )
-    const collectBreadcrumbLiterals = (node) => {
-      const value = literalString(ts, node)
-      if (value !== undefined) addKey(value)
-      ts.forEachChild(node, collectBreadcrumbLiterals)
-    }
     const visit = (node) => {
       if (ts.isCallExpression(node) && expressionName(ts, node.expression) === 't') {
         addKey(literalString(ts, node.arguments[0]))
@@ -498,7 +501,6 @@ function collectModuleLocaleKeys(ts, sourceFiles) {
       if (ts.isPropertyAssignment(node)) {
         const name = propertyName(ts, node.name)
         if (LOCALIZED_METADATA_KEYS.has(name)) addKey(literalString(ts, node.initializer))
-        if (name === 'breadcrumb') collectBreadcrumbLiterals(node.initializer)
       }
       ts.forEachChild(node, visit)
     }
