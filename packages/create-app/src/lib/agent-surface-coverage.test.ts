@@ -177,6 +177,10 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
     '`@jest\/globals`',
     '`CommandHandler<Input, Result>`',
     '`@open-mercato\/ui\/backend\/confirm-dialog`',
+    '`execute(input, ctx)`',
+    '`dataEngine.setCustomFields({ entityId, recordId, tenantId, organizationId, values, notify: false })`',
+    '`findOneWithDecryption(em, Book, { id, tenant_id, organization_id }, undefined, { tenantId, organizationId })`',
+    'shared `Input`, `Button`, and `Alert`',
   ]) assert.ok(blueprint.includes(expected), `missing complete-library contract ${expected}`)
   assert.match(blueprint, /do not hide oracle-significant behavior in shared helpers/)
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
