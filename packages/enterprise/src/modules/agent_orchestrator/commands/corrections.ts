@@ -12,6 +12,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentRun, AgentEvalCase } from '../data/entities'
 import { correctionAction } from '../data/validators'
 import { draftEvalCase, recordCorrection } from '../lib/trace/correctionService'
+import { canonicalInputKey } from '../lib/eval/canonicalInputKey'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const EVAL_CASE_RESOURCE = 'agent_orchestrator.eval_case'
@@ -200,12 +201,23 @@ const approveEvalCaseCommand: CommandHandler<ApproveEvalCaseCommandInput, Approv
     const input = approveEvalCaseCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const evalCase = await em.findOne(AgentEvalCase, {
-      id: input.evalCaseId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-      deletedAt: null,
-    })
+    // Decrypt the input so the match key is recomputed over PLAINTEXT — the same
+    // basis `evaluateRun` uses to golden-match a live run. Legacy/pre-feature
+    // rows carry a null `input_key` (and an edited input can drift), so an
+    // "Approved" case could silently be unmatchable; recomputing on approve
+    // guarantees an approved case is always match-eligible against its input.
+    const evalCase = await findOneWithDecryption(
+      em,
+      AgentEvalCase,
+      {
+        id: input.evalCaseId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
     if (!evalCase) {
       enforceRecordGoneIsConflict({
         resourceKind: EVAL_CASE_RESOURCE,
@@ -215,8 +227,18 @@ const approveEvalCaseCommand: CommandHandler<ApproveEvalCaseCommandInput, Approv
       throw new CrudHttpError(404, { error: '[internal] eval case not found' })
     }
 
-    // Idempotent: approving an already-approved case is a no-op.
+    const freshInputKey = canonicalInputKey(evalCase.input ?? {})
+
+    // Idempotent, but still self-heal a missing/stale match key on an
+    // already-approved case (the legacy-null-key row this fix targets).
     if (evalCase.status === 'approved') {
+      if (evalCase.inputKey !== freshInputKey) {
+        await withAtomicFlush(
+          em,
+          [() => { evalCase.inputKey = freshInputKey }],
+          { transaction: true, label: 'agent_orchestrator.evalCases.approve.healKey' },
+        )
+      }
       return { evalCaseId: evalCase.id, status: evalCase.status, updatedAt: evalCase.updatedAt.toISOString() }
     }
     if (evalCase.status !== 'draft') {
@@ -236,6 +258,7 @@ const approveEvalCaseCommand: CommandHandler<ApproveEvalCaseCommandInput, Approv
         () => {
           evalCase.status = 'approved'
           evalCase.approvedByUserId = input.approvedByUserId
+          evalCase.inputKey = freshInputKey
         },
       ],
       { transaction: true, label: 'agent_orchestrator.evalCases.approve' },

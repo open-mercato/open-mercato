@@ -6,7 +6,17 @@ jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
 }))
 
-import { createEvalCaseFromRunCommand } from '../commands/corrections'
+// The approve command uses withAtomicFlush (needs a transactional em the in-memory
+// fake lacks). Run its phases inline + flush — createFromRun doesn't use it.
+jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
+  withAtomicFlush: async (em: { flush?: () => Promise<void> }, phases: Array<() => unknown>) => {
+    for (const phase of phases) await phase()
+    await em.flush?.()
+  },
+}))
+
+import { createEvalCaseFromRunCommand, approveEvalCaseCommand } from '../commands/corrections'
+import { canonicalInputKey } from '../lib/eval/canonicalInputKey'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -161,5 +171,62 @@ describe('evalCases.createFromRun command', () => {
     })
     expect(storeFor(AgentEvalCase)).toHaveLength(0)
     expect(emitAgentOrchestratorEvent).not.toHaveBeenCalled()
+  })
+})
+
+const APPROVER = '33333333-3333-4333-8333-333333333333'
+
+describe('evalCases.approve — input_key recompute', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('self-heals a null input_key on an already-approved case so it can golden-match', async () => {
+    const { em, storeFor } = createFakeEm()
+    storeFor(AgentEvalCase).push({
+      __entity: AgentEvalCase,
+      id: '44444444-4444-4444-8444-444444444444',
+      tenantId: TENANT,
+      organizationId: ORG,
+      agentDefinitionId: 'deals.health_check',
+      input: { dealId: 'deal-1' },
+      inputKey: null, // legacy row created before the match-key feature
+      status: 'approved',
+      updatedAt: new Date(),
+      deletedAt: null,
+    })
+
+    const result = await approveEvalCaseCommand.execute(
+      { tenantId: TENANT, organizationId: ORG, evalCaseId: '44444444-4444-4444-8444-444444444444', approvedByUserId: APPROVER },
+      makeCtx(em),
+    )
+
+    expect(result.status).toBe('approved')
+    // Now equals canonicalInputKey(decrypted input) — the exact key evaluateRun
+    // computes from a live run, so the golden match now fires.
+    expect(storeFor(AgentEvalCase)[0].inputKey).toBe(canonicalInputKey({ dealId: 'deal-1' }))
+  })
+
+  it('sets input_key from the input when approving a draft', async () => {
+    const { em, storeFor } = createFakeEm()
+    storeFor(AgentEvalCase).push({
+      __entity: AgentEvalCase,
+      id: '66666666-6666-4666-8666-666666666666',
+      tenantId: TENANT,
+      organizationId: ORG,
+      agentDefinitionId: 'deals.health_check',
+      input: { dealId: 'deal-2' },
+      inputKey: null,
+      status: 'draft',
+      updatedAt: new Date(),
+      deletedAt: null,
+    })
+
+    await approveEvalCaseCommand.execute(
+      { tenantId: TENANT, organizationId: ORG, evalCaseId: '66666666-6666-4666-8666-666666666666', approvedByUserId: APPROVER },
+      makeCtx(em),
+    )
+
+    const row = storeFor(AgentEvalCase)[0]
+    expect(row.status).toBe('approved')
+    expect(row.inputKey).toBe(canonicalInputKey({ dealId: 'deal-2' }))
   })
 })
