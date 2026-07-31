@@ -91,6 +91,39 @@ test('Jest ships the environment required by jsdom-annotated template tests', ()
   )
 })
 
+test('Jest loads shared DOM matchers and transforms framework ESM dependencies', () => {
+  const jestConfig = createRequire(import.meta.url)(
+    fileURLToPath(new URL('jest.config.cjs', TEMPLATE_DIR)),
+  ) as { setupFilesAfterEnv?: string[]; transformIgnorePatterns?: string[] }
+  const setup = fs.readFileSync(new URL('jest.setup.ts', TEMPLATE_DIR), 'utf8')
+  const ignoredPatterns = (jestConfig.transformIgnorePatterns ?? []).map(
+    (pattern) => new RegExp(pattern),
+  )
+
+  assert.deepEqual(jestConfig.setupFilesAfterEnv, ['<rootDir>/jest.setup.ts'])
+  assert.match(setup, /@testing-library\/jest-dom\/jest-globals/)
+  assert.match(setup, /ResizeObserver/)
+  assert.match(setup, /scrollIntoView/)
+
+  for (const modulePath of [
+    '/node_modules/@open-mercato/ui/dist/index.js',
+    '/node_modules/@mikro-orm/decorators/legacy/index.js',
+  ]) {
+    assert.equal(
+      ignoredPatterns.some((pattern) => pattern.test(modulePath)),
+      false,
+      `${modulePath} must be transformed by Jest`,
+    )
+  }
+})
+
+test('the template ignores raw agent session exports', () => {
+  const gitignore = fs.readFileSync(new URL('gitignore', TEMPLATE_DIR), 'utf8')
+
+  assert.match(gitignore, /^\.ai\/sessions\*\.json$/m)
+  assert.match(gitignore, /^\.ai\/session-exports\/$/m)
+})
+
 test('`yarn test` succeeds on a scaffold that ships no test files', () => {
   const scaffoldedTestFiles = listScaffoldedTestFiles(fileURLToPath(new URL('src/', TEMPLATE_DIR)))
   const jestConfig = createRequire(import.meta.url)(
