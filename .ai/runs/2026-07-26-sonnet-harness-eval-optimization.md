@@ -378,10 +378,15 @@ The existing tests could not catch this: the fake `claude` binary asserted exact
 ### Phase 4: Compatibility baseline
 
 - [x] 4.1 Prove the complete Codex routing baseline remains green — final35 completed 192 cases, all residuals were corrected and rerun, and final38/final39 focused generative cohorts are green; one immutable final-head certification sweep remains in #4670 — `86ac9b4bf`
-- [x] 4.2 Exercise host-supported writable/review lanes and report blocked lanes — the three Linux-lane failures #4483 left red are resolved: a real sandbox-composition defect (writable root re-mounted read-only), a platform-coupled preflight assertion, and a Chromium host prerequisite now behind a capability guard. Latest create-app suite: 323 pass / 4 platform skips / 0 failed
+- [x] 4.2 Exercise host-supported writable/review lanes and report blocked lanes — the three Linux-lane failures #4483 left red are resolved: a real sandbox-composition defect (writable root re-mounted read-only), a platform-coupled preflight assertion, and a Chromium host prerequisite now behind a capability guard. Latest create-app suite: 374 pass / 4 platform skips / 0 failed
 
 ### Phase 5: Delivery gates
 
 - [x] 5.1 Add regression coverage and run targeted suites — 9 new regression tests; full create-app suite green
 - [x] 5.2 Update spec, harness, and operator documentation with measured evidence — `86ac9b4bf`
 - [x] 5.3 Run the configured gate, complete review/autofix, and publish PR evidence — `ce310e8c3`
+
+### Phase 6: Final review remediation
+
+- [x] 6.1 Correct portability-count publication, preserve piped wizard skipping, clarify generated-guide cleanup, refresh the suite result, and merge current develop — `8e2ba27f8`
+- [x] 6.2 Align generated portability-lane guidance with the registry-derived release-coverage assertion — `4ff93cf22`

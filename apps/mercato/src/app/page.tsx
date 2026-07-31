@@ -1,10 +1,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
-
-function isAutoLoginEnabled(): boolean {
-  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)
-}
+import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'
 
 // The home route is a pure router: it never renders. Unless the visitor has
 // dismissed the start page, it sends them there; otherwise into the app

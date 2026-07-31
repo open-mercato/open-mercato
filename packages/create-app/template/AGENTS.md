@@ -93,7 +93,7 @@ Pinned delivery skills: `yarn install-skills` (refresh: `--update`). Read BOTH `
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
-| `spec-pr` | Write/revise spec | `om-spec-writing` (OMH-005) + exact `.ai/agentic.config.json` for its specs-directory setting |
+| `spec-pr` | Write/revise spec | MUST invoke `om-spec-writing` (OMH-005) + `.ai/guides/spec-delivery.md` + config specs path |
 | `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
 | `spec-pr` | Whole-spec / commit+ready PR / issue / review | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
 | `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
@@ -105,7 +105,7 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 - Load matched guides once, then only needed references/facts.
 - Hard budgets: guide > skill > references; open a reference only for its named subject.
-- Specs: list names; open one task match; skip README/template.
+- Specs: open one match; `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
 - Never bulk-read guide, skill, fact, or source trees.

@@ -17,6 +17,7 @@ const scaffolderSource = fs.readFileSync(
 const skillsShippingOverrideFolder = [
   'om-auto-create-pr',
   'om-auto-continue-pr',
+  'om-auto-implement-spec',
   'om-auto-review-pr',
   'om-auto-fix-issue',
 ]
@@ -242,6 +243,35 @@ test('auto-* override SKILL.md routes tracker-facing behavior through the tracke
   )
 })
 
+test('standalone auto implementation audits readiness and falls back to the local phase engine', () => {
+  const override = readOverrideSkill('om-auto-implement-spec')
+  const phaseReference = fs.readFileSync(
+    new URL('om-implement-spec/references/phases-and-gates.md', skillsDir),
+    'utf8',
+  )
+
+  for (const contract of [
+    'Ready for implementation',
+    'no blocking open questions',
+    'acceptance criterion/phase/self-contained test oracle',
+    'Only the current unblocked phase may be in progress',
+    'No-remote fallback is local and phase-safe',
+    '.ai/skills/om-implement-spec/SKILL.md',
+  ]) {
+    assert.ok(override.includes(contract), `om-auto-implement-spec override must retain: ${contract}`)
+  }
+  assert.match(
+    phaseReference,
+    /Only one phase may be `in_progress`; a phase can start only when every declared dependency is `verified`/,
+    'the local phase engine must reject cross-phase concurrency',
+  )
+  assert.match(
+    phaseReference,
+    /File count, generated discovery, and typecheck alone never prove a business slice works/,
+    'phase completion must require acceptance evidence rather than scaffold volume',
+  )
+})
+
 // Setup never creates a directory-level link. The installer owns Claude's
 // per-skill compatibility layer after the canonical collection exists.
 test('setup leaves every per-agent skills directory to install-skills.mjs', () => {
@@ -323,6 +353,119 @@ test('AGENTS.md routing tables do not hard-code a harness-specific skills path f
     offenders,
     [],
     `External skills must be referenced by name (harness-agnostic), not via a hard-coded harness path: ${offenders.join(', ')}`,
+  )
+})
+
+test('standalone specs cannot become implementation-ready without UI, traceability, and phase contracts', () => {
+  const agentsTemplate = fs.readFileSync(
+    new URL('../../agentic/shared/AGENTS.md.template', import.meta.url),
+    'utf8',
+  )
+  const specTemplate = fs.readFileSync(
+    new URL('../../agentic/shared/ai/specs/SPEC-000-template.md', import.meta.url),
+    'utf8',
+  )
+  const specsReadme = fs.readFileSync(
+    new URL('../../agentic/shared/ai/specs/README.md', import.meta.url),
+    'utf8',
+  )
+  const deliveryGuide = fs.readFileSync(
+    new URL('../../agentic/guides/spec-delivery.md', import.meta.url),
+    'utf8',
+  )
+  const implementationSkill = readOverrideSkill('om-implement-spec')
+  const backendGuide = fs.readFileSync(
+    new URL('../../agentic/guides/backend-ui.md', import.meta.url),
+    'utf8',
+  )
+
+  const requiredSections = [
+    '## Goals',
+    '## Non-goals',
+    '## Proposed Solution',
+    '## Users, Permissions, and Scope',
+    '## Domain Vocabulary and Business Rules',
+    '## Reuse and Ownership Map',
+    '## Architecture and Data Flow',
+    '## UI and Interaction Contracts',
+    '## API, Command, and Error Contracts',
+    '## Security, Privacy, and Compliance',
+    '## Integration Coverage',
+    '## Implementation Phases',
+    '## Requirement Traceability',
+    '## Open Questions',
+  ]
+  const missingSections = requiredSections.filter((heading) => !specTemplate.includes(heading))
+  assert.deepEqual(
+    missingSections,
+    [],
+    `The standalone spec template is missing implementation-readiness sections: ${missingSections.join(', ')}`,
+  )
+
+  for (const contract of [
+    '`DataTable`',
+    '`CrudForm`',
+    'loading, empty, error, conflict',
+    'Closest installed reference',
+    'light-mode, and dark-mode states',
+    'Only the current phase may enter implementation',
+    'self-contained integration coverage',
+    '## Final Compliance Report',
+    'Status: Ready for implementation',
+  ]) {
+    assert.ok(specTemplate.includes(contract), `The standalone spec template must retain: ${contract}`)
+  }
+
+  assert.match(
+    agentsTemplate,
+    /Write\/revise spec \| MUST invoke `om-spec-writing`.*`\.ai\/guides\/spec-delivery\.md`/,
+    'routing must invoke om-spec-writing and load the readiness guide',
+  )
+  assert.match(
+    agentsTemplate,
+    /`spec-pr` reads template via spec-delivery/,
+    'the token-efficient routing policy must not skip the template during spec authoring',
+  )
+  assert.match(
+    deliveryGuide,
+    /After invocation, read `\.ai\/specs\/SPEC-000-template\.md` and preserve every section/,
+    'the readiness guide must load the standalone template after invoking om-spec-writing',
+  )
+  assert.match(
+    deliveryGuide,
+    /Only the current unblocked phase may be in progress/,
+    'the routed delivery guide must prevent blocked phases from running concurrently',
+  )
+  assert.match(
+    deliveryGuide,
+    /If no remote\/tracker exists,[\s\S]*invoke local `om-implement-spec` phase-by-phase/,
+    'the routed delivery guide must use the local phase engine when PR delivery is unavailable',
+  )
+  for (const contract of [
+    'actually invoke `om-backend-ui-design`',
+    'raw backend tables/forms/fetch',
+    'hard-coded palette/status colors',
+    'light and dark mode',
+  ]) {
+    assert.ok(deliveryGuide.includes(contract), `the delivery guide must retain UI parity gate: ${contract}`)
+  }
+  for (const contract of [
+    '`DataTable`/`CrudForm`',
+    'shared API helpers',
+    'semantic tokens',
+    'light-only styling require an approved spec exception',
+  ]) {
+    assert.ok(implementationSkill.includes(contract), `the implementation skill must retain UI parity gate: ${contract}`)
+  }
+  assert.match(
+    backendGuide,
+    /`DataTable` has no `apiPath` prop/,
+    'backend guidance must not send agents toward a nonexistent DataTable apiPath prop',
+  )
+  assert.match(
+    specsReadme,
+    /Implement through `om-implement-spec`.*one dependency-ordered phase at a time/,
+    'the generated specs README must not advertise an unphased template-to-code shortcut',
   )
 })
 

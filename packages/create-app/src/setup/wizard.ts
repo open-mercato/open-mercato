@@ -97,7 +97,7 @@ export async function promptSelection(ask: AskFn): Promise<string[]> {
   }
   console.log('')
 
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  if (!process.stdin.isTTY) {
     console.log(`   Non-interactive shell; using the default (${DEFAULT_TOOL_ID}).`)
     console.log('   Pass --agents <list|all|none> to choose explicitly.')
     console.log('')

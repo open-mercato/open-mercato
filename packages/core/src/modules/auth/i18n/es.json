@@ -128,6 +128,7 @@
   "auth.roles.form.group.details": "Detalles",
   "auth.roles.form.group.widgets": "Widgets del panel",
   "auth.roles.form.loading": "Cargando datos...",
+  "auth.roles.form.tenantReassignWarning": "Este rol se está reasignando a otro inquilino. Los permisos seleccionados aquí se guardarán bajo el nuevo inquilino al enviar.",
   "auth.roles.form.title.create": "Crear rol",
   "auth.roles.form.title.edit": "Editar rol",
   "auth.roles.list.actions.create": "Crear",
