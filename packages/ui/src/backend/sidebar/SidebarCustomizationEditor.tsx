@@ -1237,7 +1237,7 @@ export function SidebarCustomizationEditor({
                             </p>
                           ) : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-2 mt-[26px]">
+                        <div className="flex shrink-0 items-center gap-2 mt-6">
                           {(() => {
                             const visibility = resolveGroupVisibility(baseGroup, draft.hiddenItemIds)
                             const groupName = trimmedValue.length > 0 ? trimmedValue : placeholder
