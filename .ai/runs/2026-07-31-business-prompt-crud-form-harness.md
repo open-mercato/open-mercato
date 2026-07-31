@@ -60,8 +60,8 @@ Add OMH-193 as a business-language counterpart to OMH-185 that must produce the 
 
 ### Phase 2: Smallest-owner optimization
 
-- [ ] 2.1 Classify focused failures and update only the complete-module business blueprint when evidence requires it
-- [ ] 2.2 Add regression assertions for business-language abstraction and OMH-185 compatibility
+- [x] 2.1 Classify focused failures and update only the complete-module business blueprint when evidence requires it — 4a9cd8358a
+- [x] 2.2 Add regression assertions for business-language abstraction and OMH-185 compatibility — 4a9cd8358a
 
 ### Phase 3: Focused proof and delivery
 
