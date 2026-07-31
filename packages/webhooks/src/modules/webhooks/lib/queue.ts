@@ -108,7 +108,7 @@ async function ensureLocalInboundQueueWorkerStarted(): Promise<void> {
     })
   })().catch((error) => {
     delete globalStore[LOCAL_INBOUND_WORKER_PROMISE_KEY]
-    console.error('[webhooks] Failed to start local inbound dispatch worker:', error)
+    logger.error('Failed to start local inbound dispatch worker', { err: error })
     throw error
   })
 

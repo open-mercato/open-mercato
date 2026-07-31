@@ -1,5 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { processInboundDispatchJob, type InboundDispatchJob } from '../lib/inbound-dispatch'
+
+const logger = createLogger('webhooks')
 
 export const metadata = {
   queue: 'webhook-inbound-dispatch',
@@ -17,11 +20,11 @@ export default async function handler(
       resolve: <T,>(name: string) => ctx.resolve(name) as T,
     })
   } catch (error) {
-    console.error('[webhooks:inbound-dispatch] Job processing failed', {
+    logger.error('Inbound dispatch job processing failed', {
       ingestionId: job.data.ingestionId,
       sourceKey: job.data.sourceKey,
       tenantId: job.data.tenantId,
-      error: error instanceof Error ? error.message : String(error),
+      err: error,
     })
     throw error
   }
