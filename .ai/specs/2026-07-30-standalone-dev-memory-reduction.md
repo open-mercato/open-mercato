@@ -422,19 +422,41 @@ backport of the 16.3 Turbopack memory work. The
 [upstream release stream](https://github.com/vercel/next.js/releases) distributes
 16.3 as preview/canary and records relevant native-memory changes there.
 
-A separate monorepo smoke on `16.3.0-canary.59` measured a 27.5% total-peak and
-33.5% top-`next-server` reduction, but still missed that work's target. It is only
-a prior signal: it did not use this standalone fixture and does not prove that a
-preview will satisfy either ceiling here. The next high-signal diagnostic is an
-isolated 16.3 preview A/B, not another guessed local graph edit.
+An approval-safe, fixture-only diagnostic installed Next, `@next/env`, and the
+Darwin ARM64 SWC at `16.3.0-preview.9`; React/React DOM remained `19.2.7`. Package
+and lockfile changes never entered the worktree, and no runtime source changed.
+Node 24.13.1 was pinned and proved for every dev root, Next launcher, profiler,
+and browser process.
 
-That experiment intentionally requires explicit approval because it is a
-production dependency/toolchain change: root and app Next pins, corresponding
-Next/SWC packages, and the lockfile move together, followed by full package build,
-typecheck, create-app, real browser, and memory verification. A preview may be used
-for diagnosis only; it cannot be promoted without a separate stability decision.
-Until approval, do not weaken the 30% criteria, stack another production change,
-or describe telemetry relocation as final peak acceptance.
+After a valid empty-cache seed (normal topology, login HTTP 200, protected render,
+A-to-B HMR, 15-second settle), three exact seed clones produced:
+
+| Run | Raw report | Peak total | Maximum `next-turbopack` | HMR |
+| --- | --- | ---: | ---: | ---: |
+| 1 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-repeat1.json` | 7,105.71 MB | 5,813.98 MB | 2.291 s |
+| 2 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-repeat2.json` | 6,018.39 MB | 4,893.18 MB | 2.291 s |
+| 3 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-repeat3.json` | 7,047.67 MB | 5,764.74 MB | 1.792 s |
+| **Median** | — | **7,047.67 MB** | **5,764.74 MB** | **2.291 s** |
+
+The artifact prefix is `/tmp/open-mercato-standalone-memory-baseline/`; matching
+browser JSON files use the same labels under `.mercato/dev-rss/browser/`, and the
+50-file seed manifest is under
+`.mercato/dev-rss/cache-snapshots/turbopack-preview9-node24-suppressed-seed-2026-07-31/`.
+No unexpected browser, native, or runtime errors occurred.
+
+The primary median is 3,046.83 MB (30.183%) below the 10,094.50 MB comparator and
+passes the 7,066.15 MB ceiling by only 18.48 MB. The secondary class median fails
+its 5,535.978 MB ceiling by 228.762 MB. The preview is therefore diagnostic only:
+the primary margin is too narrow for production confidence, the secondary target
+still fails, and the fixture was restored exactly to its Next/SWC 16.2.11,
+React 19.2.7, runtime-hash, and 790-file cache state.
+
+Promotion remains an explicit production dependency/toolchain decision and would
+require the full package build, typecheck, create-app, real-browser, and wider-repeat
+memory gates. A follow-up should demand meaningful margin or explicitly test the
+preview composed with independently measured C5/scheduler process savings; those
+savings are not assumed additive. Until approval, do not weaken the criteria or
+describe telemetry relocation or the preview as final peak acceptance.
 
 ## Data Models
 

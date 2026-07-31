@@ -311,20 +311,49 @@ distributed as preview/canary (for example `16.3.0-preview.9` and
 `16.3.0-canary.97`), as verified on 2026-07-31 in the
 [upstream release stream](https://github.com/vercel/next.js/releases).
 
-A separate monorepo smoke already recorded a useful but insufficient signal on
-`16.3.0-canary.59`: 27.5% lower total peak and 33.5% lower top `next-server`, while
-still missing that spec's target. It is not a standalone-fixture result and does
-not prove that 16.3 will satisfy this specification's two ceilings.
+### Fixture-only Next 16.3 preview diagnostic
 
-The next high-signal diagnostic is therefore an isolated Next 16.3 preview trial,
-not another local graph guess. It is not a presumed fix. It is also a production
-dependency/toolchain change:
-it updates root/app Next pins, matching Next/SWC packages and the lockfile, then
-requires the full build, typecheck, create-app, browser, and memory gates. The repo
-rules require explicit approval before that dependency scope is opened. Until such
-approval, the current stable-stack investigation is exhausted and needs a user
-decision; do not weaken the ceilings or call telemetry relocation the final peak
-fix.
+An approval-safe diagnostic installed `next`, `@next/env`, and
+`@next/swc-darwin-arm64` at `16.3.0-preview.9` only inside the disposable fixture.
+React and React DOM remained `19.2.7`, within the preview's peer range. Every dev,
+profiler, and browser command used Node 24.13.1; first samples proved the root and
+Next-launcher paths, `next-server` reported the preview version, and browser
+artifacts reported the same pinned Node executable.
+
+An empty-cache suppressed-warmup seed passed normal-topology startup, hydrated
+login HTTP 200, protected probe rendering, A-to-B HMR in 3.799 seconds, and a
+15-second settle. Its 50-file cache manifest is retained at
+`/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/cache-snapshots/turbopack-preview9-node24-suppressed-seed-2026-07-31/`.
+Three exact clones then ran for 180 seconds at one-second intervals:
+
+| Run | Peak total | Maximum `next-turbopack` | Artifacts ready | Login page / auth / probe | HMR |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 7,105.71 MB | 5,813.98 MB | 4.2 s | 1.092 / 1.808 / 2.697 s | 2.291 s |
+| 2 | 6,018.39 MB | 4,893.18 MB | 4.6 s | 1.152 / 1.925 / 2.722 s | 2.291 s |
+| 3 | 7,047.67 MB | 5,764.74 MB | 4.1 s | 1.052 / 1.665 / 2.537 s | 1.792 s |
+| **Median** | **7,047.67 MB** | **5,764.74 MB** | **4.2 s** | — | **2.291 s** |
+
+Raw profiler reports are
+`/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/experiment-preview9-node24-suppressed-repeat{1,2,3}.json`; matching browser evidence is under
+`.mercato/dev-rss/browser/experiment-preview9-node24-suppressed-repeat{1,2,3}-browser.json`.
+All runs retained login, protected rendering, normal workers/scheduler, and genuine
+HMR. There were no native/runtime failures; the only failed responses were the two
+expected pre-login feature checks returning 401 in each browser run.
+
+The primary median is 3,046.83 MB (30.183%) below the 10,094.50 MB comparator and
+passes the 7,066.15 MB ceiling by only 18.48 MB. The secondary class median remains
+228.762 MB above its 5,535.978 MB ceiling. This is a high-signal diagnostic, not a
+production acceptance result: the primary margin is within observed run variance,
+the secondary target still fails. No production manifest, lockfile, or runtime
+source was changed. The fixture was restored byte-for-byte to Next/SWC 16.2.11, React
+19.2.7, the original runtime hashes, and the original 790-file cache manifest.
+
+Production promotion therefore still requires explicit dependency/toolchain
+approval plus full build, typecheck, create-app, browser, and wider-repeat memory
+gates. A proposal should require meaningful headroom, or explicitly test composition
+with the independently measured C5/scheduler process savings; those savings must
+not be assumed additive. Until then, the stable-stack work needs a user decision,
+and neither telemetry relocation nor the preview is the final accepted peak fix.
 
 ## Restoration audit
 
