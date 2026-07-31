@@ -64,3 +64,8 @@ PR: #4758
 
 - [x] 3.1 Pass focused and full configured validation gates — 8e90b5073
 - [x] 3.2 Complete authoritative PR review and delivery — 2ec3b1ada
+
+### Phase 4: Business-language eval refinement
+
+- [ ] 4.1 Generalize the OMH-130 user prompt while retaining autonomous safety decisions
+- [ ] 4.2 Re-run focused and configured validation, then complete authoritative review
