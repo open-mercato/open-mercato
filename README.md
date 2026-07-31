@@ -470,6 +470,8 @@ What’s included:
 - Priority technical support channel
 - Platform Continuity - access to security patches and new features
 
+  
+
 Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
