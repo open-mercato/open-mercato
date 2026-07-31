@@ -24,6 +24,7 @@ export type AgentOrchestratorSeedScope = { tenantId: string; organizationId: str
 const DEMO_AGENT_ID = 'deals.health_check'
 
 const DEMO_WORKFLOW_FILE = 'deals-health-check-workflow.json'
+const REFUND_TRIAGE_WORKFLOW_FILE = 'refund-triage-workflow.json'
 
 /** Stable demo deals so a workflow/playground run always has data to act on. */
 const DEMO_DEALS = [
@@ -132,19 +133,21 @@ function verifyDemoAgent(): void {
 }
 
 /**
- * Idempotent upsert of the demo workflow definition (find by workflowId in scope,
- * create-if-absent). Mirrors `workflows/lib/seeds.ts`; resolves the workflows
- * entity lazily so agent_orchestrator does not hard-depend on the optional peer.
+ * Idempotent seed of an example workflow definition from a bundled JSON file
+ * (find by workflowId in scope, create-if-absent). Mirrors `workflows/lib/seeds.ts`;
+ * resolves the workflows entity lazily so agent_orchestrator does not hard-depend
+ * on the optional peer.
  */
-async function seedDealsHealthCheckWorkflow(
+async function seedWorkflowDefinitionFile(
   em: EntityManager,
   scope: AgentOrchestratorSeedScope,
+  fileName: string,
 ): Promise<boolean> {
   const entities = (await import(
     '@open-mercato/core/modules/workflows/data/entities'
   )) as typeof import('@open-mercato/core/modules/workflows/data/entities')
 
-  const seed = readExampleJson<WorkflowSeedDefinition>(DEMO_WORKFLOW_FILE)
+  const seed = readExampleJson<WorkflowSeedDefinition>(fileName)
   const workflowId = requireString(seed.workflowId, 'workflowId')
 
   const existing = await em.findOne(entities.WorkflowDefinition, {
@@ -316,7 +319,8 @@ export async function seedAgentOrchestratorExamples(
   scope: AgentOrchestratorSeedScope,
 ): Promise<void> {
   verifyDemoAgent()
-  await seedDealsHealthCheckWorkflow(em, scope)
+  await seedWorkflowDefinitionFile(em, scope, DEMO_WORKFLOW_FILE)
+  await seedWorkflowDefinitionFile(em, scope, REFUND_TRIAGE_WORKFLOW_FILE)
   await seedDemoDeals(container, scope)
   await seedDealsHealthCheckEval(container, scope)
 }
