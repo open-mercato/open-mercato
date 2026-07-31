@@ -19,20 +19,15 @@ identity and registration data everywhere it appears in legal copy.
 | KRS / company no. | 873910 | 0001253104 |
 | NIP / EU VAT no. | PL8982262377 | PL8982336029 |
 | REGON | (not stated) | 545230330 |
-| Share capital | PLN 5,000.00 | **omitted** — no figure was supplied for the new entity |
+| Share capital | PLN 5,000.00 | PLN 80,000.00 |
 | Contact email | info@catchthetornado.com | info@openmercato.com |
 
 **Decisions recorded (autonomous run, no user in the loop):**
 
-1. **Share capital is dropped rather than carried over — with a caveat the owner must resolve.** The
-   old figure (PLN 5,000.00) belongs to the old entity and the brief supplied no figure for Open
-   Mercato sp. z o.o., so restating an unverified share capital in a binding document is worse than
-   omitting it; Polish law does not require it in the body of terms of service.
-   **However**, the already-merged `onboarding.form.legalEntity` string (PR #4751) *does* assert
-   "a share capital of PLN 5,000.00, fully paid" for Open Mercato sp. z o.o. So the repository is now
-   inconsistent: one legal surface states a share capital and these documents omit it. Exactly one of
-   two follow-ups is needed, and it is a human legal decision: either confirm PLN 5,000.00 is correct
-   for the new entity and add it here, or correct the onboarding string. Flagged prominently on the PR.
+1. **Share capital is PLN 80,000.00.** The owner confirmed this figure while the PR was awaiting QA.
+   The rendered Terms and Privacy pages and the CLA retain the share-capital disclosure that existed
+   for the old entity, now with the confirmed amount. The onboarding legal-entity disclosure and its
+   four locale variants are corrected from the superseded PLN 5,000.00 figure in the same follow-up.
 2. **"CTT" is expanded to "Open Mercato" rather than re-abbreviated to "OM".** The Terms define the
    short term once and then use it ~65 times. "Open Mercato" is already the product name used
    throughout the same document, so a single consistent term removes an abbreviation the reader has
@@ -54,6 +49,8 @@ In scope — documents that make a legal-entity statement:
 - `packages/enterprise/LICENSE.md` (commercial-licence grantor)
 - `.ai/specs/LICENSE.md` (commercial-licence grantor)
 - `SECURITY.md` (vulnerability-disclosure contact address)
+- `packages/onboarding/src/modules/onboarding/` legal-entity disclosure copy and its locale regression
+  coverage, because PR #4751 had carried over the old entity's PLN 5,000.00 capital figure
 
 ## Non-goals
 
@@ -63,9 +60,9 @@ In scope — documents that make a legal-entity statement:
 - **`ADMIN_EMAIL` fallbacks (`piotr@catchthetornado.com`) in the onboarding module.** These are
   operational environment defaults, not legal-entity statements, and changing them would silently
   redirect demo-feedback and onboarding notification mail. Raised in the PR body.
-- **The onboarding marketing-consent strings.** Already migrated on `main` by PR #4751
+- **The onboarding marketing-consent controller names.** Already migrated on `main` by PR #4751
   (`fix(onboarding): name Open Mercato sp. z o.o. as the marketing-consent controller`), merged
-  2026-07-31. Verified as already correct rather than changed again.
+  2026-07-31. Only the legal-entity disclosure's now-confirmed share-capital amount changes here.
 - Re-dating the documents ("Effective as of January 1, 2026"). The effective dates are a legal
   decision for the user, not a mechanical consequence of the entity change.
 
@@ -105,3 +102,13 @@ PR: #4755
 
 - [x] 4.1 Run the full validation gate — green except a pre-existing, unrelated `i18n:check-usage` failure (2 missing keys in `packages/ui/src/backend/fields/phone.tsx`, present on `main`, untouched by this PR)
 - [x] 4.2 Run `om-auto-review-pr` and apply any resulting fixes — no code fixes required; review surfaced two human legal decisions (CLA counterparty, share-capital inconsistency) recorded on the PR
+
+### Phase 5: Confirmed share-capital correction
+
+- [x] 5.1 Publish the confirmed PLN 80,000.00 share capital across Terms, Privacy, the CLA, and onboarding disclosure locales — 2f650fb20
+- [x] 5.2 Extend content and onboarding regression coverage for the confirmed amount — 2f650fb20
+
+### Phase 6: Revalidation and delivery
+
+- [ ] 6.1 Re-run the full configured validation gate
+- [ ] 6.2 Re-run `om-auto-review-pr` and apply any resulting fixes
