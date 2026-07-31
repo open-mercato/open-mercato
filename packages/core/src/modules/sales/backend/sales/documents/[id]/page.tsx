@@ -27,6 +27,8 @@ import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store,
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -37,6 +39,7 @@ import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/s
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
@@ -3976,23 +3979,14 @@ export default function SalesDocumentDetailPage({
   ]
 
   const renderEmailDisplay = React.useCallback(
-    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => {
-      const emailValue = typeof value === 'string' ? value.trim() : ''
-      if (!emailValue.length) {
-        return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-      }
-      return (
-        <a
-          className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline"
-          href={`mailto:${emailValue}`}
-        >
-          <Mail className="h-4 w-4" aria-hidden />
-          <span className="truncate">{emailValue}</span>
-        </a>
-      )
-    },
+    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => (
+      <ContactEmailDisplay value={value} emptyLabel={emptyLabel} />
+    ),
     []
   )
+
+  const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  const canComposeMessages = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, 'messages.compose')
 
   const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
@@ -4575,25 +4569,27 @@ export default function SalesDocumentDetailPage({
           backLabel={t('sales.documents.detail.back', 'Back to documents')}
           utilityActions={record ? (
             <>
-              <SendObjectMessageDialog
-                object={{
-                  entityModule: 'sales',
-                  entityType: kind,
-                  entityId: record.id,
-                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
-                  sourceEntityId: record.id,
-                  previewData: {
-                    title: number,
-                    status: statusDisplay?.label ?? record?.status ?? undefined,
-                    metadata: Object.keys(messagePreviewMetadata).length > 0 ? messagePreviewMetadata : undefined,
-                  },
-                }}
-                viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
-                defaultValues={{
-                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
-                  sourceEntityId: record.id,
-                }}
-              />
+              {canComposeMessages ? (
+                <SendObjectMessageDialog
+                  object={{
+                    entityModule: 'sales',
+                    entityType: kind,
+                    entityId: record.id,
+                    sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                    sourceEntityId: record.id,
+                    previewData: {
+                      title: number,
+                      status: statusDisplay?.label ?? record?.status ?? undefined,
+                      metadata: Object.keys(messagePreviewMetadata).length > 0 ? messagePreviewMetadata : undefined,
+                    },
+                  }}
+                  viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
+                  defaultValues={{
+                    sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                    sourceEntityId: record.id,
+                  }}
+                />
+              ) : null}
               <VersionHistoryAction
                 config={{
                   resourceKind: kind === 'order' ? 'sales.order' : 'sales.quote',

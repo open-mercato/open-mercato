@@ -27,6 +27,9 @@ import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import type { SalesLineUomSnapshot } from "../../lib/types";
+import { useInjectionDataWidgets } from "@open-mercato/ui/backend/injection/useInjectionDataWidgets";
+import type { InjectionColumnDefinition } from "@open-mercato/shared/modules/widgets/injection";
+import { OrderItemsInjectionContext } from "../../widgets/injection/order-items-context";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -110,6 +113,19 @@ function getUomFields(item: Record<string, unknown>) {
   };
 }
 
+function resolveInjectedColumnValue(
+  row: Record<string, unknown>,
+  accessorKey: string,
+): unknown {
+  const segments = accessorKey.split(".").filter(Boolean);
+  let current: unknown = row;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
 type SalesDocumentItemsSectionProps = {
   documentId: string;
   kind: "order" | "quote";
@@ -147,6 +163,22 @@ export function SalesDocumentItemsSection({
   const [shippedTotals, setShippedTotals] = React.useState<Map<string, number>>(
     new Map(),
   );
+
+  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+    "data-table:sales.order.items:columns",
+  );
+  const columnWidgets = kind === "order" ? allColumnWidgets : [];
+  const injectedColumns = React.useMemo<InjectionColumnDefinition[]>(() => {
+    const cols: InjectionColumnDefinition[] = [];
+    for (const widget of columnWidgets) {
+      if (!("columns" in widget)) continue;
+      for (const def of (widget as { columns?: InjectionColumnDefinition[] })
+        .columns ?? []) {
+        cols.push(def);
+      }
+    }
+    return cols;
+  }, [columnWidgets]);
 
   const resourcePath = React.useMemo(
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
@@ -575,6 +607,7 @@ export function SalesDocumentItemsSection({
   };
 
   return (
+    <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
       {loading ? (
         <LoadingMessage
@@ -615,6 +648,14 @@ export function SalesDocumentItemsSection({
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.total", "Total")}
                 </th>
+                {injectedColumns.map((col) => (
+                  <th
+                    key={col.id}
+                    className="px-3 py-2 font-medium whitespace-nowrap"
+                  >
+                    {col.headerKey ? t(col.headerKey, col.header) : col.header}
+                  </th>
+                ))}
                 <th className="px-3 py-2 font-medium sr-only">
                   {t("sales.documents.items.table.actions", "Actions")}
                 </th>
@@ -770,6 +811,22 @@ export function SalesDocumentItemsSection({
                         </span>
                       </div>
                     </td>
+                    {injectedColumns.map((col) => {
+                      const colValue = resolveInjectedColumnValue(
+                        item as unknown as Record<string, unknown>,
+                        col.accessorKey,
+                      );
+                      const Cell = col.cell;
+                      return (
+                        <td
+                          key={col.id}
+                          className="px-3 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {Cell ? <Cell getValue={() => colValue} /> : null}
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
                         <Button
@@ -838,5 +895,6 @@ export function SalesDocumentItemsSection({
       />
       {ConfirmDialogElement}
     </div>
+    </OrderItemsInjectionContext.Provider>
   );
 }
