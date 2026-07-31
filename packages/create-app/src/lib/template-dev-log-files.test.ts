@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 function makeTempDir(prefix = 'template-dev-log-files-') {
@@ -19,14 +20,23 @@ function rmTempDir(dir) {
 
 const moduleResourceUsageOutputPrefix = '__OM_MODULE_RESOURCE_USAGE_DIR__'
 
-function runTemplateDevWrapper(override?: string) {
-  const devScriptPath = new URL('../../template/scripts/dev.mjs', import.meta.url)
+function runTemplateDevWrapper({
+  envFiles = {},
+  shellOverride,
+}: {
+  envFiles?: Record<string, string>
+  shellOverride?: string
+} = {}) {
+  const devScriptPath = fileURLToPath(new URL('../../template/scripts/dev.mjs', import.meta.url))
   const tempDir = makeTempDir('template-module-resource-usage-dir-')
   const runtimeScriptPath = path.join(tempDir, 'scripts', 'dev-runtime.mjs')
   fs.mkdirSync(path.dirname(runtimeScriptPath), { recursive: true })
   fs.writeFileSync(runtimeScriptPath, [
     `console.log('${moduleResourceUsageOutputPrefix}' + JSON.stringify(process.env.OM_MODULE_RESOURCE_USAGE_DIR ?? null))`,
   ].join('\n'))
+  for (const [fileName, contents] of Object.entries(envFiles)) {
+    fs.writeFileSync(path.join(tempDir, fileName), contents)
+  }
 
   const env = {
     ...process.env,
@@ -36,12 +46,12 @@ function runTemplateDevWrapper(override?: string) {
     OM_DEV_SPLASH_PORT: 'off',
   }
   delete env.OM_MODULE_RESOURCE_USAGE_DIR
-  if (override !== undefined) {
-    env.OM_MODULE_RESOURCE_USAGE_DIR = override
+  if (shellOverride !== undefined) {
+    env.OM_MODULE_RESOURCE_USAGE_DIR = shellOverride
   }
 
   try {
-    const result = spawnSync(process.execPath, [devScriptPath.pathname], {
+    const result = spawnSync(process.execPath, [devScriptPath], {
       cwd: tempDir,
       env,
       encoding: 'utf8',
@@ -75,10 +85,41 @@ test('standalone template dev wrapper defaults module resource snapshots below i
 })
 
 test('standalone template dev wrapper preserves an explicit module resource snapshot directory', () => {
-  const override = './custom-module-resource-usage'
-  const result = runTemplateDevWrapper(override)
+  const shellOverride = './custom-module-resource-usage'
+  const result = runTemplateDevWrapper({ shellOverride })
   try {
-    assert.equal(result.value, override)
+    assert.equal(result.value, shellOverride)
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
+
+test('standalone template dev wrapper uses the highest-priority non-empty app env-file value', () => {
+  const result = runTemplateDevWrapper({
+    envFiles: {
+      '.env': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-env\n',
+      '.env.development': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-development\n',
+      '.env.local': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-local\n',
+      '.env.development.local': 'OM_MODULE_RESOURCE_USAGE_DIR="./from-development-local with spaces" # keep parsed value\n',
+    },
+  })
+  try {
+    assert.equal(result.value, './from-development-local with spaces')
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
+
+test('standalone template dev wrapper preserves a non-empty shell value over app env files', () => {
+  const shellOverride = ' ./from-shell with spaces '
+  const result = runTemplateDevWrapper({
+    envFiles: {
+      '.env.development.local': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-app-env\n',
+    },
+    shellOverride,
+  })
+  try {
+    assert.equal(result.value, shellOverride)
   } finally {
     rmTempDir(result.tempDir)
   }

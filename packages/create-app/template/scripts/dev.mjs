@@ -553,15 +553,61 @@ function buildSplashChildEnv(options = {}) {
   }
 }
 
-function resolveLocalDevModuleResourceUsageDir() {
-  const configuredDir = process.env.OM_MODULE_RESOURCE_USAGE_DIR
-  if (typeof configuredDir === 'string' && configuredDir.trim() !== '') {
-    return configuredDir
+const localDevEnvFileNames = [
+  '.env',
+  '.env.development',
+  '.env.local',
+  '.env.development.local',
+]
+
+function parseEnvFileValue(source, key) {
+  const linePattern = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg
+  let resolvedValue
+
+  for (const match of String(source).replace(/\r\n?/mg, '\n').matchAll(linePattern)) {
+    if (match[1] !== key) continue
+
+    let value = (match[2] ?? '').trim()
+    const quote = value[0]
+    value = value.replace(/^(['"`])([\s\S]*)\1$/mg, '$2')
+    if (quote === '"') {
+      value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r')
+    }
+    resolvedValue = value
   }
 
+  return resolvedValue
+}
+
+function resolveLocalDevEnvFileValue(appDir, key) {
+  let resolvedValue
+
+  for (const fileName of localDevEnvFileNames) {
+    try {
+      const fileValue = parseEnvFileValue(fs.readFileSync(path.join(appDir, fileName), 'utf8'), key)
+      if (fileValue !== undefined) {
+        resolvedValue = fileValue
+      }
+    } catch {}
+  }
+
+  return resolvedValue
+}
+
+function resolveLocalDevModuleResourceUsageDir() {
   const appDir = isMonorepo
     ? path.join(process.cwd(), 'apps', 'mercato')
     : process.cwd()
+  const shellValue = process.env.OM_MODULE_RESOURCE_USAGE_DIR
+  if (typeof shellValue === 'string' && shellValue.trim() !== '') {
+    return shellValue
+  }
+
+  const envFileValue = resolveLocalDevEnvFileValue(appDir, 'OM_MODULE_RESOURCE_USAGE_DIR')
+  if (typeof envFileValue === 'string' && envFileValue.trim() !== '') {
+    return envFileValue
+  }
+
   return path.join(appDir, '.mercato', 'next', 'module-resource-usage')
 }
 
