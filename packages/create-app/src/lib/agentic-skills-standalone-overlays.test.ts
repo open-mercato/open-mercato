@@ -369,12 +369,19 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     new URL('../../agentic/guides/spec-delivery.md', import.meta.url),
     'utf8',
   )
+  const implementationSkill = readOverrideSkill('om-implement-spec')
+  const backendGuide = fs.readFileSync(
+    new URL('../../agentic/guides/backend-ui.md', import.meta.url),
+    'utf8',
+  )
 
   const requiredSections = [
     '## Goals',
     '## Non-goals',
     '## Users, Permissions, and Scope',
+    '## Domain Vocabulary and Business Rules',
     '## Reuse and Ownership Map',
+    '## Architecture and Data Flow',
     '## UI and Interaction Contracts',
     '## API, Command, and Error Contracts',
     '## Security, Privacy, and Compliance',
@@ -394,8 +401,11 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     '`DataTable`',
     '`CrudForm`',
     'loading, empty, error, conflict',
+    'Closest installed reference',
+    'light-mode, and dark-mode states',
     'Only the current phase may enter implementation',
     'self-contained integration coverage',
+    '## Final Readiness and Compliance Report',
     'Status: Ready for implementation',
   ]) {
     assert.ok(specTemplate.includes(contract), `The standalone spec template must retain: ${contract}`)
@@ -415,6 +425,27 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     deliveryGuide,
     /If no remote\/tracker exists,[\s\S]*invoke local `om-implement-spec` phase-by-phase/,
     'the routed delivery guide must use the local phase engine when PR delivery is unavailable',
+  )
+  for (const contract of [
+    'actually invoke `om-backend-ui-design`',
+    'raw backend tables/forms/fetch',
+    'hard-coded palette/status colors',
+    'light and dark mode',
+  ]) {
+    assert.ok(deliveryGuide.includes(contract), `the delivery guide must retain UI parity gate: ${contract}`)
+  }
+  for (const contract of [
+    '`DataTable`/`CrudForm`',
+    'shared API helpers',
+    'semantic tokens',
+    'light-only styling require an approved spec exception',
+  ]) {
+    assert.ok(implementationSkill.includes(contract), `the implementation skill must retain UI parity gate: ${contract}`)
+  }
+  assert.match(
+    backendGuide,
+    /`DataTable` has no `apiPath` prop/,
+    'backend guidance must not send agents toward a nonexistent DataTable apiPath prop',
   )
 })
 

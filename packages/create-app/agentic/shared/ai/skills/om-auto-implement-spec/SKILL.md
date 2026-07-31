@@ -6,13 +6,13 @@ Everything tracker-facing uses the operations and guards from `.ai/trackers/gith
 
 ## 1. Audit the resolved spec before choosing an engine
 
-After resolving the spec and before creating implementation tasks, read `.ai/specs/SPEC-000-template.md` and `.ai/skills/om-implement-spec/references/phases-and-gates.md`, then run the complete readiness audit. The spec must be `Ready for implementation`, have no blocking open questions, map every requirement to an acceptance criterion/phase/self-contained test oracle, define every affected UI and API contract, and give every phase dependencies plus an observable exit gate.
+After resolving the spec and before creating implementation tasks, read `.ai/specs/SPEC-000-template.md` and `.ai/skills/om-implement-spec/references/phases-and-gates.md`, then run the complete readiness audit. The spec must be `Ready for implementation`, have no blocking open questions, map every requirement to an acceptance criterion/phase/self-contained test oracle, define every affected UI and API contract, and give every phase dependencies plus an observable exit gate. UI contracts must cite an installed reference and require the platform shell/components, shared API helpers, semantic tokens, and light/dark plus responsive state coverage.
 
 An incomplete or `Draft` spec is not an engine plan. Stop implementation, report the missing readiness items, and route revision through `om-spec-writing`; never fill the gaps inside generated agent prompts.
 
 ## 2. Preserve phase dependencies in PR delivery
 
-When a remote and tracker are available, keep the external PR workflow but seed its execution plan from the spec phases. Only the current unblocked phase may be in progress. Parallel agents may own independent slices inside that phase only, and each brief must name routed guides/skills, canonical primitives, acceptance IDs, owned files, and a validation oracle. A phase advances only after its integration paths and exit gate pass.
+When a remote and tracker are available, keep the external PR workflow but seed its execution plan from the spec phases. Only the current unblocked phase may be in progress. Parallel agents may own independent slices inside that phase only, and each brief must name routed guides/skills, closest installed reference, canonical primitives, acceptance IDs, owned files, and a validation oracle. Invoke routed skills before delegation, including `om-backend-ui-design` for rendered surfaces. A phase advances only after its integration paths and exit gate pass.
 
 Do not launch one agent per future module, mark blocked phases in progress, or treat generated files/typecheck as proof that a business slice is implemented.
 

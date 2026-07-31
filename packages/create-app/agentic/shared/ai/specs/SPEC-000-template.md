@@ -13,6 +13,13 @@
 
 {Current workflow, concrete pain, evidence, affected users, and why existing behavior is insufficient.}
 
+## Overview and Success Measures
+
+- **Primary outcome:** {Measurable business result and target.}
+- **Leading indicators:** {Signals available before the final outcome.}
+- **Baseline:** {Current measurable state or `unknown — measurement plan`.}
+- **Market / product reference:** {Comparable product or workflow studied; what is adopted, rejected, and why.}
+
 ## Goals
 
 - **REQ-001** — {Observable business outcome.}
@@ -21,6 +28,14 @@
 ## Non-goals
 
 - {Explicitly excluded behavior, module, integration, or migration.}
+
+## Domain Vocabulary and Business Rules
+
+| Term / invariant | Precise meaning or rule | Source of truth | Failure behavior |
+|---|---|---|---|
+| {term} | {one unambiguous meaning, formula, lifecycle, or constraint} | {module/entity/provider} | {reject/degrade/retry/audit} |
+
+Define fields, states, transitions, calculations, ownership, and invariants precisely enough that implementation does not need to invent domain behavior.
 
 ## Users, Permissions, and Scope
 
@@ -38,6 +53,18 @@ Document how trusted `tenantId` and `organizationId` are derived. Describe any l
 
 Name the installed records that remain the source of truth. Do not duplicate CRM, auth, directory, notification, workflow, or other installed capabilities in app-owned entities.
 
+## Architecture and Data Flow
+
+```text
+{actor/surface} -> {API/command} -> {owning entity}
+                                  -> {event/subscriber/integration}
+```
+
+- **Module boundaries:** {Why each new module owns a distinct invariant; merge modules that must remain transactionally consistent.}
+- **Extension points:** {Installed page/menu/widget/enricher/interceptor/event seams used instead of modifying installed code.}
+- **Alternatives considered:** {Simpler platform-native alternative and why it was not selected.}
+- **Compatibility:** {Existing API/data/UI behavior that must remain stable.}
+
 ## User Journeys
 
 ### Journey J-001 — {Name}
@@ -49,11 +76,21 @@ Name the installed records that remain the source of truth. Do not duplicate CRM
 
 ## UI and Interaction Contracts
 
-List every new or changed page before implementation. Tabular admin data uses `DataTable`; CRUD create/edit surfaces use `CrudForm`. Any exception needs an explicit rationale and approval in this section.
+List every new or changed page before implementation. Inspect the closest existing Open Mercato page and `.ai/guides/backend-ui.md`; record that reference below. Tabular admin data uses `DataTable`, CRUD create/edit surfaces use `CrudForm`, and backend reads use the shared API helpers. Any custom page or component exception needs an explicit rationale and approval in this section.
 
-| Surface / route | Purpose and primary actions | Data source / mutations | Canonical components | Required states | Requirement IDs |
-|---|---|---|---|---|---|
-| `/backend/{route}` | {list/create/edit/etc.} | `{API paths / command IDs}` | `Page`, `DataTable`, `CrudForm`, {others} | loading, empty, error, conflict, success, permission denied | REQ-001 |
+| Surface / route | Purpose and primary actions | Data source / mutations | Closest installed reference | Canonical shell / components | Required states | Requirement IDs |
+|---|---|---|---|---|---|---|
+| `/backend/{route}` | {list/create/edit/etc.} | `{API paths / command IDs}` | `{module/path or component family}` | `Page`, `PageBody`, `DataTable`, `CrudForm`, {others} | loading, empty, error, conflict, success, permission denied | REQ-001 |
+
+### UI architecture
+
+| Role | Navigation groups in order | Dashboard / injected widgets | Login-to-primary-task flow |
+|---|---|---|---|
+| {role} | {group → item} | {widget, host, click-through} | {page → action → result; target ≤3 clicks} |
+
+| Surface / widget | Empty state guidance and action | Responsive behavior | Keyboard / focus behavior |
+|---|---|---|---|
+| {surface} | {localized explanation + next action} | {narrow/mobile layout} | {focus order, submit/cancel, announcements} |
 
 ### `/backend/{route}` — {Page name}
 
@@ -71,6 +108,9 @@ List every new or changed page before implementation. Tabular admin data uses `D
 - **Behavior:** {sorting/filtering/pagination, validation, keyboard behavior, navigation, destructive confirmation, optimistic-lock conflict recovery.}
 - **Responsive and accessibility:** {focus order, labels, screen-reader status, small-screen behavior.}
 - **Localization:** {translation namespaces and dynamic values.}
+- **Design-system and theming:** {semantic tokens and shared primitives; verify light and dark mode, contrast, reduced motion, and no hard-coded palette/status colors.}
+
+For backend UI, implementation must invoke `om-backend-ui-design` and follow `.ai/guides/backend-ui.md`. Raw `<table>`, raw admin `<form>`, raw `fetch`, copied component families, arbitrary Tailwind values, hard-coded light-only colors, and manual `dark:` patches fail readiness unless the approved contract explains why the platform primitive cannot support the interaction. A custom calendar, board, or clinical workspace may be justified, but its surrounding shell, controls, status treatment, dialogs, states, and tokens remain platform-native.
 
 ## Data Models
 
@@ -126,17 +166,21 @@ Phases are dependency ordered. Only the current phase may enter implementation; 
 
 - **Depends on:** none
 - **Outcome:** {user-visible or independently verifiable result}
+- **Why this order / value delivered:** {dependency and measurable business value available at phase completion}
 - **Deliverables:** {specific entities, commands, routes, pages, subscribers, migrations}
+- **Independent slices / estimated commits:** {bounded work that may run in parallel inside this phase only}
 - **Requirements closed:** REQ-001
 - **Tests:** TEST-001, TEST-002
 - **Validation:** `yarn generate`, {focused typecheck/tests/integration paths}
-- **Exit gate:** {observable criteria proving this phase works end to end}
+- **Exit gate:** {observable criteria proving this phase works end to end, including affected UI in light/dark and narrow-width states}
 
 ### Phase 2 — {Next complete vertical slice}
 
 - **Depends on:** Phase 1 exit gate
 - **Outcome:** {result}
+- **Why this order / value delivered:** {dependency and measurable business value}
 - **Deliverables:** {specific files/seams}
+- **Independent slices / estimated commits:** {bounded work inside this phase}
 - **Requirements closed:** REQ-002
 - **Tests:** TEST-003
 - **Validation:** {focused commands}
@@ -160,12 +204,27 @@ Every requirement must map to a phase, at least one test oracle, and a measurabl
 |---|---|---|---|
 | {risk} | {impact} | {test/metric/guard} | {accepted remainder} |
 
+Cover data integrity and concurrency, cascading/event failures, tenant isolation and privacy, migration/rollback, external-service degradation, scale/storage, and operational detection. Do not use “standard risks” as a substitute for concrete failure scenarios.
+
 ## Acceptance Criteria
 
 - [ ] **AC-001** — {Measurable end-to-end result, including actor and scope.}
 - [ ] **AC-002** — {Measurable failure/safety result.}
-- [ ] Every listed backend surface uses the canonical component from its UI contract, including complete loading, empty, error, conflict, keyboard, and accessibility states.
+- [ ] Every listed backend surface matches its recorded Open Mercato reference and uses the canonical shell/components, shared API helpers, semantic tokens, and complete loading, empty, error, conflict, keyboard, accessibility, responsive, light-mode, and dark-mode states.
 - [ ] Every affected API and UI path has self-contained integration coverage and the configured validation gate passes.
+
+## Final Readiness and Compliance Report
+
+| Check | Status | Evidence / resolution |
+|---|---|---|
+| Applicable `AGENTS.md` files and routed guides/skills reviewed | pass/fail | {paths} |
+| Data models, APIs, events, UI, and tests are internally consistent | pass/fail | {traceability rows} |
+| Every workflow completes end to end without a catch-all integration phase | pass/fail | {journeys/phases} |
+| Platform-native reuse and extension points were chosen before custom code | pass/fail | {reuse decisions} |
+| UI contracts identify references, canonical components, and theme/state coverage | pass/fail | {surfaces} |
+| Every phase has dependencies, bounded slices, tests, value, and an observable exit gate | pass/fail | {phases} |
+
+Verdict must be exactly `Ready for implementation` or `Blocked — {unresolved items}`. The document status may change to ready only when every row passes.
 
 ## Open Questions
 
