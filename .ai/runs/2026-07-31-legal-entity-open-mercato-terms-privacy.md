@@ -24,10 +24,15 @@ identity and registration data everywhere it appears in legal copy.
 
 **Decisions recorded (autonomous run, no user in the loop):**
 
-1. **Share capital is dropped rather than carried over.** The old figure (PLN 5,000.00) belongs to the
-   old entity and no figure was supplied for Open Mercato sp. z o.o. Restating an unverified share
-   capital in a binding legal document is worse than omitting it; Polish law does not require it in
-   the body of terms of service. Flagged in the PR for the user to add later if desired.
+1. **Share capital is dropped rather than carried over — with a caveat the owner must resolve.** The
+   old figure (PLN 5,000.00) belongs to the old entity and the brief supplied no figure for Open
+   Mercato sp. z o.o., so restating an unverified share capital in a binding document is worse than
+   omitting it; Polish law does not require it in the body of terms of service.
+   **However**, the already-merged `onboarding.form.legalEntity` string (PR #4751) *does* assert
+   "a share capital of PLN 5,000.00, fully paid" for Open Mercato sp. z o.o. So the repository is now
+   inconsistent: one legal surface states a share capital and these documents omit it. Exactly one of
+   two follow-ups is needed, and it is a human legal decision: either confirm PLN 5,000.00 is correct
+   for the new entity and add it here, or correct the onboarding string. Flagged prominently on the PR.
 2. **"CTT" is expanded to "Open Mercato" rather than re-abbreviated to "OM".** The Terms define the
    short term once and then use it ~65 times. "Open Mercato" is already the product name used
    throughout the same document, so a single consistent term removes an abbreviation the reader has
@@ -97,4 +102,4 @@ In scope — documents that make a legal-entity statement:
 ### Phase 4: Validation and delivery
 
 - [x] 4.1 Run the full validation gate — green except a pre-existing, unrelated `i18n:check-usage` failure (2 missing keys in `packages/ui/src/backend/fields/phone.tsx`, present on `main`, untouched by this PR)
-- [ ] 4.2 Run `om-auto-review-pr` and apply any resulting fixes
+- [x] 4.2 Run `om-auto-review-pr` and apply any resulting fixes — no code fixes required; review surfaced two human legal decisions (CLA counterparty, share-capital inconsistency) recorded on the PR
