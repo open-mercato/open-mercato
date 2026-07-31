@@ -11,6 +11,14 @@ administrator, visits an authenticated backend page, changes a standalone module
 source file, observes hot reload without a server restart, and retains a profiler
 report.
 
+**Current outcome (2026-07-31): not accepted.** The telemetry relocation implemented
+on this branch by Task 3 removes recurring five-second rebuilds and lowers median sustained RSS,
+but the corrected production-candidate median regresses both mandatory peak
+metrics. Balanced follow-up controls identify automatic targeted warmup as a major
+first-compile amplifier, yet suppression still misses both ceilings. Current
+Next 16.2.x source/config candidates are exhausted; the next high-signal step is a
+Next 16.3 preview dependency/toolchain trial, which requires explicit approval.
+
 This capability is intentionally separate from the monorepo profiling harness in
 `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md`. It reuses that harness through
 its public `--pid` seam but owns standalone fixture creation, workflow automation,
@@ -83,7 +91,9 @@ The MVP is all four phases in this specification: one reproducible baseline, one
 confirmed root-cause intervention, one minimal test-first implementation, and one
 accepted three-run candidate result. Baseline and attribution alone are not the
 requested deliverable, and a production change without the three-run acceptance
-result is not complete.
+result is not complete. Tasks 1–4 completed the workflow but failed the final peak
+gate, so the MVP remains open rather than retroactively accepting the telemetry
+sub-fix.
 
 Deferred work includes a permanent CI memory-regression gate, a reusable browser
 scenario package, other operating systems, broader route matrices, and every
@@ -179,7 +189,7 @@ No production file changes before the baseline evidence identifies:
 The exact production and test file manifest is written to the run folder before
 implementation.
 
-Production implementation is blocked until the spec is amended with:
+Production implementation must not begin until the spec is amended with:
 
 - the confirmed hypothesis and measured experiment delta;
 - the exact production and regression-test files;
@@ -189,7 +199,7 @@ Production implementation is blocked until the spec is amended with:
 - intervention-specific acceptance criteria;
 - an updated compliance report covering every newly relevant `AGENTS.md`.
 
-### Phase 2 root-cause amendment — confirmed 2026-07-30
+### Phase 2 telemetry sub-cause amendment — confirmed 2026-07-30
 
 The confirmed hypothesis is:
 
@@ -306,6 +316,124 @@ disposable and already covered by dev-cache reset.
 The one-run experiment is not final acceptance: 7,397.08 MB is 330.93 MB above the
 primary total-process-tree ceiling.
 
+### Task 4 correction and follow-up attribution — 2026-07-31
+
+The telemetry relocation passed its functional and path assertions but failed the
+unchanged peak gates in three rebuilt, republished, fixture-equivalent runs:
+
+| Run | Raw report | Peak total | Mean total | Maximum `next-turbopack` | Peak `next-server` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | `.mercato/dev-rss/candidate-1.json` | 10,611.17 MB | 6,656.76 MB | 9,272.87 MB | 8,833.23 MB |
+| 2 | `.mercato/dev-rss/candidate-2.json` | 10,396.86 MB | 5,657.47 MB | 9,031.45 MB | 8,411.98 MB |
+| 3 | `.mercato/dev-rss/candidate-3.json` | 9,758.31 MB | 6,329.72 MB | 8,929.55 MB | 7,926.23 MB |
+| **Median** | — | **10,396.86 MB** | **6,329.72 MB** | **9,031.45 MB** | **8,411.98 MB** |
+
+The artifact prefix is
+`/private/tmp/open-mercato-standalone-memory-baseline/`. The total peak regressed
+2.995% from the 10,094.50 MB baseline and exceeded the 7,066.15 MB ceiling by
+3,330.71 MB. The maximum `next-turbopack` median regressed 14.199% from
+7,908.54 MB and exceeded the 5,535.978 MB ceiling by 3,495.472 MB. Median mean
+improved 32.885%, median Fast Refresh count fell from 36 to 5, the recurring
+five-second cadence disappeared, and all browser/PID/telemetry-path checks passed.
+This proves telemetry relocation is a sustained-memory and rebuild fix, not the
+accepted peak intervention.
+
+The best mode, warmup suppression, was then rerun under the acceptance runtime.
+Every dev, profiler, and headed-browser command prepended the Node 24.13.1
+executable directory to `PATH`; every first profiler sample proved the Node 24 root
+and Next-launcher executable before browser traffic. An empty-cache preparatory
+seed completed hydrated login HTTP 200, protected rendering, A-to-B HMR, and a
+15-second settle. Its 57-file cache and SHA-256 manifest are retained under
+`.mercato/dev-rss/cache-snapshots/turbopack-node24-suppressed-seed-2026-07-31/`.
+Each measured run was an exact seed clone with normal topology and the full
+180-second, one-second-interval headed workflow:
+
+| Run | Raw report | Peak total | Maximum `next-turbopack` | HMR |
+| --- | --- | ---: | ---: | ---: |
+| 1 | `.mercato/dev-rss/experiment-node24-suppressed-repeat1.json` | 7,357.36 MB | 6,221.24 MB | 4.815 s |
+| 2 | `.mercato/dev-rss/experiment-node24-suppressed-repeat2.json` | 7,920.43 MB | 7,288.54 MB | 6.316 s |
+| 3 | `.mercato/dev-rss/experiment-node24-suppressed-repeat3.json` | 8,501.47 MB | 6,914.57 MB | 3.811 s |
+| **Median** | — | **7,920.43 MB** | **6,914.57 MB** | **4.815 s** |
+
+The acceptance median misses the 7,066.15 MB total ceiling by 854.28 MB and the
+5,535.978 MB class ceiling by 1,378.592 MB. Warmup is a confirmed amplifier, but
+suppression is not sufficient.
+
+For directional attribution only, a Node 25.3.0 balanced warm-seed sequence ran
+`suppressed → login-only → full → full →
+login-only → suppressed`, with every arm cloned from the same retained A2
+Turbopack seed and every run retaining login, protected probe, normal background
+topology, A-to-B HMR, and 180 seconds of one-second samples:
+
+All six follow-up profiler artifacts record Node 25.3.0. The required baseline and
+production-candidate runtime contract used Node 24.13.1. The warmup sequence is internally balanced
+and valid for relative S/L/F attribution, but it is not acceptance-equivalent to
+the Node 24 baseline; its absolute ceiling comparisons are directional only.
+
+| Targeted warmup mode | Median peak total | Median mean total | Median maximum `next-turbopack` | Median maximum `next-server` |
+| --- | ---: | ---: | ---: | ---: |
+| Suppressed | **9,104.50 MB** | 7,608.97 MB | **7,462.29 MB** | **6,890.12 MB** |
+| Login only | 9,265.74 MB | 6,983.29 MB | 8,259.28 MB | 7,819.54 MB |
+| Full | 11,033.66 MB | 7,530.15 MB | 9,755.57 MB | 9,224.11 MB |
+
+The six reports below the retained fixture are
+`.mercato/dev-rss/experiment-warm-seed-s1-suppressed.json`,
+`.mercato/dev-rss/experiment-warm-seed-s2-suppressed.json`,
+`.mercato/dev-rss/experiment-warm-seed-l1-login-only.json`,
+`.mercato/dev-rss/experiment-warm-seed-l2-login-only.json`,
+`.mercato/dev-rss/experiment-warm-seed-f1-full.json`, and
+`.mercato/dev-rss/experiment-warm-seed-f2-full.json`. Full warmup adds
+1,929.16 MB total and 2,293.28 MB class RSS over suppression. The absolute Node 25
+ceiling deltas are not acceptance evidence; the conclusion comes from the Node 24
+repeats above.
+
+The post-Task-4 artifact inventory was verified from root and Next-launcher
+commands. Node 24.13.1 covers correlation, the first suppression shift,
+request-manifest/UI/bootstrap/component/transpile/webpack/source-map/
+externalization/old-space/CPU controls, C5, both scheduler runs, memory-limit run
+1, and the corrective acceptance sequence. Node 25.3.0 covers memory-limit run 2,
+both cache-off runs, clean-cache ABBA, S/L/F, minification, and the graph-pruning
+aborts. Node 25 items are directional only.
+
+| Intervention | Runtime | Raw evidence | Decision |
+| --- | --- | --- | --- |
+| C5 lightweight supervisor | Node 24, valid | `.mercato/dev-rss/experiment-lightweight-supervisor.json` | Local supervisor savings were real but too small; full peak 11,911.67 MB total / 10,436.75 MB class. |
+| Embedded scheduler/shared worker | Node 24, valid | `.mercato/dev-rss/experiment-embedded-scheduler-run1.json`<br>`.mercato/dev-rss/experiment-embedded-scheduler-run2.json` | Saved 95–163 MB max and 298–332 MB mean in those processes; full-tree peaks regressed. |
+| Native 4 GiB Turbopack limit | Mixed: run 1 Node 24; run 2 Node 25 directional | `.mercato/dev-rss/experiment-turbopack-memory-limit-4g-run1.json`<br>`.mercato/dev-rss/experiment-turbopack-memory-limit-4g-run2.json` | 11,323.87/13,413.26 MB peaks; no enforcement or useful reduction. |
+| Filesystem cache off | Node 25, directional | `.mercato/dev-rss/experiment-turbopack-filesystem-cache-off-run1.json`<br>`.mercato/dev-rss/experiment-turbopack-filesystem-cache-off-run2.json` | Regression; disabling did not prevent store changes. |
+| Empty-cache ABBA | Node 25, directional | `.mercato/dev-rss/experiment-clean-cache-abba-a1-on.json`<br>`.mercato/dev-rss/experiment-clean-cache-abba-a2-on.json`<br>`.mercato/dev-rss/experiment-clean-cache-abba-b1-off.json`<br>`.mercato/dev-rss/experiment-clean-cache-abba-b2-off.json` | ON median 13,528.16/12,711.00 MB total/class; OFF 14,245.77/13,567.42. Cache OFF worsened peaks 5.30%/6.74%. |
+| Server/Turbopack minification | Node 25, invalid | `.mercato/dev-rss/experiment-dev-minification-seed.json` | Auth 500: MikroORM duplicate property-decorator metadata. |
+| Tree shaking + unused imports/exports | Node 25, invalid | `.mercato/dev-rss/cache-snapshots/turbopack-graph-pruning-failed-seed-2026-07-31/` | Rust tree-shaker out-of-bounds panics. |
+| Unused imports only | Node 25, invalid | `.mercato/dev-rss/cache-snapshots/turbopack-unused-imports-failed-seed-2026-07-31/` | Invalid configuration: requires unused-export removal, whose coherent combination already panics. |
+
+The original accumulated 790-file cache and the 70-file A2 matched seed are
+retained with SHA-256 manifests. Clean-cache ABBA proves the accumulated store is a
+variance source rather than the missing fix: cold starts are worse, and cache-off
+increases the peak.
+
+#### Current decision and approval boundary
+
+No valid source/config candidate on Next 16.2.x passes both ceilings. As of
+2026-07-31, the [npm release tags](https://www.npmjs.com/package/next?activeTab=versions)
+mark 16.2.12 as `latest`, but its stable published changes contain no documented
+backport of the 16.3 Turbopack memory work. The
+[upstream release stream](https://github.com/vercel/next.js/releases) distributes
+16.3 as preview/canary and records relevant native-memory changes there.
+
+A separate monorepo smoke on `16.3.0-canary.59` measured a 27.5% total-peak and
+33.5% top-`next-server` reduction, but still missed that work's target. It is only
+a prior signal: it did not use this standalone fixture and does not prove that a
+preview will satisfy either ceiling here. The next high-signal diagnostic is an
+isolated 16.3 preview A/B, not another guessed local graph edit.
+
+That experiment intentionally requires explicit approval because it is a
+production dependency/toolchain change: root and app Next pins, corresponding
+Next/SWC packages, and the lockfile move together, followed by full package build,
+typecheck, create-app, real browser, and memory verification. A preview may be used
+for diagnosis only; it cannot be promoted without a separate stability decision.
+Until approval, do not weaken the 30% criteria, stack another production change,
+or describe telemetry relocation as final peak acceptance.
+
 ## Data Models
 
 N/A. The capability adds no persistent application entity or database schema. The
@@ -387,6 +515,11 @@ pass, template parity is proven, and published packages contain the candidate.
 candidate workflows and the final fresh workflow pass, and every listed command
 exits successfully. If the confirmed change also affects the monorepo dev runtime,
 one equivalent `yarn dev` page/HMR smoke is required.
+
+**Observed status:** functional and repository gates passed for the telemetry
+candidate, but both peak gates failed. Phase 4 remains incomplete and returns to
+root-cause work; the next dependency experiment is approval-gated as documented
+above.
 
 ## Risks & Impact Review
 
@@ -495,7 +628,7 @@ one equivalent `yarn dev` page/HMR smoke is required.
 | `packages/cli/AGENTS.md` | Preserve generator output and standalone contracts | Compliant | Generator output was inspected but is not modified by the selected intervention. |
 | `packages/shared/AGENTS.md` | Keep shared infrastructure contracts narrow and domain-independent | Compliant | The selected intervention preserves `resource-usage.ts`, its public environment override, snapshot format, and cross-process aggregation; managed dev wrappers supply a different default without changing shared package code or imports. |
 | `BACKWARD_COMPATIBILITY.md` | Preserve stable and frozen contract surfaces | Compliant | No contract removal or rename is permitted. |
-| `packages/create-app/AGENTS.md` | Validate monorepo and Verdaccio-backed standalone environments | Pending Task 3/4 | Both smokes and the full create-app gate are now explicit acceptance criteria. |
+| `packages/create-app/AGENTS.md` | Validate monorepo and Verdaccio-backed standalone environments | Compliant for telemetry candidate | Both smokes, package rebuild/publish, and standalone workflow passed; peak acceptance failed independently. |
 | Data, API, commands, cache, security, and design-system rules | Apply when those surfaces change | N/A | No entity, API, mutation, cache, or product UI change is selected. |
 
 ### Internal Consistency Check
@@ -508,21 +641,23 @@ one equivalent `yarn dev` page/HMR smoke is required.
 | Risks cover likely intervention families | Pass | Externalization, bootstrap ordering, dependency shortcut, and template drift are explicit. |
 | Data/API/UI sections match scope | Pass | All are N/A except browser verification of existing UI. |
 | Selected intervention has exact files, rollback, and red assertion | Pass | The Phase 2 amendment names two production files, two tests, one documentation file, and a no-migration rollback. |
-| Experiment isolates one variable | Pass | Only `OM_MODULE_RESOURCE_USAGE_DIR` moved below the existing Next.js `distDir`; telemetry and splash remained enabled. |
+| Experiment isolates one variable | Pass | Telemetry relocation, warmup modes, process consolidation, native limits, cache modes, and compiler flags were tested in separate controlled arms. Invalid arms stopped at their first functional/compiler failure. |
 
 ### Non-Compliant Items
 
-The Phase 2 production gate is satisfied. Final compliance remains pending the
-Task 3 red-green cycle and the Task 4 three-run primary acceptance gate. The
-selected intervention is a dev-runtime environment change, not a frontend or
-bootstrap change, so no Frontend Architecture Contract is required.
+The telemetry production gate and red-green cycle are satisfied. Final compliance
+needs a decision because Task 4 failed both unchanged three-run peak gates. The
+branch implementation is a dev-runtime environment change, not a frontend/bootstrap change,
+so no Frontend Architecture Contract is required. A Next 16.3 preview trial would
+change production dependencies and remains outside the authorized scope.
 
 ### Verdict
 
-**Conditionally compliant for Task 3 implementation:** the root cause, exact file
-manifest, rollback, contract impact, template parity, and intervention acceptance
-are recorded. Completion still requires implementation and the unchanged
-three-run 30% primary gate.
+**Needs decision:** telemetry relocation is implementation-compliant and
+behaviorally valuable, but the specification's peak objective is not met. No
+current-stack intervention is approved as the final peak fix. Continue with the
+Next 16.3 preview dependency/toolchain diagnostic only after explicit approval, or
+resume with a new independent high-signal hypothesis.
 
 ## Changelog
 
@@ -533,6 +668,14 @@ three-run 30% primary gate.
 - Confirmed app-root module-resource telemetry snapshots as the recurring
   Turbopack invalidation trigger; recorded the isolated `distDir` relocation
   experiment, exact Task 3 files/tests, rollback, and acceptance criteria.
+
+### 2026-07-31
+
+- Corrected the production-candidate result: telemetry relocation improves mean
+  RSS and rebuild cadence but regresses both mandatory peak medians.
+- Added balanced targeted-warmup S/L/F evidence, current-stack intervention
+  falsifications, cache ABBA controls, retained artifact paths, restoration state,
+  and the approval-gated Next 16.3 decision boundary.
 
 ### Review — 2026-07-30
 

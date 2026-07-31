@@ -1016,6 +1016,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: workflow data migrations, code-defined workflow adoption, `workflow-executor`, transition/task/signal/timer handlers, and demo workflow upgrades.
 
+## Pin and prove every process in standalone memory runs
+
+**Rule**: Every standalone memory run must prepend the pinned runtime to the dev,
+profiler, and browser `PATH`, then verify and report the root, Next child, profiler,
+and browser Node executable and version before the workflow. Invalidate any run with
+a mismatch; never infer runtime parity from a shell preflight.
+
 ## A self-request needs data committed outside the caller's transaction
 
 **Context**: The checkout demo's `CALL_API` "Create Order Record" activity minted a one-time API key on the request EM (`container.resolve('em')`), then `fetch`ed `/api/sales/orders` with it. It failed with `401 Unauthorized` (issue #4202).

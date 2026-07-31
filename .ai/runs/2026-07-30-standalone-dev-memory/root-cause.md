@@ -2,23 +2,23 @@
 
 Date: 2026-07-30
 
-Status: confirmed for the attributed `next-turbopack` component; final three-run
-acceptance remains open.
+Status: **telemetry sub-cause confirmed; final peak target failed; decision required
+after exhausting the current stable Next.js toolchain.**
 
 ## Conclusion
 
 **The default module-resource telemetry snapshots written below
-`.mercato/module-resource-usage/` cause repeated Turbopack invalidation and retained
-`next-server` memory during standalone development because the active Next.js
-project watches that app-root path, the snapshots are atomically replaced at a
-five-second throttle, and moving only those snapshots below the already ignored
-Next.js `distDir` removed the five-second Fast Refresh cadence while reducing the
-attributed peak by 30.40%.**
+`.mercato/module-resource-usage/` were one real cause: they triggered repeated
+five-second Turbopack invalidation and kept sustained `next-server` memory high.
+Moving them below the ignored Next.js `distDir` removed that cadence and improved
+median mean process-tree RSS by 32.89%. It did not reduce the mandatory peak.**
 
-This is the confirmed hypothesis for Task 3. It does not claim that module
-telemetry creates the original application graph. The generated backend and client
-registries make that graph large; the telemetry writes repeatedly invalidate the
-already-reachable graph and prevent the dominant process from settling.
+The corrected three-run production candidate regressed median total peak by 2.995%
+and median maximum `next-turbopack` by 14.199%. Subsequent balanced controls locate
+the remaining peak in first-route compilation owned by `next-server`; automatic
+targeted warmup amplifies it, but even suppressing warmup misses both ceilings.
+Telemetry relocation is therefore a valid branch implementation and hygiene fix,
+not the final root cause or an accepted 30% peak candidate.
 
 ## Baseline attribution
 
@@ -154,6 +154,192 @@ Turbopack trigger.
 
 After measurement, the probe marker was restored to B, the dev process was stopped,
 and no production source was changed.
+
+## Corrected Task 4 production-candidate result
+
+The implemented telemetry relocation was rebuilt, republished to the isolated
+Verdaccio registry, installed into the same retained fixture, and exercised in
+three complete 180-second headed-browser runs. Login, the protected probe, marker
+A-to-B Fast Refresh, original server PID continuity, background services, and the
+new telemetry path all passed.
+
+Raw reports:
+
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/candidate-1.json`
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/candidate-2.json`
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/candidate-3.json`
+
+| Run | Peak total | Mean total | Maximum `next-turbopack` | Peak `next-server` |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 10,611.17 MB | 6,656.76 MB | 9,272.87 MB | 8,833.23 MB |
+| 2 | 10,396.86 MB | 5,657.47 MB | 9,031.45 MB | 8,411.98 MB |
+| 3 | 9,758.31 MB | 6,329.72 MB | 8,929.55 MB | 7,926.23 MB |
+| **Median** | **10,396.86 MB** | **6,329.72 MB** | **9,031.45 MB** | **8,411.98 MB** |
+
+Against the corrected 10,094.50 MB total-peak and 7,908.54 MB class comparators,
+the candidate regressed total peak by 302.36 MB (2.995%) and class peak by
+1,122.91 MB (14.199%). It exceeded the 7,066.15 MB total ceiling by 3,330.71 MB
+and the 5,535.978 MB class ceiling by 3,495.472 MB. Median mean improved 32.885%,
+and median browser Fast Refresh count fell from 36 to 5 with no recurring
+five-second sequence. The exact functional evidence and comparison math remain in
+`.ai/runs/2026-07-30-standalone-dev-memory/verification.md` and the fixture's
+`.mercato/dev-rss/browser/candidate-*` artifacts.
+
+This corrected result supersedes the earlier one-run claim that the 30.40%
+attributed reduction represented an accepted candidate.
+
+## Post-Task 4 peak attribution
+
+Lifecycle timestamps showed the automatic targeted warmup compiling `GET /login`,
+`POST /api/auth/login`, and authenticated `GET /backend` before the controlled
+browser. The first `/login` compile was the dominant phase.
+
+### Acceptance-grade Node 24 warmup-suppression control
+
+Because later exploratory shells drifted to Node 25.3.0, warmup suppression was
+rerun under the required Node 24.13.1 contract. The executable directory was
+prepended to `PATH` for the dev server, profiler, and headed browser. Before browser
+traffic, every repeat's first profiler sample proved both the root command
+`/Users/andrzejewsky/.nvm/versions/node/v24.13.1/bin/node ./scripts/dev.mjs` and the
+Next launcher command `/Users/andrzejewsky/.nvm/versions/node/v24.13.1/bin/node
+.../node_modules/next/dist/bin/next dev --turbopack`; browser evidence records the
+same executable and `v24.13.1`.
+
+An empty-cache preparatory seed completed hydrated login (HTTP 200), protected
+probe rendering, genuine A-to-B HMR, and a 15-second settle. Its cache and 57-file
+SHA-256 manifest are retained at
+`/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/cache-snapshots/turbopack-node24-suppressed-seed-2026-07-31/`.
+Each measured repeat was an exact clone of that untouched seed, retained normal
+worker/scheduler topology, and ran the complete headed workflow for 180 seconds at
+one-second intervals.
+
+| Run | Raw report | Peak total | Maximum `next-turbopack` | HMR |
+| --- | --- | ---: | ---: | ---: |
+| 1 | `.mercato/dev-rss/experiment-node24-suppressed-repeat1.json` | 7,357.36 MB | 6,221.24 MB | 4.815 s |
+| 2 | `.mercato/dev-rss/experiment-node24-suppressed-repeat2.json` | 7,920.43 MB | 7,288.54 MB | 6.316 s |
+| 3 | `.mercato/dev-rss/experiment-node24-suppressed-repeat3.json` | 8,501.47 MB | 6,914.57 MB | 3.811 s |
+| **Median** | — | **7,920.43 MB** | **6,914.57 MB** | **4.815 s** |
+
+The Node 24 median misses the 7,066.15 MB total ceiling by 854.28 MB and the
+5,535.978 MB class ceiling by 1,378.592 MB. This is the formal suppression result:
+automatic warmup is an amplifier, but removing it is not sufficient. Matching
+browser evidence is in `experiment-node24-suppressed-repeat1-browser.json`,
+`experiment-node24-suppressed-repeat2-retry-browser.json`, and
+`experiment-node24-suppressed-repeat3-browser.json`. The first repeat-2 navigation
+was transiently aborted after login HTTP 200 and is retained separately as invalid
+evidence.
+
+### Node 25 directional warmup attribution
+
+A balanced warm-seed sequence used the same retained A2 Turbopack seed and palindromic order
+`suppressed → login-only → full → full → login-only → suppressed`; every arm ran
+the full 180-second workflow with normal topology and genuine A-to-B HMR.
+
+Artifact inspection found that these six follow-up process trees used Node 25.3.0,
+whereas the required baseline/candidate runtime contract used Node 24.13.1. The six arms
+are internally balanced and support relative warmup attribution, but their absolute
+values are not acceptance-equivalent to the Node 24 baseline. Ceiling deltas below
+are directional guardrails, not a replacement acceptance run.
+
+Raw reports:
+
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/experiment-warm-seed-s1-suppressed.json`
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/experiment-warm-seed-s2-suppressed.json`
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/experiment-warm-seed-l1-login-only.json`
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/experiment-warm-seed-l2-login-only.json`
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/experiment-warm-seed-f1-full.json`
+- `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/experiment-warm-seed-f2-full.json`
+
+| Warmup mode | Median peak total | Median mean total | Median maximum `next-turbopack` | Median maximum `next-server` |
+| --- | ---: | ---: | ---: | ---: |
+| Suppressed | **9,104.50 MB** | 7,608.97 MB | **7,462.29 MB** | **6,890.12 MB** |
+| Login only | 9,265.74 MB | 6,983.29 MB | 8,259.28 MB | 7,819.54 MB |
+| Full | 11,033.66 MB | 7,530.15 MB | 9,755.57 MB | 9,224.11 MB |
+
+Login-only added 161.24 MB total, 796.99 MB class, and 929.42 MB server RSS over
+suppression. Full warmup added 1,929.16 MB total, 2,293.28 MB class, and
+2,333.99 MB server RSS. Suppression is the decisive directional warmup winner. Its
+absolute ceiling deltas are not formal evidence; the acceptance conclusion comes
+from the Node 24 repeats above.
+
+The exact A2 seed is retained at
+`/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/cache-snapshots/turbopack-clean-a2-seed-2026-07-31/`
+with its manifest and metadata.
+
+## Falsified current-stack interventions
+
+All valid rows retained the real server, normal worker/scheduler topology,
+authentication, protected rendering, and in-place HMR. Invalid rows were stopped
+at the first functional or compiler failure and are not treated as memory wins.
+Artifact process trees divide into two runtime groups. The following complete
+inventory was checked from each report's root and Next-launcher commands:
+
+- **Node 24.13.1, protocol-valid:** `correlation-normal-warmup`,
+  `experiment-warmup-suppressed-shift`, request-scoped backend manifest, UI direct
+  imports, ClientBootstrap profile, lazy ComponentOverrides, minimal transpile,
+  webpack, both source-map runs, both server-externalization runs, old-space 3072,
+  both CPU-limit runs, C5 lightweight supervisor, both embedded-scheduler runs,
+  and Turbopack memory-limit run 1, plus the corrective seed and three repeats.
+- **Node 25.3.0, directional only:** Turbopack memory-limit run 2, both filesystem-
+  cache-off runs, clean-cache ABBA A1/B1/B2/A2, warm-seed S1/L1/F1/F2/L2/S2, and
+  the minification seed. The graph-pruning and unused-import aborts have no JSON
+  report, but retained dev logs and panic artifacts also record Node 25.
+
+| Intervention | Runtime | Evidence | Outcome |
+| --- | --- | --- | --- |
+| C5 lightweight `server dev` supervisor | Node 24, valid | `.mercato/dev-rss/experiment-lightweight-supervisor.json` | Supervisor saved 58.70 MB max and 91.83 MB mean locally, but the valid tree peaked at 11,911.67 MB total / 10,436.75 MB class. Too small; total peak regressed. |
+| Scheduler embedded in shared worker | Node 24, valid | `.mercato/dev-rss/experiment-embedded-scheduler-run1.json`<br>`.mercato/dev-rss/experiment-embedded-scheduler-run2.json` | Direct combined-process savings of 95–163 MB max and 298–332 MB mean; full-tree peaks were 12,296.74 and 11,610.16 MB. Falsified. |
+| Native 4 GiB Turbopack memory limit | Mixed: run 1 Node 24; run 2 Node 25 directional | `.mercato/dev-rss/experiment-turbopack-memory-limit-4g-run1.json`<br>`.mercato/dev-rss/experiment-turbopack-memory-limit-4g-run2.json` | 11,323.87 and 13,413.26 MB peaks; neither showed limit enforcement, eviction, OOM, or useful reduction. |
+| Filesystem cache disabled | Node 25, directional | `.mercato/dev-rss/experiment-turbopack-filesystem-cache-off-run1.json`<br>`.mercato/dev-rss/experiment-turbopack-filesystem-cache-off-run2.json` | 12,467.45 and 13,161.36 MB peaks. The store still changed; disabling did not reduce peak. |
+| Empty-cache ABBA, cache ON/OFF | Node 25, directional | `.mercato/dev-rss/experiment-clean-cache-abba-a1-on.json`<br>`.mercato/dev-rss/experiment-clean-cache-abba-a2-on.json`<br>`.mercato/dev-rss/experiment-clean-cache-abba-b1-off.json`<br>`.mercato/dev-rss/experiment-clean-cache-abba-b2-off.json` | ON median 13,528.16 MB total / 12,711.00 MB class; OFF median 14,245.77 / 13,567.42. OFF worsened peaks by 5.30% / 6.74%. |
+| Server + Turbopack minification | Node 25, invalid | `.mercato/dev-rss/experiment-dev-minification-seed.json` | Auth returned 500 with MikroORM `Multiple property decorators used on 'b.role'`; partial cold peak 10,619.83 MB. No matched repeats. |
+| Tree shaking + unused imports/exports | Node 25, invalid | `.mercato/dev-rss/cache-snapshots/turbopack-graph-pruning-failed-seed-2026-07-31/` | Repeated Rust `tree_shake/graph.rs:743` out-of-bounds panics during instrumentation compilation. |
+| Unused-import removal alone | Node 25, invalid | `.mercato/dev-rss/cache-snapshots/turbopack-unused-imports-failed-seed-2026-07-31/` | Next 16.2.11 requires unused-export removal to be enabled with it; two retained panic logs. |
+
+Clean-cache ABBA proves the accumulated 10+ GiB filesystem cache is a variance
+source, not the missing fix: cold runs are worse, and disabling the cache increases
+median peak. Minification and graph-pruning flags cannot be shipped on the current
+stack because they break correctness or crash Turbopack.
+
+## Current decision and approval boundary
+
+No tested source/config intervention on Next 16.2.x satisfies both peak ceilings.
+The [current npm release tags](https://www.npmjs.com/package/next?activeTab=versions)
+identify Next 16.2.12 as `latest`, and the published stable change set contains no
+documented backport of the 16.3 Turbopack memory work. The 16.3 line is still
+distributed as preview/canary (for example `16.3.0-preview.9` and
+`16.3.0-canary.97`), as verified on 2026-07-31 in the
+[upstream release stream](https://github.com/vercel/next.js/releases).
+
+A separate monorepo smoke already recorded a useful but insufficient signal on
+`16.3.0-canary.59`: 27.5% lower total peak and 33.5% lower top `next-server`, while
+still missing that spec's target. It is not a standalone-fixture result and does
+not prove that 16.3 will satisfy this specification's two ceilings.
+
+The next high-signal diagnostic is therefore an isolated Next 16.3 preview trial,
+not another local graph guess. It is not a presumed fix. It is also a production
+dependency/toolchain change:
+it updates root/app Next pins, matching Next/SWC packages and the lockfile, then
+requires the full build, typecheck, create-app, browser, and memory gates. The repo
+rules require explicit approval before that dependency scope is opened. Until such
+approval, the current stable-stack investigation is exhausted and needs a user
+decision; do not weaken the ceilings or call telemetry relocation the final peak
+fix.
+
+## Restoration audit
+
+After the final experiment, the fixture was restored with marker B, no dev/browser
+tree, and ports 3000/4000 free. The verified hashes are:
+
+- `next.config.ts`: `dd017fb4c340741a1801021883832644fc624c2159d4a181b87b952fe4d9a30a`
+- `scripts/dev-runtime.mjs`: `e15fa5b889afc1e3b2474da92113441a9d967c1632eac71226723b4622bfa354`
+- installed CLI `dist/mercato.js`: `1ab1296c0662b75263b2dd1141cca44178781c8603ec3b8c4c1c2b7f60a155fd`
+- probe marker B: `bb1b3f26a3d4caf75ac8c7f84a5b4059aa80b362307e841a0133c9b8aae0b2ac`
+
+All 790 original Turbopack cache hashes passed their retained SHA-256 manifest.
+The original accumulated cache, Node 24 suppression seed, A2 Node 25 warm seed,
+and invalid compiler caches remain separate; none was promoted into the restored
+working cache.
 
 ## Task 3 production and test manifest
 
