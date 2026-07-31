@@ -24,7 +24,7 @@ Add OMH-193 as a business-language counterpart to OMH-185 that must produce the 
 
 ## Risks
 
-- A second complete-module case can drift from OMH-185; shared fixtures/oracles, explicit parity tests, and bidirectional related-case links mitigate that risk.
+- A second complete-module case can drift from OMH-185; shared fixtures/oracles, explicit parity tests, and OMH-193's one-way related-case link mitigate that risk without mutating OMH-185.
 - Business wording may under-route UI or extension guidance; failure-first evidence determines whether the shared business blueprint needs the smallest durable clarification.
 - Adding a writable release case raises catalog and release counts; every registry and documented total must stay synchronized without changing existing IDs.
 - The focused live generation is model-dependent and can exhaust its case timeout; availability or timeout failures must remain failures rather than being converted into passes.
@@ -54,8 +54,8 @@ Add OMH-193 as a business-language counterpart to OMH-185 that must produce the 
 
 ### Phase 1: Contrastive case and failure-first evidence
 
-- [ ] 1.1 Add OMH-193 with a business-only library brief and exact OMH-185 outcome-contract parity
-- [ ] 1.2 Synchronize catalog metadata, fixture/oracle/release registries, focused contract tests, documentation, and the harness spec
+- [x] 1.1 Add OMH-193 with a business-only library brief and exact OMH-185 outcome-contract parity — 33804a48f5
+- [x] 1.2 Synchronize catalog metadata, fixture/oracle/release registries, focused contract tests, documentation, and the harness spec — 33804a48f5
 - [ ] 1.3 Run the schema-valid focused case before any owner change and record sanitized failure evidence
 
 ### Phase 2: Smallest-owner optimization
