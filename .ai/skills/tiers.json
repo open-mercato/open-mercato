@@ -13,7 +13,7 @@
       "om-auto-fix-issue",
       "om-auto-review-pr",
       "om-auto-update-changelog",
-      "om-auto-verify-pr-ui",
+      "om-auto-qa-pr",
       "om-check-and-commit",
       "om-code-review",
       "om-fix",
@@ -27,8 +27,8 @@
       "om-root-cause",
       "om-setup-agent-pipeline",
       "om-spec-writing",
-      "om-stabilize-ci",
-      "om-sync-merged-pr-issues",
+      "om-auto-fix-pr",
+      "om-close-fixed-issues",
       "om-verify-in-repo"
     ]
   },
@@ -46,7 +46,8 @@
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
-        "om-help"
+        "om-help",
+        "om-refresh-standalone-harness"
       ]
     },
     "automation": {
@@ -59,6 +60,10 @@
     "security": {
       "description": "Security audit skills. Opt-in.",
       "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
+    },
+    "analysis": {
+      "description": "Business/engagement analysis skills (app specs, platform gap analysis). Opt-in.",
+      "skills": ["om-app-spec-writing", "om-gap-analysis"]
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",

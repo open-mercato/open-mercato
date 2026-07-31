@@ -14,6 +14,7 @@ import {
 } from "../../../../data/entities";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
+import { isForeignTenantActor } from "../../../../lib/publicQuoteTenantScope";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -32,22 +33,17 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
     const container = await createRequestContainer();
     const em = container.resolve("em") as EntityManager;
     const hashedToken = hashAuthToken(token);
-    const quote =
-      (await findOneWithDecryption(em, SalesQuote, {
-        acceptanceToken: hashedToken,
-        deletedAt: null,
-      })) ??
-      (await findOneWithDecryption(em, SalesQuote, {
-        acceptanceToken: token,
-        deletedAt: null,
-      }));
+    const quote = await findOneWithDecryption(em, SalesQuote, {
+      acceptanceToken: hashedToken,
+      deletedAt: null,
+    });
     const { translate } = await resolveTranslations();
     if (!quote) {
       throw notFound(translate("sales.quotes.public.notFound", "Quote not found."));
     }
 
     const auth = await getAuthFromRequest(req);
-    if (auth?.tenantId && quote.tenantId !== auth.tenantId) {
+    if (isForeignTenantActor(auth, quote.tenantId)) {
       throw notFound(translate("sales.quotes.public.notFound", "Quote not found."));
     }
 

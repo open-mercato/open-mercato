@@ -1,0 +1,46 @@
+name: Community labels
+
+on:
+  issue_comment:
+    types: [created]
+
+# Pull requests are GitHub issues for labeling purposes. No repository checkout
+# or contributor-supplied code is used by this workflow.
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  add-label:
+    if: >
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/label ')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add requested label
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // Only safe, existing taxonomy labels may be added by contributors.
+            const allowedLabels = new Set([
+              'partner-request',
+            ]);
+
+            const requestedLabels = context.payload.comment.body
+              .slice('/label '.length)
+              .split(',')
+              .map((label) => label.trim())
+              .filter((label) => allowedLabels.has(label));
+
+            if (requestedLabels.length === 0) {
+              core.setFailed('No allowed labels were requested.');
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: requestedLabels,
+            });

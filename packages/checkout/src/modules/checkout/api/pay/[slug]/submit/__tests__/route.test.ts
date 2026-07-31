@@ -24,6 +24,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
   checkRateLimit: jest.fn(),
   getClientIp: jest.fn(),
+  RATE_LIMIT_FALLBACK_KEY: 'global',
 }))
 
 jest.mock('../../../../../events', () => ({
@@ -87,7 +88,7 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     ;(getClientIp as jest.Mock).mockReturnValue('127.0.0.1')
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rateLimiterService') return {}
+        if (name === 'rateLimiterService') return { trustProxyDepth: 0 }
         if (name === 'em') return { findOne: mockEmFindOne }
         if (name === 'commandBus') return { execute: mockCommandExecute }
         if (name === 'paymentGatewayService') {
