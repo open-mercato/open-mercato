@@ -67,3 +67,32 @@ which means it needs the dictionary's `sortMode` — currently absent from the r
 ### Phase 3: tests
 
 - [x] 3.1 Hook paging tests — 32b248a36
+
+## Phase 4: page the remaining consumers (review follow-up, 2026-07-31)
+
+@pkarw's review found that only `useDictionaryEntries` was taught to page. Every other consumer
+still issued a single `apiCall` and read `.items`, so a dictionary above the ceiling silently lost
+everything past entry 500 — the exact regression #3847 warned to coordinate against. The broadest
+path was `loadRemoteOptions`, the generic `optionsUrl` loader behind every custom-field
+`select`/`currency`/`relation`/multi-`dictionary`/multi-`text` field.
+
+Resolution: the review's option (1) — one shared walk, reused everywhere — split across the two
+layers, because `packages/ui` peer-depends on `@open-mercato/shared` only and can never import
+`@open-mercato/core`:
+
+- `packages/ui/src/backend/utils/fetchAllPages.ts` — `fetchAllOffsetPages(url)`, a sort-agnostic
+  offset walker for any list route. A route that does not report `hasMore` resolves in one request,
+  so it is a drop-in replacement for a one-shot `apiCall`.
+- `packages/core/src/modules/dictionaries/lib/fetchAllEntries.ts` — `fetchAllDictionaryEntries(id)`,
+  the dictionary-aware wrapper that adds the `sortMode` re-sort across page boundaries.
+
+Accepted, scoped limitation: `loadRemoteOptions` is generic and has no dictionary semantics, so a
+dictionary above the ceiling reached through `optionsUrl` yields options ordered page-by-page rather
+than globally. Every entry is present and selectable — the data loss is closed; only cross-page
+ordering is approximate on that one path.
+
+- [x] 4.1 Shared offset walker in `@open-mercato/ui` + dictionary-aware wrapper in core
+- [x] 4.2 `loadRemoteOptions` pages (fixes every `optionsUrl` custom field)
+- [x] 4.3 `clientEntries`, planner, staff, resources and the workflows order-approval widget page
+- [x] 4.4 `useDictionaryEntries` re-based on the shared wrapper (behavior unchanged)
+- [x] 4.5 Tests: walker, `optionsUrl` loader paging, dictionary wrapper re-sort

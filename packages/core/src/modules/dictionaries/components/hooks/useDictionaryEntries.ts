@@ -1,6 +1,5 @@
 "use client"
 
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
   createDictionaryMap,
@@ -8,7 +7,7 @@ import {
   type DictionaryDisplayEntry,
   type DictionaryMap,
 } from '../dictionaryAppearance'
-import { resolveDictionaryEntrySortMode, sortDictionaryEntries } from '../../lib/entrySort'
+import { fetchAllDictionaryEntries } from '../../lib/fetchAllEntries'
 
 export type DictionaryEntryRecord = DictionaryDisplayEntry & {
   id: string
@@ -28,11 +27,6 @@ const BASE_DICTIONARY_ENTRIES_KEY = ['dictionaries', 'entries'] as const
 
 export const dictionaryEntriesQueryKey = (dictionaryId: string, scopeVersion = 0) =>
   [...BASE_DICTIONARY_ENTRIES_KEY, dictionaryId, `scope:${scopeVersion}`] as const
-
-// The route caps entries per response, so a large dictionary needs several
-// requests. Bound the walk so a server reporting hasMore forever cannot hang
-// the caller; at the current 500-row ceiling this still covers 25k entries.
-const DICTIONARY_ENTRIES_MAX_PAGES = 50
 
 function parseDictionaryEntryItems(items: unknown[]): DictionaryEntryRecord[] {
   const parsed: DictionaryEntryRecord[] = []
@@ -64,58 +58,16 @@ function parseDictionaryEntryItems(items: unknown[]): DictionaryEntryRecord[] {
   return parsed
 }
 
-async function fetchAllDictionaryEntryPages(
-  dictionaryId: string,
-): Promise<{ entries: DictionaryEntryRecord[]; sortMode: unknown; pageCount: number }> {
-  const entries: DictionaryEntryRecord[] = []
-  let sortMode: unknown = undefined
-  let offset = 0
-  let pageCount = 0
-
-  while (pageCount < DICTIONARY_ENTRIES_MAX_PAGES) {
-    // Omitting `limit` keeps the first request on the route's default page, the
-    // only one it caches, and lets the server own the ceiling.
-    const query = offset > 0 ? `?offset=${offset}` : ''
-    const call = await apiCall<Record<string, unknown>>(
-      `/api/dictionaries/${dictionaryId}/entries${query}`,
-    )
-    const payload = call.result ?? {}
-    if (!call.ok) {
-      const message =
-        typeof payload.error === 'string'
-          ? payload.error
-          : 'Failed to load dictionary entries.'
-      throw new Error(message)
-    }
-    pageCount += 1
-    if (sortMode === undefined) sortMode = payload.sortMode
-    const items = Array.isArray(payload.items) ? payload.items : []
-    entries.push(...parseDictionaryEntryItems(items))
-
-    // An empty page also stops the walk: without it a server that keeps
-    // reporting hasMore while returning nothing would spin to the page cap.
-    if (payload.hasMore !== true || items.length === 0) break
-    offset += items.length
-  }
-
-  return { entries, sortMode, pageCount }
-}
-
 export const dictionaryEntriesQueryOptions = (dictionaryId: string, scopeVersion = 0) => ({
   queryKey: dictionaryEntriesQueryKey(dictionaryId, scopeVersion),
   staleTime: DICTIONARY_ENTRIES_STALE_TIME,
   gcTime: DICTIONARY_ENTRIES_STALE_TIME,
   queryFn: async (): Promise<DictionaryEntriesQueryData> => {
-    const pages = await fetchAllDictionaryEntryPages(dictionaryId)
-    // The server bounds each response and orders it in memory, so entries
-    // assembled from several pages are only sorted within each page. Re-apply
-    // the mode that produced them across the whole set. A single-page
-    // dictionary — every dictionary at or below the server ceiling — keeps the
-    // server's ordering untouched.
-    const parsed =
-      pages.pageCount > 1
-        ? sortDictionaryEntries(pages.entries, resolveDictionaryEntrySortMode(pages.sortMode))
-        : pages.entries
+    const pages = await fetchAllDictionaryEntries(dictionaryId)
+    if (!pages.ok) {
+      throw new Error(pages.errorMessage ?? 'Failed to load dictionary entries.')
+    }
+    const parsed = parseDictionaryEntryItems(pages.items)
     const normalized = normalizeDictionaryEntries(
       parsed.map(({ value, label, color, icon }) => ({ value, label, color, icon })),
       { sort: false },

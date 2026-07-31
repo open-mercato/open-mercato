@@ -9,7 +9,7 @@ import {
   fetchCustomFieldDefinitionsPayload,
 } from './customFieldDefs'
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
-import { apiCall } from './apiCall'
+import { fetchAllOffsetPages } from './fetchAllPages'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
 
@@ -42,15 +42,16 @@ function buildOptionsUrl(base: string, query?: string): string {
   }
 }
 
-type OptionsResponse = { items?: unknown[] }
-
 async function loadRemoteOptions(url: string): Promise<Array<{ value: string; label: string }>> {
   try {
-    const call = await apiCall<OptionsResponse>(url, undefined, { fallback: { items: [] } })
-    if (!call.ok) return []
-    const payload = call.result ?? { items: [] }
-    const items = Array.isArray(payload?.items) ? payload.items : []
-    return items.map((it: any) => ({
+    // Options routes bound how many rows one response carries (dictionary
+    // entries at 500), so walk every page instead of reading a single
+    // response — a stored value past the first page must stay selectable and
+    // resolvable to its label. Routes without `hasMore` still resolve in one
+    // request.
+    const pages = await fetchAllOffsetPages(url)
+    if (!pages.ok) return []
+    return pages.items.map((it: any) => ({
       value: String(it?.value ?? it),
       label: String(it?.label ?? it?.value ?? it),
     }))
