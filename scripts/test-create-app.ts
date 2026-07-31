@@ -100,9 +100,11 @@ async function main(): Promise<void> {
     assertExists(path.join(appDir, 'scripts', 'install-skills.sh'), 'Agentic setup wrote the skill installer')
 
     addPreinstallScriptProbe(appDir)
-    runCommand('yarn', ['verify:yarn-script-resolution'], { cwd: appDir })
-
     runCommand('yarn', ['install'], {
+      cwd: appDir,
+      env: standaloneInstallEnv,
+    })
+    runCommand('yarn', ['verify:yarn-script-resolution'], {
       cwd: appDir,
       env: standaloneInstallEnv,
     })

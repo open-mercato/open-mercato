@@ -124,6 +124,22 @@ test('the template ignores raw agent session exports', () => {
   assert.match(gitignore, /^\.ai\/session-exports\/$/m)
 })
 
+test('the standalone smoke test installs the scaffold before invoking its Yarn scripts', () => {
+  const smokeTest = fs.readFileSync(
+    new URL('../../../../scripts/test-create-app.ts', import.meta.url),
+    'utf8',
+  )
+  const installIndex = smokeTest.indexOf("runCommand('yarn', ['install']")
+  const scriptIndex = smokeTest.indexOf("runCommand('yarn', ['verify:yarn-script-resolution']")
+
+  assert.ok(installIndex >= 0, 'the standalone smoke test must install scaffold dependencies')
+  assert.ok(scriptIndex >= 0, 'the standalone smoke test must retain its Yarn script probe')
+  assert.ok(
+    installIndex < scriptIndex,
+    'a fresh scaffold has only a bootstrap lockfile, so Yarn scripts must run after the first install',
+  )
+})
+
 test('`yarn test` succeeds on a scaffold that ships no test files', () => {
   const scaffoldedTestFiles = listScaffoldedTestFiles(fileURLToPath(new URL('src/', TEMPLATE_DIR)))
   const jestConfig = createRequire(import.meta.url)(
