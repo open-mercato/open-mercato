@@ -36,7 +36,7 @@ Enables local module resource attribution for API routes, event subscribers, que
 ### OM_MODULE_RESOURCE_USAGE_SNAPSHOT {#om_module_resource_usage_snapshot}
 **Default:** `true` outside tests
 
-Writes best-effort local process telemetry files under `.mercato/module-resource-usage` so the admin page can include fresh data from sibling processes after restarts or worker activity.
+Writes best-effort local process telemetry files so the admin page can include fresh data from sibling processes after restarts or worker activity. The shared runtime default is `.mercato/module-resource-usage`; managed local development uses the app-local path described below.
 
 ### OM_MODULE_RESOURCE_USAGE_DIR {#om_module_resource_usage_dir}
 **Shared runtime default:** `./.mercato/module-resource-usage`
