@@ -1227,6 +1227,20 @@ function caseChecks(ts, caseId, facts, root) {
   const definition = WRITABLE_CASES[caseId]
   if (definition.family === 'complete-module') {
     const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
+    const listFacts = collectFacts(ts, collectSourceFiles(root, ['src/modules/library/backend/books']))
+    const rawListTags = ['table', 'thead', 'tbody', 'tr', 'th', 'td'].filter((tag) => listFacts.jsxTags.has(tag))
+    const hasCanonicalTable = listFacts.importedBindings.get('DataTable') === '@open-mercato/ui/backend/DataTable'
+      && listFacts.importedBindings.get('RowActions') === '@open-mercato/ui/backend/RowActions'
+      && listFacts.jsxTags.has('DataTable')
+      && listFacts.jsxTags.has('RowActions')
+      && listFacts.jsxAttributes.has('extensionTableId')
+      && (listFacts.jsxAttributes.has('entityId') || listFacts.jsxAttributes.has('entityIds'))
+      && listFacts.jsxAttributes.has('searchValue')
+      && listFacts.jsxAttributes.has('onSearchChange')
+      && hasExactString(listFacts, '/backend/library/books/create')
+      && [...listFacts.strings].some((value) => value === 'edit' || value.endsWith('.edit'))
+      && [...listFacts.strings].some((value) => value === 'delete' || value.endsWith('.delete'))
+      && rawListTags.length === 0
     const uiFailures = uiPolicyFailures(facts)
     return [
       check('module.activation', facts.moduleEntries.some((entry) => entry.id === 'library' && entry.from === '@app') && facts.moduleEntries.some((entry) => entry.id === 'directory' && entry.from === '@open-mercato/core') && facts.moduleEntries.some((entry) => entry.id === 'example' && entry.from === '@app'), 'src/modules.ts preserves statically discoverable baseline entries and activates library from @app'),
@@ -1248,8 +1262,8 @@ function caseChecks(ts, caseId, facts, root) {
       check('module.encryption-map', facts.exportedVariables.has('defaultEncryptionMaps') && hasExactString(facts, 'library:book'), 'encryption.ts exports a library:book defaultEncryptionMaps entry'),
       check('module.encrypted-read', ['findWithDecryption', 'findOneWithDecryption', 'findAndCountWithDecryption'].some((name) => hasCall(facts, name)) && [...facts.importSources].includes('@open-mercato/shared/lib/encryption/find'), 'read paths use a scoped framework decryption helper'),
       check('module.search', facts.exportedVariables.has('searchConfig') && ['fieldPolicy', 'checksumSource', 'formatResult'].every((name) => facts.objectProperties.has(name)), 'search.ts defines policy, checksum, and presentation contracts'),
-      check('module.table', facts.jsxTags.has('DataTable') && facts.jsxTags.has('RowActions') && facts.jsxAttributes.has('extensionTableId') && hasExactString(facts, '/backend/library/books/create') && [...facts.strings].some((value) => value === 'edit' || value.endsWith('.edit')) && [...facts.strings].some((value) => value === 'delete' || value.endsWith('.delete')), 'the extensible DataTable list exposes add, linked edit, and guarded delete actions'),
-      check('module.list-query', facts.jsxAttributes.has('searchValue') && facts.jsxAttributes.has('onSearchChange') && ['search', 'buildFilters'].every((name) => facts.objectProperties.has(name)), 'the DataTable and scoped CRUD list connect server search and filters'),
+      check('module.table', hasCanonicalTable, `the Books list subtree imports canonical DataTable and RowActions, renders stable table/entity hosts with controlled search and add/edit/delete actions, and contains no raw table markup${rawListTags.length ? ` (${rawListTags.map((tag) => `<${tag}>`).join(', ')})` : ''}`),
+      check('module.list-query', listFacts.jsxAttributes.has('searchValue') && listFacts.jsxAttributes.has('onSearchChange') && ['search', 'buildFilters'].every((name) => facts.objectProperties.has(name)), 'the Books DataTable and scoped CRUD list connect server search and filters'),
       check('module.form', facts.jsxTags.has('CrudForm') && facts.jsxAttributes.has('initialValues') && (facts.jsxAttributes.has('entityId') || facts.objectProperties.has('entityIds')) && ['createCrud', 'updateCrud', 'deleteCrud'].every((name) => hasCall(facts, name)), 'CrudForm create/edit/delete binds the stable custom-field entity identity and initial values'),
       check('module.custom-fields', hasCall(facts, 'collectCustomFieldValues') && hasCall(facts, 'buildCustomFieldResetMap'), 'UI submission and command undo preserve custom fields'),
       check('module.sidebar', ['pageTitleKey', 'pageGroupKey', 'pagePriority', 'pageOrder', 'icon', 'breadcrumb'].every((name) => facts.objectProperties.has(name)), 'the Books list page metadata publishes localized main-sidebar navigation'),
@@ -1740,8 +1754,17 @@ export function evaluateWritableAstOracle({ root: requestedRoot, caseId, phase }
   const root = fs.realpathSync(requestedRoot)
   const ts = loadTargetTypeScript(root)
   const definition = WRITABLE_CASES[caseId]
-  const checks = definition.artifacts.map((artifact) => check(`artifact:${artifact}`, artifactExists(root, artifact), `artifact ${artifact} exists`))
-  const sourceFiles = collectSourceFiles(root, definition.sources)
+  const checks = []
+  let sourceFiles
+  try {
+    checks.push(...definition.artifacts.map((artifact) => check(`artifact:${artifact}`, artifactExists(root, artifact), `artifact ${artifact} exists`)))
+    sourceFiles = collectSourceFiles(root, definition.sources)
+  } catch (error) {
+    const message = (error instanceof Error ? error.message : String(error)).replaceAll(root, '<target>').slice(0, 1000)
+    checks.push(check('source.safe', false, `case-owned source collection failed: ${message}`))
+    const failures = checks.filter((entry) => !entry.passed).map((entry) => `${entry.id}: ${entry.requirement}`)
+    return { passed: false, failures, checks }
+  }
   checks.push(check('source.present', sourceFiles.length > 0, 'at least one case-owned TypeScript source file'))
   if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles), root))
   if (phase === 'after') checks.push(runTargetTypecheck(root))

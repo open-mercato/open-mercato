@@ -42,6 +42,35 @@ function stageTarget(relativeFile: string, source: string): string {
   return root
 }
 
+function writeTargetFile(root: string, relativeFile: string, source: string): void {
+  const destination = path.join(root, relativeFile)
+  fs.mkdirSync(path.dirname(destination), { recursive: true })
+  fs.writeFileSync(destination, source)
+}
+
+function canonicalBooksTable(options: { dataTableImport?: string; includeStableHost?: boolean; rawMarkup?: string } = {}): string {
+  const dataTableImport = options.dataTableImport ?? '@open-mercato/ui/backend/DataTable'
+  const stableHost = options.includeStableHost === false ? '' : 'entityId="library:book" extensionTableId="library.books"'
+  return `
+import { DataTable } from '${dataTableImport}'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+
+export function BooksTable() {
+  return <>
+    <DataTable
+      data={[]}
+      ${stableHost}
+      searchValue=""
+      onSearchChange={() => undefined}
+      actions={<a href="/backend/library/books/create">Add</a>}
+      rowActions={() => <RowActions items={[{ id: 'edit', label: 'edit' }, { id: 'delete', label: 'delete' }]} />}
+    />
+    ${options.rawMarkup ?? ''}
+  </>
+}
+`
+}
+
 function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessEnv = process.env, caseId = 'OMH-011') {
   const result = spawnSync(process.execPath, [oracle, '--root', root, '--case', caseId, '--phase', phase, '--json'], {
     cwd: root,
@@ -97,6 +126,100 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
   ]) assert.ok(source.includes(contract), `missing complete-module oracle contract ${contract}`)
   assert.match(source, /value\.endsWith\('\.edit'\)/)
   assert.match(source, /value\.endsWith\('\.delete'\)/)
+})
+
+test('the complete module oracle rejects a raw Books list despite disconnected canonical table evidence', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+export default function BooksPage() {
+  return <table><thead><tr><th>Title</th></tr></thead><tbody><tr><td>Book</td></tr></tbody></table>
+}
+`)
+  writeTargetFile(root, 'src/modules/library/backend/disconnected-table.tsx', `
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+
+export function DisconnectedTable() {
+  return <DataTable
+    data={[]}
+    entityId="library:book"
+    extensionTableId="library.books"
+    searchValue=""
+    onSearchChange={() => undefined}
+    actions={<a href="/backend/library/books/create">Add</a>}
+    rowActions={() => <RowActions items={[{ id: 'edit', label: 'edit' }, { id: 'delete', label: 'delete' }]} />}
+  />
+}
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.table')?.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle accepts a canonical Books DataTable in the required subtree', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', canonicalBooksTable())
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.table')?.passed, true, result.parsed.failures.join('\n'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle accepts Books list delegation within the required subtree', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+import { BooksTable } from './BooksTable'
+export default function BooksPage() { return <BooksTable /> }
+`)
+  writeTargetFile(root, 'src/modules/library/backend/books/BooksTable.tsx', canonicalBooksTable())
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.table')?.passed, true, result.parsed.failures.join('\n'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects noncanonical imports, missing stable hosts, and raw table tags', () => {
+  const variants = [
+    canonicalBooksTable({ dataTableImport: '@open-mercato/ui/backend' }),
+    canonicalBooksTable({ includeStableHost: false }),
+    canonicalBooksTable({ rawMarkup: '<table><tbody><tr><td>Book</td></tr></tbody></table>' }),
+  ]
+  for (const source of variants) {
+    const root = stageTarget('src/modules/library/backend/books/BooksTable.tsx', source)
+    try {
+      const result = runOracle(root, 'before', process.env, 'OMH-185')
+      assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.table')?.passed, false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('the complete module oracle returns sanitized structured failures for missing and unsafe Books sources', () => {
+  const missingRoot = stageTarget('src/modules/library/disconnected.tsx', canonicalBooksTable())
+  try {
+    const result = runOracle(missingRoot, 'before', process.env, 'OMH-185')
+    assert.equal(result.status, 1)
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.table')?.passed, false)
+    assert.equal(result.stdout.includes(missingRoot), false)
+  } finally {
+    fs.rmSync(missingRoot, { recursive: true, force: true })
+  }
+
+  const unsafeRoot = stageTarget('src/modules/library/backend/books/page.tsx', canonicalBooksTable())
+  fs.symlinkSync(path.join(unsafeRoot, 'package.json'), path.join(unsafeRoot, 'src/modules/library/backend/books/unsafe.tsx'))
+  try {
+    const result = runOracle(unsafeRoot, 'before', process.env, 'OMH-185')
+    assert.equal(result.status, 1)
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'source.safe')?.passed, false)
+    assert.equal(result.stdout.includes(unsafeRoot), false)
+  } finally {
+    fs.rmSync(unsafeRoot, { recursive: true, force: true })
+  }
 })
 
 test('the complete module oracle requires atomic and undo seams on each declared command', () => {
