@@ -96,5 +96,5 @@ In scope — documents that make a legal-entity statement:
 
 ### Phase 4: Validation and delivery
 
-- [ ] 4.1 Run the full validation gate
+- [x] 4.1 Run the full validation gate — green except a pre-existing, unrelated `i18n:check-usage` failure (2 missing keys in `packages/ui/src/backend/fields/phone.tsx`, present on `main`, untouched by this PR)
 - [ ] 4.2 Run `om-auto-review-pr` and apply any resulting fixes
