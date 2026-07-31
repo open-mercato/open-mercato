@@ -9,6 +9,7 @@ import {
   type WidgetDataRequest,
   WidgetDataValidationError,
   WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
 import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
@@ -134,6 +135,11 @@ export async function POST(req: Request) {
     if (err instanceof WidgetDataScanLimitError) {
       return NextResponse.json({ error: err.message }, { status: 422 })
     }
+    // Encryption is configured but currently unresolvable. Refusing the request keeps ciphertext and
+    // silently-wrong buckets out of the response, and 503 tells the client it is worth retrying.
+    if (err instanceof WidgetDataEncryptionUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 })
+    }
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
       { status: 500 },
@@ -168,6 +174,11 @@ const widgetDataPostDoc: OpenApiMethodDoc = {
     },
     { status: 403, description: 'Missing analytics.view feature', schema: dashboardsErrorSchema },
     { status: 500, description: 'Internal server error', schema: dashboardsErrorSchema },
+    {
+      status: 503,
+      description: 'Encryption is configured but the group source cannot currently be resolved',
+      schema: dashboardsErrorSchema,
+    },
   ],
 }
 

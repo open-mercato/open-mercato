@@ -15,6 +15,8 @@ import {
 } from '@open-mercato/ui/backend/date-range'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { TenantDek } from '@open-mercato/shared/lib/encryption/kms'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import {
   type AggregateFunction,
   type DateGranularity,
@@ -22,6 +24,14 @@ import {
   buildGroupSourceRowsQuery,
   resolveGroupExpression,
 } from '../lib/aggregations'
+import {
+  type ExactDecimal,
+  EXACT_DECIMAL_ZERO,
+  addExactDecimal,
+  compareExactDecimal,
+  exactDecimalToNumber,
+  parseExactDecimal,
+} from '../lib/exactDecimal'
 import type { AnalyticsRegistry } from './analyticsRegistry'
 
 const WIDGET_DATA_CACHE_TTL = 120_000
@@ -50,6 +60,19 @@ export class WidgetDataScanLimitError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'WidgetDataScanLimitError'
+  }
+}
+
+/**
+ * Raised when encryption is configured but the group source cannot currently be resolved — an
+ * unhealthy KMS, an unreadable encryption map, or a missing tenant DEK. Grouping would either read
+ * ciphertext in SQL or silently collapse every encrypted row into "Unknown", so the request fails
+ * closed instead (#4622).
+ */
+export class WidgetDataEncryptionUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'WidgetDataEncryptionUnavailableError'
   }
 }
 
@@ -83,31 +106,66 @@ function readJsonPath(value: unknown, path: string): unknown {
   return current
 }
 
+/**
+ * Running aggregate state for one group. Values are folded in as they are scanned — the bucket
+ * never holds the row set — so the scan cost stays linear and independent of the row cap.
+ */
 type GroupBucket = {
   /** Rows with a non-null metric column, mirroring SQL `COUNT(column)`. */
   count: number
-  /** Numeric metric values, for the aggregates that need them. */
-  values: number[]
+  /** Rows whose metric parsed as a decimal, mirroring the row set SQL aggregates operate on. */
+  numericCount: number
+  /** Exact running sum, so money never accumulates in binary floating point. */
+  sum: ExactDecimal
+  min: ExactDecimal | null
+  max: ExactDecimal | null
 }
 
-/** Mirrors the SQL semantics of `buildAggregateExpression` for application-side aggregation. */
+function createGroupBucket(): GroupBucket {
+  return { count: 0, numericCount: 0, sum: EXACT_DECIMAL_ZERO, min: null, max: null }
+}
+
+function foldMetricValue(bucket: GroupBucket, value: ExactDecimal): void {
+  bucket.numericCount += 1
+  bucket.sum = addExactDecimal(bucket.sum, value)
+  if (bucket.min === null || compareExactDecimal(value, bucket.min) < 0) bucket.min = value
+  if (bucket.max === null || compareExactDecimal(value, bucket.max) > 0) bucket.max = value
+}
+
+/**
+ * Mirrors the SQL semantics of `buildAggregateExpression` for application-side aggregation,
+ * including PostgreSQL's `NULL` result for `SUM`/`AVG`/`MIN`/`MAX` over an empty value set.
+ */
 function aggregateBucket(aggregate: AggregateFunction, bucket: GroupBucket): number | null {
   switch (aggregate) {
     case 'count':
       return bucket.count
     case 'sum':
-      return bucket.values.reduce((sum, value) => sum + value, 0)
+      return bucket.numericCount === 0 ? null : exactDecimalToNumber(bucket.sum)
     case 'avg':
-      return bucket.values.length === 0
-        ? 0
-        : bucket.values.reduce((sum, value) => sum + value, 0) / bucket.values.length
+      return bucket.numericCount === 0 ? null : exactDecimalToNumber(bucket.sum) / bucket.numericCount
     case 'min':
-      return bucket.values.length === 0 ? null : Math.min(...bucket.values)
+      return bucket.min === null ? null : exactDecimalToNumber(bucket.min)
     case 'max':
-      return bucket.values.length === 0 ? null : Math.max(...bucket.values)
+      return bucket.max === null ? null : exactDecimalToNumber(bucket.max)
     default:
       return bucket.count
   }
+}
+
+/**
+ * Mirrors the SQL path's `ORDER BY value DESC NULLS LAST`. PostgreSQL defaults DESC to NULLS FIRST,
+ * which would let empty buckets displace real ones under a group limit, so both paths state the
+ * policy explicitly: highest value first, buckets without a value last.
+ */
+function compareWidgetDataItemsByValueDesc(
+  left: { value: number | null },
+  right: { value: number | null },
+): number {
+  if (left.value === null && right.value === null) return 0
+  if (left.value === null) return 1
+  if (right.value === null) return -1
+  return right.value - left.value
 }
 
 export type WidgetDataRequest = {
@@ -351,8 +409,9 @@ export class WidgetDataService {
     entityType: string,
     groupBy: NonNullable<WidgetDataRequest['groupBy']>,
   ): Promise<EncryptedGroupSource | null> {
-    const encryptionService = resolveTenantEncryptionService(this.em as any)
-    if (!encryptionService?.isEnabled()) return null
+    // Encryption is not configured for this deployment, so no column can hold ciphertext and the
+    // database may group the source directly.
+    if (!isTenantDataEncryptionEnabled()) return null
 
     const resolved = resolveGroupExpression(this.registry, entityType, groupBy)
     if (!resolved) return null
@@ -360,16 +419,34 @@ export class WidgetDataService {
     const tableName = this.registry.getEntityTypeConfig(entityType)?.tableName
     if (!tableName) return null
 
-    const entityId = this.resolveEntityId(this.resolveEntityMetadata(tableName))
+    // Without an encryption entity id the table is outside the encryption map entirely, which is
+    // the same state the encrypting subscriber sees when it skips the row.
+    const entityId = this.resolveEncryptionEntityId(tableName)
     if (!entityId) return null
+
+    const encryptionService = resolveTenantEncryptionService(this.em)
+    if (!encryptionService) {
+      throw new WidgetDataEncryptionUnavailableError(
+        `Cannot determine whether ${groupBy.field} is encrypted: encryption service unavailable`,
+      )
+    }
 
     const organizationId = this.resolveOrganizationId()
     let encryptedFields: string[]
     try {
-      encryptedFields = await encryptionService.getEncryptedFieldNames(entityId, this.scope.tenantId, organizationId)
+      // Deliberately independent of KMS health: the map describes how the rows were written, and
+      // an unhealthy KMS must not be read as "this column is plaintext" (#4622).
+      encryptedFields = await encryptionService.getEncryptedFieldNames(
+        entityId,
+        this.scope.tenantId,
+        organizationId,
+        { ignoreRuntimeHealth: true },
+      )
     } catch (err) {
-      logger.warn('Failed to resolve encrypted fields for widget grouping', { err, entityId, entityType })
-      return null
+      logger.error('Failed to resolve encrypted fields for widget grouping', { err, entityId, entityType })
+      throw new WidgetDataEncryptionUnavailableError(
+        `Cannot determine whether ${groupBy.field} is encrypted: encryption map lookup failed`,
+      )
     }
 
     if (!encryptedFields.some((field) => matchesColumn(field, resolved.dbColumn))) return null
@@ -417,8 +494,14 @@ export class WidgetDataService {
       )
     }
 
-    const encryptionService = resolveTenantEncryptionService(this.em as any)
-    const dek = encryptionService?.isEnabled() ? await encryptionService.getDek(this.scope.tenantId) : null
+    const encryptionService = resolveTenantEncryptionService(this.em)
+    let dek: TenantDek | null = null
+    try {
+      dek = encryptionService ? await encryptionService.getDek(this.scope.tenantId) : null
+    } catch (err) {
+      logger.error('Failed to resolve the tenant DEK for widget grouping', { err, entityId: source.entityId })
+      dek = null
+    }
 
     const buckets = new Map<string | null, GroupBucket>()
     let undecryptableRows = 0
@@ -432,18 +515,25 @@ export class WidgetDataService {
 
       let bucket = buckets.get(groupKey)
       if (!bucket) {
-        bucket = { count: 0, values: [] }
+        bucket = createGroupBucket()
         buckets.set(groupKey, bucket)
       }
 
       const metricValue = row.metric_value
       if (metricValue === null || metricValue === undefined) continue
       bucket.count += 1
-      const numeric = Number(metricValue)
-      if (Number.isFinite(numeric)) bucket.values.push(numeric)
+      const numeric = parseExactDecimal(metricValue)
+      if (numeric) foldMetricValue(bucket, numeric)
     }
 
     if (undecryptableRows > 0) {
+      // No DEK at all means every ciphertext row would collapse into "Unknown" and the widget would
+      // report a confidently wrong distribution, so fail closed rather than chart it (#4622).
+      if (!dek) {
+        throw new WidgetDataEncryptionUnavailableError(
+          `Cannot group encrypted field ${request.groupBy?.field}: tenant encryption key is unavailable`,
+        )
+      }
       logger.warn('Grouped rows with an undecryptable group source as unknown', {
         entityId: source.entityId,
         column: source.dbColumn,
@@ -453,7 +543,7 @@ export class WidgetDataService {
 
     let data: WidgetDataItem[] = Array.from(buckets.entries())
       .map(([groupKey, bucket]) => ({ groupKey, value: aggregateBucket(request.metric.aggregate, bucket) }))
-      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+      .sort(compareWidgetDataItemsByValueDesc)
 
     if (request.groupBy?.limit && request.groupBy.limit > 0) {
       data = data.slice(0, Math.min(request.groupBy.limit, 100))
@@ -702,6 +792,16 @@ export class WidgetDataService {
     } catch {
       return null
     }
+  }
+
+  /**
+   * Resolves the encryption entity id for an analytics table. A request-scoped `EntityManager` fork
+   * frequently reports an empty metadata registry, which used to make every group source look
+   * unencrypted and send the request back to the ciphertext-grouping SQL path (#4622). The table
+   * name alone is enough for the entity-id lookup, so it is the fallback.
+   */
+  private resolveEncryptionEntityId(tableName: string): string | null {
+    return this.resolveEntityId(this.resolveEntityMetadata(tableName)) ?? this.resolveEntityId({ tableName })
   }
 
   private isEncryptedPayload(value: string): boolean {

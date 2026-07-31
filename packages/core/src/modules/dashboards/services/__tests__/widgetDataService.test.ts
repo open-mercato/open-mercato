@@ -8,6 +8,7 @@ import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encrypt
 import {
   WidgetDataService,
   WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
   type WidgetDataRequest,
 } from '../widgetDataService'
 import { createAnalyticsRegistry, type AnalyticsRegistry } from '../analyticsRegistry'
@@ -149,19 +150,23 @@ describe('WidgetDataService encrypted group sources', () => {
 
   function createEncryptedService(
     execute: (sql: string, params: unknown[]) => Promise<ExecuteResult>,
-    encryptedFields: string[] = ['shipping_address_snapshot'],
+    encryptedFields: string[] | (() => Promise<string[]>) = ['shipping_address_snapshot'],
     tenantDek: string | null = dek,
+    options: { isEnabled?: boolean; emptyOrmMetadata?: boolean } = {},
   ) {
     ;(resolveTenantEncryptionService as jest.Mock).mockReturnValue({
-      isEnabled: () => true,
-      getEncryptedFieldNames: jest.fn(async () => encryptedFields),
+      isEnabled: () => options.isEnabled ?? true,
+      getEncryptedFieldNames: jest.fn(async () =>
+        typeof encryptedFields === 'function' ? encryptedFields() : encryptedFields,
+      ),
       getDek: jest.fn(async () => (tenantDek ? { key: tenantDek } : null)),
     })
 
     const em = {
       getConnection: () => ({ execute }),
       getMetadata: () => ({
-        getAll: () => [{ className: 'SalesOrder', tableName: 'sales_orders', properties: {} }],
+        getAll: () =>
+          options.emptyOrmMetadata ? [] : [{ className: 'SalesOrder', tableName: 'sales_orders', properties: {} }],
       }),
     } as unknown as EntityManager
 
@@ -291,5 +296,121 @@ describe('WidgetDataService encrypted group sources', () => {
     const service = createEncryptedService(execute)
 
     await expect(service.fetchWidgetData(regionRequest)).rejects.toBeInstanceOf(WidgetDataScanLimitError)
+  })
+
+  test('detects the encrypted column when the request EntityManager reports no ORM metadata', async () => {
+    // A forked request EM regularly returns an empty metadata registry; keying the encryption
+    // lookup off it alone sent every production request back to the ciphertext SQL path (#4622).
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [
+      { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: '10' },
+    ])
+    const service = createEncryptedService(execute, ['shipping_address_snapshot'], dek, {
+      emptyOrmMetadata: true,
+    })
+
+    const response = await service.fetchWidgetData(regionRequest)
+
+    expect(buildAggregationQuery).not.toHaveBeenCalled()
+    expect(response.data).toEqual([{ groupKey: 'Pomorskie', value: 10 }])
+  })
+
+  test('refuses the SQL fallback when the KMS is unhealthy', async () => {
+    const ciphertext = encryptSnapshot({ region: 'Pomorskie' })
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [
+      { group_source: ciphertext, metric_value: '25' },
+    ])
+
+    // An unhealthy KMS makes `isEnabled()` false and leaves no tenant DEK, but the encryption map
+    // still proves the column holds ciphertext.
+    const service = createEncryptedService(execute, ['shipping_address_snapshot'], null, { isEnabled: false })
+
+    await expect(service.fetchWidgetData(regionRequest)).rejects.toBeInstanceOf(
+      WidgetDataEncryptionUnavailableError,
+    )
+    expect(buildAggregationQuery).not.toHaveBeenCalled()
+    const [sql] = execute.mock.calls[0]
+    expect(sql).not.toContain('GROUP BY')
+  })
+
+  test('refuses the SQL fallback when the encryption map lookup fails', async () => {
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [])
+    const service = createEncryptedService(execute, async () => {
+      throw new Error('encryption_maps unavailable')
+    })
+
+    await expect(service.fetchWidgetData(regionRequest)).rejects.toBeInstanceOf(
+      WidgetDataEncryptionUnavailableError,
+    )
+    expect(buildAggregationQuery).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  test('sums fractional money exactly instead of in binary floating point', async () => {
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [
+      { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: '0.1' },
+      { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: '0.2' },
+      { group_source: encryptSnapshot({ region: 'Mazowieckie' }), metric_value: '1234567890.12' },
+      { group_source: encryptSnapshot({ region: 'Mazowieckie' }), metric_value: '0.03' },
+    ])
+
+    const service = createEncryptedService(execute)
+    const response = await service.fetchWidgetData(regionRequest)
+
+    expect(response.data).toEqual([
+      { groupKey: 'Mazowieckie', value: 1234567890.15 },
+      { groupKey: 'Pomorskie', value: 0.3 },
+    ])
+    // The float path would produce 0.30000000000000004 here.
+    expect(response.data[1].value).toBe(0.3)
+  })
+
+  test('averages fractional money without float drift', async () => {
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [
+      { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: '0.1' },
+      { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: '0.2' },
+    ])
+
+    const service = createEncryptedService(execute)
+    const response = await service.fetchWidgetData({
+      ...regionRequest,
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'avg' },
+    })
+
+    expect(response.data).toEqual([{ groupKey: 'Pomorskie', value: 0.15 }])
+  })
+
+  test('orders buckets without a value last, mirroring ORDER BY value DESC NULLS LAST', async () => {
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [
+      { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: null },
+      { group_source: encryptSnapshot({ region: 'Mazowieckie' }), metric_value: '-40' },
+      { group_source: encryptSnapshot({ region: 'Śląskie' }), metric_value: '0' },
+    ])
+
+    const service = createEncryptedService(execute)
+    const response = await service.fetchWidgetData({
+      ...regionRequest,
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'min' },
+    })
+
+    expect(response.data).toEqual([
+      { groupKey: 'Śląskie', value: 0 },
+      { groupKey: 'Mazowieckie', value: -40 },
+      { groupKey: 'Pomorskie', value: null },
+    ])
+  })
+
+  test('keeps a group limit on the highest-value buckets rather than the empty ones', async () => {
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [
+      { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: null },
+      { group_source: encryptSnapshot({ region: 'Mazowieckie' }), metric_value: '5' },
+    ])
+
+    const service = createEncryptedService(execute)
+    const response = await service.fetchWidgetData({
+      ...regionRequest,
+      groupBy: { field: 'shippingAddressSnapshot.region', limit: 1 },
+    })
+
+    expect(response.data).toEqual([{ groupKey: 'Mazowieckie', value: 5 }])
   })
 })

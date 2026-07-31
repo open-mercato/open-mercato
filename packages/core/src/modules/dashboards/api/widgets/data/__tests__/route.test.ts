@@ -45,7 +45,11 @@ jest.mock('../../../../services/widgetDataService', () => ({
 }))
 
 import { POST } from '../route'
-import { WidgetDataScanLimitError, WidgetDataValidationError } from '../../../../services/widgetDataService'
+import {
+  WidgetDataEncryptionUnavailableError,
+  WidgetDataScanLimitError,
+  WidgetDataValidationError,
+} from '../../../../services/widgetDataService'
 
 function buildRequest(): Request {
   return new Request('http://localhost/api/dashboards/widgets/data', {
@@ -76,6 +80,23 @@ describe('widget data route error mapping', () => {
     await expect(response.json()).resolves.toEqual({
       error: 'Too many rows to group encrypted field shippingAddressSnapshot.region (limit 20000)',
     })
+  })
+
+  test('reports an unresolvable encryption stack as a retryable 503', async () => {
+    fetchWidgetData.mockRejectedValue(
+      new WidgetDataEncryptionUnavailableError(
+        'Cannot group encrypted field shippingAddressSnapshot.region: tenant encryption key is unavailable',
+      ),
+    )
+
+    const response = await POST(buildRequest())
+
+    expect(response.status).toBe(503)
+    const body = await response.json()
+    expect(body).toEqual({
+      error: 'Cannot group encrypted field shippingAddressSnapshot.region: tenant encryption key is unavailable',
+    })
+    expect(JSON.stringify(body)).not.toContain(':v1')
   })
 
   test('keeps validation errors on 400', async () => {
