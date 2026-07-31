@@ -23,9 +23,7 @@ jobs:
           script: |
             // Only safe, existing taxonomy labels may be added by contributors.
             const allowedLabels = new Set([
-              'bug',
-              'documentation',
-              'feature',
+              'partner-request',
             ]);
 
             const requestedLabels = context.payload.comment.body
