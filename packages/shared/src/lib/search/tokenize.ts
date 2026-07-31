@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { resolveSearchConfig, type SearchConfig } from './config'
+import { resolveSearchConfig, resolveTokenCaps, type SearchConfig } from './config'
 
 export type TokenizationResult = {
   tokens: string[]
@@ -20,13 +20,36 @@ function splitTokens(text: string, minLength: number): string[] {
     .filter((token) => token.length >= minLength)
 }
 
-function expandToken(token: string, config: SearchConfig): string[] {
-  if (!config.enablePartials) return [token]
-  const results: string[] = []
-  for (let i = config.minTokenLength; i <= token.length; i += 1) {
-    results.push(token.slice(0, i))
+// #4681: expand prefixes into the shared collector while honoring a running
+// budget so a single very long token cannot materialize tens of thousands of
+// progressively larger strings before a post-hoc slice. Returns false when the
+// per-field budget is exhausted so the caller can stop early.
+function collectExpandedTokens(
+  token: string,
+  config: SearchConfig,
+  minTokenLength: number,
+  seen: Set<string>,
+  out: string[],
+  remainingBudget: number,
+): number {
+  if (remainingBudget <= 0) return 0
+  let added = 0
+  const push = (candidate: string): boolean => {
+    if (candidate.length < minTokenLength) return true
+    if (seen.has(candidate)) return true
+    seen.add(candidate)
+    out.push(candidate)
+    added += 1
+    return added < remainingBudget
   }
-  return results
+  if (!config.enablePartials) {
+    push(token)
+    return added
+  }
+  for (let i = minTokenLength; i <= token.length; i += 1) {
+    if (!push(token.slice(0, i))) break
+  }
+  return added
 }
 
 export function hashToken(token: string, config?: SearchConfig): string {
@@ -36,20 +59,22 @@ export function hashToken(token: string, config?: SearchConfig): string {
 
 export function tokenizeText(text: string, config?: SearchConfig): TokenizationResult {
   const cfg = config ?? resolveSearchConfig()
+  const caps = resolveTokenCaps(cfg)
   // #4681: truncate oversized field text before tokenizing so a single large
   // field (e.g. a long email body) cannot explode into tens of thousands of
   // partial-prefix tokens.
-  const bounded = cfg.maxFieldChars > 0 && text.length > cfg.maxFieldChars
-    ? text.slice(0, cfg.maxFieldChars)
+  const bounded = caps.maxFieldChars > 0 && text.length > caps.maxFieldChars
+    ? text.slice(0, caps.maxFieldChars)
     : text
   const baseTokens = splitTokens(bounded, cfg.minTokenLength)
-  const expanded = baseTokens.flatMap((token) => expandToken(token, cfg))
-  const unique = Array.from(new Set(expanded))
-  const eligible = unique.filter((token) => token.length >= cfg.minTokenLength)
-  // Cap tokens per field to keep the search_tokens fan-out bounded per record.
-  const tokens = cfg.maxTokensPerField > 0 && eligible.length > cfg.maxTokensPerField
-    ? eligible.slice(0, cfg.maxTokensPerField)
-    : eligible
+  const fieldBudget = caps.maxTokensPerField > 0 ? caps.maxTokensPerField : Number.POSITIVE_INFINITY
+  const seen = new Set<string>()
+  const tokens: string[] = []
+  let remaining = fieldBudget
+  for (const token of baseTokens) {
+    if (remaining <= 0) break
+    remaining -= collectExpandedTokens(token, cfg, cfg.minTokenLength, seen, tokens, remaining)
+  }
   const hashes = tokens.map((token) => hashToken(token, cfg))
   return { tokens, hashes }
 }

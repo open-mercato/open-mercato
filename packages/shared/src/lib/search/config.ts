@@ -8,9 +8,36 @@ export type SearchConfig = {
   hashAlgorithm: 'sha256' | 'sha1' | 'md5'
   storeRawTokens: boolean
   blocklistedFields: string[]
+  // #4681: optional so the exported shape stays backward compatible — third-party
+  // modules that build a SearchConfig literal keep compiling. `resolveSearchConfig`
+  // always populates them; consumers normalize a missing value to the default via
+  // `resolveTokenCaps`.
+  maxFieldChars?: number
+  maxTokensPerField?: number
+  maxTokensPerRecord?: number
+}
+
+export type ResolvedTokenCaps = {
   maxFieldChars: number
   maxTokensPerField: number
   maxTokensPerRecord: number
+}
+
+/**
+ * Normalize the optional token-cap fields to concrete numbers, applying the
+ * module defaults when a caller passed a legacy `SearchConfig` literal without
+ * them. A non-positive value means "no cap" and is preserved as `0`.
+ */
+export function resolveTokenCaps(config: Pick<SearchConfig, 'maxFieldChars' | 'maxTokensPerField' | 'maxTokensPerRecord'>): ResolvedTokenCaps {
+  const normalize = (value: number | undefined, fallback: number): number => {
+    if (value === undefined) return fallback
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0
+  }
+  return {
+    maxFieldChars: normalize(config.maxFieldChars, DEFAULT_SEARCH_MAX_FIELD_CHARS),
+    maxTokensPerField: normalize(config.maxTokensPerField, DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD),
+    maxTokensPerRecord: normalize(config.maxTokensPerRecord, DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD),
+  }
 }
 
 export const DEFAULT_SEARCH_MIN_TOKEN_LENGTH = 3
