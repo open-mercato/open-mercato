@@ -17,6 +17,7 @@ const scaffolderSource = fs.readFileSync(
 const skillsShippingOverrideFolder = [
   'om-auto-create-pr',
   'om-auto-continue-pr',
+  'om-auto-implement-spec',
   'om-auto-review-pr',
   'om-auto-fix-issue',
 ]
@@ -239,6 +240,35 @@ test('auto-* override SKILL.md routes tracker-facing behavior through the tracke
     rawTrackerCommands,
     [],
     `These overrides inline raw gh commands instead of tracker operations: ${rawTrackerCommands.join(', ')}`,
+  )
+})
+
+test('standalone auto implementation audits readiness and falls back to the local phase engine', () => {
+  const override = readOverrideSkill('om-auto-implement-spec')
+  const phaseReference = fs.readFileSync(
+    new URL('om-implement-spec/references/phases-and-gates.md', skillsDir),
+    'utf8',
+  )
+
+  for (const contract of [
+    'Ready for implementation',
+    'no blocking open questions',
+    'acceptance criterion/phase/self-contained test oracle',
+    'Only the current unblocked phase may be in progress',
+    'No-remote fallback is local and phase-safe',
+    '.ai/skills/om-implement-spec/SKILL.md',
+  ]) {
+    assert.ok(override.includes(contract), `om-auto-implement-spec override must retain: ${contract}`)
+  }
+  assert.match(
+    phaseReference,
+    /Only one phase may be `in_progress`; a phase can start only when every declared dependency is `verified`/,
+    'the local phase engine must reject cross-phase concurrency',
+  )
+  assert.match(
+    phaseReference,
+    /File count, generated discovery, and typecheck alone never prove a business slice works/,
+    'phase completion must require acceptance evidence rather than scaffold volume',
   )
 })
 
