@@ -48,7 +48,7 @@ Prevent large standalone-app requests from bypassing `om-spec-writing`, producin
 
 ### Phase 1: Specification readiness contract
 
-- [ ] 1.1 Add the implementation-ready spec template and generated-agent readiness gate
+- [x] 1.1 Add the implementation-ready spec template and generated-agent readiness gate — 29ea8a171
 - [ ] 1.2 Add regression coverage for the readiness contract and instruction parity
 
 ### Phase 2: Phase-safe implementation routing
