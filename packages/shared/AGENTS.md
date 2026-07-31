@@ -34,6 +34,7 @@ yarn workspace @open-mercato/shared build
 |-----------|-------------|-------------|
 | `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
+| `auth/organizationScope` | When an organization-scoped API route must resolve the caller's organization — falls back to `actorOrgId` for an "all organizations" selection instead of failing | `@open-mercato/shared/lib/auth/organizationScope` — `resolveActiveOrganizationId(auth)` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |

@@ -85,6 +85,33 @@ describe('data_sync cancel run route', () => {
     expect(response.status).toBe(401)
   })
 
+  // `orgId: null` + `actorOrgId` is the shape `applySuperAdminScope` produces for an
+  // all-organizations selection. Answering 401 for it sent `apiFetch` into a refresh loop.
+  it('falls back to the actor organization instead of answering 401 in the all-organizations scope', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: null,
+      actorOrgId: 'org-1',
+    })
+
+    const response = await postHandler(
+      new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
+      { params: { id: '11111111-1111-4111-8111-111111111111' } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockSyncRunService.getRun).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { organizationId: 'org-1', tenantId: 'tenant-1' },
+    )
+    expect(mockProgressService.markCancelled).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+  })
+
   it('marks the run as cancelled and records operational state and logs', async () => {
     const response = await postHandler(
       new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),

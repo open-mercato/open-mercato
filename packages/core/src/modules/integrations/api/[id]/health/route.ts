@@ -9,7 +9,7 @@ import {
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
 } from '../../guards'
-import { resolveIntegrationsOrganizationId } from '../../../lib/organization-scope'
+import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -24,7 +24,7 @@ export const openApi = {
 
 export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveIntegrationsOrganizationId(auth)
+  const organizationId = resolveActiveOrganizationId(auth)
   if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

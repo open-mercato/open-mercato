@@ -8,7 +8,7 @@ import {
   integrationApiRoutePaths,
   runIntegrationsReadBeforeInterceptors,
 } from '../umes-read'
-import { resolveIntegrationsOrganizationId } from '../../lib/organization-scope'
+import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['integrations.manage'] },
@@ -21,7 +21,7 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveIntegrationsOrganizationId(auth)
+  const organizationId = resolveActiveOrganizationId(auth)
   if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

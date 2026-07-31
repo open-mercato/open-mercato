@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -36,7 +37,8 @@ async function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: s
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -47,14 +49,14 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const mapping = await findOneWithDecryption(
     em,
     SyncMapping,
     {
       id: parsedParams.data.id,
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     },
     undefined,
@@ -77,7 +79,8 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -94,14 +97,14 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const mapping = await findOneWithDecryption(
     em,
     SyncMapping,
     {
       id: parsedParams.data.id,
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     },
     undefined,
@@ -155,7 +158,8 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -166,14 +170,14 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const mapping = await findOneWithDecryption(
     em,
     SyncMapping,
     {
       id: parsedParams.data.id,
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     },
     undefined,

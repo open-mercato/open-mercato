@@ -9,6 +9,7 @@ The `data_sync` module provides a streaming data synchronization hub for import/
 ## Always
 
 - **Always scope by organizationId + tenantId** — every entity query
+- **Resolve the organization in API routes with `resolveActiveOrganizationId(auth)`** from `@open-mercato/shared/lib/auth/organizationScope`, never with raw `auth.orgId` — a super-admin viewing "all organizations" has `auth.orgId === null`, and answering `401` there sends `apiFetch` into a session-refresh loop
 - **Use the queue system** — never run syncs inline in API handlers
 - **New sync providers MUST support provider-owned env preconfiguration** when fresh installs need credentials or default mappings/locales/channels from deployment env
 - **Persist cursor after each batch** — enables resume on failure

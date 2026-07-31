@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSyncScheduleSchema, listSyncSchedulesQuerySchema } from '../../data/validators'
@@ -24,7 +25,8 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -43,7 +45,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
   const { items, total } = await scheduleService.listSchedules(parsed.data, scope)
 
   return NextResponse.json({
@@ -57,7 +59,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -69,7 +72,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,

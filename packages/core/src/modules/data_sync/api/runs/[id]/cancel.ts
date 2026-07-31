@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import type { IntegrationStateService } from '../../../../integrations/lib/state-service'
@@ -24,7 +25,8 @@ export const openApi = {
 
 export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!auth?.tenantId || !organizationId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -42,7 +44,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   const progressService = container.resolve('progressService') as ProgressService
   const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
   const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const run = await syncRunService.getRun(parsed.data.id, scope)
   if (!run) {
@@ -69,7 +71,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
 
   const progressCtx = {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
   }
 
