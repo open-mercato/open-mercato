@@ -116,23 +116,30 @@ node scripts/profile-dev-rss.mjs \
   --out-dir /private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss
 ```
 
-Each run used a fresh headed Playwright CLI session named `candidate1`,
-`candidate2`, or `candidate3`. It opened
-`http://localhost:3000/backend/memory-probe`, proved the redirect to `/login`,
-authenticated with `superadmin@acme.com`, returned to the protected probe URL,
-and found `Baseline marker A`. Only
-`src/modules/memory_probe/backend/memory-probe/page.tsx` then changed A to B.
-After six seconds, `snapshot`, `find 'Baseline marker B'`, and console capture
-proved an in-place Fast Refresh. No `goto`, reload, page click, server restart,
-database mutation command, or other source edit was issued after the A-to-B
-edit. Browser
-sessions and console collection remained open past their first 180 seconds.
+The operator used a fresh headed Playwright CLI session named `candidate1`,
+`candidate2`, or `candidate3` for each run. The observed workflow opened
+`http://localhost:3000/backend/memory-probe`, followed the login redirect,
+authenticated as `superadmin@acme.com`, returned to the protected probe, and
+found `Baseline marker A`. The operator then made the intended A-to-B edit in
+`src/modules/memory_probe/backend/memory-probe/page.tsx`.
 
-After each report and browser artifact was retained, the browser closed, the
-full dev tree received `Ctrl-C`, shutdown reported `Shutting down services...`,
-the root/child PIDs and ports 3000/4000 were confirmed absent, and marker A was
-restored only while stopped. After the final stopped run, the fixture was
-restored to its intended marker B.
+The independently inspectable browser evidence is narrower than that observed
+workflow: every run retains an authenticated protected-page accessibility
+snapshot with the `Memory probe` title, `superadmin@acme.com` control, and
+marker A; a screenshot with marker B; and a console log containing the Fast
+Refresh rebuild after the edit. The console logs continue past 180 seconds. No
+browser trace or command transcript was retained, so exact redirect, login, and
+negative navigation history are recorded as operator observations rather than
+independently replayable evidence.
+
+After each measurement the operator closed the browser, sent `Ctrl-C` to the
+dev tree, observed `Shutting down services...`, confirmed ports 3000/4000 were
+free, and restored marker A while stopped. The retained profiler reports prove
+the root and Next server PIDs remained present in every sample through each
+final approximately 179-second sample; later telemetry snapshots independently
+retain the server PIDs. They do not retain a root-PID observation after the
+full 180 seconds. After the final stopped run, the fixture was restored to its
+intended marker B.
 
 ## Raw candidate results
 
@@ -140,42 +147,48 @@ The reduction columns use the fixed corrected baseline comparators:
 
 - total peak: `10,094.50 MB`;
 - mean total: `9,431.21 MB`;
-- attributed `next-turbopack`: `7,908.54 MB`.
+- attributed `next-turbopack` per-run class maximum: `7,908.54 MB`.
 
 Negative reduction is a regression.
 
-| Run | Exact report | Samples | Peak total | Mean total | Total reduction | Mean reduction | Dominant class | Peak `next-turbopack` | Attributed reduction | Top process at peak |
+| Run | Exact report | Samples | Peak total | Mean total | Total reduction | Mean reduction | Dominant class at total peak | Maximum `next-turbopack` class total in any sample | Attributed reduction | Top process at total peak |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
 | 1 | `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/candidate-1.json` | 172 | 10,611.17 MB | 6,656.76 MB | -5.118332% | 29.417752% | `next-turbopack` | 9,272.87 MB | -17.251351% | PID 19409, `next-server (v16.2.11)`, 8,833.23 MB |
 | 2 | `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/candidate-2.json` | 173 | 10,396.86 MB | 5,657.47 MB | -2.995294% | 40.013317% | `next-turbopack` | 9,031.45 MB | -14.198702% | PID 22632, `next-server (v16.2.11)`, 8,411.98 MB |
-| 3 | `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/candidate-3.json` | 173 | 9,758.31 MB | 6,329.72 MB | 3.330427% | 32.885388% | `next-turbopack` | 8,504.09 MB | -7.530467% | PID 25680, `next-server (v16.2.11)`, 7,926.23 MB |
+| 3 | `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/candidate-3.json` | 173 | 9,758.31 MB | 6,329.72 MB | 3.330427% | 32.885388% | `next-turbopack` | 8,929.55 MB | -12.910221% | PID 25680, `next-server (v16.2.11)`, 7,926.23 MB |
 
 Profiler windows were:
 
-| Run | Root PID | Started UTC | Finished UTC | Peak UTC |
-| --- | ---: | --- | --- | --- |
-| 1 | 19304 | `2026-07-31T08:33:22.805Z` | `2026-07-31T08:36:22.806Z` | `2026-07-31T08:33:41.628Z` |
-| 2 | 22597 | `2026-07-31T08:38:43.341Z` | `2026-07-31T08:41:43.343Z` | `2026-07-31T08:38:50.606Z` |
-| 3 | 25642 | `2026-07-31T08:43:45.359Z` | `2026-07-31T08:46:45.362Z` | `2026-07-31T08:43:53.694Z` |
+| Run | Root PID | Started UTC | Finished UTC | Total peak UTC | Maximum `next-turbopack` UTC |
+| --- | ---: | --- | --- | --- | --- |
+| 1 | 19304 | `2026-07-31T08:33:22.805Z` | `2026-07-31T08:36:22.806Z` | `2026-07-31T08:33:41.628Z` | `2026-07-31T08:33:41.628Z` |
+| 2 | 22597 | `2026-07-31T08:38:43.341Z` | `2026-07-31T08:41:43.343Z` | `2026-07-31T08:38:50.606Z` | `2026-07-31T08:38:50.606Z` |
+| 3 | 25642 | `2026-07-31T08:43:45.359Z` | `2026-07-31T08:46:45.362Z` | `2026-07-31T08:43:53.694Z` | `2026-07-31T08:43:51.631Z` |
 
-All three candidate peaks occurred during the managed startup warmup, 10–13
-seconds before the corresponding interactive browser session opened. They were
-not post-edit invalidation peaks.
+The recorded timeline places all three total-tree peaks before interactive
+browser work. Runs 1 and 2 peaked within the logged managed warmup window. In
+run 3, the maximum `next-turbopack` class total occurred at
+`08:43:51.631Z`, 52 ms before the logged `08:43:51.683Z` warmup completion,
+while the total-tree peak occurred at `08:43:53.694Z`, 2.011 seconds after
+completion. The supported lifecycle characterization is therefore a
+startup/warmup-adjacent pre-browser peak, not that every peak occurred during
+warmup. None was a post-edit invalidation peak.
 
 ## Functional, HMR, and PID evidence
 
-All three runs independently authenticated. The protected page title was
-`Memory probe`, the URL stayed
-`http://localhost:3000/backend/memory-probe`, and the authenticated shell showed
-the `superadmin@acme.com` user control. The two console 401s per run came from
-the unauthenticated feature check during the initial login redirect; the
-subsequent authenticated render and edit both succeeded.
+The operator observed successful authentication and the protected A-to-B
+workflow in all three runs. Independently retained A snapshots show the
+protected `Memory probe` shell, `superadmin@acme.com` control, and marker A;
+retained B screenshots show the refreshed marker B; and retained console logs
+show the corresponding Fast Refresh activity. The two 401 console entries per
+run are also retained, but the logs alone do not prove their exact navigation
+cause.
 
-| Run | Marker evidence retained below fixture `.mercato/dev-rss/browser/` | Dev/server PID before edit | Dev/server PID after edit and after 180 s | Result |
+| Run | Marker evidence retained below fixture `.mercato/dev-rss/browser/` | Root/server PID | Final profiler sample | Retained PID continuity |
 | --- | --- | --- | --- | --- |
-| 1 | `candidate-1-marker-a.yml`, `candidate-1-marker-b.png` | 19304 / 19409 | 19304 / 19409 | Pass |
-| 2 | `candidate-2-marker-a.yml`, `candidate-2-marker-b.png` | 22597 / 22632 | 22597 / 22632 | Pass |
-| 3 | `candidate-3-marker-a.yml`, `candidate-3-marker-b.png` | 25642 / 25680 | 25642 / 25680 | Pass |
+| 1 | `candidate-1-marker-a.yml`, `candidate-1-marker-b.png` | 19304 / 19409 | `2026-07-31T08:36:21.822Z` | Both present in all 172 samples |
+| 2 | `candidate-2-marker-a.yml`, `candidate-2-marker-b.png` | 22597 / 22632 | `2026-07-31T08:41:42.647Z` | Both present in all 173 samples |
+| 3 | `candidate-3-marker-a.yml`, `candidate-3-marker-b.png` | 25642 / 25680 | `2026-07-31T08:46:44.798Z` | Both present in all 173 samples |
 
 ## Browser console cadence
 
@@ -231,10 +244,15 @@ reduction = (10,094.50 - 10,396.86) / 10,094.50
 This is a **2.995294% regression**, not a 30% reduction. The median is
 `3,330.71 MB` above the fixed `7,066.15 MB` ceiling. **Primary gate: FAIL.**
 
-### Attributed `next-turbopack` peak
+### Attributed `next-turbopack` per-run class maximum
+
+The same per-run maximum-across-all-samples definition was recomputed for both
+baseline and candidate reports. Baseline maxima were `7,908.54`, `7,732.40`,
+and `8,349.56 MB`, whose median is the fixed `7,908.54 MB` comparator.
+Candidate maxima were:
 
 ```text
-candidate median = median(9,272.87, 9,031.45, 8,504.09)
+candidate median = median(9,272.87, 9,031.45, 8,929.55)
                  = 9,031.45 MB
 
 reduction = (7,908.54 - 9,031.45) / 7,908.54
@@ -245,8 +263,9 @@ reduction = (7,908.54 - 9,031.45) / 7,908.54
 This is a **14.198702% regression**. The median is `3,495.472 MB` above the
 fixed `5,535.978 MB` ceiling. **Attributed gate: FAIL.**
 
-The median top `next-server` peak is `8,411.98 MB`, 14.760513% above the
-baseline median `7,330.03 MB` top-server comparator.
+The median top `next-server` value at the total-tree peak is `8,411.98 MB`,
+14.760513% above the baseline median `7,330.03 MB` comparator defined the same
+way.
 
 ## Secondary effects and new attribution
 
@@ -258,10 +277,11 @@ baseline median `7,330.03 MB` top-server comparator.
 - Managed warmup durations printed by the unchanged runtime were 21.9 seconds,
   8.9 seconds, and 7.7 seconds. Run 1 followed the required fresh package and
   `.mercato/next` refresh; runs 2 and 3 reused the resulting compiler cache.
-- Every candidate peak preceded interactive browser work and was owned by
-  `next-turbopack`, with `next-server` alone using 7,926.23–8,833.23 MB. The
-  intervention removes sustained filesystem invalidation but does not reduce
-  the startup `/login`, login POST, and authenticated `/backend` warmup peak.
+- Every total-tree peak preceded interactive browser work and had
+  `next-turbopack` as its dominant class. At those total-tree peaks,
+  `next-server` alone used 7,926.23–8,833.23 MB. The intervention removes
+  sustained filesystem invalidation but does not reduce the retained
+  startup/warmup-adjacent pre-browser memory peak.
 
 ## Verdict and next action
 
@@ -272,13 +292,15 @@ baseline median `7,330.03 MB` top-server comparator.
 | Candidate template wrapper installed and hashed | Pass |
 | Fresh snapshots use `.mercato/next/module-resource-usage` | Pass |
 | Three complete 180-second, 1-second-interval reports | Pass |
-| Login and protected page render on every run | Pass |
-| In-place A-to-B Fast Refresh without navigation or PID change | Pass |
+| Login and protected page render observed on every run, corroborated by protected A snapshots | Pass |
+| A-to-B refresh observed; B screenshots and Fast Refresh consoles retained | Pass |
+| Root and server PIDs present in every profiler sample through the final approximately 179-second sample | Pass |
 | No post-edit sequence of three rebuilds spaced 4–6 seconds | Pass |
 | Median total peak at least 30% below baseline | **Fail** |
-| Median attributed `next-turbopack` peak at least 30% below baseline | **Fail** |
+| Median attributed `next-turbopack` per-run class maximum at least 30% below baseline | **Fail** |
 
 **Overall: FAIL / DONE_WITH_CONCERNS.** Per the Task 4 gate, acceptance is not
 weakened and no additional change is stacked. Return to Task 2 root-cause
-attribution using the repeatable pre-browser warmup peak and its 7.9–8.8 GB
-`next-server` owner as the next evidence boundary.
+attribution using the repeatable startup/warmup-adjacent pre-browser memory
+peak and its 7.9–8.8 GB `next-server` owner at the total-tree peak as the next
+evidence boundary.
