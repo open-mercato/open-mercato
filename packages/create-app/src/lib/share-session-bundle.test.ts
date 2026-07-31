@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -80,6 +81,7 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
       },
       {
         type: 'assistant',
+        sessionId: 'session-private-123',
         message: {
           role: 'assistant',
           content: [{ type: 'text', text: 'Generated from 192.168.10.12 for Customer Alpha.' }],
@@ -114,6 +116,14 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
     assert.match(sanitizedSession, /redacted:custom-literal/)
     assert.match(sanitizedSession, /redacted:identifier/)
     assert.match(sanitizedSession, /redacted:hex-secret/)
+    const identifierMarkers = sanitizedSession.match(/redacted:identifier:[a-f0-9]{12}/g) ?? []
+    assert.equal(identifierMarkers.length, 2)
+    assert.equal(identifierMarkers[0], identifierMarkers[1], 'equal identifiers must keep bundle-local correlation')
+    assert.notEqual(
+      identifierMarkers[0],
+      `redacted:identifier:${createHash('sha256').update('session-private-123').digest('hex').slice(0, 12)}`,
+      'identifier pseudonyms must not expose an unsalted dictionary hash',
+    )
     const sanitizedSessionJson = JSON.parse(sanitizedSession) as Array<{ metadata: Record<string, unknown> }>
     assert.equal(Object.hasOwn(sanitizedSessionJson[0].metadata, '__proto__'), true, 'JSON __proto__ keys must remain own data properties')
     assert.equal(Object.keys(sanitizedSessionJson[0].metadata).some((key) => key.includes('redacted:email')), true)
