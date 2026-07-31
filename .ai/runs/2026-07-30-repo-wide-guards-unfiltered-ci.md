@@ -116,6 +116,24 @@ PR: #4687
   having run nothing — the silent zero-match this runner exists to prevent. Pinned by the new
   "the runner refuses to pass when a guard matches no test" case — ec83edfac
 
+- [x] 2.3 Maintainer review autofix (`om-auto-fix-pr`, @pkarw's `changes-requested`): the detector
+  only understood the *direct* locator (`findRepoRoot`, `process.cwd()`, `resolve(__dirname, '..')`),
+  so the repository's *indirect* shape — `let dir = __dirname` walked upward with
+  `dir = path.dirname(dir)` until a probed path exists — slipped through, and the "no test is left
+  unclassified" assertion passed while three real cross-package audits went unclassified. The
+  detector now resolves directory-valued bindings (an upward walk from a binding onto itself is
+  treated as unbounded, so it must be assumed to leave the workspace), ignores identifiers that
+  only appear inside string literals, counts `'../..'`-style joined ascents segment by segment,
+  and treats `dirname(fileURLToPath(import.meta.url))` as the file's own directory rather than an
+  ascent. The three false negatives are now enumerated guards, and the two new `create-app`
+  agent-harness tests `develop` added are documented exceptions. A synthetic fixture repository
+  pins the locator shape so it cannot regress.
+- [x] 2.4 Maintainer review autofix (minor): the runner launched jest through Node's native
+  `spawnSync`, which cannot execute the `.cmd` shims `resolveSpawnCommand()` deliberately returns
+  unchanged for cross-spawn callers — `yarn test:repo-wide-guards` would have failed on Windows.
+  It now uses `cross-spawn`, pinned by a source assertion that also forbids re-importing
+  `node:child_process`.
+
 ### Phase 3: Validation
 
 - [x] 3.1 Reproduction of #4527: reverting the comparator in `scripts/check-agents-md-budget.mjs`
@@ -134,6 +152,15 @@ Runner: local (no compose `app` container running).
   all pass. `yarn i18n:check-usage` reports 2 missing keys in
   `packages/ui/src/backend/fields/phone.tsx` — a file this PR does not touch; the finding is
   pre-existing on `develop` and the step is `continue-on-error: true` in CI.
+
+### Re-validation after the review autofix (2026-07-31)
+
+Runner: local (no compose `app` container running), on the branch after merging `upstream/develop`.
+
+- `yarn test:repo-wide-guards` — 19 guard files across 5 workspaces, all passing (~10 s).
+- `yarn test:scripts` — all cases passing, including the 5 new detector cases.
+- The detector now reports 26 cross-package candidates and 0 unclassified, up from 23 candidates
+  with 3 silent false negatives and 2 unclassified newcomers from `develop`.
 
 ## Note on CI visibility
 
