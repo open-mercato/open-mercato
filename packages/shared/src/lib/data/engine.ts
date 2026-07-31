@@ -12,10 +12,16 @@ import type {
   CrudIndexerConfig,
   CrudEntityIdentifiers,
 } from '../crud/types'
+import type { BulkImportSuppression } from '../commands/types'
 import { CrudHttpError } from '../crud/errors'
+import { resolveRegisteredEntityTableName } from '../query/engine'
+import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import { parseBooleanToken } from '../boolean'
 import { isEventDeclared } from '../../modules/events'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'data-engine' })
 
 const undeclaredEventWarned = new Set<string>()
 
@@ -23,10 +29,7 @@ function warnIfUndeclaredEvent(eventName: string, context: string): void {
   if (isEventDeclared(eventName)) return
   if (undeclaredEventWarned.has(eventName)) return
   undeclaredEventWarned.add(eventName)
-  console.warn(
-    `[data-engine] ${context} is emitting undeclared event "${eventName}". ` +
-    `Declare it in the owning module's events.ts (createModuleEvents) so the event registry stays authoritative.`,
-  )
+  logger.warn('Emitting undeclared event — declare it in the owning module events.ts (createModuleEvents) so the event registry stays authoritative', { context, eventName })
 }
 
 /** Internal: clear the undeclared-event warning cache. Exposed for tests. */
@@ -54,6 +57,7 @@ type QueuedCrudSideEffect = {
   entity: unknown
   identifiers: CrudEntityIdentifiers
   syncOrigin?: string | null
+  actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
 }
@@ -122,6 +126,9 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
+    /** Bulk-import deferral: skip the domain event and/or inline reindex for this emit. */
+    suppress?: BulkImportSuppression
   }): Promise<void>
 
   markOrmEntityChange<T>(opts: {
@@ -131,9 +138,50 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void
 
-  flushOrmEntityChanges(): Promise<void>
+  /**
+   * Drain queued side effects. When `suppress` is passed (a bulk-import backfill), the
+   * flagged per-record events / reindex are skipped for every drained entry; the caller
+   * is responsible for rebuilding the `query_index` afterwards.
+   */
+  flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
+}
+
+export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
+
+/**
+ * A system entity for doc-storage purposes is an id that modules declare in the
+ * generated entity-id registry AND that resolves to a registered ORM table. Both
+ * conditions matter: `resolveRegisteredEntityTableName` matches class-name candidates
+ * from the entity segment alone, so a runtime-registered custom entity whose name
+ * happens to collide with some ORM class (e.g. `user:todo` vs the example module's
+ * `Todo`) must never be classified as system. When the registry is not populated
+ * (exotic bootstraps, unit harnesses) the check conservatively falls back to the
+ * ORM-table match alone so the #2939 protection never switches off.
+ */
+export function isOrmBackedSystemEntityId(em: EntityManager, entityId: string): boolean {
+  const registry = getEntityIds(false)
+  const moduleIds = Object.values(registry).flatMap((moduleEntities) => Object.values(moduleEntities ?? {}))
+  if (moduleIds.length > 0 && !moduleIds.includes(entityId)) return false
+  return resolveRegisteredEntityTableName(em, entityId) !== null
+}
+
+/**
+ * Doc storage (`custom_entities_storage`) is for custom entities only. A system
+ * entity's records live in its own module tables/APIs — writing doc rows for it
+ * poisons read-path classification (#2939) and must be rejected at the deepest
+ * seam so no caller (API, AI tool, workflow) can do it.
+ */
+export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: string): void {
+  if (isOrmBackedSystemEntityId(em, entityId)) {
+    throw new CrudHttpError(400, {
+      error: 'Records are available for custom entities only',
+      code: SYSTEM_ENTITY_RECORDS_BLOCKED_CODE,
+      entityId,
+    })
+  }
 }
 
 export class DefaultDataEngine implements DataEngine {
@@ -254,6 +302,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
+    assertCustomEntityStorageEntityId(this.em, opts.entityId)
     const db = this.getKysely()
     await this.ensureStorageTableExists()
     const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
@@ -319,6 +368,7 @@ export class DefaultDataEngine implements DataEngine {
           .where('entity_type' as any, '=', opts.entityId)
           .where('entity_id' as any, '=', id)
           .where('organization_id' as any, orgId === null ? 'is' : '=', orgId as any)
+          .where('tenant_id' as any, tenantId === null ? 'is' : '=', tenantId as any)
           .executeTakeFirst()
         if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
           await db.insertInto('custom_entities_storage' as any).values(payload as any).execute()
@@ -345,6 +395,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async updateCustomEntityRecord(opts: Parameters<DataEngine['updateCustomEntityRecord']>[0]): Promise<void> {
+    assertCustomEntityStorageEntityId(this.em, opts.entityId)
     const db = this.getKysely()
     const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
       entityId: opts.entityId,
@@ -365,6 +416,9 @@ export class DefaultDataEngine implements DataEngine {
       chain = orgId === null
         ? chain.where('organization_id' as any, 'is', null as any)
         : chain.where('organization_id' as any, '=', orgId)
+      chain = tenantId === null
+        ? chain.where('tenant_id' as any, 'is', null as any)
+        : chain.where('tenant_id' as any, '=', tenantId)
       return chain
     }
     const row = await applyScope(
@@ -410,9 +464,11 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async deleteCustomEntityRecord(opts: Parameters<DataEngine['deleteCustomEntityRecord']>[0]): Promise<void> {
+    assertCustomEntityStorageEntityId(this.em, opts.entityId)
     const db = this.getKysely()
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
+    const tenantId = opts.tenantId ?? null
     const soft = opts.soft !== false
 
     const applyScope = <T extends { where: (col: any, op: any, val?: any) => T }>(q: T) => {
@@ -421,6 +477,9 @@ export class DefaultDataEngine implements DataEngine {
       chain = orgId === null
         ? chain.where('organization_id' as any, 'is', null as any)
         : chain.where('organization_id' as any, '=', orgId)
+      chain = tenantId === null
+        ? chain.where('tenant_id' as any, 'is', null as any)
+        : chain.where('tenant_id' as any, '=', tenantId)
       return chain
     }
 
@@ -505,9 +564,15 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
+    suppress?: BulkImportSuppression
   }): Promise<void> {
-    const { action, entity, events, indexer, identifiers, syncOrigin } = opts
-    if (!events && !indexer) return
+    const { action, entity, events, indexer, identifiers, syncOrigin, suppress } = opts
+    // Bulk-import deferral: an entry may suppress its domain event and/or inline reindex. When both
+    // the config is absent AND (for the present one) suppressed, there is nothing left to do.
+    const emitEvents = !!events && !suppress?.skipEvents
+    const runIndexer = !!indexer && !suppress?.skipReindex
+    if (!emitEvents && !runIndexer) return
     if (!identifiers?.id) return
 
     let bus: EventBus | null = null
@@ -527,9 +592,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
 
-    if (events) {
+    if (events && !suppress?.skipEvents) {
       const eventName = `${events.module}.${events.entity}.${action}`
       warnIfUndeclaredEvent(eventName, 'emitOrmEntityEvent')
       const payload = events.buildPayload
@@ -551,7 +617,7 @@ export class DefaultDataEngine implements DataEngine {
       }
     }
 
-    if (indexer) {
+    if (indexer && !suppress?.skipReindex) {
       const resolveCoverageBaseDelta = (): number | undefined => {
         if (action === 'created') return 1
         if (action === 'deleted') return -1
@@ -578,7 +644,7 @@ export class DefaultDataEngine implements DataEngine {
         // defers the coverage recompute + fulltext delete, so this stays bounded.
         // Errors are logged, not thrown — index drift never fails the originating write.
         await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
-          console.error('[data-engine] query_index.delete_one emit failed', err)
+          logger.error('query_index.delete_one emit failed', { err })
         })
       } else {
         const payload = indexer.buildUpsertPayload
@@ -598,7 +664,7 @@ export class DefaultDataEngine implements DataEngine {
         // and defers the heavy token-reindex pipeline (build doc + encrypt + decrypt +
         // tokenize + DELETE + chunked INSERT) so write latency stays bounded.
         await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
-          console.error('[data-engine] query_index.upsert_one emit failed', err)
+          logger.error('query_index.upsert_one emit failed', { err })
         })
       }
 
@@ -620,6 +686,7 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void {
     const { entity, identifiers } = opts
     if (!entity) return
@@ -634,6 +701,7 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       }
       existing.syncOrigin = opts.syncOrigin ?? null
+      existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
       if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
       this.pendingSideEffects.set(key, existing)
@@ -648,13 +716,14 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: opts.syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
     if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
     this.pendingSideEffects.set(key, entry)
   }
 
-  async flushOrmEntityChanges(): Promise<void> {
+  async flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void> {
     if (!this.pendingSideEffects.size) return
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
@@ -665,8 +734,10 @@ export class DefaultDataEngine implements DataEngine {
           entity: entry.entity,
           identifiers: entry.identifiers,
           syncOrigin: entry.syncOrigin ?? null,
+          actorUserId: entry.actorUserId ?? null,
           events: entry.events as CrudEventsConfig<unknown>,
           indexer: entry.indexer as CrudIndexerConfig<unknown>,
+          suppress,
         })
       } catch {
         // best-effort; continue with remaining side effects

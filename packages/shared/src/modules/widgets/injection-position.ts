@@ -1,3 +1,7 @@
+import { createLogger } from '../../lib/logger'
+
+const logger = createLogger('widgets').child({ component: 'injection-placement' })
+
 export enum InjectionPosition {
   Before = 'before',
   After = 'after',
@@ -18,7 +22,7 @@ export function getInjectionPosition(placement?: InjectionPlacement): InjectionP
 function warnInvalidRelativeTo(relativeTo: string | undefined) {
   if (process.env.NODE_ENV !== 'development') return
   if (!relativeTo) return
-  console.warn(`[InjectionPlacement] relativeTo target "${relativeTo}" not found, appending item at the end.`)
+  logger.warn('relativeTo target not found, appending item at the end', { relativeTo })
 }
 
 export function insertByInjectionPlacement<T>(

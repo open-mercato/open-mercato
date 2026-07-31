@@ -316,3 +316,101 @@ describe('person/company clearable URL & email update fields (#2526)', () => {
     }
   })
 })
+
+describe('company clearable plain-text & revenue update fields (#3050)', () => {
+  const companyBase = { id: ENTITY_ID, organizationId: ORG_ID, tenantId: TENANT_ID }
+
+  it('coerces empty-string legal/brand/size/description fields to null', () => {
+    const result = companyUpdateSchema.safeParse({
+      ...companyBase,
+      legalName: '',
+      brandName: '',
+      sizeBucket: '',
+      description: '',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.legalName).toBeNull()
+      expect(result.data.brandName).toBeNull()
+      expect(result.data.sizeBucket).toBeNull()
+      expect(result.data.description).toBeNull()
+    }
+  })
+
+  it('accepts explicit null for legal/brand/size/description fields', () => {
+    const result = companyUpdateSchema.safeParse({
+      ...companyBase,
+      legalName: null,
+      brandName: null,
+      sizeBucket: null,
+      description: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.legalName).toBeNull()
+      expect(result.data.brandName).toBeNull()
+      expect(result.data.sizeBucket).toBeNull()
+      expect(result.data.description).toBeNull()
+    }
+  })
+
+  it('treats whitespace-only plain-text fields as a clear', () => {
+    const result = companyUpdateSchema.safeParse({ ...companyBase, legalName: '   ', description: '   ' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.legalName).toBeNull()
+      expect(result.data.description).toBeNull()
+    }
+  })
+
+  it('keeps non-empty plain-text values (trimmed)', () => {
+    const result = companyUpdateSchema.safeParse({
+      ...companyBase,
+      legalName: '  Acme Corp.  ',
+      brandName: 'Acme',
+      sizeBucket: '11-50',
+      description: 'B2B widgets',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.legalName).toBe('Acme Corp.')
+      expect(result.data.brandName).toBe('Acme')
+      expect(result.data.sizeBucket).toBe('11-50')
+      expect(result.data.description).toBe('B2B widgets')
+    }
+  })
+
+  it('clears annual revenue on empty-string/null without coercing to 0', () => {
+    const empties = companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: '' })
+    expect(empties.success).toBe(true)
+    if (empties.success) {
+      expect(empties.data.annualRevenue).toBeNull()
+    }
+
+    const nulls = companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: null })
+    expect(nulls.success).toBe(true)
+    if (nulls.success) {
+      expect(nulls.data.annualRevenue).toBeNull()
+    }
+  })
+
+  it('still coerces and validates a non-empty annual revenue', () => {
+    const set = companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: '1500000' })
+    expect(set.success).toBe(true)
+    if (set.success) {
+      expect(set.data.annualRevenue).toBe(1500000)
+    }
+
+    expect(companyUpdateSchema.safeParse({ ...companyBase, annualRevenue: -5 }).success).toBe(false)
+  })
+
+  it('omitting a plain-text field leaves it undefined (no-op update)', () => {
+    const result = companyUpdateSchema.safeParse({ ...companyBase })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect('legalName' in result.data).toBe(false)
+      expect('annualRevenue' in result.data).toBe(false)
+      expect('description' in result.data).toBe(false)
+    }
+  })
+})

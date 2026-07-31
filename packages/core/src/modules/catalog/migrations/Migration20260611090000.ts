@@ -1,0 +1,17 @@
+import { Migration } from '@mikro-orm/migrations';
+
+export class Migration20260611090000 extends Migration {
+
+  override async up(): Promise<void> {
+    this.addSql(`alter table "catalog_products" add column if not exists "country_of_origin_code" text null, add column if not exists "pkwiu_code" text null, add column if not exists "cn_code" text null, add column if not exists "hs_code" text null, add column if not exists "tax_classification_code" text null, add column if not exists "gtu_codes" text[] null, add column if not exists "age_min" smallint null, add column if not exists "is_excise_good" boolean not null default false, add column if not exists "excise_category" text null, add column if not exists "requires_prescription" boolean not null default false, add column if not exists "hazmat_class" text null, add column if not exists "un_number" text null, add column if not exists "hazmat_packing_group" text null, add column if not exists "contains_lithium_battery" boolean not null default false, add column if not exists "launch_at" timestamptz null, add column if not exists "end_of_life_at" timestamptz null, add column if not exists "available_from" timestamptz null, add column if not exists "available_until" timestamptz null, add column if not exists "min_order_qty" int null, add column if not exists "max_order_qty" int null, add column if not exists "order_qty_increment" int null, add column if not exists "requires_shipping" boolean not null default true, add column if not exists "is_quote_only" boolean not null default false, add column if not exists "seo_title" text null, add column if not exists "seo_description" text null, add column if not exists "canonical_url" text null;`);
+    this.addSql(`alter table "catalog_product_variants" add column if not exists "gtin_type" text null, add column if not exists "hs_code" text null;`);
+    this.addSql(`create unique index "catalog_product_variants_gtin_scope_unique" on "catalog_product_variants" ("tenant_id", "organization_id", "gtin_type", "barcode") where deleted_at is null and gtin_type is not null and barcode is not null;`);
+  }
+
+  override async down(): Promise<void> {
+    this.addSql(`drop index if exists "catalog_product_variants_gtin_scope_unique";`);
+    this.addSql(`alter table "catalog_product_variants" drop column if exists "gtin_type", drop column if exists "hs_code";`);
+    this.addSql(`alter table "catalog_products" drop column if exists "country_of_origin_code", drop column if exists "pkwiu_code", drop column if exists "cn_code", drop column if exists "hs_code", drop column if exists "tax_classification_code", drop column if exists "gtu_codes", drop column if exists "age_min", drop column if exists "is_excise_good", drop column if exists "excise_category", drop column if exists "requires_prescription", drop column if exists "hazmat_class", drop column if exists "un_number", drop column if exists "hazmat_packing_group", drop column if exists "contains_lithium_battery", drop column if exists "launch_at", drop column if exists "end_of_life_at", drop column if exists "available_from", drop column if exists "available_until", drop column if exists "min_order_qty", drop column if exists "max_order_qty", drop column if exists "order_qty_increment", drop column if exists "requires_shipping", drop column if exists "is_quote_only", drop column if exists "seo_title", drop column if exists "seo_description", drop column if exists "canonical_url";`);
+  }
+
+}

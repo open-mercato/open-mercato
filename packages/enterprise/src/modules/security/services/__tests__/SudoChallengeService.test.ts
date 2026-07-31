@@ -171,8 +171,17 @@ function createServiceContext(
 }
 
 describe('SudoChallengeService', () => {
+  const ORIGINAL_SUDO_SECRET = process.env.OM_SECURITY_SUDO_SECRET
+  const ORIGINAL_AUTH_JWT_SECRET = process.env.AUTH_JWT_SECRET
+  const ORIGINAL_AUTH_SECRET = process.env.AUTH_SECRET
+  const ORIGINAL_JWT_SECRET = process.env.JWT_SECRET
+
   beforeEach(() => {
     jest.clearAllMocks()
+    process.env.OM_SECURITY_SUDO_SECRET = 'unit-test-sudo-secret'
+    delete process.env.AUTH_JWT_SECRET
+    delete process.env.AUTH_SECRET
+    delete process.env.JWT_SECRET
     mockedFindOneWithDecryption.mockResolvedValue({
       id: 'user-1',
       tenantId: 'tenant-1',
@@ -541,6 +550,181 @@ describe('SudoChallengeService', () => {
 
       await expect(
         service.validateToken(token, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(true)
+    })
+  })
+
+  describe('sudo secret resolution', () => {
+    afterAll(() => {
+      if (ORIGINAL_SUDO_SECRET === undefined) delete process.env.OM_SECURITY_SUDO_SECRET
+      else process.env.OM_SECURITY_SUDO_SECRET = ORIGINAL_SUDO_SECRET
+      if (ORIGINAL_AUTH_JWT_SECRET === undefined) delete process.env.AUTH_JWT_SECRET
+      else process.env.AUTH_JWT_SECRET = ORIGINAL_AUTH_JWT_SECRET
+      if (ORIGINAL_AUTH_SECRET === undefined) delete process.env.AUTH_SECRET
+      else process.env.AUTH_SECRET = ORIGINAL_AUTH_SECRET
+      if (ORIGINAL_JWT_SECRET === undefined) delete process.env.JWT_SECRET
+      else process.env.JWT_SECRET = ORIGINAL_JWT_SECRET
+    })
+
+    async function initiateMfaChallenge(service: SudoChallengeService, mfaService: { getUserMethods: jest.Mock }) {
+      mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
+      return service.initiate('user-1', 'security.sudo.manage', {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+    }
+
+    test('verify throws a descriptive error when no sudo secret env var is set', async () => {
+      delete process.env.OM_SECURITY_SUDO_SECRET
+      delete process.env.AUTH_JWT_SECRET
+      delete process.env.AUTH_SECRET
+      delete process.env.JWT_SECRET
+
+      const { service, mfaService } = createServiceContext()
+      const initiated = await initiateMfaChallenge(service, mfaService)
+
+      await expect(
+        service.verify(
+          initiated.sessionId!,
+          'totp',
+          { code: '123456' },
+          { targetIdentifier: 'security.sudo.manage' },
+        ),
+      ).rejects.toThrow(/OM_SECURITY_SUDO_SECRET, AUTH_JWT_SECRET, AUTH_SECRET, or JWT_SECRET/)
+    })
+
+    test('validateToken throws when no sudo secret env var is set', async () => {
+      delete process.env.OM_SECURITY_SUDO_SECRET
+      delete process.env.AUTH_JWT_SECRET
+      delete process.env.AUTH_SECRET
+      delete process.env.JWT_SECRET
+
+      const { service } = createServiceContext()
+
+      await expect(
+        service.validateToken('fabricated.token', 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).rejects.toThrow(/OM_SECURITY_SUDO_SECRET, AUTH_JWT_SECRET, AUTH_SECRET, or JWT_SECRET/)
+    })
+
+    test('empty-string env vars are treated as unset and throw', async () => {
+      process.env.OM_SECURITY_SUDO_SECRET = ''
+      process.env.AUTH_JWT_SECRET = '   '
+      process.env.AUTH_SECRET = '\t'
+      process.env.JWT_SECRET = ''
+
+      const { service, mfaService } = createServiceContext()
+      const initiated = await initiateMfaChallenge(service, mfaService)
+
+      await expect(
+        service.verify(
+          initiated.sessionId!,
+          'totp',
+          { code: '123456' },
+          { targetIdentifier: 'security.sudo.manage' },
+        ),
+      ).rejects.toThrow(/OM_SECURITY_SUDO_SECRET, AUTH_JWT_SECRET, AUTH_SECRET, or JWT_SECRET/)
+    })
+
+    test('OM_SECURITY_SUDO_SECRET wins over the other fallbacks', async () => {
+      process.env.OM_SECURITY_SUDO_SECRET = 'primary-secret'
+      process.env.AUTH_JWT_SECRET = 'auth-jwt-secret'
+      process.env.AUTH_SECRET = 'auth-secret'
+      process.env.JWT_SECRET = 'legacy-secret'
+
+      const { service, mfaService } = createServiceContext()
+      const initiated = await initiateMfaChallenge(service, mfaService)
+      const verified = await service.verify(
+        initiated.sessionId!,
+        'totp',
+        { code: '123456' },
+        { targetIdentifier: 'security.sudo.manage' },
+      )
+
+      process.env.OM_SECURITY_SUDO_SECRET = 'rotated-primary-secret'
+      await expect(
+        service.validateToken(verified.sudoToken, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(false)
+    })
+
+    test('AUTH_JWT_SECRET wins over AUTH_SECRET and JWT_SECRET when OM_SECURITY_SUDO_SECRET is unset', async () => {
+      delete process.env.OM_SECURITY_SUDO_SECRET
+      process.env.AUTH_JWT_SECRET = 'auth-jwt-secret'
+      process.env.AUTH_SECRET = 'auth-secret'
+      process.env.JWT_SECRET = 'legacy-secret'
+
+      const { service, mfaService } = createServiceContext()
+      const initiated = await initiateMfaChallenge(service, mfaService)
+      const verified = await service.verify(
+        initiated.sessionId!,
+        'totp',
+        { code: '123456' },
+        { targetIdentifier: 'security.sudo.manage' },
+      )
+
+      process.env.AUTH_JWT_SECRET = 'rotated-auth-jwt-secret'
+      await expect(
+        service.validateToken(verified.sudoToken, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(false)
+    })
+
+    test('AUTH_SECRET wins over JWT_SECRET when neither OM_SECURITY_SUDO_SECRET nor AUTH_JWT_SECRET is set', async () => {
+      delete process.env.OM_SECURITY_SUDO_SECRET
+      delete process.env.AUTH_JWT_SECRET
+      process.env.AUTH_SECRET = 'auth-secret'
+      process.env.JWT_SECRET = 'legacy-secret'
+
+      const { service, mfaService } = createServiceContext()
+      const initiated = await initiateMfaChallenge(service, mfaService)
+      const verified = await service.verify(
+        initiated.sessionId!,
+        'totp',
+        { code: '123456' },
+        { targetIdentifier: 'security.sudo.manage' },
+      )
+
+      process.env.AUTH_SECRET = 'rotated-auth-secret'
+      await expect(
+        service.validateToken(verified.sudoToken, 'security.sudo.manage', {
+          expectedUserId: 'user-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      ).resolves.toBe(false)
+    })
+
+    test('JWT_SECRET-only deployment can round-trip a sudo token', async () => {
+      delete process.env.OM_SECURITY_SUDO_SECRET
+      delete process.env.AUTH_JWT_SECRET
+      delete process.env.AUTH_SECRET
+      process.env.JWT_SECRET = 'legacy-only-secret'
+
+      const { service, mfaService } = createServiceContext()
+      const initiated = await initiateMfaChallenge(service, mfaService)
+      const verified = await service.verify(
+        initiated.sessionId!,
+        'totp',
+        { code: '123456' },
+        { targetIdentifier: 'security.sudo.manage' },
+      )
+
+      await expect(
+        service.validateToken(verified.sudoToken, 'security.sudo.manage', {
           expectedUserId: 'user-1',
           tenantId: 'tenant-1',
           organizationId: 'org-1',

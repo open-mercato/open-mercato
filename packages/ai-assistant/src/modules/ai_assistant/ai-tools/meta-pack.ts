@@ -9,7 +9,7 @@
  */
 import { z } from 'zod'
 import type { AiAgentDefinition } from '../lib/ai-agent-definition'
-import { listAgents, getAgent } from '../lib/agent-registry'
+import { listAgents, getAgent, loadAgentRegistry } from '../lib/agent-registry'
 import { hasRequiredFeatures } from '../lib/auth'
 import { defineAiTool } from '../lib/ai-tool-definition'
 import {
@@ -91,6 +91,10 @@ const listAgentsTool = defineAiTool({
     const input = listAgentsInput.parse(rawInput)
     let all: AiAgentDefinition[] = []
     try {
+      // Lazy-load the registry on first use. The in-app agents route loads it
+      // at request time; standalone MCP servers have no such bootstrap, so the
+      // tool must ensure it itself. Idempotent — subsequent calls are no-ops.
+      await loadAgentRegistry()
       all = listAgents()
     } catch {
       all = []
@@ -123,6 +127,8 @@ const describeAgentTool = defineAiTool({
     const input = describeAgentInput.parse(rawInput)
     let agent: AiAgentDefinition | undefined
     try {
+      // Lazy-load the registry on first use (see meta.list_agents). Idempotent.
+      await loadAgentRegistry()
       agent = getAgent(input.agentId)
     } catch {
       agent = undefined

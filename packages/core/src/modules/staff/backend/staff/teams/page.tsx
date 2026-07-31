@@ -21,6 +21,9 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Users } from 'lucide-react'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const PAGE_SIZE = 50
 
@@ -173,7 +176,7 @@ export default function StaffTeamsPage() {
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (error) {
-      console.error('staff.teams.list', error)
+      logger.error('staff.teams.list', { err: error })
       flash(labels.errors.load, 'error')
     } finally {
       setIsLoading(false)
@@ -214,7 +217,7 @@ export default function StaffTeamsPage() {
       handleRefresh()
     } catch (error) {
       if (surfaceRecordConflict(error, t)) { handleRefresh(); return }
-      console.error('staff.teams.delete', error)
+      logger.error('staff.teams.delete', { err: error })
       flash(labels.errors.delete, 'error')
     }
   }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted, t])

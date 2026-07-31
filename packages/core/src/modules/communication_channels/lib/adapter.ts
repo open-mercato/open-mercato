@@ -445,7 +445,7 @@ export interface ExchangeOAuthCodeResult {
  * `RefreshCredentialsInput`. Adapters without OAuth refresh (IMAP, WhatsApp
  * Business API) ignore it.
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 export interface OAuthClientConfig {
   clientId: string

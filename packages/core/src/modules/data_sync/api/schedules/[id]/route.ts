@@ -3,9 +3,15 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { updateSyncScheduleSchema } from '../../../data/validators'
 import type { SyncScheduleService } from '../../../lib/sync-schedule-service'
 import { serializeSchedule } from '../serialize'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -81,6 +87,21 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
   }
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId: scope.organizationId,
+    userId: auth.sub,
+    resourceKind: 'data_sync.schedule',
+    resourceId: current.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: parsed.data,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   try {
     const schedule = await scheduleService.saveSchedule({
       id: current.id,
@@ -92,9 +113,27 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
       timezone: parsed.data.timezone ?? current.timezone,
       fullSync: parsed.data.fullSync ?? current.fullSync,
       isEnabled: parsed.data.isEnabled ?? current.isEnabled,
-    }, scope)
+      expectedUpdatedAt: readOptimisticLockExpected(req),
+    }, scope, container)
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: scope.organizationId,
+        userId: auth.sub,
+        resourceKind: 'data_sync.schedule',
+        resourceId: schedule.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     return NextResponse.json(serializeSchedule(schedule))
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
     const message = error instanceof Error ? error.message : 'Failed to update sync schedule'
     return NextResponse.json({ error: message }, { status: 422 })
   }
@@ -117,14 +156,55 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
 
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
-  const deleted = await scheduleService.deleteSchedule(parsedParams.data.id, {
-    organizationId: auth.orgId as string,
-    tenantId: auth.tenantId,
-  })
+  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  if (!deleted) {
-    return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId: scope.organizationId,
+    userId: auth.sub,
+    resourceKind: 'data_sync.schedule',
+    resourceId: parsedParams.data.id,
+    operation: 'delete',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: null,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
-  return NextResponse.json({ deleted: true })
+  try {
+    const deleted = await scheduleService.deleteSchedule(
+      parsedParams.data.id,
+      scope,
+      container,
+      readOptimisticLockExpected(req),
+    )
+
+    if (!deleted) {
+      return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
+    }
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: scope.organizationId,
+        userId: auth.sub,
+        resourceKind: 'data_sync.schedule',
+        resourceId: parsedParams.data.id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    return NextResponse.json({ deleted: true })
+  } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    const message = error instanceof Error ? error.message : 'Failed to delete sync schedule'
+    return NextResponse.json({ error: message }, { status: 422 })
+  }
 }

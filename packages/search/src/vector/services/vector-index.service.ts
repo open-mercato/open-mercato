@@ -900,7 +900,7 @@ export class VectorIndexService {
 
     if (this.opts.eventBus) {
       if (shouldPurge && driver.purge && args.tenantId) {
-        await driver.purge(args.entityId, args.tenantId)
+        await driver.purge(args.entityId, args.tenantId, args.organizationId)
       } else if (shouldPurge && !args.tenantId) {
         searchDebugWarn('vector', 'Skipping purge for multi-tenant reindex (tenant not provided)')
       }
@@ -923,7 +923,7 @@ export class VectorIndexService {
     }
 
     if (shouldPurge && driver.purge) {
-      await driver.purge(args.entityId, args.tenantId)
+      await driver.purge(args.entityId, args.tenantId, args.organizationId)
     }
 
     const pageSize = 50

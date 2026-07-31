@@ -7,6 +7,9 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { pushUnregister } from './push-unregister'
 import { emitCommunicationChannelsEvent } from '../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'delete-channel' })
 
 const deleteChannelSchema = z.object({
   channelId: z.string().uuid(),
@@ -99,11 +102,7 @@ const deleteChannelCommand: CommandHandler<DeleteChannelInput, DeleteChannelResu
           input: { channelId: channel.id },
         })
       } catch (err) {
-        console.warn(
-          `[delete-channel] push unregister failed for ${channel.id}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        )
+        logger.warn('push unregister failed for channel', { channelId: channel.id, err })
       }
     }
 

@@ -98,6 +98,59 @@ The dev server filters the available tools by the API key's ACL **at startup**. 
 **Zero-features pitfall:** if your API key has no roles or features, the server starts fine but exposes **only** `context_whoami` — every other tool silently disappears. If Claude Code sees just one tool, your key is missing grants. Bind it to a role such as `admin` (or a role with the relevant `<module>.*` wildcard grants) and reconnect.
 :::
 
+## Stdio server authentication (`mercato ai_assistant mcp:serve`)
+
+The `mercato ai_assistant mcp:serve` command runs the MCP server over **stdio** (one process per client, used by some local MCP clients). It is a distinct command from the HTTP servers above — note that the `yarn mcp:serve` script is aliased to `mcp:serve-http`, so this stdio command is reached by invoking the `mercato` CLI directly.
+
+The stdio server resolves its auth context in priority order:
+
+1. **API key** — pass `--api-key <secret>`, or set `OPEN_MERCATO_API_KEY` (preferred — keeps the secret off `argv`, which is world-readable via `ps` / `/proc`). The key's tenant, organization, user, and ACL are loaded from the key.
+2. **Manual context** — pass `--tenant <id>` together with `--user <id>` (and optionally `--org <id>`). The named user's ACL is loaded and enforced.
+3. **Explicit unauthenticated opt-in** — `--allow-unauthenticated-superadmin` (see below).
+
+:::warning Fail-closed by default (#3015, #2673)
+If you supply **none** of the above — for example `--tenant` without `--user` and without an API key — the server **refuses to start** rather than silently escalating to an unscoped superadmin. You will see:
+
+```
+MCP server refused to start: no authentication provided. Supply a valid apiKeySecret,
+a context with a non-empty userId, or explicitly set allowUnauthenticatedSuperadmin: true
+for local development.
+```
+
+An empty or whitespace-only API key is treated as **missing**, so a blank `--api-key` cannot fall through into an unauthenticated branch. With `--tenant`, `--user` is therefore **effectively required** unless you pass the explicit opt-in below.
+:::
+
+### `--allow-unauthenticated-superadmin` (dev/test only)
+
+For local development and testing you can restore the legacy "no user → superadmin" behavior with an explicit, loud opt-in:
+
+```bash
+mercato ai_assistant mcp:serve \
+  --tenant 123e4567-e89b-12d3-a456-426614174000 \
+  --allow-unauthenticated-superadmin
+```
+
+When enabled, the server runs as **superadmin with no per-user ACL** (scoped only to whatever `--tenant` / `--org` you pin) and logs a loud startup warning:
+
+```
+[MCP Server] WARNING: allowUnauthenticatedSuperadmin is enabled — running with
+UNAUTHENTICATED SUPERADMIN access and no per-user ACL. Do not use this outside
+local development/testing.
+```
+
+The same switch is available programmatically as the optional `McpServerOptions.allowUnauthenticatedSuperadmin` flag on `runMcpServer(...)` / `createMcpServer(...)`. It defaults to **off**.
+
+:::danger Never enable in production
+`--allow-unauthenticated-superadmin` bypasses per-user RBAC entirely. Use it only for local development or automated tests. In production, always authenticate with an API key or a `--tenant` + `--user` context.
+:::
+
+### Migration impact
+
+`allowUnauthenticatedSuperadmin` is an **additive, optional** field (default off), so the only behavior change is that a previously fail-**open** misconfiguration now fails **closed**. If you previously started the stdio `mcp:serve` with `--tenant` but no `--user` (and no API key) and relied on the implicit superadmin context, that invocation now refuses to start. Migrate it by either:
+
+- supplying `--user <id>` so a real user's ACL is enforced (recommended), or
+- adding `--allow-unauthenticated-superadmin` if you genuinely need the unscoped superadmin context for local dev/test.
+
 ## What's available & how to use it
 
 After a correct setup with an `admin`-scoped API key, the MCP server exposes **70 tools** total, organized into three groups. The key thing to internalize: MCP serves **tools**, and any documented API route is reachable through the Code Mode meta-tools — you do not get one MCP tool per route, and you do not connect to agents over MCP.

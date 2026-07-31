@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Archive, Forward, MailMinus, Reply, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Forward, MailMinus, MailOpen, Reply, Trash2 } from 'lucide-react'
 import { PriorityBadge } from '../../utils/PriorityBadge'
 
 type MainMessageHeaderProps = {
@@ -12,12 +12,21 @@ type MainMessageHeaderProps = {
   priority: 'low' | 'normal' | 'high' | 'urgent'
   canReply: boolean
   canForwardAll: boolean
+  conversationArchived: boolean
+  conversationAllUnread: boolean
   actionsDisabled?: boolean
-  activeActionId?: 'forwardAll' | 'archiveConversation' | 'markAllUnread' | 'deleteConversation' | null
+  activeActionId?:
+    | 'forwardAll'
+    | 'archiveConversation'
+    | 'unarchiveConversation'
+    | 'markAllUnread'
+    | 'markAllRead'
+    | 'deleteConversation'
+    | null
   onReply: () => void
   onForwardAll: () => void
-  onArchiveConversation: () => void
-  onMarkAllUnread: () => void
+  onToggleArchiveConversation: () => void
+  onToggleReadConversation: () => void
   onDeleteConversation: () => void
 }
 
@@ -42,19 +51,23 @@ export function MainMessageHeader(props: MainMessageHeaderProps) {
     },
     {
       id: 'archive-conversation',
-      label: t('messages.actions.archiveConversation', 'Archive conversation'),
-      icon: Archive,
-      onSelect: props.onArchiveConversation,
+      label: props.conversationArchived
+        ? t('messages.actions.unarchiveConversation', 'Unarchive conversation')
+        : t('messages.actions.archiveConversation', 'Archive conversation'),
+      icon: props.conversationArchived ? ArchiveRestore : Archive,
+      onSelect: props.onToggleArchiveConversation,
       disabled: props.actionsDisabled,
-      loading: props.activeActionId === 'archiveConversation',
+      loading: props.activeActionId === 'archiveConversation' || props.activeActionId === 'unarchiveConversation',
     },
     {
       id: 'mark-all-unread',
-      label: t('messages.actions.markAllUnread', 'Mark all unread'),
-      icon: MailMinus,
-      onSelect: props.onMarkAllUnread,
+      label: props.conversationAllUnread
+        ? t('messages.actions.markAllRead', 'Mark all read')
+        : t('messages.actions.markAllUnread', 'Mark all unread'),
+      icon: props.conversationAllUnread ? MailOpen : MailMinus,
+      onSelect: props.onToggleReadConversation,
       disabled: props.actionsDisabled,
-      loading: props.activeActionId === 'markAllUnread',
+      loading: props.activeActionId === 'markAllUnread' || props.activeActionId === 'markAllRead',
     },
     {
       id: 'delete-conversation',
@@ -68,10 +81,12 @@ export function MainMessageHeader(props: MainMessageHeaderProps) {
     props.actionsDisabled,
     props.canForwardAll,
     props.canReply,
-    props.onArchiveConversation,
+    props.conversationArchived,
+    props.conversationAllUnread,
+    props.onToggleArchiveConversation,
     props.onDeleteConversation,
     props.onForwardAll,
-    props.onMarkAllUnread,
+    props.onToggleReadConversation,
     props.onReply,
     props.activeActionId,
     t,

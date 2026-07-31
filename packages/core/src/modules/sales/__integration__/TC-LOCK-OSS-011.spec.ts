@@ -11,7 +11,7 @@ import {
  * TC-LOCK-OSS-011: sales document update response carries the fresh `updatedAt`
  * so back-to-back inline saves on the same page do NOT falsely 409.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  *
  * Round-4 QA reproduced a false-positive: open an order, edit a field, save
  * (success), then edit another field and save again → 409, with no concurrent

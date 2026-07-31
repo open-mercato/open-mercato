@@ -670,16 +670,6 @@
       "indexes": [
         {
           "columnNames": [
-            "email"
-          ],
-          "composite": false,
-          "keyName": "users_email_unique",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "columnNames": [
             "email_hash"
           ],
           "composite": false,
@@ -1742,6 +1732,26 @@
         }
       },
       "indexes": [
+        {
+          "keyName": "user_roles_user_id_idx",
+          "columnNames": [
+            "user_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "user_roles_role_id_idx",
+          "columnNames": [
+            "role_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "user_roles_pkey",
           "columnNames": [

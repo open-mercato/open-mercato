@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { CheckoutLink } from '../../data/entities'
 import { serializeLinkRecord } from '../../commands/links'
 import {
@@ -35,9 +36,9 @@ export async function GET(req: Request) {
     const pricingMode = url.searchParams.get('pricingMode')
     if (search) {
       where.$or = [
-        { name: { $ilike: `%${search}%` } },
-        { title: { $ilike: `%${search}%` } },
-        { slug: { $ilike: `%${search}%` } },
+        { name: { $ilike: `%${escapeLikePattern(search)}%` } },
+        { title: { $ilike: `%${escapeLikePattern(search)}%` } },
+        { slug: { $ilike: `%${escapeLikePattern(search)}%` } },
       ]
     }
     if (templateId) where.templateId = templateId

@@ -40,5 +40,6 @@ Access log retention is automatic and environment-configurable:
 
 - **Core resources** (`auth.user`, `auth.role`) are retained for **7 days** by default. Override with `AUDIT_LOGS_CORE_RETENTION_DAYS`.
 - **All other resources** rotate after **8 hours** by default. Override with `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`.
+- **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
 
 Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.

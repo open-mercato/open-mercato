@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { Todo } from '../../data/entities'
 
 const ENTITY_ID = 'example:todo' as const
@@ -105,7 +106,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         if (ids.length > 0) F.id = { $in: ids }
       }
       if (q.id) F.id = q.id
-      if (q.title) F.title = { $ilike: `%${q.title}%` }
+      if (q.title) F.title = { $ilike: `%${escapeLikePattern(q.title)}%` }
       if (q.isDone !== undefined) F.is_done = q.isDone as any
       if (q.organizationId) F.organization_id = q.organizationId
       if (q.createdFrom || q.createdTo) {

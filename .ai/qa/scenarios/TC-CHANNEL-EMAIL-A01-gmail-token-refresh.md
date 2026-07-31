@@ -10,7 +10,7 @@ Communications Hub / Channel-Gmail
 High — production-breaking bug fix verification
 
 ## Description
-Verify that a connected Gmail channel survives access-token expiry by refreshing through the new `RefreshCredentialsInput.oauthClient` wiring (Spec A, [`.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`](../../specs/2026-05-27-email-integration-inbound-reliability-and-threading.md)). Prior to Spec A, this path failed silently because no production caller populated `credentials._client`.
+Verify that a connected Gmail channel survives access-token expiry by refreshing through the new `RefreshCredentialsInput.oauthClient` wiring (Spec A, [`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](../../specs/2026-05-27-email-integration-inbound-reliability-and-threading.md)). Prior to Spec A, this path failed silently because no production caller populated `credentials._client`.
 
 ## Prerequisites
 - A Google Cloud project with the Gmail API enabled.

@@ -158,8 +158,7 @@ export default function IntegrationSetupWidget({ context }: InjectionWidgetCompo
         )}
       </p>
 
-      <Alert>
-        <Webhook className="h-4 w-4" />
+      <Alert icon={<Webhook aria-hidden="true" />}>
         <AlertTitle>
           {isEnabled
             ? t('webhooks.integrationSetup.enabledTitle', 'Delivery processing is enabled')

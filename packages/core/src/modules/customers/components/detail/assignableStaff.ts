@@ -23,22 +23,46 @@ export type AssignableStaffMembersPage = {
   pageSize: number
 }
 
+// The assignable-staff roster is owned by the optional, ejectable `staff` module.
+// When that module is disabled, its `/api/staff/team-members/assignable` endpoint is
+// absent and the request resolves to 404. Customers UI (deals / people / companies
+// owner filters, role-assignment dialogs) is core and always enabled, so it must not
+// break in that case — a missing staff module simply means there is no roster to
+// offer. Treat the 404 as an empty page and let any other failure propagate.
+function isAssignableEndpointMissing(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { status?: unknown }).status === 404
+  )
+}
+
 export async function fetchAssignableStaffMembersPage(
   query: string,
   options?: { page?: number; pageSize?: number; signal?: AbortSignal },
 ): Promise<AssignableStaffMembersPage> {
+  const page = options?.page ?? 1
+  const pageSize = options?.pageSize ?? 24
   const params = new URLSearchParams()
-  params.set('page', String(options?.page ?? 1))
-  params.set('pageSize', String(options?.pageSize ?? 24))
+  params.set('page', String(page))
+  params.set('pageSize', String(pageSize))
   const normalizedQuery = query.trim()
   if (normalizedQuery.length > 0) {
     params.set('search', normalizedQuery)
   }
 
-  const data = await readApiResultOrThrow<AssignableStaffResponse>(
-    `/api/staff/team-members/assignable?${params.toString()}`,
-    options?.signal ? { signal: options.signal } : undefined,
-  )
+  let data: AssignableStaffResponse
+  try {
+    data = await readApiResultOrThrow<AssignableStaffResponse>(
+      `/api/staff/team-members/assignable?${params.toString()}`,
+      options?.signal ? { signal: options.signal } : undefined,
+    )
+  } catch (error) {
+    if (isAssignableEndpointMissing(error)) {
+      return { items: [], total: 0, page, pageSize }
+    }
+    throw error
+  }
 
   const rawItems = Array.isArray(data?.items) ? data.items : []
   const deduped = new Map<string, AssignableStaffMember>()
@@ -108,11 +132,11 @@ export async function fetchAssignableStaffMembersPage(
     page:
       typeof data?.page === 'number' && Number.isFinite(data.page)
         ? data.page
-        : options?.page ?? 1,
+        : page,
     pageSize:
       typeof data?.pageSize === 'number' && Number.isFinite(data.pageSize)
         ? data.pageSize
-        : options?.pageSize ?? 24,
+        : pageSize,
   }
 }
 

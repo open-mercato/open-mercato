@@ -7,6 +7,9 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { pushOperation } from '../operations/store'
 import { pushPartialIndexWarning } from '../indexes/store'
 import { createScopedHeaderStack } from './scopedHeaderStack'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'apiFetch' })
 
 const scopedHeaders = createScopedHeaderStack()
 
@@ -71,9 +74,17 @@ export function redirectToSessionRefresh() {
 
 export class ForbiddenError extends Error {
   readonly status = 403
-  constructor(message = 'Forbidden') {
+  readonly requiredFeatures: string[] | null
+  readonly requiredRoles: string[] | null
+
+  constructor(
+    message = 'Forbidden',
+    options?: { requiredFeatures?: string[] | null; requiredRoles?: string[] | null },
+  ) {
     super(message)
     this.name = 'ForbiddenError'
+    this.requiredFeatures = options?.requiredFeatures?.length ? [...options.requiredFeatures] : null
+    this.requiredRoles = options?.requiredRoles?.length ? [...options.requiredRoles] : null
   }
 }
 
@@ -195,8 +206,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
               ? input.url
               : 'unknown'
       try {
-        // eslint-disable-next-line no-console
-        console.warn('[apiFetch] Forbidden response', {
+        logger.warn('Forbidden response', {
           url: target,
           status: res.status,
           requiredRoles: roles,
@@ -218,7 +228,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       } else {
         msg = await res.clone().text().catch(() => 'Forbidden')
       }
-      throw new ForbiddenError(msg)
+      // Attach ACL hints so callers (e.g. flashMutationError) can name the
+      // missing permission instead of surfacing a bare "Forbidden" toast.
+      throw new ForbiddenError(msg, { requiredFeatures: features, requiredRoles: roles })
     }
     // If already on login, just return the response for the caller to handle
   }

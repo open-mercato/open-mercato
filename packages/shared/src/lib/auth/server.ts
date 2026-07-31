@@ -23,10 +23,27 @@ export type AuthContext = {
 } | null
 
 type CookieOverride = { applied: boolean; value: string | null }
-type AuthResolutionStatus = 'authenticated' | 'missing' | 'invalid'
+// 'error' means auth could not be determined because of a transient/unexpected
+// failure (DB unavailable, connection-pool exhaustion, statement timeout, …) —
+// NOT because the token is genuinely invalid. Callers MUST NOT clear the user's
+// session cookies for 'error'; doing so would log everyone out at once during a
+// shared infrastructure blip (issue #4176).
+type AuthResolutionStatus = 'authenticated' | 'missing' | 'invalid' | 'error'
 type AuthResolution = {
   auth: AuthContext
   status: AuthResolutionStatus
+}
+
+// Thrown by `resolveCanonicalInteractiveAuthContext` when the canonical auth
+// lookup itself fails unexpectedly (as opposed to resolving to a genuine
+// "not authorized" null). Kept distinct so resolvers can map it to the
+// non-destructive 'error' status instead of the cookie-clearing 'invalid'.
+export class AuthResolutionUnavailableError extends Error {
+  constructor(cause?: unknown) {
+    super('Auth resolution unavailable')
+    this.name = 'AuthResolutionUnavailableError'
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause
+  }
 }
 
 // Symbol-keyed trusted auth context. Set on synthetic Request objects by
@@ -263,8 +280,12 @@ async function resolveCanonicalInteractiveAuthContext(auth: AuthContext): Promis
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     return await resolveCanonicalStaffAuthContext(em, auth)
-  } catch {
-    return null
+  } catch (err) {
+    // A thrown error here means we could not check the token against the
+    // database (DB down, pool exhausted, timeout). This is NOT the same as the
+    // token being invalid — surface it so callers keep the session intact and
+    // fail the request transiently instead of force-logging the user out.
+    throw new AuthResolutionUnavailableError(err)
   }
 }
 
@@ -284,7 +305,8 @@ export async function resolveAuthFromCookiesDetailed(): Promise<AuthResolution> 
       auth: applySuperAdminScope(canonicalAuth, tenantCookie, orgCookie),
       status: 'authenticated',
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof AuthResolutionUnavailableError) return { auth: null, status: 'error' }
     return { auth: null, status: 'invalid' }
   }
 }
@@ -307,6 +329,7 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
   const authHeader = (req.headers.get('authorization') || '').trim()
   let token: string | undefined
   let hadInvalidInteractiveToken = false
+  let hadUnavailableResolution = false
   if (authHeader.toLowerCase().startsWith('bearer ')) token = authHeader.slice(7).trim()
   if (!token) {
     const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/)
@@ -326,18 +349,25 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
         }
         hadInvalidInteractiveToken = true
       }
-    } catch {
-      hadInvalidInteractiveToken = true
+    } catch (err) {
+      // Transient/unexpected canonical-resolution failures must not invalidate
+      // the token — surface them so we return 'error' (retryable) rather than
+      // clearing the session cookies.
+      if (err instanceof AuthResolutionUnavailableError) hadUnavailableResolution = true
+      else hadInvalidInteractiveToken = true
     }
   }
 
+  const resolveUnauthenticatedStatus = (): AuthResolutionStatus =>
+    hadUnavailableResolution ? 'error' : hadInvalidInteractiveToken ? 'invalid' : 'missing'
+
   const apiKey = extractApiKey(req)
   if (!apiKey) {
-    return { auth: null, status: hadInvalidInteractiveToken ? 'invalid' : 'missing' }
+    return { auth: null, status: resolveUnauthenticatedStatus() }
   }
   const apiAuth = await resolveApiKeyAuth(apiKey)
   if (!apiAuth) {
-    return { auth: null, status: hadInvalidInteractiveToken ? 'invalid' : 'missing' }
+    return { auth: null, status: resolveUnauthenticatedStatus() }
   }
   return {
     auth: applySuperAdminScope(apiAuth, tenantCookie, orgCookie),

@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import NextLink from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -163,6 +164,7 @@ export function TopbarSearchInline({
   const [expanded, setExpanded] = React.useState(false)
   const [selectedIndex, setSelectedIndex] = React.useState(0)
   const [showScopeHint, setShowScopeHint] = React.useState<boolean>(() => hasActiveOrganizationSelection())
+  const [anchor, setAnchor] = React.useState<{ top: number; left: number; width: number } | null>(null)
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const popoverRef = React.useRef<HTMLDivElement | null>(null)
   const containerRef = React.useRef<HTMLElement | null>(null)
@@ -332,6 +334,29 @@ export function TopbarSearchInline({
     open && (loading || results.length > 0 || error !== null || tooShort || showVectorWarning)
   const showClear = query.length > 0
 
+  // The results panel is portaled to <body> so it escapes the sticky header's
+  // stacking context (z-sticky) — rendered inline it stays trapped at the
+  // header's z-index and page content with its own z-index paints over it
+  // (#3097). Anchor it under the input and keep it aligned on scroll/resize.
+  React.useEffect(() => {
+    if (!showPopover) return
+    const update = () => {
+      const el = containerRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const width = Math.max(rect.width, 320)
+      const left = Math.min(Math.max(rect.left, 8), Math.max(window.innerWidth - width - 8, 8))
+      setAnchor({ top: rect.bottom + 4, left, width })
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [showPopover])
+
   if (!expanded) {
     return (
       <span
@@ -412,12 +437,13 @@ export function TopbarSearchInline({
         )}
       </div>
 
-      {showPopover ? (
+      {showPopover && anchor ? createPortal(
         <div
           ref={popoverRef}
           id="topbar-search-results"
           role="listbox"
-          className="absolute left-0 right-0 top-[calc(100%+4px)] z-popover min-w-[320px] rounded-md border bg-popover text-popover-foreground shadow-md"
+          style={{ position: 'fixed', top: anchor.top, left: anchor.left, width: anchor.width }}
+          className="z-popover rounded-md border bg-popover text-popover-foreground shadow-md"
         >
           {error ? (
             <p className="border-b px-3 py-2 text-sm text-destructive">{error}</p>
@@ -509,7 +535,8 @@ export function TopbarSearchInline({
               })}
             </div>
           ) : null}
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   )

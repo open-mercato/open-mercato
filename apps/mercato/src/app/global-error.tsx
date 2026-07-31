@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from '@open-mercato/ui/primitives/button'
 import { useEffect, useState } from 'react'
 import { reloadPage } from './global-error-reload'
 
@@ -53,6 +54,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
   }, [networkError])
 
   const showOfflineView = networkError || isOffline
+  // Next.js global-error renders outside normal app providers, so these are provider-independent fallback strings.
   const title = showOfflineView ? 'You appear to be offline' : 'Something went wrong'
   const description = showOfflineView
     ? 'Unable to connect. Please check your internet connection and try again. This page will reload automatically when your connection is restored.'
@@ -67,36 +69,20 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
   }
 
   return (
-    <html>
-      <body>
+    <html className="bg-background text-foreground">
+      <body className="bg-background text-foreground">
         <main
           role="alert"
           aria-live="assertive"
-          style={{
-            padding: '2rem',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            maxWidth: '36rem',
-            margin: '4rem auto',
-          }}
+          className="flex min-h-screen items-start justify-center bg-background px-6 py-16 text-foreground"
         >
-          <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>{title}</h1>
-          <p style={{ marginBottom: '1.5rem', color: '#4b5563', lineHeight: 1.5 }}>{description}</p>
-          <button
-            type="button"
-            onClick={handleRetry}
-            style={{
-              padding: '0.5rem 1.25rem',
-              fontSize: '1rem',
-              fontWeight: 500,
-              background: '#111827',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-            }}
-          >
-            {buttonLabel}
-          </button>
+          <div className="w-full max-w-xl space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
+            <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+            <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+            <Button type="button" onClick={handleRetry}>
+              {buttonLabel}
+            </Button>
+          </div>
         </main>
       </body>
     </html>

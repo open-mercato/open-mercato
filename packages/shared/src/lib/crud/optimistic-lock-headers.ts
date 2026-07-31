@@ -8,7 +8,7 @@
  * many HTTP intermediaries (nginx, some fetch implementations) strip
  * underscored header names — see RFC 7230 §3.2.6.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md §3.2
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md §3.2
  */
 export const OPTIMISTIC_LOCK_MODULE_ID = 'optimistic_lock'
 

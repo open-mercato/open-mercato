@@ -4,7 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitWebhooksEvent } from '../../../events'
 import { findScopedWebhook, json, resolveWebhookRequestScope, serializeWebhookDetail } from '../../helpers'
 import { webhookUpdateSchema } from '../../../data/validators'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {
@@ -72,7 +72,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   }
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(scope.container, {
       resourceKind: 'webhooks.endpoint',
       resourceId: webhook.id,
       current: webhook.updatedAt ?? null,
@@ -129,7 +129,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   }
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(scope.container, {
       resourceKind: 'webhooks.endpoint',
       resourceId: webhook.id,
       current: webhook.updatedAt ?? null,

@@ -2,7 +2,7 @@
 
 The `staff` module is **optional** and slated for extraction into a standalone `@open-mercato/staff` package published from the [official-modules](https://github.com/open-mercato/official-modules) repository. Core modules MUST NOT take direct dependencies on staff entities, helpers, or services — cross-module contact happens through the public surfaces listed below.
 
-See [`.ai/specs/2026-05-08-staff-decouple-from-core.md`](../../../../../.ai/specs/2026-05-08-staff-decouple-from-core.md) for the decoupling plan, and [`BACKWARD_COMPATIBILITY.md`](../../../../../BACKWARD_COMPATIBILITY.md) for the contract-surface taxonomy referenced below.
+See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../../../.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md) for the decoupling plan, and [`BACKWARD_COMPATIBILITY.md`](../../../../../BACKWARD_COMPATIBILITY.md) for the contract-surface taxonomy referenced below.
 
 ## MUST Rules
 

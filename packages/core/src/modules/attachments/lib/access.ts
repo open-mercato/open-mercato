@@ -1,6 +1,42 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { Attachment, AttachmentPartition } from '../data/entities'
 
+export type AttachmentScope = {
+  tenantId?: string | null
+  organizationId?: string | null
+}
+
+function normalizeScopeValue(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Enforce the attachments scope invariant at every creation boundary:
+ * an attachment is either fully **global** (both `tenant_id` and
+ * `organization_id` null) or fully **scoped** (both set) — never partial.
+ *
+ * `isSameScope` deliberately treats a partial-null row as inaccessible to
+ * every non-superadmin principal (fail-closed, #2107), so a partial-null row
+ * is dead data that can only ever leak through a future code path that skips
+ * the access check. Guarding creation keeps that class of fail-open bug from
+ * re-emerging (#2109). Call this before persisting any `Attachment`.
+ */
+export function assertAttachmentScopeInvariant(scope: AttachmentScope): void {
+  const tenantId = normalizeScopeValue(scope.tenantId)
+  const organizationId = normalizeScopeValue(scope.organizationId)
+  const tenantSet = tenantId !== null
+  const organizationSet = organizationId !== null
+  if (tenantSet !== organizationSet) {
+    const missing = tenantSet ? 'organization_id' : 'tenant_id'
+    throw new Error(
+      `[internal] Attachment scope invariant violated: ${missing} is null while the other scope column is set. ` +
+        'Attachments must be either fully scoped (both tenant_id and organization_id) or fully global (both null).',
+    )
+  }
+}
+
 export function isSuperAdminAuth(auth: AuthContext | null | undefined): boolean {
   if (!auth) return false
   if ((auth as any).isSuperAdmin === true) return true

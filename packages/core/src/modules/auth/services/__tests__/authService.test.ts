@@ -3,10 +3,11 @@ import { Session } from '@open-mercato/core/modules/auth/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
 const mockFindOneWithDecryption = jest.fn()
+const mockFindWithDecryption = jest.fn().mockResolvedValue([])
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
-  findWithDecryption: jest.fn().mockResolvedValue([]),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
 }))
 
 function makeEm() {
@@ -49,6 +50,34 @@ describe('AuthService', () => {
     const row = persisted[0]
     expect(row.token).toBe(hashAuthToken(result.token))
     expect(row.token).not.toBe(result.token)
+  })
+
+  // -------------------------------------------------------------------------
+  // Regression: login 500 — getUserRoles must not throw on an orphaned UserRole
+  // whose populated role is null (link to a soft-deleted / re-seeded role).
+  // -------------------------------------------------------------------------
+
+  it('getUserRoles skips links whose populated role is null instead of throwing', async () => {
+    const { em } = makeEm()
+    mockFindWithDecryption.mockResolvedValueOnce([
+      { role: null },
+      { role: { name: 'admin' } },
+      { role: { name: '   ' } },
+      { role: { name: 'employee' } },
+    ])
+    const svc = new AuthService(em)
+    // @ts-expect-error partial user fixture is sufficient for this path
+    const roles = await svc.getUserRoles({ id: 'u1', tenantId: 't1', organizationId: 'o1' }, 't1')
+    expect(roles).toEqual(['admin', 'employee'])
+  })
+
+  it('getUserRoles returns an empty list (no throw) when the user has no role links', async () => {
+    const { em } = makeEm()
+    mockFindWithDecryption.mockResolvedValueOnce([])
+    const svc = new AuthService(em)
+    // @ts-expect-error partial user fixture is sufficient for this path
+    const roles = await svc.getUserRoles({ id: 'u1', tenantId: 't1', organizationId: 'o1' }, 't1')
+    expect(roles).toEqual([])
   })
 
   it('deleteSessionByToken deletes only by the hashed token', async () => {

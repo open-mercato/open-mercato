@@ -258,3 +258,70 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(setCookie).not.toContain('session_token=')
   })
 })
+
+describe('account enumeration hardening (issue #2242)', () => {
+  beforeEach(() => {
+    registerApiInterceptors([])
+    jest.clearAllMocks()
+  })
+
+  function loginRequest(extra: Record<string, string> = {}) {
+    return new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', ...extra }),
+    })
+  }
+
+  test('an email registered in multiple tenants returns a uniform 401, never a 400 tenant oracle', async () => {
+    authServiceMock.findUsersByEmail.mockResolvedValueOnce([
+      { id: 1, email: 'user@example.com', passwordHash: 'h1', tenantId, organizationId: orgId },
+      { id: 2, email: 'user@example.com', passwordHash: 'h2', tenantId: randomUUID(), organizationId: orgId },
+    ])
+
+    const res = await POST(loginRequest())
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body).toEqual({ ok: false, error: 'Invalid email or password' })
+
+    // The ambiguous match must not resolve a single user; the password check
+    // still runs (against a null user) so latency matches the other failures.
+    expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(null, 'secret')
+  })
+
+  test('unknown email, wrong password, and multi-tenant cases return byte-identical 401 bodies', async () => {
+    // Unknown email
+    authServiceMock.findUsersByEmail.mockResolvedValueOnce([])
+    const unknownRes = await POST(loginRequest())
+    const unknownBody = await unknownRes.json()
+
+    // Wrong password (single user, verification fails)
+    authServiceMock.findUsersByEmail.mockResolvedValueOnce([
+      { id: 1, email: 'user@example.com', passwordHash: 'h1', tenantId, organizationId: orgId },
+    ])
+    authServiceMock.verifyPassword.mockResolvedValueOnce(false)
+    const wrongPasswordRes = await POST(loginRequest())
+    const wrongPasswordBody = await wrongPasswordRes.json()
+
+    // Multi-tenant ambiguous match
+    authServiceMock.findUsersByEmail.mockResolvedValueOnce([
+      { id: 1, email: 'user@example.com', passwordHash: 'h1', tenantId, organizationId: orgId },
+      { id: 2, email: 'user@example.com', passwordHash: 'h2', tenantId: randomUUID(), organizationId: orgId },
+    ])
+    const multiTenantRes = await POST(loginRequest())
+    const multiTenantBody = await multiTenantRes.json()
+
+    expect(unknownRes.status).toBe(401)
+    expect(wrongPasswordRes.status).toBe(401)
+    expect(multiTenantRes.status).toBe(401)
+    expect(unknownBody).toEqual({ ok: false, error: 'Invalid email or password' })
+    expect(wrongPasswordBody).toEqual(unknownBody)
+    expect(multiTenantBody).toEqual(unknownBody)
+  })
+
+  test('always runs the password comparison even for an unknown email (timing equalizer)', async () => {
+    authServiceMock.findUsersByEmail.mockResolvedValueOnce([])
+    const res = await POST(loginRequest())
+    expect(res.status).toBe(401)
+    expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(null, 'secret')
+  })
+})

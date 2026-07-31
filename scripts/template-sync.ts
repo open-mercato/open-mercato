@@ -52,6 +52,16 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-cache-purge.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-inotify-limits.mjs'),
+    rel: 'scripts/dev-inotify-limits.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'fix-wsl-inotify.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'fix-wsl-inotify.mjs'),
+    rel: 'scripts/fix-wsl-inotify.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
     rel: 'scripts/dev-splash-state.mjs',
@@ -85,6 +95,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-database-url.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-url.mjs'),
     rel: 'scripts/dev-database-url.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'watch-scope.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'watch-scope.mjs'),
+    rel: 'scripts/watch-scope.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
@@ -176,7 +191,7 @@ function collectSourceFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(APP_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function collectTemplateFiles(): string[] {
@@ -191,7 +206,7 @@ function collectTemplateFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(TEMPLATE_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {

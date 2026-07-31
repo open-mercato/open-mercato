@@ -40,6 +40,9 @@ export class Organization {
   @Property({ type: 'text', nullable: true })
   slug?: string | null
 
+  @Property({ name: 'logo_url', type: 'text', nullable: true })
+  logoUrl?: string | null
+
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 

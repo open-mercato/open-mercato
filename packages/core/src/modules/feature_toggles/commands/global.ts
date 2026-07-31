@@ -6,6 +6,7 @@ import { ToggleCreateInput, toggleCreateSchema, ToggleUpdateInput, toggleUpdateS
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
@@ -49,14 +50,13 @@ type ToggleUndoPayload = {
 
 const featureToggleCrudIndexer = { entityType: E.feature_toggles.feature_toggle }
 
-function featureToggleIdentifiers(
-  toggle: FeatureToggle | ToggleSnapshot,
-  ctx: { auth?: { tenantId?: string | null } | null },
-) {
+const FEATURE_TOGGLE_LOCK_RESOURCE_KIND = 'feature_toggles.feature_toggle'
+
+function featureToggleIdentifiers(toggle: FeatureToggle | ToggleSnapshot) {
   return {
     id: toggle.id,
     organizationId: null,
-    tenantId: ctx.auth?.tenantId ?? null,
+    tenantId: null,
   }
 }
 
@@ -110,7 +110,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
       dataEngine,
       action: 'created',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -154,7 +154,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
         dataEngine,
         action: 'deleted',
         entity: toggle,
-        identifiers: featureToggleIdentifiers(toggle, ctx),
+        identifiers: featureToggleIdentifiers(toggle),
         syncOrigin: ctx.syncOrigin,
         indexer: featureToggleCrudIndexer,
       })
@@ -193,7 +193,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
       dataEngine,
       action: 'created',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -217,6 +217,12 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = await em.findOne(FeatureToggle, { id: parsed.id, deletedAt: null })
     if (!toggle) throw new CrudHttpError(404, { error: 'Toggle not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: FEATURE_TOGGLE_LOCK_RESOURCE_KIND,
+      resourceId: toggle.id,
+      current: toggle.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     const previousIdentifier = toggle.identifier
     if (parsed.identifier && parsed.identifier !== toggle.identifier) {
       const existing = await em.findOne(FeatureToggle, { identifier: parsed.identifier })
@@ -236,7 +242,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
       dataEngine,
       action: 'updated',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -319,7 +325,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
       dataEngine,
       action: 'updated',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -344,6 +350,12 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const toggle = await em.findOne(FeatureToggle, { id, deletedAt: null })
     if (!toggle) throw new CrudHttpError(404, { error: 'Feature toggle not found' })
+    enforceCommandOptimisticLock({
+      resourceKind: FEATURE_TOGGLE_LOCK_RESOURCE_KIND,
+      resourceId: toggle.id,
+      current: toggle.updatedAt ?? null,
+      request: ctx.request ?? null,
+    })
     const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
     await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
 
@@ -354,7 +366,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       dataEngine,
       action: 'deleted',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
@@ -428,7 +440,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       dataEngine,
       action: 'updated',
       entity: toggle,
-      identifiers: featureToggleIdentifiers(toggle, ctx),
+      identifiers: featureToggleIdentifiers(toggle),
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })

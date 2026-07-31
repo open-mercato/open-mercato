@@ -99,7 +99,7 @@ function createServiceContext(
     getConnection: jest.fn(() => ({ execute })),
     find: jest.fn(async () => methods),
     findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
-      if ('id' in query && 'userId' in query) {
+      if ('id' in query && 'userId' in query && 'isActive' in query) {
         return methods.find(
           (item) =>
             item.id === query.id &&
@@ -109,7 +109,11 @@ function createServiceContext(
         ) ?? null
       }
       if ('id' in query && !('type' in query)) {
-        return challenges.find((item) => item.id === query.id) ?? null
+        return challenges.find(
+          (item) =>
+            item.id === query.id &&
+            (!('userId' in query) || item.userId === query.userId),
+        ) ?? null
       }
       return methods.find(
         (item) =>
@@ -233,7 +237,7 @@ describe('MfaVerificationService', () => {
     }))
 
     const created = await service.createChallenge('user-1')
-    const result = await service.prepareChallenge(created.challengeId, 'totp')
+    const result = await service.prepareChallenge(created.challengeId, 'totp', undefined, { userId: 'user-1' })
 
     expect(result).toEqual({ clientData: { sent: true }, verifyContext: { challenge: { nonce: 'challenge-nonce' } } })
     expect(challenges[0].methodType).toBe('totp')
@@ -244,8 +248,8 @@ describe('MfaVerificationService', () => {
     const { service, challenges, methods } = createServiceContext()
     const created = await service.createChallenge('user-1')
 
-    await service.prepareChallenge(created.challengeId, 'totp')
-    const verified = await service.verifyChallenge(created.challengeId, 'totp', { code: '123456' })
+    await service.prepareChallenge(created.challengeId, 'totp', undefined, { userId: 'user-1' })
+    const verified = await service.verifyChallenge(created.challengeId, 'totp', { code: '123456' }, undefined, { userId: 'user-1' })
 
     expect(verified).toBe(true)
     expect(challenges[0].verifiedAt).toBeInstanceOf(Date)
@@ -263,8 +267,8 @@ describe('MfaVerificationService', () => {
     const { service, challenges } = createServiceContext()
     const created = await service.createChallenge('user-1')
 
-    await service.prepareChallenge(created.challengeId, 'totp')
-    const verified = await service.verifyChallenge(created.challengeId, 'passkey', { code: '123456' })
+    await service.prepareChallenge(created.challengeId, 'totp', undefined, { userId: 'user-1' })
+    const verified = await service.verifyChallenge(created.challengeId, 'passkey', { code: '123456' }, undefined, { userId: 'user-1' })
 
     expect(verified).toBe(false)
     expect(challenges[0].attempts).toBe(1)
@@ -280,7 +284,7 @@ describe('MfaVerificationService', () => {
     const created = await service.createChallenge('user-1')
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+      await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' }, undefined, { userId: 'user-1' })
     }
 
     expect(challenges[0].attempts).toBe(5)
@@ -302,8 +306,8 @@ describe('MfaVerificationService', () => {
     provider.verify = jest.fn(async () => false)
     const created = await service.createChallenge('user-1')
 
-    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
-    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' }, undefined, { userId: 'user-1' })
+    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' }, undefined, { userId: 'user-1' })
 
     expect(challenges[0].attempts).toBe(2)
     expect(challenges[0].expiresAt.getTime()).toBeLessThanOrEqual(Date.now())
@@ -314,7 +318,9 @@ describe('MfaVerificationService', () => {
     const created = await service.createChallenge('user-1')
     challenges[0].verifiedAt = new Date()
 
-    await expect(service.verifyChallenge(created.challengeId, 'totp', { code: '123456' })).rejects.toMatchObject({
+    await expect(
+      service.verifyChallenge(created.challengeId, 'totp', { code: '123456' }, undefined, { userId: 'user-1' }),
+    ).rejects.toMatchObject({
       name: 'MfaVerificationServiceError',
       statusCode: 400,
       message: 'MFA challenge already verified',
@@ -330,7 +336,7 @@ describe('MfaVerificationService', () => {
     provider.verify = jest.fn(async () => false)
     const created = await service.createChallenge('user-1')
 
-    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' }, undefined, { userId: 'user-1' })
 
     expect(challenges[0].attempts).toBe(1)
     const execute = em.getConnection().execute as jest.Mock
@@ -357,7 +363,7 @@ describe('MfaVerificationService', () => {
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
       try {
-        await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+        await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' }, undefined, { userId: 'user-1' })
       } catch {
         // After lockout the challenge is expired and getValidChallenge rejects further attempts.
       }
@@ -376,7 +382,9 @@ describe('MfaVerificationService', () => {
       allowedMethods: ['passkey'],
     })
 
-    await expect(service.verifyChallenge(created.challengeId, 'totp', { code: '123456' })).rejects.toMatchObject({
+    await expect(
+      service.verifyChallenge(created.challengeId, 'totp', { code: '123456' }, undefined, { userId: 'user-1' }),
+    ).rejects.toMatchObject({
       name: 'MfaVerificationServiceError',
       statusCode: 403,
     })
@@ -391,10 +399,124 @@ describe('MfaVerificationService', () => {
       allowedMethods: ['passkey'],
     })
 
-    await expect(service.prepareChallenge(created.challengeId, 'totp')).rejects.toMatchObject({
+    await expect(
+      service.prepareChallenge(created.challengeId, 'totp', undefined, { userId: 'user-1' }),
+    ).rejects.toMatchObject({
       name: 'MfaVerificationServiceError',
       statusCode: 403,
     })
+  })
+
+  test('verifyChallenge rejects with 404 when the challenge belongs to another user', async () => {
+    const { service, challenges, registry } = createServiceContext()
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    const created = await service.createChallenge('user-1')
+    const challengeBefore = { ...challenges[0] }
+
+    await expect(
+      service.verifyChallenge(created.challengeId, 'totp', { code: '123456' }, undefined, { userId: 'user-2' }),
+    ).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 404,
+      message: 'MFA challenge not found',
+    })
+
+    expect(provider.verify).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(challenges[0]).toEqual(challengeBefore)
+  })
+
+  test('verifyChallenge succeeds when scope.userId matches challenge.userId', async () => {
+    const { service, challenges } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+
+    const verified = await service.verifyChallenge(
+      created.challengeId,
+      'totp',
+      { code: '123456' },
+      undefined,
+      { userId: 'user-1' },
+    )
+
+    expect(verified).toBe(true)
+    expect(challenges[0].verifiedAt).toBeInstanceOf(Date)
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.verified', expect.objectContaining({ userId: 'user-1' }))
+  })
+
+  test('verifyChallenge deprecated no-scope overload fails closed with 404', async () => {
+    const { service, challenges, registry } = createServiceContext()
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    const created = await service.createChallenge('user-1')
+
+    await expect(
+      service.verifyChallenge(created.challengeId, 'totp', { code: '123456' }),
+    ).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 404,
+      message: 'MFA challenge not found',
+    })
+
+    expect(provider.verify).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(challenges[0].verifiedAt).toBeFalsy()
+    expect(challenges[0].attempts).toBe(0)
+  })
+
+  test('prepareChallenge rejects with 404 when the challenge belongs to another user', async () => {
+    const { service, challenges, registry } = createServiceContext()
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    const created = await service.createChallenge('user-1')
+    const before = { ...challenges[0] }
+
+    await expect(
+      service.prepareChallenge(created.challengeId, 'totp', undefined, { userId: 'user-2' }),
+    ).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 404,
+      message: 'MFA challenge not found',
+    })
+
+    expect(provider.prepareChallenge).not.toHaveBeenCalled()
+    expect(challenges[0].methodType).toBe(before.methodType)
+    expect(challenges[0].providerChallenge).toBe(before.providerChallenge)
+  })
+
+  test('prepareChallenge succeeds when scope.userId matches challenge.userId', async () => {
+    const { service, challenges } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+
+    const result = await service.prepareChallenge(created.challengeId, 'totp', undefined, { userId: 'user-1' })
+
+    expect(result).toEqual({ clientData: { sent: true } })
+    expect(challenges[0].methodType).toBe('totp')
+  })
+
+  test('prepareChallenge deprecated no-scope overload fails closed with 404', async () => {
+    const { service, registry } = createServiceContext()
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    const created = await service.createChallenge('user-1')
+
+    await expect(
+      service.prepareChallenge(created.challengeId, 'totp'),
+    ).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 404,
+      message: 'MFA challenge not found',
+    })
+
+    expect(provider.prepareChallenge).not.toHaveBeenCalled()
   })
 
   test('verifyRecoveryCode delegates to MfaService', async () => {

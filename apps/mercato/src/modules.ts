@@ -4,7 +4,7 @@
 // - overrides: optional unified per-app override surface — replace or
 //   disable any contract a module presents: AI, routes, events, workers,
 //   widgets, notifications, interceptors, setup, ACL, DI, encryption, etc.
-//   See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and
+//   See `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` and
 //   `apps/docs/docs/framework/modules/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
@@ -27,6 +27,7 @@ export const moduleOverrideExamples: ModuleOverrides = {
   ai: {
     agents: { 'catalog.catalog_assistant': null },
     tools: { inbox_ops_accept_action: null },
+    extensions: [], // additive AiAgentExtension[]; do not use null-map semantics
   },
   routes: {
     api: { 'DELETE /api/example/items': null },
@@ -75,6 +76,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'catalog', from: '@open-mercato/core' },
   { id: 'sales', from: '@open-mercato/core' },
+  { id: 'wms', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
   { id: 'content', from: '@open-mercato/content' },

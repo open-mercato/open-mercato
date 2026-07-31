@@ -163,13 +163,36 @@ export async function DELETE(req: Request) {
       ? [entityIdParam]
       : searchIndexer.listEnabledEntities()
 
+    // Constrain the purge to the caller's authorized organization scope so a
+    // holder of search.embeddings.manage in one organization cannot destroy
+    // another organization's index entries within the same tenant (issue #2935).
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
+      return NextResponse.json({ ok: true })
+    }
+    const selectedOrganizationId =
+      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : null
+    // The single selected org, else the explicit authorized set, else
+    // (unrestricted/super-admin) a single tenant-wide purge.
+    const purgeOrganizationIds: Array<string | undefined> = selectedOrganizationId
+      ? [selectedOrganizationId]
+      : Array.isArray(scope.filterIds)
+        ? scope.filterIds
+        : [undefined]
+
     const scopes = new Set<string>()
-    const registerScope = (org: string | null) => {
+    const registerScope = (org: string | undefined) => {
       const key = org ?? '__null__'
       if (!scopes.has(key)) scopes.add(key)
     }
-    registerScope(null)
-    if (auth.orgId) registerScope(auth.orgId)
+    for (const organizationId of purgeOrganizationIds) {
+      if (organizationId === undefined) {
+        registerScope(undefined)
+        if (auth.orgId) registerScope(auth.orgId)
+      } else {
+        registerScope(organizationId)
+      }
+    }
 
     await recordIndexerLog(
       { em: em ?? undefined },
@@ -186,12 +209,17 @@ export async function DELETE(req: Request) {
       },
     ).catch(() => undefined)
 
-    // Purge each entity using SearchIndexer
+    // Purge each entity using SearchIndexer, scoped to the authorized
+    // organization(s). An undefined organizationId performs a tenant-wide purge
+    // and is only reachable for unrestricted (e.g. super-admin) callers.
     for (const entityId of entityIds) {
-      await searchIndexer.purgeEntity({
-        entityId: entityId as EntityId,
-        tenantId: auth.tenantId,
-      })
+      for (const organizationId of purgeOrganizationIds) {
+        await searchIndexer.purgeEntity({
+          entityId: entityId as EntityId,
+          tenantId: auth.tenantId,
+          organizationId,
+        })
+      }
     }
 
     // Update coverage counts

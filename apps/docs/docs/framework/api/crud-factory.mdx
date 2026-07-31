@@ -184,6 +184,40 @@ list: {
 }
 ```
 
+#### Per-request projection (function-form `fields`)
+
+`fields` accepts either a static array or a function `(query, ctx) => string[]` that resolves the projection per request. The function form lets a route narrow the columns the Query Engine selects based on the validated query — most usefully to drop large detail-only columns (encrypted JSONB snapshots, payload blobs) from grid listings while still selecting them for single-record fetches.
+
+This matters because those columns are fetched over the wire **and decrypted per row** for every list page even when no grid column renders them; the cost scales with row width × page size.
+
+```ts
+const detailOnlyColumns = new Set([
+  'billing_address_snapshot',
+  'shipping_address_snapshot',
+  'totals_snapshot',
+  'metadata',
+]);
+
+const allFields = ['id', 'number', 'status', 'customer_snapshot', ...detailOnlyColumns];
+const gridFields = allFields.filter((field) => !detailOnlyColumns.has(field));
+
+list: {
+  schema: listSchema,
+  entityId: E.sales.sales_order,
+  // The detail page fetches a single record through this same list route with an
+  // `?id=` filter (there is no separate detail endpoint), so it needs the full
+  // projection. Grid listings (no `id`) use the trimmed projection.
+  fields: (query) =>
+    typeof query.id === 'string' && query.id.length ? allFields : gridFields,
+}
+```
+
+Notes:
+
+- The function is resolved on the Query Engine path only (the route must set both `entityId` and `fields`). The array form is fully backward compatible — pass an array whenever the projection is static.
+- Keep response keys stable. Dropped columns still serialize (e.g. as `null` via `transformItem`), so the wire contract / OpenAPI schema stays unchanged as long as those response fields are already `nullable().optional()`.
+- Only narrow columns the list view never renders. Keep any column the grid derives a displayed value from (for sales documents, `customer_snapshot` is kept because the grid renders the customer name/email from it).
+
 #### Advanced Filtering with `buildFilters`
 
 The `buildFilters` function transforms query parameters into Query Engine compatible filters:
@@ -459,6 +493,8 @@ The factory automatically:
 - Supports batch export operations
 - Caches custom field definitions
 - Parallelizes custom field loading
+
+Routes can further trim per-request work by passing a [function-form `fields`](#per-request-projection-function-form-fields) projection that drops large detail-only columns from grid listings, avoiding fetching and decrypting blobs the list never renders.
 
 ### Export Performance
 

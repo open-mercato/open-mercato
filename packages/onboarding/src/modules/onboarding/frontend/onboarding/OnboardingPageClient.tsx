@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -15,6 +16,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 
 type SubmissionState = 'idle' | 'loading' | 'success'
 type FieldErrors = Partial<Record<
@@ -31,6 +33,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
   const translate = (key: string, fallback: string, params?: Record<string, string | number>) =>
     translateWithFallback(t, key, fallback, params)
   const locale = useLocale()
+  const searchParams = useSearchParams()
   const [state, setState] = useState<SubmissionState>('idle')
   const [globalError, setGlobalError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -152,6 +155,34 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
   const onboardingDisabled = !onboardingEnabled
   const submitting = state === 'loading'
   const disabled = onboardingDisabled || submitting || state === 'success'
+  const verifyStatusMessages: Record<string, string> = {
+    redirect_misconfigured: translate(
+      'onboarding.verifyStatus.redirectMisconfigured',
+      'The verification link cannot redirect safely because APP_URL does not match the URL that handled the request. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.',
+    ),
+    origin_not_allowed: translate(
+      'onboarding.verifyStatus.originNotAllowed',
+      'The verification link was opened from an origin that is not allowed. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.',
+    ),
+    url_not_configured: translate(
+      'onboarding.verifyStatus.urlNotConfigured',
+      'Onboarding verification is not configured. APP_URL must be set before verification links can be used.',
+    ),
+    already_exists: translate(
+      'onboarding.verifyStatus.alreadyExists',
+      'We already have an account with this email. Try signing in or resetting your password.',
+    ),
+    invalid: translate(
+      'onboarding.verifyStatus.invalid',
+      'The verification link is invalid or expired. Submit the onboarding form again to receive a new link.',
+    ),
+    error: translate(
+      'onboarding.verifyStatus.error',
+      'We could not complete verification. Please try again or contact support.',
+    ),
+  }
+  const verifyStatus = searchParams.get('status') ?? ''
+  const verifyStatusError = verifyStatusMessages[verifyStatus] ?? null
 
   return (
     <div className="relative flex min-h-svh items-center justify-center bg-muted/50 px-4 pb-24">
@@ -195,7 +226,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
         </CardHeader>
         <CardContent className={onboardingDisabled ? 'pb-10 opacity-45' : 'pb-10'}>
           {state === 'success' && emailSubmitted && (
-            <div className="mb-6 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900" role="status" aria-live="polite">
+            <div className="mb-6 rounded-md border border-status-success-border bg-status-success-bg px-4 py-3 text-sm text-status-success-text" role="status" aria-live="polite">
               <strong className="block text-sm font-medium">
                 {translate('onboarding.form.successTitle', 'Check your inbox')}
               </strong>
@@ -204,10 +235,10 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
               </p>
             </div>
           )}
-          {state !== 'success' && globalError && (
-            <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert" aria-live="assertive">
-              {globalError}
-            </div>
+          {state !== 'success' && (globalError || verifyStatusError) && (
+            <Alert status="error" style="lighter" showIcon={false} className="mb-4 text-sm" aria-live="assertive">
+              <AlertDescription>{globalError || verifyStatusError}</AlertDescription>
+            </Alert>
           )}
           <form className="grid gap-4" onSubmit={onSubmit} noValidate>
             <div className="grid gap-1">
@@ -219,10 +250,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 disabled={disabled}
                 aria-invalid={Boolean(fieldErrors.email)}
                 aria-describedby={fieldErrors.email ? 'email-error' : undefined}
-                className={fieldErrors.email ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {fieldErrors.email && (
-                <p id="email-error" className="text-xs text-red-600">{fieldErrors.email}</p>
+                <p id="email-error" className="text-xs text-status-error-text">{fieldErrors.email}</p>
               )}
             </div>
             <div className="grid gap-1 sm:grid-cols-2 sm:gap-4">
@@ -237,10 +267,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                   autoComplete="given-name"
                   aria-invalid={Boolean(fieldErrors.firstName)}
                   aria-describedby={fieldErrors.firstName ? 'firstName-error' : undefined}
-                  className={fieldErrors.firstName ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
                 />
                 {fieldErrors.firstName && (
-                  <p id="firstName-error" className="text-xs text-red-600">{fieldErrors.firstName}</p>
+                  <p id="firstName-error" className="text-xs text-status-error-text">{fieldErrors.firstName}</p>
                 )}
               </div>
               <div className="grid gap-1">
@@ -254,10 +283,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                   autoComplete="family-name"
                   aria-invalid={Boolean(fieldErrors.lastName)}
                   aria-describedby={fieldErrors.lastName ? 'lastName-error' : undefined}
-                  className={fieldErrors.lastName ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
                 />
                 {fieldErrors.lastName && (
-                  <p id="lastName-error" className="text-xs text-red-600">{fieldErrors.lastName}</p>
+                  <p id="lastName-error" className="text-xs text-status-error-text">{fieldErrors.lastName}</p>
                 )}
               </div>
             </div>
@@ -272,10 +300,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 autoComplete="organization"
                 aria-invalid={Boolean(fieldErrors.organizationName)}
                 aria-describedby={fieldErrors.organizationName ? 'organizationName-error' : undefined}
-                className={fieldErrors.organizationName ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {fieldErrors.organizationName && (
-                <p id="organizationName-error" className="text-xs text-red-600">{fieldErrors.organizationName}</p>
+                <p id="organizationName-error" className="text-xs text-status-error-text">{fieldErrors.organizationName}</p>
               )}
             </div>
             <div className="grid gap-1">
@@ -289,13 +316,12 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 minLength={passwordPolicy.minLength}
                 aria-invalid={Boolean(fieldErrors.password)}
                 aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-                className={fieldErrors.password ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {passwordDescription ? (
                 <p className="text-xs text-muted-foreground">{passwordDescription}</p>
               ) : null}
               {fieldErrors.password && (
-                <p id="password-error" className="text-xs text-red-600">{fieldErrors.password}</p>
+                <p id="password-error" className="text-xs text-status-error-text">{fieldErrors.password}</p>
               )}
             </div>
             <div className="grid gap-1">
@@ -308,10 +334,9 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                 autoComplete="new-password"
                 aria-invalid={Boolean(fieldErrors.confirmPassword)}
                 aria-describedby={fieldErrors.confirmPassword ? 'confirmPassword-error' : undefined}
-                className={fieldErrors.confirmPassword ? 'border-red-500 aria-invalid:ring-destructive' : undefined}
               />
               {fieldErrors.confirmPassword && (
-                <p id="confirmPassword-error" className="text-xs text-red-600">{fieldErrors.confirmPassword}</p>
+                <p id="confirmPassword-error" className="text-xs text-status-error-text">{fieldErrors.confirmPassword}</p>
               )}
             </div>
             <label className="flex items-start gap-3 text-sm text-muted-foreground">
@@ -341,7 +366,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                   {translate('onboarding.form.privacyLink', 'Privacy Policy')}
                 </a>
                 {fieldErrors.termsAccepted && (
-                  <span className="mt-1 block text-xs text-red-600">{fieldErrors.termsAccepted}</span>
+                  <span className="mt-1 block text-xs text-status-error-text">{fieldErrors.termsAccepted}</span>
                 )}
               </span>
             </label>

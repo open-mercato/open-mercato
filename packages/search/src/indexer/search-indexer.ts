@@ -48,6 +48,7 @@ export type DeleteRecordParams = {
 export type PurgeEntityParams = {
   entityId: EntityId
   tenantId: string
+  organizationId?: string | null
 }
 
 /**
@@ -352,7 +353,7 @@ export class SearchIndexer {
    * Purge all records of an entity type from the search index.
    */
   async purgeEntity(params: PurgeEntityParams): Promise<void> {
-    await this.searchService.purge(params.entityId, params.tenantId)
+    await this.searchService.purge(params.entityId, params.tenantId, params.organizationId)
   }
 
   /**
@@ -394,7 +395,7 @@ export class SearchIndexer {
     // Optionally purge first
     if (params.purgeFirst) {
       try {
-        await this.searchService.purge(params.entityId, params.tenantId)
+        await this.searchService.purge(params.entityId, params.tenantId, params.organizationId)
       } catch (error) {
         searchDebugWarn('SearchIndexer', 'Failed to purge entity before reindex', {
           entityId: params.entityId,
@@ -865,7 +866,7 @@ export class SearchIndexer {
       // Optionally purge vector index first
       if (params.purgeFirst) {
         try {
-          await this.searchService.purge(params.entityId, params.tenantId)
+          await this.searchService.purge(params.entityId, params.tenantId, params.organizationId)
         } catch (error) {
           searchDebugWarn('SearchIndexer', 'Failed to purge entity before vector reindex', {
             entityId: params.entityId,

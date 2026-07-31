@@ -74,6 +74,27 @@ export async function createOrderLineFixture(
 }
 
 /**
+ * Ship one or more order lines so a subsequent return passes the
+ * shipped-quantity guard (issue #3034). A return can only be created for
+ * quantities that were physically shipped, so any spec that creates a return
+ * must ship the relevant line(s) first. Returns the created shipment id.
+ */
+export async function createShipmentFixture(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  items: Array<{ orderLineId: string; quantity: number }>,
+): Promise<string> {
+  return createEntity(
+    request,
+    token,
+    '/api/sales/shipments',
+    { orderId, items },
+    ['id', 'shipmentId'],
+  );
+}
+
+/**
  * Probe whether the authenticated principal can create a sales order on the
  * current tenant (i.e. holds `sales.orders.manage`). Sales-write integration
  * specs use this to self-skip on dev databases whose role ACLs were never

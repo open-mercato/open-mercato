@@ -270,8 +270,8 @@ export function readOfficialModulePackageFromRoot(
 
   const packageJson = readPackageJson(packageJsonPath)
   const packageName = packageJson.name
-  if (!packageName || !packageName.startsWith('@open-mercato/')) {
-    throw new Error(`Package at ${packageRoot} is not under the @open-mercato scope.`)
+  if (!packageName) {
+    throw new Error(`Package manifest at ${packageJsonPath} is missing the "name" field.`)
   }
 
   if (expectedPackageName && packageName !== expectedPackageName) {

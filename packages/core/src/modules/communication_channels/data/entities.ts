@@ -440,7 +440,7 @@ export class MessageReaction {
  * forged inbound messages: tokens that don't HMAC-verify never reach the DB
  * lookup.
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 @Entity({ tableName: 'channel_thread_tokens' })
 // One token row per (tenant, thread): the matcher resolves every reply to the
@@ -495,7 +495,7 @@ export class ChannelThreadToken {
  * `raw_body` is encrypted at rest via the module's `encryption.ts`
  * `defaultEncryptionMaps` entry (MIME bodies may contain PII).
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`
  * (§ 3 Data Model).
  */
 @Entity({ tableName: 'channel_ingest_dead_letters' })

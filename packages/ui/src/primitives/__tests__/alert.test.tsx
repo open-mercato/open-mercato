@@ -133,6 +133,22 @@ describe('Alert primitive', () => {
       render(<Alert status="information" style="light" icon={<Custom />}>Info</Alert>)
       expect(screen.getByTestId('custom-icon')).toBeInTheDocument()
     })
+
+    it('renders exactly one leading icon by default (#2759)', () => {
+      const { container } = render(<Alert status="information">Info</Alert>)
+      expect(container.querySelectorAll('[data-slot="alert-icon-badge"]')).toHaveLength(1)
+      expect(container.querySelectorAll('[data-slot="alert-icon-badge"] > svg')).toHaveLength(1)
+    })
+
+    it('icon prop REPLACES the default status icon instead of adding a second one (#2759)', () => {
+      const Custom = () => <svg data-testid="custom-icon" aria-hidden="true" />
+      const { container } = render(
+        <Alert status="information" icon={<Custom />}>Info</Alert>,
+      )
+      expect(container.querySelectorAll('[data-slot="alert-icon-badge"]')).toHaveLength(1)
+      expect(container.querySelectorAll('[data-slot="alert-icon-badge"] > svg')).toHaveLength(1)
+      expect(screen.getByTestId('custom-icon')).toBeInTheDocument()
+    })
   })
 
   describe('Action slot + dismiss', () => {

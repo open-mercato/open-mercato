@@ -14,6 +14,9 @@ import {
   type CustomerNextInteractionsSettings,
 } from './config'
 import { renderDictionaryColor, renderDictionaryIcon } from '../../../lib/dictionaries'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type NextInteractionItem = {
   id: string
@@ -118,7 +121,7 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
       const response = await loadNextInteractions(hydrated)
       setData(response.items)
     } catch (err) {
-      console.error('Failed to load next interactions widget data', err)
+      logger.error('Failed to load next interactions widget data', { err })
       setError(t('customers.widgets.nextInteractions.error'))
     } finally {
       setLoading(false)

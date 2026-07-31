@@ -1,5 +1,6 @@
 'use client'
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check, ChevronRight } from 'lucide-react'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
@@ -20,6 +21,8 @@ export type ProfileDropdownProps = {
   changePasswordHref?: string
   notificationsHref?: string
 }
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect
 
 const localeLabels: Record<Locale, string> = {
   en: 'English',
@@ -42,11 +45,38 @@ export function ProfileDropdown({
   const [mounted, setMounted] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
+  const [menuPosition, setMenuPosition] = React.useState<{ top: number; right: number } | null>(null)
   const { items: injectedItems } = useInjectedMenuItems('menu:topbar:profile-dropdown')
 
   React.useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Position the portaled menu under the trigger. Rendering the menu in a body
+  // portal keeps it out of the sticky header's backdrop-blur stacking context so
+  // it always paints above page content such as the DataTable sticky Actions column.
+  useIsomorphicLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null)
+      return
+    }
+    const updatePosition = () => {
+      const trigger = buttonRef.current
+      if (!trigger) return
+      const rect = trigger.getBoundingClientRect()
+      setMenuPosition({
+        top: rect.bottom + 8,
+        right: Math.max(0, window.innerWidth - rect.right),
+      })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [open])
 
   const isDark = resolvedTheme === 'dark'
 
@@ -336,10 +366,11 @@ export function ProfileDropdown({
         <User className="size-4" />
       </IconButton>
 
-      {open && (
+      {open && menuPosition && typeof document !== 'undefined' && createPortal(
         <div
           ref={menuRef}
-          className="absolute right-0 top-full z-popover mt-2 w-64 overflow-hidden rounded-lg border bg-popover p-0 shadow-lg"
+          className="fixed z-popover w-64 overflow-hidden rounded-lg border bg-popover p-0 shadow-lg"
+          style={{ top: menuPosition.top, right: menuPosition.right }}
           role="menu"
           data-testid="profile-dropdown"
         >
@@ -384,7 +415,8 @@ export function ProfileDropdown({
               context={injectionContext}
             />
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

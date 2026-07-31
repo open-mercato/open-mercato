@@ -34,7 +34,7 @@ import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optim
  *
  * The factory auto-registers a generic optimistic-lock reader for the
  * `CatalogOptionSchemaTemplate` entity (OSS opt-in optimistic locking, Step
- * 13.3 of `.ai/specs/2026-05-25-oss-optimistic-locking.md`), so the collection
+ * 13.3 of `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`), so the collection
  * route enforces the lock without a hand-wired reader.
  */
 

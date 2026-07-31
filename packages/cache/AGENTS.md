@@ -10,6 +10,15 @@ Use `@open-mercato/cache` for all caching needs. MUST NOT use raw Redis, SQLite,
 | SQLite | Use for single-server production deployments; local persistent convenience cache, tuned with WAL/`synchronous=NORMAL` | `CACHE_STRATEGY=sqlite` |
 | Redis | Use for multi-server production or latency-sensitive request paths with frequent cache writes | `CACHE_STRATEGY=redis` |
 
+## Memory Strategy Bounds
+
+The memory strategy is bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE`, long-lived workers, memory-backed CRUD list cache) cannot grow without limit on user-controllable key cardinality.
+
+- **LRU cap** — at most `maxEntries` entries are retained (default `50000`). Reads refresh recency (Map re-insertion); the least-recently-used entries are evicted on write once the cap is exceeded.
+- **`CACHE_MEMORY_MAX_ENTRIES`** — env override for the cap, resolved in the cache service. `.env.example` carries a commented `#CACHE_MEMORY_MAX_ENTRIES=50000`. A non-positive value (or an unparseable one — which is ignored, falling back to the default) disables the cap (**unbounded** — only safe for short-lived per-request instances).
+- **Amortized expired-entry sweep** — expired entries are reclaimed by a budgeted sweep that runs every 256 writes (no per-instance timer, so the per-request default stays leak-free). Each pass scans a bounded slice from the LRU head, so it stays `O(budget)` rather than scanning the whole store. Expired entries beyond the budget are still reclaimed on access, by LRU eviction, or via an explicit `cleanup()`.
+- **Observability** — `stats()` on a memory-backed service surfaces `evictions`, `sweeps`, and `lastSweepReclaimed` (process-global counters) alongside the tenant-scoped `size`/`expired`, so operators can tell whether the bound is actively protecting the process. Other backends omit these fields.
+
 ## Always
 
 1. **MUST resolve via DI** — always use `container.resolve('cacheService')`, never instantiate cache directly

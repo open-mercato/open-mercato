@@ -15,13 +15,7 @@ import type { LucideIcon } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { ActivityRecordPayload } from './types'
-
-function formatDate(value: string | null | undefined): string | null {
-  if (!value) return null
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+import { formatDate } from '../../utils/format'
 
 function pickActivityIcon(type: string | null | undefined): LucideIcon {
   if (!type) return ActivityIcon

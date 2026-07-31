@@ -8,7 +8,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 /**
  * TC-LOCK-OSS-002: OSS opt-in optimistic locking on customers.person
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  *
  * Mirrors TC-LOCK-OSS-001 but for `customers.person`. Verifies that when
  * `OM_OPTIMISTIC_LOCK` covers `customers.person`:

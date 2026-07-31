@@ -1,3 +1,28 @@
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const globalStore = globalThis as typeof globalThis & { __omTestLoggerMock?: Record<string, jest.Mock> }
+  if (!globalStore.__omTestLoggerMock) {
+    const mocked: Record<string, jest.Mock> = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: jest.fn(),
+    }
+    mocked.child.mockImplementation(() => mocked)
+    globalStore.__omTestLoggerMock = mocked
+  }
+  const mocked = globalStore.__omTestLoggerMock
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
 type ConsentIntegrityModule = typeof import('@open-mercato/core/modules/auth/lib/consentIntegrity')
 
 const sampleInput = {
@@ -24,7 +49,9 @@ describe('consentIntegrity secret resolution', () => {
 
   beforeEach(() => {
     delete process.env.CONSENT_INTEGRITY_SECRET
+    delete process.env.AUTH_SECRET
     delete process.env.NEXTAUTH_SECRET
+    delete process.env.JWT_SECRET
     delete process.env.NODE_ENV
   })
 
@@ -85,9 +112,26 @@ describe('consentIntegrity secret resolution', () => {
     expect(() => computeConsentIntegrityHash(sampleInput)).not.toThrow()
   })
 
+  it('falls back to AUTH_SECRET in production without throwing', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.AUTH_SECRET = 'auth-prod-secret'
+    const { computeConsentIntegrityHash } = loadModule()
+
+    expect(() => computeConsentIntegrityHash(sampleInput)).not.toThrow()
+  })
+
+  it('falls back to JWT_SECRET in production without throwing', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.JWT_SECRET = 'jwt-prod-secret'
+    const { computeConsentIntegrityHash } = loadModule()
+
+    expect(() => computeConsentIntegrityHash(sampleInput)).not.toThrow()
+  })
+
   it('emits the missing-secret warning once outside production and still computes a hash', () => {
     process.env.NODE_ENV = 'development'
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
     const { computeConsentIntegrityHash } = loadModule()
 
     const first = computeConsentIntegrityHash(sampleInput)

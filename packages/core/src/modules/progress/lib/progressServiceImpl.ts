@@ -1,9 +1,29 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ProgressJob } from '../data/entities'
-import type { ProgressService } from './progressService'
+import type { ProgressService, ProgressServiceContext } from './progressService'
 import { calculateEta, calculateProgressPercent, STALE_JOB_TIMEOUT_SECONDS } from './progressService'
 import { PROGRESS_EVENTS } from './events'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+const DEFAULT_BROADCAST_MIN_INTERVAL_MS = 250
+
+// Minimum elapsed time between coalesced `progress.job.updated` flush+broadcasts for a
+// single job. Bulk workers call updateProgress/incrementProgress once per record, and
+// every emit of the `clientBroadcast: true` event pays a serialized pg_notify roundtrip
+// plus a tenant-wide SSE fan-out. Setting the knob to 0 restores per-record emission.
+function resolveBroadcastMinIntervalMs(): number {
+  const raw = process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS
+  if (raw == null || raw.trim() === '') return DEFAULT_BROADCAST_MIN_INTERVAL_MS
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_BROADCAST_MIN_INTERVAL_MS
+  return parsed
+}
+
+type JobUpdateThrottleEntry = {
+  job: ProgressJob
+  lastBroadcastAt: number
+  lastBroadcastPercent: number
+}
 
 function buildJobPayload(job: ProgressJob): Record<string, unknown> {
   return {
@@ -24,6 +44,60 @@ function buildJobPayload(job: ProgressJob): Record<string, unknown> {
 }
 
 export function createProgressService(em: EntityManager, eventBus: { emit: (event: string, payload: Record<string, unknown>) => Promise<void> }): ProgressService {
+  const broadcastMinIntervalMs = resolveBroadcastMinIntervalMs()
+  // Per-job coalescing state, scoped to this service instance (request/worker scope).
+  // The cached managed entity doubles as the in-memory buffer: intermediate updates mutate
+  // it without flushing, and a single flush+emit at the throttle boundary persists the
+  // accumulated change. Domain commands fork their own EntityManager, so no other operation
+  // queries this job on `em` between calls, keeping the buffered changes safe until flush.
+  const jobUpdateThrottle = new Map<string, JobUpdateThrottleEntry>()
+
+  function jobScopeFilter(jobId: string, ctx: ProgressServiceContext) {
+    return {
+      id: jobId,
+      tenantId: ctx.tenantId,
+      ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+    }
+  }
+
+  async function loadUpdatableJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob> {
+    const cached = jobUpdateThrottle.get(jobId)
+    if (cached) return cached.job
+    return em.findOneOrFail(ProgressJob, jobScopeFilter(jobId, ctx))
+  }
+
+  async function commitJobUpdate(job: ProgressJob, ctx: ProgressServiceContext): Promise<ProgressJob> {
+    const now = Date.now()
+    const cached = jobUpdateThrottle.get(job.id)
+    const shouldBroadcast =
+      broadcastMinIntervalMs <= 0 ||
+      cached == null ||
+      now - cached.lastBroadcastAt >= broadcastMinIntervalMs ||
+      Math.abs(job.progressPercent - cached.lastBroadcastPercent) >= 1
+
+    if (shouldBroadcast) {
+      await em.flush()
+      await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
+        ...buildJobPayload(job),
+        tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
+      })
+      jobUpdateThrottle.set(job.id, { job, lastBroadcastAt: now, lastBroadcastPercent: job.progressPercent })
+    } else {
+      jobUpdateThrottle.set(job.id, {
+        job,
+        lastBroadcastAt: cached.lastBroadcastAt,
+        lastBroadcastPercent: cached.lastBroadcastPercent,
+      })
+    }
+
+    return job
+  }
+
+  function forgetJobThrottle(jobId: string) {
+    jobUpdateThrottle.delete(jobId)
+  }
+
   return {
     async createJob(input, ctx) {
       const job = em.create(ProgressJob, {
@@ -54,7 +128,11 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     },
 
     async startJob(jobId, ctx) {
-      const job = await em.findOneOrFail(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      const job = await em.findOneOrFail(ProgressJob, {
+        id: jobId,
+        tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      })
       if (job.status === 'cancelled') {
         return job
       }
@@ -75,8 +153,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     },
 
     async updateProgress(jobId, input, ctx) {
-      const job = await em.findOneOrFail(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      const job = await loadUpdatableJob(jobId, ctx)
       if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+        forgetJobThrottle(jobId)
         return job
       }
 
@@ -104,20 +183,13 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
       job.heartbeatAt = new Date()
 
-      await em.flush()
-
-      await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
-        ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      })
-
-      return job
+      return commitJobUpdate(job, ctx)
     },
 
     async incrementProgress(jobId, delta, ctx) {
-      const job = await em.findOneOrFail(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      const job = await loadUpdatableJob(jobId, ctx)
       if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+        forgetJobThrottle(jobId)
         return job
       }
 
@@ -131,19 +203,15 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         }
       }
 
-      await em.flush()
-
-      await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
-        ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      })
-
-      return job
+      return commitJobUpdate(job, ctx)
     },
 
     async completeJob(jobId, input, ctx) {
-      const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      const job = await em.findOne(ProgressJob, {
+        id: jobId,
+        tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      })
       if (!job) throw new Error(`Job ${jobId} not found`)
       if (job.status === 'cancelled') {
         return job
@@ -166,11 +234,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         organizationId: job.organizationId ?? null,
       })
 
+      forgetJobThrottle(jobId)
       return job
     },
 
     async failJob(jobId, input, ctx) {
-      const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      const job = await em.findOne(ProgressJob, {
+        id: jobId,
+        tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      })
       if (!job) throw new Error(`Job ${jobId} not found`)
       if (job.status === 'cancelled') {
         return job
@@ -190,6 +263,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         organizationId: job.organizationId ?? null,
       })
 
+      forgetJobThrottle(jobId)
       return job
     },
 
@@ -197,6 +271,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const job = await em.findOneOrFail(ProgressJob, {
         id: jobId,
         tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
         cancellable: true,
         status: { $in: ['pending', 'running'] },
       })
@@ -217,11 +292,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         organizationId: job.organizationId ?? null,
       })
 
+      forgetJobThrottle(jobId)
       return job
     },
 
     async markCancelled(jobId, ctx) {
-      const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      const job = await em.findOne(ProgressJob, {
+        id: jobId,
+        tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      })
       if (!job) throw new Error(`Job ${jobId} not found`)
       if (job.status === 'cancelled') {
         return job
@@ -241,11 +321,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         organizationId: job.organizationId ?? null,
       })
 
+      forgetJobThrottle(jobId)
       return job
     },
 
-    async isCancellationRequested(jobId, tenantId) {
-      const job = await findOneWithDecryption(em, ProgressJob, { id: jobId, tenantId })
+    async isCancellationRequested(jobId, tenantId, organizationId) {
+      const job = await findOneWithDecryption(em, ProgressJob, {
+        id: jobId,
+        tenantId,
+        ...(organizationId ? { organizationId } : {}),
+      })
       return job?.cancelRequestedAt != null
     },
 
@@ -279,14 +364,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return em.findOne(ProgressJob, {
         id: jobId,
         tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
       })
     },
 
-    async markStaleJobsFailed(tenantId: string, timeoutSeconds = STALE_JOB_TIMEOUT_SECONDS) {
+    async markStaleJobsFailed(tenantId: string, timeoutSeconds = STALE_JOB_TIMEOUT_SECONDS, organizationId?: string | null) {
       const cutoff = new Date(Date.now() - timeoutSeconds * 1000)
 
       const staleJobs = await em.find(ProgressJob, {
         tenantId,
+        ...(organizationId ? { organizationId } : {}),
         status: 'running',
         $or: [
           { heartbeatAt: { $lt: cutoff } },

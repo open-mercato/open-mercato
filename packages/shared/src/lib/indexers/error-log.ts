@@ -1,5 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'indexers' })
 
 export type IndexerErrorSource = 'query_index' | 'vector' | 'fulltext'
 
@@ -73,7 +76,7 @@ function pickDb(deps: RecordIndexerErrorDeps): Kysely<any> | null {
 export async function recordIndexerError(deps: RecordIndexerErrorDeps, input: RecordIndexerErrorInput): Promise<void> {
   const db = pickDb(deps)
   if (!db) {
-    console.error('[indexers] Unable to record indexer error (missing db connection)', {
+    logger.error('Unable to record indexer error (missing db connection)', {
       source: input.source,
       handler: input.handler,
     })
@@ -83,6 +86,20 @@ export async function recordIndexerError(deps: RecordIndexerErrorDeps, input: Re
   const { message, stack } = normalizeError(input.error)
   const payload = safeJson(input.payload)
   const now = new Date()
+
+  // Persisting to indexer_error_logs is not enough on its own: nobody watches that
+  // table, and a failing database is exactly when the insert below is least likely
+  // to land. Emit through the log facade too so the failure survives the process.
+  // `input.payload` is deliberately omitted — it can carry record documents.
+  logger.error('Indexer error recorded', {
+    source: input.source,
+    handler: input.handler,
+    entityType: input.entityType ?? null,
+    recordId: input.recordId ?? null,
+    tenantId: input.tenantId ?? null,
+    organizationId: input.organizationId ?? null,
+    err: input.error,
+  })
 
   try {
     await db
@@ -101,6 +118,6 @@ export async function recordIndexerError(deps: RecordIndexerErrorDeps, input: Re
       } as any)
       .execute()
   } catch (loggingError) {
-    console.error('[indexers] Failed to persist indexer error', loggingError)
+    logger.error('Failed to persist indexer error', { err: loggingError })
   }
 }

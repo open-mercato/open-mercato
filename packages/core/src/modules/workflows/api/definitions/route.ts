@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -20,6 +21,9 @@ import {
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -93,8 +97,8 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       where.$or = [
-        { workflowId: { $ilike: `%${search}%` } },
-        { workflowName: { $ilike: `%${search}%` } },
+        { workflowId: { $ilike: `%${escapeLikePattern(search)}%` } },
+        { workflowName: { $ilike: `%${escapeLikePattern(search)}%` } },
       ]
     }
 
@@ -161,7 +165,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Error listing workflow definitions:', error)
+    logger.error('Error listing workflow definitions', { err: error })
     return NextResponse.json(
       { error: 'Failed to list workflow definitions' },
       { status: 500 }
@@ -274,7 +278,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.error('Error creating workflow definition:', error)
+    logger.error('Error creating workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to create workflow definition' },
       { status: 500 }

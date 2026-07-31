@@ -13,6 +13,10 @@ import {
   resolveNotificationDeliveryConfig,
   saveNotificationDeliveryConfig,
 } from '../../lib/deliveryConfig'
+import {
+  NOTIFICATION_SETTINGS_RESOURCE_KIND,
+  runGuardedNotificationWrite,
+} from '../../lib/routeHelpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['notifications.manage'] },
@@ -67,11 +71,28 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   try {
-    await saveNotificationDeliveryConfig(container, parsed.data)
-    const settings = await resolveNotificationDeliveryConfig(container, {
-      defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
-    })
-    return NextResponse.json({ ok: true, settings })
+    const guarded = await runGuardedNotificationWrite(
+      container,
+      {
+        tenantId: auth.tenantId ?? '',
+        organizationId: auth.orgId ?? null,
+        userId: auth.sub ?? null,
+      },
+      req,
+      {
+        resourceKind: NOTIFICATION_SETTINGS_RESOURCE_KIND,
+        operation: 'update',
+        payload: parsed.data as Record<string, unknown>,
+      },
+      async () => {
+        await saveNotificationDeliveryConfig(container, parsed.data)
+        return resolveNotificationDeliveryConfig(container, {
+          defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+        })
+      },
+    )
+    if (!guarded.ok) return guarded.response
+    return NextResponse.json({ ok: true, settings: guarded.result })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : t('api.errors.internal', 'Internal error') },

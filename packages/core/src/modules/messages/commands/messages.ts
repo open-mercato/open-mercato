@@ -933,7 +933,6 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
           trx,
           forwardThreadSlice.map((item) => item.id),
           newMessage.id,
-          input.organizationId,
           input.tenantId,
         )
       }

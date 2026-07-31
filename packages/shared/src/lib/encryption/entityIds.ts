@@ -1,4 +1,7 @@
 import type { EntityMetadata } from '@mikro-orm/core'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
 
 // Registration pattern for publishable packages
 export type EntityIds = Record<string, Record<string, string>>
@@ -8,7 +11,7 @@ let _entityIdLookup: Map<string, string> | null = null
 
 export function registerEntityIds(E: EntityIds) {
   if (_entityIds !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Entity IDs re-registered (this may occur during HMR)')
+    logger.debug('Entity IDs re-registered (this may occur during HMR)')
   }
   _entityIds = E
   _entityIdLookup = null // Reset cache on re-registration

@@ -4,11 +4,17 @@ import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { hasFeature } from '@open-mercato/shared/security/features'
+
+const MANAGE_FEATURE = 'configs.cache.manage'
 
 const API_PATH = '/api/configs/cache'
+const CACHE_MUTATION_CONTEXT_ID = 'configs-cache-panel'
 
 type CrudCacheSegment = {
   segment: string
@@ -39,6 +45,23 @@ export function CachePanel() {
   const [purgingAll, setPurgingAll] = React.useState(false)
   const [segmentPurges, setSegmentPurges] = React.useState<Record<string, boolean>>({})
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: CACHE_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const cacheMutationContext = React.useMemo(
+    () => ({
+      formId: CACHE_MUTATION_CONTEXT_ID,
+      resourceKind: 'configs.cache',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+
   const loadStats = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }))
     try {
@@ -68,7 +91,7 @@ export function CachePanel() {
           {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ features: ['configs.cache.manage'] }),
+            body: JSON.stringify({ features: [MANAGE_FEATURE] }),
           },
           {
             errorMessage: t('configs.cache.loadError', 'Failed to load cache statistics.'),
@@ -79,8 +102,8 @@ export function CachePanel() {
         const granted = Array.isArray(payload?.granted)
           ? (payload.granted as unknown[]).filter((feature) => typeof feature === 'string') as string[]
           : []
-        const hasFeature = payload?.ok === true || granted.includes('configs.cache.manage')
-        setCanManage(hasFeature)
+        const canManageFeature = payload?.ok === true || hasFeature(granted, MANAGE_FEATURE)
+        setCanManage(canManageFeature)
       } catch {
         if (!cancelled) setCanManage(false)
       } finally {
@@ -106,18 +129,23 @@ export function CachePanel() {
     if (!confirmed) return
     setPurgingAll(true)
     try {
-      const payload = await readApiResultOrThrow<{ stats?: CrudCacheStats }>(
-        API_PATH,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ action: 'purgeAll' }),
-        },
-        {
-          errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
-          allowNullResult: true,
-        },
-      )
+      const payload = await runMutation({
+        operation: () =>
+          readApiResultOrThrow<{ stats?: CrudCacheStats }>(
+            API_PATH,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ action: 'purgeAll' }),
+            },
+            {
+              errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
+              allowNullResult: true,
+            },
+          ),
+        context: cacheMutationContext,
+        mutationPayload: { action: 'purgeAll' },
+      })
       const stats = payload?.stats
       if (stats) {
         setState({ loading: false, error: null, stats })
@@ -135,7 +163,7 @@ export function CachePanel() {
     } finally {
       setPurgingAll(false)
     }
-  }, [canManage, confirm, purgingAll, t, handleRefresh]);
+  }, [canManage, confirm, purgingAll, t, handleRefresh, runMutation, cacheMutationContext]);
 
 
   const handlePurgeSegment = React.useCallback(async (segment: string) => {
@@ -147,18 +175,23 @@ export function CachePanel() {
     if (!confirmed) return
     setSegmentPurges((prev) => ({ ...prev, [segment]: true }))
     try {
-      const payload = await readApiResultOrThrow<{ stats?: CrudCacheStats; deleted?: number }>(
-        API_PATH,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ action: 'purgeSegment', segment }),
-        },
-        {
-          errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
-          allowNullResult: true,
-        },
-      )
+      const payload = await runMutation({
+        operation: () =>
+          readApiResultOrThrow<{ stats?: CrudCacheStats; deleted?: number }>(
+            API_PATH,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ action: 'purgeSegment', segment }),
+            },
+            {
+              errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
+              allowNullResult: true,
+            },
+          ),
+        context: cacheMutationContext,
+        mutationPayload: { action: 'purgeSegment', segment },
+      })
       const stats = payload?.stats
       if (stats) {
         setState({ loading: false, error: null, stats })
@@ -186,7 +219,7 @@ export function CachePanel() {
         return next
       })
     }
-  }, [canManage, confirm, segmentPurges, t, handleRefresh]);
+  }, [canManage, confirm, segmentPurges, t, handleRefresh, runMutation, cacheMutationContext]);
 
   if (state.loading) {
     return (
@@ -216,11 +249,9 @@ export function CachePanel() {
             {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
           </p>
         </header>
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {state.error}
-        </div>
+        <ErrorMessage label={state.error} />
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={handleRefresh}>
+          <Button variant="outline" type="button" onClick={handleRefresh}>
             {t('configs.cache.retry', 'Retry')}
           </Button>
         </div>
@@ -259,11 +290,11 @@ export function CachePanel() {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleRefresh}>
+          <Button variant="outline" type="button" onClick={handleRefresh}>
             {t('configs.cache.refresh', 'Refresh')}
           </Button>
           {canShowActions ? (
-            <Button variant="destructive" disabled={purgingAll} onClick={() => { void handlePurgeAll() }}>
+            <Button variant="destructive" type="button" disabled={purgingAll} onClick={() => { void handlePurgeAll() }}>
               {purgingAll
                 ? t('configs.cache.purgeAllLoading', 'Purging…')
                 : t('configs.cache.purgeAll', 'Purge all cache')}
@@ -327,6 +358,7 @@ export function CachePanel() {
                           <Button
                             variant="outline"
                             size="sm"
+                            type="button"
                             disabled={isPurging}
                             onClick={() => { void handlePurgeSegment(segment.segment) }}
                           >

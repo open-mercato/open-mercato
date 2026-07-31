@@ -43,11 +43,21 @@ import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optim
  * API-level assertion (PLN-03 API) also proves the server refuses a stale DELETE
  * with the 409 optimistic-lock conflict body the false toast was masking.
  *
+ * PLN-04 (API, regression for issue #3279): the date-specific bulk replace
+ * endpoint `POST /api/planner/availability-date-specific` soft-deletes the
+ * one-off rules for a subject/date and recreates them via the command bus,
+ * bypassing the CRUD guard. Without a command-level optimistic-lock check two
+ * users editing the same subject/date silently last-write-wins. A header-
+ * carrying replace with a stale token must now be refused with the 409
+ * optimistic-lock conflict body, and a correctly-versioned replace must still
+ * succeed (no false positive).
+ *
  * See `packages/core/src/modules/sales/__integration__/__concurrent_edit_pattern.md`.
  */
 
 const RULE_SET_API = '/api/planner/availability-rule-sets'
 const AVAILABILITY_API = '/api/planner/availability'
+const DATE_SPECIFIC_API = '/api/planner/availability-date-specific'
 
 test.describe('TC-LOCK-OSS-038: planner availability lock (rule set + per-rule)', () => {
   test('PLN-01: stale availability rule set edit shows the conflict bar', async ({ page }) => {
@@ -224,6 +234,87 @@ test.describe('TC-LOCK-OSS-038: planner availability lock (rule set + per-rule)'
       await expectConflictBody(staleResponse)
     } finally {
       await deleteAvailabilityRuleIfExists(page.request, token, ruleId)
+      await deleteAvailabilityRuleSetIfExists(page.request, token, ruleSetId)
+    }
+  })
+
+  test('PLN-04: stale date-specific replace is refused with a 409 conflict body', async ({ page }) => {
+    const token = await getAuthToken(page.request, 'admin')
+    const stamp = Date.now()
+    const date = '2026-06-15'
+    let ruleSetId: string | null = null
+
+    const listOnceRuleIds = async (): Promise<string[]> => {
+      const response = await apiRequest(
+        page.request,
+        'GET',
+        `${AVAILABILITY_API}?subjectType=ruleset&subjectIds=${encodeURIComponent(ruleSetId as string)}`,
+        { token },
+      )
+      if (response.status() !== 200) return []
+      const body = await readJsonSafe<{ items?: Array<{ id?: string }> }>(response)
+      return (body?.items ?? []).map((item) => item.id).filter((id): id is string => typeof id === 'string')
+    }
+
+    const replaceDateSpecific = (lockValue?: string) =>
+      page.request.fetch(DATE_SPECIFIC_API, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...(lockValue !== undefined ? { [OPTIMISTIC_LOCK_HEADER_NAME]: lockValue } : {}),
+        },
+        data: {
+          subjectType: 'ruleset',
+          subjectId: ruleSetId,
+          timezone: 'UTC',
+          dates: [date],
+          windows: [{ start: '09:00', end: '17:00' }],
+          kind: 'availability',
+        },
+      })
+
+    try {
+      ruleSetId = await createAvailabilityRuleSetFixture(page.request, token, {
+        name: `QA Lock 038 PLN04 ${stamp}`,
+        timezone: 'UTC',
+      })
+
+      // Seed the subject/date aggregate via the real endpoint (header-less, additive).
+      const seed = await replaceDateSpecific()
+      expect(seed.status(), 'seeding the date-specific aggregate should succeed').toBe(200)
+
+      // Read the current aggregate version (the one-off rule's updated_at).
+      const listResponse = await apiRequest(
+        page.request,
+        'GET',
+        `${AVAILABILITY_API}?subjectType=ruleset&subjectIds=${encodeURIComponent(ruleSetId)}`,
+        { token },
+      )
+      expect(listResponse.status(), 'GET /api/planner/availability should return 200').toBe(200)
+      const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
+      const seeded = listBody?.items?.[0]
+      expect(seeded, 'the seeded one-off availability rule should be listed for its subject').toBeTruthy()
+      const currentUpdatedAt = (seeded?.updated_at ?? seeded?.updatedAt) as string | undefined
+      expect(typeof currentUpdatedAt, 'availability rule should expose updated_at').toBe('string')
+
+      // A replace carrying a deliberately stale token must 409 and NOT mutate.
+      const staleIso = new Date(Date.parse(currentUpdatedAt as string) - 60_000).toISOString()
+      const staleResponse = await replaceDateSpecific(staleIso)
+      await expectConflictBody(staleResponse)
+
+      // The correctly-versioned token must still succeed (no false positive).
+      const freshResponse = await replaceDateSpecific(new Date(Date.parse(currentUpdatedAt as string)).toISOString())
+      expect(
+        freshResponse.status(),
+        `a current-version date-specific replace should succeed, got ${freshResponse.status()}`,
+      ).toBe(200)
+    } finally {
+      if (ruleSetId) {
+        for (const id of await listOnceRuleIds()) {
+          await deleteAvailabilityRuleIfExists(page.request, token, id)
+        }
+      }
       await deleteAvailabilityRuleSetIfExists(page.request, token, ruleSetId)
     }
   })

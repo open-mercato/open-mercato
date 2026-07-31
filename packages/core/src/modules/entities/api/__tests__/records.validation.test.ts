@@ -74,4 +74,66 @@ describe('Records API validation (custom fields)', () => {
     expect(res.status).toBe(200)
     expect(mockDataEngine.updateCustomEntityRecord).toHaveBeenCalled()
   })
+
+  it('PUT strips reserved record columns (id/updated_at/updatedAt) instead of rejecting them as custom fields', async () => {
+    // The generic edit form echoes the loaded record's id + updated_at/updatedAt (the latter
+    // for optimistic locking) back inside `values`. They are system columns, not custom fields,
+    // so the API must ignore them — otherwise they validate as cf_id/cf_updated_at/... and the
+    // whole save 400s (every custom-entity edit-form save).
+    mockEm.find.mockImplementation(async (entityClass: unknown) => {
+      if (entityClass === CustomFieldDef) {
+        return [
+          { key: 'name', kind: 'text', configJson: {}, organizationId: null, tenantId: null },
+        ]
+      }
+      if (entityClass === CustomEntity) return []
+      return []
+    })
+    const req = new Request('http://x/api/entities/records', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        entityId: 'example:todo',
+        recordId: '123e4567-e89b-12d3-a456-426614174000',
+        values: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'Edited',
+          updated_at: '2026-06-14 23:07:31.007459+00',
+          updatedAt: '2026-06-14 23:07:31.007459+00',
+        },
+      }),
+    })
+    const res = await PUT(req)
+    expect(res.status).toBe(200)
+    expect(mockDataEngine.updateCustomEntityRecord).toHaveBeenCalled()
+    const writtenValues = (mockDataEngine.updateCustomEntityRecord.mock.calls[0]?.[0] as any)?.values ?? {}
+    expect(writtenValues).not.toHaveProperty('id')
+    expect(writtenValues).not.toHaveProperty('updated_at')
+    expect(writtenValues).not.toHaveProperty('updatedAt')
+  })
+
+  it('PUT still rejects genuinely undeclared custom fields (reserved-key strip is targeted)', async () => {
+    mockEm.find.mockImplementation(async (entityClass: unknown) => {
+      if (entityClass === CustomFieldDef) {
+        return [
+          { key: 'name', kind: 'text', configJson: {}, organizationId: null, tenantId: null },
+        ]
+      }
+      if (entityClass === CustomEntity) return []
+      return []
+    })
+    const req = new Request('http://x/api/entities/records', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        entityId: 'example:todo',
+        recordId: '123e4567-e89b-12d3-a456-426614174000',
+        values: { name: 'ok', totally_unknown_field: 'x' },
+      }),
+    })
+    const res = await PUT(req)
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json?.error).toBe('Validation failed')
+  })
 })

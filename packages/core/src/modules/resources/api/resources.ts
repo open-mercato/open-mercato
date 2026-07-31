@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ResourcesResource, ResourcesResourceTagAssignment, ResourcesResourceTag } from '../data/entities'
 import { resourcesResourceCreateSchema, resourcesResourceUpdateSchema } from '../data/validators'
@@ -107,8 +107,7 @@ const crud = makeCrudRoute({
       }
       const term = sanitizeSearchTerm(query.search)
       if (term) {
-        const like = `%${escapeLikePattern(term)}%`
-        filters[F.name] = { $ilike: like }
+        filters[F.name] = { $ilike: buildIlikeTerm(term) }
       }
       if (query.resourceTypeId) {
         filters[F.resource_type_id] = query.resourceTypeId

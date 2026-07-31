@@ -5,12 +5,22 @@ import { pathToFileURL } from 'node:url'
 import * as registry from '@open-mercato/shared/modules/registry'
 import {
   rewriteGeneratedAliasImports,
+  escapeUnsafeJsStringChars,
   findGeneratedFile,
+  compileAndImportGenerated,
   ensureApiRouteManifestsRegistered,
 } from '../generated-registry-loader'
 
 function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'om-gen-loader-'))
+}
+
+// Mirror the production sanitizer so expectations match how the rewriter
+// embeds a resolved path into the generated source. For ordinary file URLs the
+// escape is a no-op, but routing the expected literal through the same helper
+// keeps the test honest if the rewriter's escaping ever changes.
+function safeJsLiteral(value: string): string {
+  return escapeUnsafeJsStringChars(JSON.stringify(value))
 }
 
 describe('rewriteGeneratedAliasImports', () => {
@@ -28,20 +38,20 @@ describe('rewriteGeneratedAliasImports', () => {
     const expectedUrl = pathToFileURL(
       path.join(appRoot, '.mercato/generated/entities'),
     ).href
-    expect(out).toBe(`import { x } from ${JSON.stringify(expectedUrl)}`)
+    expect(out).toBe(`import { x } from ${safeJsLiteral(expectedUrl)}`)
     expect(out).not.toContain('@/')
   })
 
   it('rewrites a dynamic `import("@/...")` call to an absolute file URL', () => {
     const appRoot = makeTempDir()
-    const out = rewriteGeneratedAliasImports(
-      `const tools = () => import("@/.mercato/generated/ai-tools.generated")`,
-      appRoot,
-    )
+    const aliasSpecifier = '"@/.mercato/generated/ai-tools.generated"'
+    const source = `const tools = () => import(${aliasSpecifier})`
+    const out = rewriteGeneratedAliasImports(source, appRoot)
     const expectedUrl = pathToFileURL(
       path.join(appRoot, '.mercato/generated/ai-tools.generated'),
     ).href
-    expect(out).toBe(`const tools = () => import(${JSON.stringify(expectedUrl)})`)
+    const expected = source.replace(aliasSpecifier, safeJsLiteral(expectedUrl))
+    expect(out).toBe(expected)
     expect(out).not.toContain('@/')
   })
 
@@ -53,7 +63,7 @@ describe('rewriteGeneratedAliasImports', () => {
     const out = rewriteGeneratedAliasImports(`import x from '@/src/thing'`, appRoot)
 
     const expectedUrl = pathToFileURL(path.join(appRoot, 'src', 'thing.ts')).href
-    expect(out).toBe(`import x from ${JSON.stringify(expectedUrl)}`)
+    expect(out).toBe(`import x from ${safeJsLiteral(expectedUrl)}`)
   })
 
   it('leaves non-alias imports untouched', () => {
@@ -63,6 +73,71 @@ describe('rewriteGeneratedAliasImports', () => {
       `import y from '@open-mercato/shared/x'`,
     ].join('\n')
     expect(rewriteGeneratedAliasImports(source, makeTempDir())).toBe(source)
+  })
+
+  // Regression for issue #3524: the MCP dev server crashed with
+  //   "ERR_MODULE_NOT_FOUND: Cannot find module '.../src/modules/<id>/ai-tools'"
+  // because the generator emits `../../src/modules/<id>/ai-tools` relative
+  // imports for @app local modules, which the rewriter previously left intact.
+  // esbuild.transform keeps them verbatim, so Node ESM can't resolve the
+  // extensionless `.ts`-only specifier from the compiled `.mjs`.
+
+  it('rewrites a `../../src/...` @app relative import to an absolute file URL', () => {
+    const appRoot = makeTempDir()
+    const out = rewriteGeneratedAliasImports(
+      `import * as AI_TOOLS from "../../src/modules/media_campaigns/ai-tools"`,
+      appRoot,
+    )
+    const expectedUrl = pathToFileURL(
+      path.join(appRoot, 'src', 'modules', 'media_campaigns', 'ai-tools'),
+    ).href
+    expect(out).toBe(`import * as AI_TOOLS from ${safeJsLiteral(expectedUrl)}`)
+    expect(out).not.toContain('../../src/')
+  })
+
+  it('rewrites a dynamic `import("../../src/...")` @app call to an absolute file URL', () => {
+    const appRoot = makeTempDir()
+    const specifier = '"../../src/modules/media_campaigns/ai-tools"'
+    const source = `const load = () => import(${specifier})`
+    const out = rewriteGeneratedAliasImports(source, appRoot)
+    const expectedUrl = pathToFileURL(
+      path.join(appRoot, 'src', 'modules', 'media_campaigns', 'ai-tools'),
+    ).href
+    expect(out).toBe(source.replace(specifier, safeJsLiteral(expectedUrl)))
+    expect(out).not.toContain('../../src/')
+  })
+
+  it('appends `.ts` for a `../../src/...` @app import that exists only as TypeScript', () => {
+    const appRoot = makeTempDir()
+    const moduleDir = path.join(appRoot, 'src', 'modules', 'media_campaigns')
+    fs.mkdirSync(moduleDir, { recursive: true })
+    fs.writeFileSync(path.join(moduleDir, 'ai-tools.ts'), 'export const aiTools = []\n')
+
+    const out = rewriteGeneratedAliasImports(
+      `import * as AI_TOOLS from "../../src/modules/media_campaigns/ai-tools"`,
+      appRoot,
+    )
+
+    const expectedUrl = pathToFileURL(path.join(moduleDir, 'ai-tools.ts')).href
+    expect(out).toBe(`import * as AI_TOOLS from ${safeJsLiteral(expectedUrl)}`)
+  })
+})
+
+describe('escapeUnsafeJsStringChars', () => {
+  it('escapes characters JSON.stringify leaves intact in a JS string literal', () => {
+    const lineSep = String.fromCharCode(0x2028)
+    const paraSep = String.fromCharCode(0x2029)
+    const out = escapeUnsafeJsStringChars(`a<b>c${lineSep}d${paraSep}e`)
+    expect(out).toBe('a\\u003Cb\\u003Ec\\u2028d\\u2029e')
+    expect(out).not.toContain('<')
+    expect(out).not.toContain('>')
+    expect(out).not.toContain(lineSep)
+    expect(out).not.toContain(paraSep)
+  })
+
+  it('leaves ordinary file URLs unchanged', () => {
+    const url = pathToFileURL(path.join('/tmp', 'app', '.mercato', 'x.generated')).href
+    expect(escapeUnsafeJsStringChars(JSON.stringify(url))).toBe(JSON.stringify(url))
   })
 })
 
@@ -112,6 +187,35 @@ describe('findGeneratedFile', () => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(root)
 
     expect(findGeneratedFile(fileName)).toBe(path.join(appsDir, fileName))
+  })
+})
+
+describe('compileAndImportGenerated', () => {
+  it('uses a Jest-safe CJS artifact instead of an existing ESM .mjs artifact', async () => {
+    const appRoot = makeTempDir()
+    const generatedDir = path.join(appRoot, '.mercato', 'generated')
+    const moduleDir = path.join(appRoot, 'src', 'modules', 'example')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    fs.mkdirSync(moduleDir, { recursive: true })
+    fs.writeFileSync(path.join(moduleDir, 'ai-agents.ts'), 'export const aiAgents = [{ id: "example.agent" }]\n')
+
+    const generatedPath = path.join(generatedDir, 'ai-agents.generated.ts')
+    fs.writeFileSync(
+      generatedPath,
+      [
+        'import * as ExampleAgents from "../../src/modules/example/ai-agents"',
+        'export const allAiAgents = ExampleAgents.aiAgents',
+      ].join('\n'),
+    )
+    fs.writeFileSync(
+      path.join(generatedDir, 'ai-agents.generated.mjs'),
+      'import broken from "this-existing-esm-artifact-should-not-be-used";\nexport const allAiAgents = [broken]\n',
+    )
+
+    const mod = await compileAndImportGenerated(generatedPath)
+
+    expect(mod.allAiAgents).toEqual([{ id: 'example.agent' }])
+    expect(fs.existsSync(path.join(generatedDir, 'ai-agents.generated.jest.cjs'))).toBe(true)
   })
 })
 

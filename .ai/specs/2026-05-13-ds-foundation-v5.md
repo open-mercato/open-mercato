@@ -1,6 +1,6 @@
 # DS Foundation v5 — Implementation Spec
 
-> **Phase 5 monolithic delivery** of the DS Foundation programme. Companion to the umbrella spec [`2026-04-25-ds-foundation.md`](./2026-04-25-ds-foundation.md). Builds directly on Phase 3 ([PR #1910](https://github.com/open-mercato/open-mercato/pull/1910), carry-forward of #1907) and Phase 4 ([PR #1921](https://github.com/open-mercato/open-mercato/pull/1921), carry-forward of #1918) — both merged into `develop`.
+> **Phase 5 monolithic delivery** of the DS Foundation programme. Companion to the umbrella spec [`2026-04-25-ds-foundation.md`](./implemented/2026-04-25-ds-foundation.md). Builds directly on Phase 3 ([PR #1910](https://github.com/open-mercato/open-mercato/pull/1910), carry-forward of #1907) and Phase 4 ([PR #1921](https://github.com/open-mercato/open-mercato/pull/1921), carry-forward of #1918) — both merged into `develop`.
 
 ## TLDR
 
@@ -21,7 +21,7 @@
   - `packages/ui/AGENTS.md` — quick-reference rows.
   - `docs/design-system/components.md` — status updates.
   - `docs/design-system/component-apis.md` — TS interfaces.
-  - `.ai/specs/2026-04-25-ds-foundation.md` — Phase 5 changelog row.
+  - `.ai/specs/implemented/2026-04-25-ds-foundation.md` — Phase 5 changelog row.
 - Targeted consumer migrations only where the new primitive replaces an ad-hoc pattern that grep-trivially audits (e.g. `Pagination` replaces the inline `DataTable` pager). No bulk consumer rewrites in this PR — those follow up in subsequent PRs.
 
 **Concerns:**
@@ -926,7 +926,7 @@ To be filled in after all phases land and before opening the PR. Sections:
   - [ ] `packages/ui/AGENTS.md` — quick-reference rows.
   - [ ] `docs/design-system/components.md` — status updates / new sections.
   - [ ] `docs/design-system/component-apis.md` — TS interfaces.
-  - [ ] `.ai/specs/2026-04-25-ds-foundation.md` — Phase 5 changelog row.
+  - [ ] `.ai/specs/implemented/2026-04-25-ds-foundation.md` — Phase 5 changelog row.
 - [ ] **Phase D — Test selector catch-up** (only if any rewrite changed an ARIA role).
 - [ ] Figma node IDs resolved for every primitive (no remaining `TBD` in spec).
 - [ ] `yarn workspace @open-mercato/ui test` — all suites green.

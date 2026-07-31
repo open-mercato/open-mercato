@@ -17,6 +17,9 @@ import {
   dealsBulkUpdateOwnerSchema as requestSchema,
   dealsBulkUpdateResponseSchema as responseSchema,
 } from '../../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
@@ -76,7 +79,7 @@ async function postImpl(req: Request, translate: TranslateWithFallbackFn): Promi
       mutationPayload: { ids, ownerUserId: parsed.data.ownerUserId },
     })
   } catch (guardError) {
-    console.warn('[customers.deals.bulk-update-owner] mutation-guard skipped', guardError)
+    logger.warn('mutation-guard skipped', { component: 'deals.bulk-update-owner', err: guardError })
     guardResult = null
   }
   if (guardResult && !guardResult.ok) {
@@ -87,7 +90,7 @@ async function postImpl(req: Request, translate: TranslateWithFallbackFn): Promi
   try {
     progressService = container.resolve('progressService') as ProgressService
   } catch (resolveError) {
-    console.error('[customers.deals.bulk-update-owner] progressService resolve failed', resolveError)
+    logger.error('progressService resolve failed', { component: 'deals.bulk-update-owner', err: resolveError })
     throw new Error(
       `progressService resolve failed: ${resolveError instanceof Error ? resolveError.message : String(resolveError)}`,
     )
@@ -121,7 +124,7 @@ async function postImpl(req: Request, translate: TranslateWithFallbackFn): Promi
       },
     )
   } catch (createError) {
-    console.error('[customers.deals.bulk-update-owner] progressService.createJob failed', createError)
+    logger.error('progressService.createJob failed', { component: 'deals.bulk-update-owner', err: createError })
     throw new Error(
       `progressService.createJob failed: ${createError instanceof Error ? createError.message : String(createError)}`,
     )
@@ -159,7 +162,7 @@ async function postImpl(req: Request, translate: TranslateWithFallbackFn): Promi
         },
       )
       .catch((failErr) => {
-        console.warn('[customers.deals.bulk-update-owner] failed to mark progress job as failed', failErr)
+        logger.warn('failed to mark progress job as failed', { component: 'deals.bulk-update-owner', err: failErr })
       })
     throw error
   }
@@ -200,7 +203,7 @@ export async function POST(req: Request) {
   try {
     return await postImpl(req, translate)
   } catch (error) {
-    console.error('[customers.deals.bulk-update-owner] route failed', error)
+    logger.error('route failed', { component: 'deals.bulk-update-owner', err: error })
     return NextResponse.json(
       responseSchema.parse({
         ok: false,

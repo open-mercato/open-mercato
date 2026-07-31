@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { WebhookDeliveryJob } from './delivery'
+
+const logger = createLogger('webhooks')
 
 const queues = new Map<string, Queue<WebhookDeliveryJob>>()
 const LOCAL_WORKER_PROMISE_KEY = '__openMercatoWebhookLocalWorkerPromise__'
@@ -45,7 +48,7 @@ async function ensureLocalWebhookQueueWorkerStarted(): Promise<void> {
     })
   })().catch((error) => {
     delete globalStore[LOCAL_WORKER_PROMISE_KEY]
-    console.error('[webhooks] Failed to start local delivery worker:', error)
+    logger.error('Failed to start local delivery worker', { err: error })
     throw error
   })
 

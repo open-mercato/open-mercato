@@ -510,6 +510,19 @@ describe('API Route Authorization', () => {
       expect(setCookie).toContain('auth_token=;')
       expect(setCookie).toContain('session_token=;')
     })
+
+    it('should return a retryable 503 and preserve cookies on a transient auth-resolution failure (issue #4176 — no mass logout)', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'error' })
+
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(503)
+      expect(response.headers.get('retry-after')).toBe('2')
+      const setCookie = response.headers.get('set-cookie') || ''
+      expect(setCookie).not.toContain('auth_token=;')
+      expect(setCookie).not.toContain('session_token=;')
+    })
   })
 
   describe('Deprecated requireRoles is advisory only (security: role names are spoofable)', () => {

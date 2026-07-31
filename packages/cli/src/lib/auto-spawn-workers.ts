@@ -1,6 +1,7 @@
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export type AutoSpawnWorkersMode = 'off' | 'eager' | 'lazy'
+export type LazyWorkerSpawnMode = 'per-queue' | 'shared'
 
 export type AutoSpawnEnvSource = Pick<NodeJS.ProcessEnv, string> | Record<string, string | undefined>
 
@@ -31,6 +32,13 @@ export function resolveLazyPollMs(env: AutoSpawnEnvSource = process.env): number
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LAZY_POLL_MS
   return Math.max(MIN_LAZY_POLL_MS, Math.floor(parsed))
+}
+
+export function resolveLazySpawnMode(env: AutoSpawnEnvSource = process.env): LazyWorkerSpawnMode {
+  const raw = env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE?.trim().toLowerCase()
+  if (raw === 'shared') return 'shared'
+  if (raw === 'per-queue') return 'per-queue'
+  return 'per-queue'
 }
 
 export function resolveLazyRestart(env: AutoSpawnEnvSource = process.env): boolean {

@@ -58,7 +58,7 @@ describe('McpClient stdio transport', () => {
       command: 'node',
       args: ['server.js'],
       cwd: '/tmp/open-mercato',
-      env: process.env,
+      env: { ...process.env, OPEN_MERCATO_API_KEY: 'test-secret' },
       stderr: 'pipe',
     })
     expect(mockClientConnect).toHaveBeenCalledTimes(1)
@@ -70,5 +70,24 @@ describe('McpClient stdio transport', () => {
     expect(mockClientClose).toHaveBeenCalledTimes(1)
     expect(mockTransportClose).toHaveBeenCalledTimes(1)
     expect(mockManualChildKill).not.toHaveBeenCalled()
+  })
+
+  it('passes the API key via OPEN_MERCATO_API_KEY env, never on argv (issue #2669)', async () => {
+    await McpClient.connect({
+      transport: 'stdio',
+      apiKeySecret: 'omk_secret.value',
+    })
+
+    expect(StdioClientTransport).toHaveBeenCalledTimes(1)
+    const transportArgs = (StdioClientTransport as jest.Mock).mock.calls[0][0]
+
+    // The secret must reach the child process exclusively through the env var.
+    expect(transportArgs.env.OPEN_MERCATO_API_KEY).toBe('omk_secret.value')
+
+    // It must NOT appear on argv (world-readable via ps / /proc/<pid>/cmdline).
+    expect(transportArgs.args).toEqual(['mercato', 'ai_assistant', 'mcp:serve'])
+    expect(transportArgs.args).not.toContain('--api-key')
+    expect(transportArgs.args).not.toContain('omk_secret.value')
+    expect(JSON.stringify(transportArgs.args)).not.toContain('omk_secret.value')
   })
 })

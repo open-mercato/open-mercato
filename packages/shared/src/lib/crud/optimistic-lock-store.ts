@@ -12,7 +12,7 @@
  *
  * Mirrors the `mutation-guard-store.ts` HMR-safe globalThis pattern.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  */
 import type { OptimisticLockCurrentReader } from './optimistic-lock'
 

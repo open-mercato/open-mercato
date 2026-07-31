@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@open-mercato/core/helpers/integration/salesUi';
 
 /**
  * TC-INT-005: Order to Shipment to Invoice to Credit Memo

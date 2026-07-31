@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
 import { handleCheckoutRouteError, requireAdminContext, userHasCheckoutFeature } from '../helpers'
 import { checkoutTag } from '../openapi'
@@ -27,10 +28,10 @@ export async function GET(req: Request) {
     if (linkId) where.linkId = linkId
     if (status) where.status = status
     if (search) where.$or = [
-      { email: { $ilike: `%${search}%` } },
-      { firstName: { $ilike: `%${search}%` } },
-      { lastName: { $ilike: `%${search}%` } },
-      { id: { $ilike: `%${search}%` } },
+      { email: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { firstName: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { lastName: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { id: { $ilike: `%${escapeLikePattern(search)}%` } },
     ]
     const [items, total] = await findAndCountWithDecryption(
       em,

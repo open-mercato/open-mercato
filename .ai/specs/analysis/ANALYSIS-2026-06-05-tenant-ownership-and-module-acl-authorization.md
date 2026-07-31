@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Tenant-Ownership & Per-Module ACL Authorization Hardening
 
-> Spec: [`.ai/specs/2026-06-05-tenant-ownership-and-module-acl-authorization.md`](../2026-06-05-tenant-ownership-and-module-acl-authorization.md)
+> Spec: [`.ai/specs/implemented/2026-06-05-tenant-ownership-and-module-acl-authorization.md`](../implemented/2026-06-05-tenant-ownership-and-module-acl-authorization.md)
 > Issue: [open-mercato#2612](https://github.com/open-mercato/open-mercato/issues/2612)
 > Analyst pass: 2026-06-05 — all facts verified against `develop` via code read + Explore agents.
 

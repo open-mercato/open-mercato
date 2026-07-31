@@ -70,3 +70,45 @@ describe('Deprecated <Notice> JSX guard', () => {
     expect(violations).toEqual([])
   })
 })
+
+describe('Deprecated <ErrorNotice> import guard', () => {
+  const ERROR_NOTICE_ALLOWED = new Set(
+    [
+      // The deprecated primitive itself is kept as a BC export.
+      'packages/ui/src/primitives/ErrorNotice.tsx',
+      // The package barrel re-exports it for backward compatibility.
+      'packages/ui/src/index.ts',
+    ].map((relative) => path.join(REPO_ROOT, relative)),
+  )
+
+  it('has no active ErrorNotice imports or usages outside the allow-list', () => {
+    const files: string[] = []
+    for (const dir of ['apps', 'packages']) {
+      const fullDir = path.join(REPO_ROOT, dir)
+      if (fs.existsSync(fullDir)) collectSourceFiles(fullDir, files)
+    }
+
+    const errorNoticeRegex = /\bErrorNotice\b/
+
+    const violations: Array<{ file: string; line: number; snippet: string }> = []
+    for (const file of files) {
+      if (ERROR_NOTICE_ALLOWED.has(file)) continue
+      if (/__tests__/.test(file)) continue
+      const contents = fs.readFileSync(file, 'utf8')
+      if (!errorNoticeRegex.test(contents)) continue
+
+      const lines = contents.split('\n')
+      lines.forEach((lineContent, index) => {
+        if (errorNoticeRegex.test(lineContent)) {
+          violations.push({
+            file: path.relative(REPO_ROOT, file),
+            line: index + 1,
+            snippet: lineContent.trim().slice(0, 160),
+          })
+        }
+      })
+    }
+
+    expect(violations).toEqual([])
+  })
+})

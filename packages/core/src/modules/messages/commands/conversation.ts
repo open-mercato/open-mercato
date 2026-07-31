@@ -228,6 +228,91 @@ const markConversationUnreadForActorCommand: CommandHandler<unknown, { ok: true;
   },
 }
 
+const unarchiveConversationForActorCommand: CommandHandler<unknown, { ok: true; affectedCount: number }> = {
+  id: 'messages.conversation.unarchive_for_actor',
+  async execute(rawInput, ctx) {
+    const input = conversationCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = await resolveConversationScope(em, input)
+    const messageIdsToUnarchive = scope.messageIds.filter((messageId) => scope.recipientMessageIds.has(messageId))
+
+    if (messageIdsToUnarchive.length === 0) {
+      return { ok: true, affectedCount: 0 }
+    }
+
+    const unarchivedIds: string[] = []
+    await em.transactional(async (trx) => {
+      const recipients = await trx.find(MessageRecipient, {
+        messageId: { $in: messageIdsToUnarchive },
+        recipientUserId: input.userId,
+        deletedAt: null,
+      })
+      for (const recipient of recipients) {
+        if (recipient.status === 'archived' || recipient.archivedAt !== null) {
+          recipient.archivedAt = null
+          recipient.status = recipient.readAt ? 'read' : 'unread'
+          unarchivedIds.push(recipient.messageId)
+        }
+      }
+    })
+
+    for (const messageId of unarchivedIds) {
+      await emitMessagesEvent('messages.message.unarchived', {
+        messageId,
+        recipientUserId: input.userId,
+        userId: input.userId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      }, { persistent: true })
+    }
+
+    return { ok: true, affectedCount: unarchivedIds.length }
+  },
+}
+
+const markConversationReadForActorCommand: CommandHandler<unknown, { ok: true; affectedCount: number }> = {
+  id: 'messages.conversation.mark_read_for_actor',
+  async execute(rawInput, ctx) {
+    const input = conversationCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = await resolveConversationScope(em, input)
+    const messageIdsToMarkRead = scope.messageIds.filter((messageId) => scope.recipientMessageIds.has(messageId))
+
+    if (messageIdsToMarkRead.length === 0) {
+      return { ok: true, affectedCount: 0 }
+    }
+
+    const readAt = new Date()
+    const markedIds: string[] = []
+    await em.transactional(async (trx) => {
+      const recipients = await trx.find(MessageRecipient, {
+        messageId: { $in: messageIdsToMarkRead },
+        recipientUserId: input.userId,
+        deletedAt: null,
+      })
+      for (const recipient of recipients) {
+        if (recipient.status === 'unread') {
+          recipient.status = 'read'
+          recipient.readAt = readAt
+          markedIds.push(recipient.messageId)
+        }
+      }
+    })
+
+    for (const messageId of markedIds) {
+      await emitMessagesEvent('messages.message.read', {
+        messageId,
+        recipientUserId: input.userId,
+        userId: input.userId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      }, { persistent: true })
+    }
+
+    return { ok: true, affectedCount: markedIds.length }
+  },
+}
+
 type DeletedTarget = { messageId: string; target: 'sender' | 'recipient' }
 
 const deleteConversationForActorCommand: CommandHandler<unknown, { ok: true; affectedCount: number }> = {
@@ -289,5 +374,7 @@ const deleteConversationForActorCommand: CommandHandler<unknown, { ok: true; aff
 }
 
 registerCommand(archiveConversationForActorCommand)
+registerCommand(unarchiveConversationForActorCommand)
 registerCommand(markConversationUnreadForActorCommand)
+registerCommand(markConversationReadForActorCommand)
 registerCommand(deleteConversationForActorCommand)

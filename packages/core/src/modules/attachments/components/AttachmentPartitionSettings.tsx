@@ -24,11 +24,15 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { resolvePartitionEnvKey } from '@open-mercato/core/modules/attachments/lib/partitionEnv'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'partitions' })
 
 type Partition = {
   id: string
@@ -118,7 +122,7 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
       }))
       setItems(withDefaults)
     } catch (err) {
-      console.error('[attachments.partitions] list failed', err)
+      logger.error('Partition list failed', { err })
       flash(loadErrorMessage, 'error')
     } finally {
       setLoading(false)
@@ -256,7 +260,8 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
       closeDialog()
       await loadItems()
     } catch (err) {
-      console.error('[attachments.partitions] save failed', err)
+      logger.error('Partition save failed', { err })
+      if (surfaceRecordConflict(err, t)) return
       const message =
         err instanceof Error ? err.message : t('attachments.partitions.errors.save', 'Failed to save partition.')
       setError(message)
@@ -293,7 +298,8 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
         flash(t('attachments.partitions.messages.deleted', 'Partition removed.'), 'success')
         await loadItems()
       } catch (err) {
-        console.error('[attachments.partitions] delete failed', err)
+        logger.error('Partition delete failed', { err })
+        if (surfaceRecordConflict(err, t)) return
         flash(t('attachments.partitions.errors.delete', 'Failed to delete partition.'), 'error')
       }
     },

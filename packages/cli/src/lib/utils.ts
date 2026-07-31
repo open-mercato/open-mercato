@@ -235,6 +235,7 @@ export function writeGeneratedFile(options: {
   const checksum = { content: calculateChecksum(content), structure: structureChecksum }
   const existing = readChecksumRecord(checksumFile)
   const shouldWrite =
+    !fs.existsSync(outFile) ||
     !existing ||
     existing.content !== checksum.content ||
     existing.structure !== checksum.structure

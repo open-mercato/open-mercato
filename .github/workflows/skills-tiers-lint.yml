@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # jq is preinstalled on GitHub-hosted ubuntu runners — no install step
       # needed. Do not add `apt-get install jq` here.

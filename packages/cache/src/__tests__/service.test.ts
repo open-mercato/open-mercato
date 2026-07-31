@@ -1,7 +1,15 @@
-import { createCacheService, CacheService } from '../service'
+import {
+  createCacheService,
+  CacheService,
+  purgeConfiguredCachePatternsAcrossTenantScopes,
+} from '../service'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_JSON_FILE_CACHE_PATH, DEFAULT_SQLITE_CACHE_PATH } from '../defaults'
+import type { CacheStrategy } from '../types'
+import { runWithCacheTenant } from '../tenantContext'
+import * as memoryStrategyModule from '../strategies/memory'
+import * as sqliteStrategyModule from '../strategies/sqlite'
 
 describe('Cache Service', () => {
   afterEach(() => {
@@ -112,6 +120,67 @@ describe('Cache Service', () => {
   })
 
   describe('Complex scenarios', () => {
+    it('does not allocate a throwaway cache for cross-process memory maintenance', async () => {
+      const createMemorySpy = jest.spyOn(memoryStrategyModule, 'createMemoryStrategy')
+      await expect(
+        purgeConfiguredCachePatternsAcrossTenantScopes(['nav:*'], { strategy: 'memory' }),
+      ).resolves.toBe(0)
+      expect(createMemorySpy).not.toHaveBeenCalled()
+      createMemorySpy.mockRestore()
+    })
+
+    it('purges matching logical keys across tenant scopes without a tenant database', async () => {
+      const root = fs.mkdtempSync(path.join(process.cwd(), '.cache-maintenance-'))
+      const jsonFilePath = path.join(root, 'cache.json')
+      const options = { strategy: 'jsonfile' as const, jsonFilePath }
+      try {
+        const cache = createCacheService(options)
+        await runWithCacheTenant(null, async () => {
+          await cache.set('nav:sidebar:global', 'global', { tags: ['nav'] })
+        })
+        await runWithCacheTenant('tenant-a', async () => {
+          await cache.set('nav:sidebar:tenant-a', 'tenant-a', { tags: ['nav'] })
+          await cache.set('crud|auth|GET|/api/auth/admin/nav|user-a', 'admin', { tags: ['auth'] })
+          await cache.set('crud|auth|GET|/api/auth/admin/naval|user-a', 'not-admin-nav')
+          await cache.set('unrelated:key', 'keep', { tags: ['unrelated'] })
+        })
+        await runWithCacheTenant('tenant-b', async () => {
+          await cache.set('crud|customer_accounts|GET|/api/customer_accounts/portal/nav|user-b', 'portal')
+        })
+        await cache.close?.()
+
+        const deleted = await purgeConfiguredCachePatternsAcrossTenantScopes(
+          ['nav:*', 'crud|*|*|*/admin/nav|*', 'crud|*|*|*/portal/nav|*'],
+          options,
+        )
+
+        expect(deleted).toBe(4)
+        const verificationCache = createCacheService(options)
+        await runWithCacheTenant(null, async () => {
+          expect(await verificationCache.get('nav:sidebar:global')).toBeNull()
+        })
+        await runWithCacheTenant('tenant-a', async () => {
+          expect(await verificationCache.get('nav:sidebar:tenant-a')).toBeNull()
+          expect(await verificationCache.get('crud|auth|GET|/api/auth/admin/nav|user-a')).toBeNull()
+          expect(await verificationCache.get('crud|auth|GET|/api/auth/admin/naval|user-a')).toBe('not-admin-nav')
+          expect(await verificationCache.get('unrelated:key')).toBe('keep')
+        })
+        await runWithCacheTenant('tenant-b', async () => {
+          expect(await verificationCache.get('crud|customer_accounts|GET|/api/customer_accounts/portal/nav|user-b')).toBeNull()
+        })
+        await verificationCache.close?.()
+
+        const storage = JSON.parse(fs.readFileSync(jsonFilePath, 'utf8')) as {
+          entries: Record<string, unknown>
+          tagIndex: Record<string, string[]>
+        }
+        expect(Object.keys(storage.entries)).toHaveLength(4)
+        expect(Object.values(storage.tagIndex).every((keys) => keys.every((key) => key in storage.entries))).toBe(true)
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
+
     it('should handle concurrent operations', async () => {
       const cache = createCacheService()
       
@@ -198,5 +267,101 @@ describe('Cache Service', () => {
       expect(stats.size).toBe(10)
       expect(stats.expired).toBe(0)
     })
+  })
+
+  describe('Memory bound env resolution (CACHE_MEMORY_MAX_ENTRIES)', () => {
+    afterEach(() => {
+      delete process.env.CACHE_MEMORY_MAX_ENTRIES
+    })
+
+    it('bounds a memory-backed service when the env var is set', async () => {
+      process.env.CACHE_MEMORY_MAX_ENTRIES = '10'
+      const cache = createCacheService({ strategy: 'memory' })
+
+      for (let index = 0; index < 30; index += 1) {
+        await cache.set(`key:${index}`, index)
+      }
+
+      const stats = await cache.stats()
+      // The LRU cap kept the store far below the 30 logical writes and the
+      // surfaced eviction counter proves the bound was actively enforced.
+      expect(stats.size).toBeLessThan(30)
+      expect(stats.evictions).toBeGreaterThan(0)
+    })
+
+    it('ignores an invalid env value and stays unbounded by default', async () => {
+      process.env.CACHE_MEMORY_MAX_ENTRIES = 'not-a-number'
+      const cache = createCacheService({ strategy: 'memory' })
+
+      for (let index = 0; index < 30; index += 1) {
+        await cache.set(`key:${index}`, index)
+      }
+
+      const stats = await cache.stats()
+      // Invalid value parses to NaN, is discarded, and the default cap (50k)
+      // leaves all 30 entries resident with no evictions.
+      expect(stats.size).toBe(30)
+      expect(stats.evictions).toBe(0)
+    })
+  })
+})
+
+describe('Cache Service stats() counter gating', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  const createFakeStrategy = (stats: CacheStrategy['stats']): CacheStrategy => ({
+    get: jest.fn(async () => null),
+    set: jest.fn(async () => {}),
+    has: jest.fn(async () => false),
+    delete: jest.fn(async () => false),
+    deleteByTags: jest.fn(async () => 0),
+    clear: jest.fn(async () => 0),
+    keys: jest.fn(async () => []),
+    stats,
+  })
+
+  it('skips the extra base.stats() call for non-memory backends', async () => {
+    const baseStats = jest.fn(async () => ({ size: 5, expired: 1 }))
+    jest
+      .spyOn(sqliteStrategyModule, 'createSqliteStrategy')
+      .mockReturnValue(createFakeStrategy(baseStats))
+
+    const cache = createCacheService({ strategy: 'sqlite' })
+    const stats = await cache.stats()
+
+    // The cold-path counter harvest is gated to memory-backed strategies, so a
+    // redis/sqlite/jsonfile backend never incurs the extra base.stats() round-trip.
+    expect(baseStats).not.toHaveBeenCalled()
+    expect(stats).toEqual({ size: 0, expired: 0 })
+    expect(stats.evictions).toBeUndefined()
+    expect(stats.sweeps).toBeUndefined()
+    expect(stats.lastSweepReclaimed).toBeUndefined()
+  })
+
+  it('still harvests bound counters via base.stats() for the memory backend', async () => {
+    const baseStats = jest.fn(async () => ({
+      size: 99,
+      expired: 99,
+      evictions: 7,
+      sweeps: 2,
+      lastSweepReclaimed: 3,
+    }))
+    jest
+      .spyOn(memoryStrategyModule, 'createMemoryStrategy')
+      .mockReturnValue(createFakeStrategy(baseStats))
+
+    const cache = createCacheService({ strategy: 'memory' })
+    const stats = await cache.stats()
+
+    // size/expired stay tenant-scoped (computed by the wrapper), while the
+    // process-global counters come from a single base.stats() call.
+    expect(baseStats).toHaveBeenCalledTimes(1)
+    expect(stats.size).toBe(0)
+    expect(stats.expired).toBe(0)
+    expect(stats.evictions).toBe(7)
+    expect(stats.sweeps).toBe(2)
+    expect(stats.lastSweepReclaimed).toBe(3)
   })
 })

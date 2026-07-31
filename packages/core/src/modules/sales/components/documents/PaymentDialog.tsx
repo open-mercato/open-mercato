@@ -9,7 +9,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError } from './optimisticLock'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -17,6 +17,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export type PaymentTotals = {
   paidTotalAmount?: number | null
@@ -58,6 +61,7 @@ type PaymentDialogProps = {
   orderId: string
   organizationId: string | null
   tenantId: string | null
+  documentUpdatedAt?: string | null
   onOpenChange: (open: boolean) => void
   onSaved?: (totals?: PaymentTotals | null) => void | Promise<void>
 }
@@ -79,6 +83,7 @@ export function PaymentDialog({
   orderId,
   organizationId,
   tenantId,
+  documentUpdatedAt,
   onOpenChange,
   onSaved,
 }: PaymentDialogProps) {
@@ -151,7 +156,7 @@ export function PaymentDialog({
         if (!query) setPaymentMethods([])
         return []
       } catch (err) {
-        console.error('sales.payments.methods.load', err)
+        logger.error('sales.payments.methods.load', { err })
         return []
       } finally {
         setMethodsLoading(false)
@@ -222,7 +227,7 @@ export function PaymentDialog({
       setDocumentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.payments.statuses.load', err)
+      logger.error('sales.payments.statuses.load', { err })
       setDocumentStatuses([])
       return []
     } finally {
@@ -257,7 +262,7 @@ export function PaymentDialog({
       setPaymentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.payments.statuses.load', err)
+      logger.error('sales.payments.statuses.load', { err })
       setPaymentStatuses([])
       return []
     } finally {
@@ -539,7 +544,9 @@ export function PaymentDialog({
       const action = payment?.id ? updateCrud : createCrud
       try {
         const result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(payment?.id ? rowOptimisticVersion(payment) : undefined),
+          // The server guards the PARENT order's aggregate version (Gap A) for
+          // both create and update, so send the order's `updated_at`.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             action(
               'sales/payments',
@@ -569,7 +576,7 @@ export function PaymentDialog({
         throw err
       }
     },
-    [currencyCode, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, payment?.updatedAt, t, tenantId]
+    [currencyCode, documentUpdatedAt, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, t, tenantId]
   )
 
   const handleSubmitForm = React.useCallback(

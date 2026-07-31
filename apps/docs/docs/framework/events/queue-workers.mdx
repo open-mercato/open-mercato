@@ -207,20 +207,23 @@ AUTO_SPAWN_WORKERS=false yarn start
 
 The default eager mode starts a single `mercato queue worker --all` process whose runner instantiates a per-queue runtime even when most queues have no jobs. Each runner adds polling timers (local) or BullMQ `Worker` + Redis resources (async) to the process tree, so the dev memory monitor's `Memory ... RSS (peak ...)` line scales with the number of enabled modules rather than actual workload.
 
-Lazy mode replaces `queue worker --all` with a lightweight watcher process. The watcher probes each discovered queue for ready jobs without importing handler code or creating BullMQ workers. The first ready job on a queue triggers `mercato queue worker <queueName>`; queues that never receive jobs stay completely idle.
+Lazy mode replaces the eager worker with a lightweight watcher process. The watcher probes each discovered queue for ready jobs without importing handler code or creating BullMQ workers. By default, the first ready job on a queue triggers `mercato queue worker <queueName>`; queues that never receive jobs stay completely idle.
+
+For memory-sensitive local development, set `OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared`. In that mode the watcher still stays idle until the first ready job appears, but it starts one shared `mercato queue worker --all` process instead of one process per active queue. This keeps queue behavior intact while avoiding several full CLI bootstraps when scheduler-driven jobs make many queues ready at once.
 
 ```bash
 # Enable lazy auto-spawn when bypassing the dev wrapper
 OM_AUTO_SPAWN_WORKERS_LAZY=true mercato server dev
 ```
 
-The monorepo and standalone `yarn dev` wrappers set `OM_AUTO_SPAWN_WORKERS_LAZY=true` and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` automatically for local memory reduction. Direct `mercato server dev` and production `mercato server start` keep the eager default until these variables are set explicitly. Use `OM_AUTO_SPAWN_WORKERS_LAZY=false OM_AUTO_SPAWN_SCHEDULER_LAZY=false yarn dev` to force the historical eager mode.
+The monorepo and standalone `yarn dev` wrappers set `OM_AUTO_SPAWN_WORKERS_LAZY=true`, `OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared`, and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` automatically for local memory reduction. Direct `mercato server dev` and production `mercato server start` keep the eager default until these variables are set explicitly. Use `OM_AUTO_SPAWN_WORKERS_LAZY=false OM_AUTO_SPAWN_SCHEDULER_LAZY=false yarn dev` to force the historical eager mode.
 
 Lazy mode env variables:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OM_AUTO_SPAWN_WORKERS_LAZY` | `false` | Enables the lazy supervisor. Ignored when workers are disabled by `AUTO_SPAWN_WORKERS=false`. |
+| `OM_AUTO_SPAWN_WORKERS_LAZY_MODE` | `per-queue` | `per-queue` starts one worker process per queue after that queue receives a job. `shared` starts one `queue worker --all` process after the first ready job. |
 | `OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS` | `1000` | Probe interval. Clamped to a minimum of `250`. |
 | `OM_AUTO_SPAWN_WORKERS_LAZY_RESTART` | `true` | Restart a per-queue worker if it exits unexpectedly while jobs remain pending. |
 | `OM_AUTO_SPAWN_SCHEDULER_LAZY` | `false` | Enables lazy local scheduler startup. Ignored when the scheduler is disabled by `AUTO_SPAWN_SCHEDULER=false`. |
@@ -378,6 +381,30 @@ EVENTS_STRATEGY=local
 # Use Redis-backed queue
 EVENTS_STRATEGY=redis
 ```
+
+### Multi-Instance Safety Guard
+
+`mercato server start` runs a boot-time guard that catches single-instance
+infrastructure strategies before they cause silent production incidents. Three
+defaults are only safe for a single process:
+
+| Env var | Single-instance default | Multi-instance-safe value |
+|---------|-------------------------|---------------------------|
+| `CACHE_STRATEGY` | `memory` (stale ACLs after a privilege revocation) | `redis` |
+| `QUEUE_STRATEGY` | `local` (duplicate job processing — emails, webhooks, indexing) | `async` |
+| `RATE_LIMIT_STRATEGY` | `memory` (limits multiplied by the instance count) | `redis` |
+
+The guard is purely additive and opt-in via a topology hint:
+
+- **Declare a multi-instance topology** with `OM_MULTI_INSTANCE=1` (or
+  `OM_INSTANCE_COUNT=<n>` with `n > 1`). In production (`NODE_ENV=production`),
+  `start` then **refuses to boot** while any strategy above is left on its
+  single-instance value.
+- **Without the hint**, production logs a prominent warning but still starts, so
+  existing single-instance deployments are unchanged.
+- **Override** with `OM_ALLOW_SINGLE_INSTANCE_STRATEGIES=1` to downgrade the hard
+  failure to a warning when you knowingly accept the risks.
+- Development and single-instance production boots are never affected.
 
 ### Redis Configuration
 

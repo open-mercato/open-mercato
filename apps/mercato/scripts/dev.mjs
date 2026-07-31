@@ -3,10 +3,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import spawn from 'cross-spawn'
 import {
+  buildUnexpectedChildExitReport,
+  createRuntimeFailureLatch,
   createRuntimeNoiseFilter,
+  formatChildExitStatus,
   isStatelessRuntimeNoiseLine,
+  resolveChildExitCode,
+  resolveUnexpectedExitCode,
 } from './dev-runtime-log-policy.mjs'
-import { getProcessTreeMemoryBytes } from './dev-memory-monitor.mjs'
+import { getProcessTreeMemorySample } from './dev-memory-monitor.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -36,6 +41,21 @@ function resolveSpawnUtilsImport() {
   }
 
   throw new Error('Unable to resolve dev spawn utils module')
+}
+
+function resolveMemorySamplerImport() {
+  const candidates = [
+    new URL('./dev-memory-sampler.mjs', import.meta.url),
+    new URL('../../../scripts/dev-memory-sampler.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev memory sampler module')
 }
 
 function isEnabledEnvFlag(value) {
@@ -70,6 +90,13 @@ function resolveAutoSpawnMode(env, legacyName, aliasedName, lazyName) {
   return parseEnvBooleanToken(env[lazyName]) === true ? 'lazy' : 'eager'
 }
 
+function resolveLazyWorkerSpawnMode(env) {
+  const raw = env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE?.trim().toLowerCase()
+  if (raw === 'shared') return 'shared'
+  if (raw === 'per-queue') return 'per-queue'
+  return 'per-queue'
+}
+
 const {
   clampPercent,
   connectLineStream,
@@ -84,6 +111,12 @@ const {
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
 const { resolveProjectBinary, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
+const {
+  DEFAULT_MEMORY_TRACE_OUT_DIR,
+  createMemoryTraceSession,
+  inferDevMemoryMarkerFromLine,
+  resolveMemoryTraceIntervalMs,
+} = await import(resolveMemorySamplerImport())
 
 const command = resolveProjectBinary(process.platform === 'win32' ? 'mercato.cmd' : 'mercato')
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -113,17 +146,23 @@ let rawModeEnabled = false
 let lastRenderedStatus = null
 const rawLogBuffer = []
 const maxBufferedLogLines = 2000
+const failureLogTailLines = 20
 const RESET = '\u001B[0m'
 const BRIGHT_CYAN = '\u001B[96m'
 const CYAN_BORDER = '\u001B[46m\u001B[30m'
 const ERROR_BANNER = '\u001B[41m\u001B[97m'
 const warmupRequestTimeoutsMs = [45000, 120000]
 const maxWarmupRetryAttempts = 3
+const backgroundWorkerMode = resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY')
 const backgroundServiceModes = {
-  workers: resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY'),
+  workers: backgroundWorkerMode,
+  workerSpawnMode: backgroundWorkerMode === 'lazy' ? resolveLazyWorkerSpawnMode(process.env) : null,
   scheduler: resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER_LAZY'),
 }
 const shutdownNoticeOwnedByParent = process.env.OM_DEV_SHUTDOWN_NOTICE_OWNER === 'parent'
+const appMemoryTraceEnabled = isEnabledEnvFlag(process.env.OM_DEV_MEMORY_TRACE)
+  && process.env.OM_DEV_MEMORY_TRACE_OWNER !== 'parent'
+let memoryTrace = null
 const splashState = {
   mode: splashMode,
   phase: startupSplashPhase,
@@ -140,6 +179,7 @@ const splashState = {
   workerQueues: [],
   schedulerActive: false,
   workerMode: backgroundServiceModes.workers,
+  workerSpawnMode: backgroundServiceModes.workerSpawnMode,
   schedulerMode: backgroundServiceModes.scheduler,
   progressCurrent: runtimeProgressCurrent,
   progressTotal: runtimeProgressTotal,
@@ -164,6 +204,7 @@ const runtimeSummaryState = {
   workerQueues: [],
   schedulerActive: false,
   workerMode: backgroundServiceModes.workers,
+  workerSpawnMode: backgroundServiceModes.workerSpawnMode,
   schedulerMode: backgroundServiceModes.scheduler,
   packagesPrinted: false,
   workersPrinted: false,
@@ -219,7 +260,12 @@ function printCompactSummary(icon, title, lines) {
 
 function formatBackgroundServiceMode(modes = runtimeSummaryState) {
   const activeModes = []
-  if (modes.workerMode !== 'off') activeModes.push(['workers', modes.workerMode])
+  if (modes.workerMode !== 'off') {
+    const workerMode = modes.workerMode === 'lazy' && modes.workerSpawnMode
+      ? `${modes.workerMode} ${modes.workerSpawnMode}`
+      : modes.workerMode
+    activeModes.push(['workers', workerMode])
+  }
   if (modes.schedulerMode !== 'off') activeModes.push(['scheduler', modes.schedulerMode])
   if (activeModes.length === 0) return 'off'
 
@@ -231,6 +277,27 @@ function formatBackgroundServiceMode(modes = runtimeSummaryState) {
 
 function formatBackgroundServiceStatus(action = 'Starting background services', modes = runtimeSummaryState) {
   return `${action} (${formatBackgroundServiceMode(modes)})`
+}
+
+function formatLazyWorkerArmedStatus(line) {
+  const queueMatch = line.match(/\((\d+) queue\(s\) watched,/)
+  const watchedCount = queueMatch ? Number.parseInt(queueMatch[1], 10) : null
+  const spawnMode = line.includes('shared worker mode')
+    ? 'shared'
+    : line.includes('per-queue worker mode')
+      ? 'per-queue'
+      : runtimeSummaryState.workerSpawnMode
+  const modeLabel = spawnMode ? `lazy ${spawnMode}` : 'lazy'
+  const watchedLabel = Number.isFinite(watchedCount)
+    ? `, ${watchedCount} queue${watchedCount === 1 ? '' : 's'} watched`
+    : ''
+  const behaviorLabel = spawnMode === 'shared'
+    ? '; first job starts one shared worker'
+    : spawnMode === 'per-queue'
+      ? '; first job starts that queue worker'
+      : ''
+
+  return `Background workers armed (${modeLabel}${watchedLabel}${behaviorLabel})`
 }
 
 function loadRuntimePackageNames() {
@@ -257,6 +324,7 @@ function updateRuntimeSummaryState() {
     workerQueues: runtimeSummaryState.workerQueues,
     schedulerActive: runtimeSummaryState.schedulerActive,
     workerMode: runtimeSummaryState.workerMode,
+    workerSpawnMode: runtimeSummaryState.workerSpawnMode,
     schedulerMode: runtimeSummaryState.schedulerMode,
   })
 }
@@ -284,6 +352,7 @@ function printBackgroundServicesSummary() {
   const signature = JSON.stringify({
     schedulerActive: runtimeSummaryState.schedulerActive,
     workerMode: runtimeSummaryState.workerMode,
+    workerSpawnMode: runtimeSummaryState.workerSpawnMode,
     schedulerMode: runtimeSummaryState.schedulerMode,
     workerQueues: runtimeSummaryState.workerQueues,
   })
@@ -294,9 +363,12 @@ function printBackgroundServicesSummary() {
 
   runtimeSummaryState.lastWorkersSignature = signature
   runtimeSummaryState.workersPrinted = true
+  const activeLabel = runtimeSummaryState.workerMode === 'lazy' && runtimeSummaryState.workerSpawnMode === 'shared'
+    ? `${detailItems.length} active queue/scheduler runtimes`
+    : `${detailItems.length} active`
   printCompactSummary(
     '⚙️',
-    `Background services (${formatBackgroundServiceMode()}, ${detailItems.length} active)`,
+    `Background services (${formatBackgroundServiceMode()}, ${activeLabel})`,
     detailItems.map((item, index) => `${index === 0 ? '🕒' : '🧵'} ${item}`),
   )
 }
@@ -313,6 +385,11 @@ function captureBackgroundServiceLine(line) {
     || line.startsWith('[lazy-supervisor] Pending job detected')
   ) {
     runtimeSummaryState.workerMode = 'lazy'
+    if (line.includes('shared worker mode') || line.includes('starting shared worker for all queues')) {
+      runtimeSummaryState.workerSpawnMode = 'shared'
+    } else if (line.includes('per-queue worker mode') || line.includes('starting worker for queue')) {
+      runtimeSummaryState.workerSpawnMode = 'per-queue'
+    }
     updateRuntimeSummaryState()
     return true
   }
@@ -322,7 +399,10 @@ function captureBackgroundServiceLine(line) {
     || line === '[server] Eager worker auto-spawn enabled - starting workers for all queues...'
     || line.startsWith('🚀 Running queue:worker')
   ) {
-    runtimeSummaryState.workerMode = 'eager'
+    if (runtimeSummaryState.workerMode !== 'lazy') {
+      runtimeSummaryState.workerMode = 'eager'
+      runtimeSummaryState.workerSpawnMode = null
+    }
     updateRuntimeSummaryState()
     return true
   }
@@ -364,7 +444,9 @@ function captureBackgroundServiceLine(line) {
     || line === '[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...'
     || line.startsWith('🚀 Running scheduler:start')
   ) {
-    runtimeSummaryState.schedulerMode = 'eager'
+    if (runtimeSummaryState.schedulerMode !== 'lazy') {
+      runtimeSummaryState.schedulerMode = 'eager'
+    }
     runtimeSummaryState.schedulerActive = true
     updateRuntimeSummaryState()
     return true
@@ -451,6 +533,7 @@ function updateSplashState(patch) {
   if (Array.isArray(patch.workerQueues)) splashState.workerQueues = patch.workerQueues
   if (typeof patch.schedulerActive === 'boolean') splashState.schedulerActive = patch.schedulerActive
   if (typeof patch.workerMode === 'string') splashState.workerMode = patch.workerMode
+  if (typeof patch.workerSpawnMode === 'string' || patch.workerSpawnMode === null) splashState.workerSpawnMode = patch.workerSpawnMode
   if (typeof patch.schedulerMode === 'string') splashState.schedulerMode = patch.schedulerMode
   if (typeof patch.progressCurrent === 'number') splashState.progressCurrent = patch.progressCurrent
   if (typeof patch.progressTotal === 'number') splashState.progressTotal = patch.progressTotal
@@ -522,6 +605,10 @@ function looksLikeFailure(line) {
     || /\bfailed\b/i.test(line)
     || /\bexception\b/i.test(line)
     || /Unable to acquire lock/i.test(line)
+    || /Another next dev server is already running/i.test(line)
+    || /TurbopackInternalError/i.test(line)
+    || /\bpanicked\b/i.test(line)
+    || /EADDRINUSE/i.test(line)
 }
 
 function spawnMercato(args) {
@@ -567,42 +654,22 @@ function isGracefulShutdownResult(result) {
   return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
-function resolveChildExitCode(result, fallback = 1) {
-  if (typeof result?.code === 'number') {
-    return result.code
-  }
-  if (result?.signal === 'SIGINT') {
-    return 130
-  }
-  if (result?.signal === 'SIGTERM') {
-    return 143
-  }
-  return fallback
-}
-
-function formatChildExitStatus(result) {
-  if (typeof result?.code === 'number') {
-    return `exit code ${result.code}`
-  }
-  if (result?.signal) {
-    return `signal ${result.signal}`
-  }
-  return 'an unknown status'
-}
-
-function resolveUnexpectedExitCode(result) {
-  const exitCode = resolveChildExitCode(result, 1)
-  return exitCode === 0 ? 1 : exitCode
-}
-
 function reportUnexpectedChildExit(result) {
-  const message = `❌ ${result?.label ?? 'Child process'} exited unexpectedly with ${formatChildExitStatus(result)}`
-  console.error(message)
-  rememberRawLog(message)
-  publishRuntimeFailure(message, {
+  const report = buildUnexpectedChildExitReport({
+    label: result?.label,
+    exitStatus: formatChildExitStatus(result),
+    bufferedFailureLines: collectRuntimeFailureLines(failureLogTailLines),
+    logsVisible,
+  })
+  for (const line of report.terminalLines) {
+    console.error(line)
+  }
+  // The banner was just printed, so buffer it without echoing it a second time.
+  bufferRawLog(report.banner)
+  publishRuntimeFailure(report.banner, {
     progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
     progressLabel: splashState.progressLabel || startupProgress.label,
-    failureLines: [...collectRuntimeFailureLines(), message].slice(-10),
+    failureLines: report.failureLines,
   })
 }
 
@@ -696,14 +763,14 @@ async function resolveWarmupTenantIdFromDatabase(email) {
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = 45000, externalSignal = null) {
   if (externalSignal?.aborted) {
-    throw externalSignal.reason ?? new Error('warmup request aborted')
+    throw externalSignal?.reason ?? new Error('warmup request aborted')
   }
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   timer.unref?.()
   const abortFromExternalSignal = () => {
-    controller.abort(externalSignal.reason ?? new Error('warmup request aborted'))
+    controller.abort(externalSignal?.reason ?? new Error('warmup request aborted'))
   }
   externalSignal?.addEventListener?.('abort', abortFromExternalSignal, { once: true })
 
@@ -858,10 +925,12 @@ async function runTargetedRouteWarmup() {
   const introMessage = '🔥 Precompiling /login, login POST, and /backend'
   const warmupCredentials = resolveWarmupCredentials()
 
+  markMemoryTrace('warmup:start', 'Warmup started')
   reportWarmupStep(introMessage, progressLabel)
 
   try {
     const loginPageStartedAt = Date.now()
+    markMemoryTrace('warmup:route-start', 'GET /login')
     const loginPageResponse = await fetchWarmupWithRetry(
       joinBaseUrl(runtimeWarmupState.baseUrl, '/login'),
       { method: 'GET', redirect: 'manual' },
@@ -877,8 +946,13 @@ async function runTargetedRouteWarmup() {
       `📄 Warmed /login in ${formatDuration(Date.now() - loginPageStartedAt)} (${loginPageResponse.status})`,
       progressLabel,
     )
+    markMemoryTrace('warmup:route-end', 'GET /login', {
+      status: loginPageResponse.status,
+      durationMs: Date.now() - loginPageStartedAt,
+    })
 
     const loginPostStartedAt = Date.now()
+    markMemoryTrace('warmup:route-start', 'POST /api/auth/login')
     const loginPostBody = new URLSearchParams({
       email: warmupCredentials.email,
       password: warmupCredentials.password,
@@ -926,8 +1000,13 @@ async function runTargetedRouteWarmup() {
       `🔐 Warmed POST /api/auth/login in ${formatDuration(Date.now() - loginPostStartedAt)} (${loginResponse.status})`,
       progressLabel,
     )
+    markMemoryTrace('warmup:route-end', 'POST /api/auth/login', {
+      status: loginResponse.status,
+      durationMs: Date.now() - loginPostStartedAt,
+    })
 
     const backendStartedAt = Date.now()
+    markMemoryTrace('warmup:route-start', 'GET /backend')
     const backendResponse = await fetchWarmupWithRetry(
       joinBaseUrl(runtimeWarmupState.baseUrl, '/backend'),
       {
@@ -960,6 +1039,10 @@ async function runTargetedRouteWarmup() {
       `🗂️ Warmed authenticated /backend in ${formatDuration(Date.now() - backendStartedAt)} (${backendResponse.status})`,
       progressLabel,
     )
+    markMemoryTrace('warmup:route-end', 'GET /backend', {
+      status: backendResponse.status,
+      durationMs: Date.now() - backendStartedAt,
+    })
 
     runtimeWarmupState.retryAttempts = 0
     runtimeWarmupState.completed = true
@@ -982,6 +1065,7 @@ async function runTargetedRouteWarmup() {
     })
     writeWarmupReadyFile('warmup-complete')
     console.log(formatStatusOutput(completedMessage, runtimeReadyProgressCurrent, 'App is ready'))
+    markMemoryTrace('warmup:end', 'Warmup completed', { durationMs: Date.now() - startedAt })
   } catch (error) {
     if (generation !== runtimeWarmupState.generation) {
       return
@@ -1008,6 +1092,7 @@ async function runTargetedRouteWarmup() {
           ],
         })
         console.log(formatStatusOutput(`❌ ${detail}`, runtimeProgressCurrent, progressLabel))
+        markMemoryTrace('warmup:failure', 'Warmup failed', { reason, attempts: attempt })
         return
       }
       const retryBaseMessage = runtimeWarmupState.tenantId && looksLikeTenantSelectionError(reason)
@@ -1033,6 +1118,7 @@ async function runTargetedRouteWarmup() {
     }
 
     const errorMessage = error instanceof Error ? error.message : 'unknown error'
+    markMemoryTrace('warmup:failure', 'Warmup failed', { reason: errorMessage })
     const isCredentialsFailure = error instanceof LoginError && error.status === 401
     const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
     const loginUrl = runtimeWarmupState.baseUrl
@@ -1089,6 +1175,10 @@ function stopMemoryMonitor() {
   }
 }
 
+function markMemoryTrace(type, label, details = {}) {
+  memoryTrace?.mark(type, label, details)
+}
+
 function maybePrintMemoryUsage(force = false) {
   if (verbose || logsVisible) return
   if (!Number.isFinite(memoryState.currentBytes) || memoryState.currentBytes <= 0) return
@@ -1109,7 +1199,8 @@ function maybePrintMemoryUsage(force = false) {
   console.log(`🧠 Memory ${formatMemory(memoryState.currentBytes)} RSS (peak ${formatMemory(memoryState.peakBytes)})`)
 }
 
-function publishMemoryUsage(bytes) {
+function publishMemoryUsage(sample) {
+  const bytes = sample?.totalRssBytes
   if (!Number.isFinite(bytes) || bytes <= 0) return
   memoryState.currentBytes = bytes
   memoryState.peakBytes = Math.max(memoryState.peakBytes, bytes)
@@ -1127,10 +1218,22 @@ function startMemoryMonitor(child) {
 
   stopMemoryMonitor()
 
+  if (appMemoryTraceEnabled && !memoryTrace) {
+    memoryTrace = createMemoryTraceSession({
+      rootPid: child.pid,
+      intervalMs: resolveMemoryTraceIntervalMs(process.env),
+      outDir: process.env.OM_DEV_MEMORY_TRACE_DIR?.trim() || DEFAULT_MEMORY_TRACE_OUT_DIR,
+      label: `live-app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+      onSample: (sample) => publishMemoryUsage(sample),
+    })
+    memoryTrace.start()
+    markMemoryTrace('app-runtime:start', 'App runtime started', { pid: child.pid })
+  }
+
   const sample = async () => {
-    const bytes = await getProcessTreeMemoryBytes(child.pid)
-    if (bytes) {
-      publishMemoryUsage(bytes)
+    const memorySample = await getProcessTreeMemorySample(child.pid)
+    if (memorySample) {
+      publishMemoryUsage(memorySample)
     }
   }
 
@@ -1142,7 +1245,17 @@ function startMemoryMonitor(child) {
 
   child.on('exit', () => {
     stopMemoryMonitor()
+    void memoryTrace?.stop()
   })
+}
+
+async function finalizeRuntimeProcess(exitCode) {
+  try {
+    await memoryTrace?.stop()
+  } catch (error) {
+    console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  process.exit(exitCode)
 }
 
 function shutdown(exitCode = 0) {
@@ -1150,6 +1263,12 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   clearWarmupRetryTimer()
   stopMemoryMonitor()
+
+  if (rawLogFileStream) {
+    try {
+      rawLogFileStream.end()
+    } catch {}
+  }
 
   if (rawModeEnabled && process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
     process.stdin.setRawMode(false)
@@ -1170,7 +1289,7 @@ function shutdown(exitCode = 0) {
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
-    process.exit(exitCode)
+    void finalizeRuntimeProcess(exitCode)
     return
   }
 
@@ -1184,18 +1303,53 @@ function shutdown(exitCode = 0) {
         child.kill('SIGKILL')
       }
     }
-    process.exit(exitCode)
+    void finalizeRuntimeProcess(exitCode)
   }, 3000)
 }
 
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
 
-function rememberRawLog(line) {
+let rawLogFileStream
+let rawLogFileFailed = false
+
+function resolveRawLogFileStream() {
+  if (rawLogFileStream !== undefined) return rawLogFileStream
+  if (process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false') {
+    rawLogFileStream = null
+    return rawLogFileStream
+  }
+  try {
+    const logDir = process.env.OM_DEV_LOG_DIR?.trim()
+      ? path.resolve(process.env.OM_DEV_LOG_DIR.trim())
+      : path.resolve('.mercato', 'logs')
+    fs.mkdirSync(logDir, { recursive: true })
+    const runId = process.env.OM_DEV_RUN_ID?.trim()
+      || `${new Date().toISOString().toLowerCase().replace(/[:.]/g, '-')}-pid${process.pid}`
+    rawLogFileStream = fs.createWriteStream(path.join(logDir, `${runId}-app-raw.log`), { flags: 'a' })
+    rawLogFileStream.on('error', () => {
+      rawLogFileFailed = true
+    })
+  } catch {
+    rawLogFileStream = null
+  }
+  return rawLogFileStream
+}
+
+function bufferRawLog(line) {
   rawLogBuffer.push(line)
   if (rawLogBuffer.length > maxBufferedLogLines) {
     rawLogBuffer.shift()
   }
+
+  const fileStream = resolveRawLogFileStream()
+  if (fileStream && !rawLogFileFailed) {
+    fileStream.write(`${line}\n`)
+  }
+}
+
+function rememberRawLog(line) {
+  bufferRawLog(line)
 
   if (logsVisible) {
     process.stdout.write(`${line}\n`)
@@ -1294,6 +1448,7 @@ function parseDurationToken(token) {
 
 async function runInitialGenerate() {
   const startedAt = Date.now()
+  markMemoryTrace('generate:start', 'Generating app artifacts', { command: 'mercato generate' })
   updateStartupProgress(1, 'Generating app artifacts')
   console.log(`🧱 ${formatProgressStatus('Generating app artifacts...', 1, 'Generating app artifacts')}`)
   updateSplashState({
@@ -1315,8 +1470,10 @@ async function runInitialGenerate() {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace('generate:failure', 'Generating app artifacts', { exitCode })
       shutdown(exitCode)
     }
+    markMemoryTrace('generate:end', 'Generating app artifacts', { durationMs: Date.now() - startedAt })
     return
   }
 
@@ -1340,6 +1497,7 @@ async function runInitialGenerate() {
 
   const exitCode = resolveChildExitCode(result)
   if (exitCode !== 0) {
+    markMemoryTrace('generate:failure', 'Generating app artifacts', { exitCode })
     console.error('❌ Artifact generation failed')
     for (const line of capturedLines) {
       console.error(line)
@@ -1357,10 +1515,12 @@ async function runInitialGenerate() {
     activity: `App artifacts ready in ${formatDuration(Date.now() - startedAt)}`,
   })
   console.log(`✅ ${formatProgressStatus(`App artifacts ready in ${formatDuration(Date.now() - startedAt)}`, 1, 'App artifacts ready')}`)
+  markMemoryTrace('generate:end', 'Generating app artifacts', { durationMs: Date.now() - startedAt })
 }
 
 function createFilteredReporter(label, classifyLine) {
-  let passthrough = false
+  const failureLatch = createRuntimeFailureLatch()
+  let autoRevealedLogs = false
   const ignoreLine = createRuntimeNoiseFilter()
 
   return (line) => {
@@ -1368,10 +1528,19 @@ function createFilteredReporter(label, classifyLine) {
     if (plain.length === 0) return
 
     rememberRawLog(line)
+    const inferredMarker = inferDevMemoryMarkerFromLine(plain)
+    if (inferredMarker) {
+      markMemoryTrace(inferredMarker.type, inferredMarker.label, inferredMarker.details)
+    }
     captureBackgroundServiceLine(plain)
 
-    if (passthrough) {
-      return
+    if (failureLatch.isLatched()) {
+      if (!failureLatch.releaseOn(plain)) return
+      if (autoRevealedLogs) {
+        autoRevealedLogs = false
+        hideBufferedLogs()
+      }
+      lastRenderedStatus = null
     }
 
     if (ignoreLine(plain, { startupReady: splashState.ready })) {
@@ -1436,8 +1605,9 @@ function createFilteredReporter(label, classifyLine) {
       progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
       progressLabel: splashState.progressLabel || startupProgress.label,
     })
-    passthrough = true
+    failureLatch.latch()
     if (interactiveLogToggle) {
+      autoRevealedLogs = !logsVisible
       showBufferedLogs(`❌ ${label} emitted raw output`)
       return
     }
@@ -1556,14 +1726,18 @@ function classifyServerLine(line) {
     || line === '[server] Starting scheduler polling engine...'
     || line === '[server] Eager scheduler auto-spawn enabled - starting scheduler polling engine...'
     || line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
-    || line.startsWith('🚀 Running queue:worker')
-    || line.startsWith('🚀 Running scheduler:start')
   ) {
     const isLazyTrigger = line === '[lazy-scheduler] Enabled schedule detected - starting scheduler polling engine.'
     const modes = isLazyTrigger
-      ? { workerMode: runtimeSummaryState.workerMode, schedulerMode: 'lazy' }
+      ? {
+          workerMode: runtimeSummaryState.workerMode,
+          workerSpawnMode: runtimeSummaryState.workerSpawnMode,
+          schedulerMode: 'lazy',
+        }
       : runtimeSummaryState
-    const status = formatBackgroundServiceStatus('Starting background services', modes)
+    const status = isLazyTrigger
+      ? 'Starting scheduler (lazy)'
+      : formatBackgroundServiceStatus('Starting background services', modes)
     return {
       type: 'status',
       message: `⚙️ ${status}`,
@@ -1575,7 +1749,7 @@ function classifyServerLine(line) {
     }
   }
   if (line.startsWith('[server] Lazy worker auto-spawn enabled')) {
-    const status = 'Background workers armed (lazy)'
+    const status = formatLazyWorkerArmedStatus(line)
     return {
       type: 'status',
       message: `⚙️ ${status}`,
@@ -1598,9 +1772,24 @@ function classifyServerLine(line) {
       progressLabel: 'Background services (lazy)',
     }
   }
+  if (
+    line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)
+    || line === '[lazy-supervisor] Enabled schedule detected — starting shared worker for all queues'
+  ) {
+    const status = 'Starting shared worker (lazy shared)'
+    return {
+      type: 'status',
+      message: `⚙️ ${status}`,
+      splashPhase: startupSplashPhase,
+      splashDetail: status,
+      activity: status,
+      progressCurrent: 3,
+      progressLabel: 'Background services (lazy shared)',
+    }
+  }
   const lazyWorkerStartMatch = line.match(/^\[lazy-supervisor\] Pending job detected .+ starting worker for queue "(.+)"$/)
   if (lazyWorkerStartMatch) {
-    const status = `Starting worker "${lazyWorkerStartMatch[1]}" (lazy)`
+    const status = `Starting worker "${lazyWorkerStartMatch[1]}" (lazy per-queue)`
     return {
       type: 'status',
       message: `⚙️ ${status}`,
@@ -1623,6 +1812,21 @@ function classifyServerLine(line) {
       splashDetail: `Reason: ${reason}`,
       ready: false,
       activity: `App runtime restart: ${reason}`,
+      progressCurrent: runtimeProgressCurrent,
+      progressLabel: 'Restarting app runtime',
+    }
+  }
+
+  if (line.startsWith('[server] Next.js dev server exited before becoming ready')) {
+    const reason = 'a failed cold start'
+    resetWarmupForRuntimeRestart(reason)
+    return {
+      type: 'status',
+      message: `🔄 Restarting Next.js dev server: ${reason}`,
+      splashPhase: 'App runtime is restarting',
+      splashDetail: `Reason: ${reason}`,
+      ready: false,
+      activity: `Next.js restart: ${reason}`,
       progressCurrent: runtimeProgressCurrent,
       progressLabel: 'Restarting app runtime',
     }
@@ -1746,6 +1950,7 @@ function startFilteredChild(args, label, classifyLine) {
   const child = spawnMercato(args)
   if (label === 'App runtime') {
     startMemoryMonitor(child)
+    markMemoryTrace('app-runtime:start', 'App runtime started', { pid: child.pid, command: ['mercato', ...args].join(' ') })
   }
 
   if (verbose) {
@@ -1769,6 +1974,18 @@ function resolveGenerateWatchMode(env) {
 }
 
 const generateWatchMode = resolveGenerateWatchMode(process.env)
+
+if (appMemoryTraceEnabled && !memoryTrace) {
+  memoryTrace = createMemoryTraceSession({
+    rootPid: process.pid,
+    intervalMs: resolveMemoryTraceIntervalMs(process.env),
+    outDir: process.env.OM_DEV_MEMORY_TRACE_DIR?.trim() || DEFAULT_MEMORY_TRACE_OUT_DIR,
+    label: `live-app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+    onSample: (sample) => publishMemoryUsage(sample),
+  })
+  memoryTrace.start()
+  markMemoryTrace('dev:start', 'App dev runner started', { mode: splashMode })
+}
 
 async function runClassicRuntime() {
   const initialGenerate = spawnMercato(['generate'])

@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Staff Decouple from Core (Phase 1)
 
-**Spec**: `.ai/specs/2026-05-08-staff-decouple-from-core.md`
+**Spec**: `.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`
 **Date**: 2026-05-14
 **Analyst**: pre-implement-spec skill
 **Branch**: `feat/spec-069-timesheets-phase-1` (target PR branch will be a fresh `feat/staff-decouple-from-core` off `upstream/develop`)

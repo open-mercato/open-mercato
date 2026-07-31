@@ -9,18 +9,6 @@ import { InlineMultilineEditor, InlineTextEditor, renderMultilineMarkdownDisplay
 ;(global as any).requestAnimationFrame =
   (global as any).requestAnimationFrame || ((cb: FrameRequestCallback) => setTimeout(cb, 0))
 
-const reactMarkdownMock = jest.fn((props: any) => <div data-testid="react-markdown">{props.children}</div>)
-
-jest.mock('react-markdown', () => ({
-  __esModule: true,
-  default: (props: any) => reactMarkdownMock(props),
-}))
-
-jest.mock('remark-gfm', () => ({
-  __esModule: true,
-  default: () => null,
-}))
-
 jest.mock('next/dynamic', () => () => {
   return function MockDynamicComponent(props: any) {
     return <div data-testid="dynamic-import" {...props} />
@@ -91,12 +79,7 @@ describe('Inline multiline editors', () => {
       </>,
     )
 
-    expect(reactMarkdownMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        children: 'Hello **world**',
-        remarkPlugins: expect.any(Array),
-      }),
-    )
+    expect(screen.getByText('Hello **world**')).toBeInTheDocument()
 
     rerender(
       <>

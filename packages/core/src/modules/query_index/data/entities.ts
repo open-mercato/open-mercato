@@ -254,6 +254,7 @@ export class IndexerStatusLog {
 @Entity({ tableName: 'search_tokens' })
 @Index({ name: 'search_tokens_lookup_idx', properties: ['entityType', 'field', 'tokenHash', 'tenantId', 'organizationId'] })
 @Index({ name: 'search_tokens_entity_idx', properties: ['entityType', 'entityId'] })
+@Index({ name: 'search_tokens_tenant_token_hash_idx', properties: ['tenantId', 'tokenHash'] })
 export class SearchToken {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

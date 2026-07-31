@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { assertStaticallySafeWebhookUrl, UnsafeWebhookUrlError } from '../lib/url-safety'
+import { isReservedWebhookCustomHeader } from '../lib/custom-headers'
 
 const safeWebhookUrl = z.string().url().superRefine((value, ctx) => {
   try {
@@ -12,13 +13,25 @@ const safeWebhookUrl = z.string().url().superRefine((value, ctx) => {
   }
 })
 
+const webhookCustomHeaders = z.record(z.string(), z.string()).superRefine((value, ctx) => {
+  for (const name of Object.keys(value)) {
+    if (isReservedWebhookCustomHeader(name)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Header "${name}" is reserved for webhook signing and cannot be overridden`,
+        path: [name],
+      })
+    }
+  }
+})
+
 export const webhookCreateSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(1000).optional().nullable(),
   url: safeWebhookUrl,
   subscribedEvents: z.array(z.string().min(1)).min(1),
   httpMethod: z.enum(['POST', 'PUT', 'PATCH'] as const).default('POST'),
-  customHeaders: z.record(z.string(), z.string()).optional().nullable(),
+  customHeaders: webhookCustomHeaders.optional().nullable(),
   deliveryStrategy: z.literal('http').default('http'),
   strategyConfig: z.record(z.string(), z.unknown()).optional().nullable(),
   maxRetries: z.number().int().min(0).max(30).default(10),

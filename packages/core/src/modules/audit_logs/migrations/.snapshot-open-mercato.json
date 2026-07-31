@@ -209,6 +209,16 @@
           "unique": false
         },
         {
+          "keyName": "access_logs_created_at_idx",
+          "columnNames": [
+            "created_at"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "access_logs_pkey",
           "columnNames": [
             "id"

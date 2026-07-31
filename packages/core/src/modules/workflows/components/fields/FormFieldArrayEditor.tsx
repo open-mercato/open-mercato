@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { ChevronDown, Plus, Trash2, Info } from 'lucide-react'
+import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 
 /**
@@ -134,8 +134,7 @@ export function FormFieldArrayEditor({
 
       {/* JSON Schema Format Notice */}
       {isJsonSchemaFormat && (
-        <Alert variant="default" className="border-blue-200 bg-blue-50">
-          <Info className="size-4" />
+        <Alert variant="info">
           <AlertDescription className="text-xs">
             {t('workflows.fieldEditors.formFields.jsonSchemaNotice')}
           </AlertDescription>

@@ -41,7 +41,11 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
     setIsGenerating(true)
     setError(null)
     try {
-      const res = await apiCall<ApiKeyResponse>('/api/api_keys/keys', {
+      // Use the dedicated MCP-key endpoint so the key inherits the current
+      // user's roles/ACL. A raw POST /api/api_keys/keys assigns no roles, which
+      // produced a key with zero features (the MCP server then exposes only
+      // `context_whoami`).
+      const res = await apiCall<ApiKeyResponse>('/api/ai_assistant/mcp-key', {
         method: 'POST',
         body: JSON.stringify({
           name: `MCP Config - ${new Date().toLocaleDateString()}`,

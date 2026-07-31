@@ -13,11 +13,26 @@ import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
+
+const formatStderrError = (error: unknown): string =>
+  error instanceof Error ? error.stack ?? error.message : String(error)
+
+const writeStderrLine = (line: string): void => {
+  process.stderr.write(`${line}\n`)
+}
+
 /**
  * Create and configure an MCP server instance.
  */
 export async function createMcpServer(options: McpServerOptions): Promise<Server> {
-  const { config, container, context, apiKeySecret } = options
+  const { config, container, context, allowUnauthenticatedSuperadmin } = options
+
+  // Treat empty / whitespace-only secrets as missing so a blank api key cannot
+  // fall through into an unauthenticated branch.
+  const apiKeySecret =
+    typeof options.apiKeySecret === 'string' && options.apiKeySecret.trim().length > 0
+      ? options.apiKeySecret
+      : undefined
 
   let tenantId: string | null = null
   let organizationId: string | null = null
@@ -36,42 +51,49 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userId = authResult.userId
     userFeatures = authResult.features
     isSuperAdmin = authResult.isSuperAdmin
-    console.error(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
-  } else if (context) {
-    // Manual context provided
+    writeStderrLine(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
+  } else if (context && context.userId) {
+    // Manual context with a real user — load that user's ACL.
     tenantId = context.tenantId
     organizationId = context.organizationId
     userId = context.userId
 
-    if (userId) {
-      try {
-        const rbacService = container.resolve('rbacService') as {
-          loadAcl: (
-            userId: string,
-            scope: { tenantId: string | null; organizationId: string | null }
-          ) => Promise<{
-            isSuperAdmin: boolean
-            features: string[]
-          }>
-        }
-        const acl = await rbacService.loadAcl(userId, {
-          tenantId,
-          organizationId,
-        })
-        userFeatures = acl.features
-        isSuperAdmin = acl.isSuperAdmin
-      } catch (error) {
-        console.error('[MCP Server] Failed to load user ACL:', error)
+    try {
+      const rbacService = container.resolve('rbacService') as {
+        loadAcl: (
+          userId: string,
+          scope: { tenantId: string | null; organizationId: string | null }
+        ) => Promise<{
+          isSuperAdmin: boolean
+          features: string[]
+        }>
       }
-    } else {
-      // No user specified - grant superadmin access for development/testing
-      isSuperAdmin = true
-      console.error('[MCP Server] No user specified, running with superadmin access')
+      const acl = await rbacService.loadAcl(userId, {
+        tenantId,
+        organizationId,
+      })
+      userFeatures = acl.features
+      isSuperAdmin = acl.isSuperAdmin
+    } catch (error) {
+      writeStderrLine(`[MCP Server] Failed to load user ACL: ${formatStderrError(error)}`)
     }
-  } else {
-    // No context and no API key - superadmin for dev/testing
+  } else if (allowUnauthenticatedSuperadmin) {
+    // Explicit, loud dev/testing opt-in. Without a user there is no ACL to load,
+    // so the server runs as superadmin with no tenant scoping beyond whatever the
+    // caller pinned via `context`. NEVER enable this in production.
+    if (context) {
+      tenantId = context.tenantId
+      organizationId = context.organizationId
+    }
     isSuperAdmin = true
-    console.error('[MCP Server] No auth context, running with superadmin access')
+    writeStderrLine(
+      '[MCP Server] WARNING: allowUnauthenticatedSuperadmin is enabled — running with UNAUTHENTICATED SUPERADMIN access and no per-user ACL. Do not use this outside local development/testing.'
+    )
+  } else {
+    // Fail closed: refuse to start rather than silently escalating to superadmin.
+    throw new Error(
+      '[internal] MCP server refused to start: no authentication provided. Supply a valid apiKeySecret, a context with a non-empty userId, or explicitly set allowUnauthenticatedSuperadmin: true for local development.'
+    )
   }
 
   const toolContext: McpToolContext = {
@@ -101,7 +123,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     )
 
     if (config.debug) {
-      console.error(
+      writeStderrLine(
         `[MCP Server] Listing ${accessibleTools.length}/${tools.length} tools (filtered by ACL)`
       )
     }
@@ -121,7 +143,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const { name, arguments: args } = request.params
 
     if (config.debug) {
-      console.error(`[MCP Server] Calling tool: ${name}`, JSON.stringify(args))
+      writeStderrLine(`[MCP Server] Calling tool: ${name} argKeys=${Object.keys(args ?? {}).join(',')}`)
     }
 
     const result = await executeTool(name, args ?? {}, toolContext)
@@ -167,18 +189,18 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     const orm = await getOrm()
     const graph = await extractEntityGraph(orm)
     cacheEntityGraph(graph)
-    console.error(`[MCP Server] Entity graph: ${graph.nodes.length} entities`)
+    writeStderrLine(`[MCP Server] Entity graph: ${graph.nodes.length} entities`)
   } catch (error) {
-    console.error('[MCP Server] Entity graph skipped:', error instanceof Error ? error.message : error)
+    writeStderrLine(`[MCP Server] Entity graph skipped: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   // Pre-cache raw OpenAPI spec for Code Mode search tool
   try {
     const { getRawOpenApiSpec } = await import('./api-endpoint-index')
     await getRawOpenApiSpec()
-    console.error('[MCP Server] Raw OpenAPI spec cached for Code Mode')
+    writeStderrLine('[MCP Server] Raw OpenAPI spec cached for Code Mode')
   } catch (error) {
-    console.error('[MCP Server] Raw OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
+    writeStderrLine(`[MCP Server] Raw OpenAPI spec caching skipped: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   // Load tools from all modules before starting
@@ -190,7 +212,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     await indexToolsForSearch(searchService)
   } catch (error) {
     // Search service might not be configured - discovery will use fallback
-    console.error('[MCP Server] Search indexing skipped (search service not available)')
+    writeStderrLine('[MCP Server] Search indexing skipped (search service not available)')
   }
 
   const server = await createMcpServer(options)
@@ -198,27 +220,27 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
 
   const toolCount = getToolRegistry().listToolNames().length
 
-  console.error(`[MCP Server] Starting ${options.config.name} v${options.config.version}`)
+  writeStderrLine(`[MCP Server] Starting ${options.config.name} v${options.config.version}`)
 
-  if (options.apiKeySecret) {
-    console.error(`[MCP Server] Authentication: API key`)
-  } else if (options.context) {
-    console.error(`[MCP Server] Tenant: ${options.context.tenantId ?? '(none)'}`)
-    console.error(`[MCP Server] Organization: ${options.context.organizationId ?? '(none)'}`)
-    console.error(`[MCP Server] User: ${options.context.userId ?? '(superadmin)'}`)
+  if (options.apiKeySecret && options.apiKeySecret.trim().length > 0) {
+    writeStderrLine(`[MCP Server] Authentication: API key`)
+  } else if (options.context && options.context.userId) {
+    writeStderrLine(`[MCP Server] Tenant: ${options.context.tenantId ?? '(none)'}`)
+    writeStderrLine(`[MCP Server] Organization: ${options.context.organizationId ?? '(none)'}`)
+    writeStderrLine(`[MCP Server] User: ${options.context.userId}`)
   } else {
-    console.error(`[MCP Server] Authentication: none (superadmin mode)`)
+    writeStderrLine(`[MCP Server] Authentication: none (unauthenticated superadmin opt-in)`)
   }
 
-  console.error(`[MCP Server] Tools registered: ${toolCount}`)
+  writeStderrLine(`[MCP Server] Tools registered: ${toolCount}`)
 
   await server.connect(transport)
 
-  console.error('[MCP Server] Connected and ready for requests')
+  writeStderrLine('[MCP Server] Connected and ready for requests')
 
   // Handle shutdown gracefully
   const shutdown = async () => {
-    console.error('[MCP Server] Shutting down...')
+    writeStderrLine('[MCP Server] Shutting down...')
     await server.close()
     process.exit(0)
   }

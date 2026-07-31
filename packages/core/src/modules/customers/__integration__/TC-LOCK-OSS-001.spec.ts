@@ -8,7 +8,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 /**
  * TC-LOCK-OSS-001: OSS opt-in optimistic locking on customers.company
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  *
  * Verifies that when `OM_OPTIMISTIC_LOCK` covers `customers.company`:
  *   - A PUT without the extension header succeeds (guard skips — opt-in semantics).

@@ -291,6 +291,8 @@ export {
   handleOpenCodeMessageStreaming,
   handleOpenCodeAnswer,
   getPendingQuestions,
+  getOwnedPendingQuestions,
+  OpenCodeSessionOwnershipError,
   extractTextFromResponse,
   extractAllPartsFromResponse,
   extractMetadataFromResponse,
@@ -301,6 +303,8 @@ export {
   type OpenCodeResponseMetadata,
   type OpenCodeStreamEvent,
   type OpenCodeQuestion,
+  type OpenCodeAuthContext,
+  type OpenCodeAnswerOwnershipOptions,
 } from './modules/ai_assistant/lib/opencode-handlers'
 
 // Module metadata

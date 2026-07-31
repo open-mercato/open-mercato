@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
  * TC-SALES-030: order/quote read-model totals fidelity.
@@ -431,6 +431,7 @@ test.describe('TC-SALES-030 sales read-model totals fidelity', () => {
         data: { orderId, currencyCode: 'USD', quantity: 2, name: 'Returnable', unitPriceNet: 100, unitPriceGross: 100 },
       })
       const orderLineId = (await readJson(lineResponse)).id as string
+      await createShipmentFixture(request, token, orderId!, [{ orderLineId, quantity: 2 }])
 
       let order = await readSingleDocument(request, token, 'orders', orderId!)
       expect(num(order.grandTotalGrossAmount)).toBe(200)

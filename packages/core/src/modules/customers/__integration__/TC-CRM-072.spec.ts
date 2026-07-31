@@ -22,7 +22,7 @@ import { getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__i
 /**
  * TC-CRM-072: Organization-scope fail-open authorization hardening.
  *
- * Spec: .ai/specs/2026-05-29-org-scope-fail-open-authorization-hardening.md (Phase 3)
+ * Spec: .ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md (Phase 3)
  * Issues: #2239 (write/command path) + #2245 (read/detail path).
  *
  * Vulnerability precondition (closed by the fix): a NON-super-admin user whose

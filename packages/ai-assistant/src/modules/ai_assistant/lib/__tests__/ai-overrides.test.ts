@@ -2,7 +2,7 @@
  * Coverage for the AI override pipeline. The pipeline is the only public
  * way for downstream modules (or app-level code) to replace or disable
  * an AI agent / AI tool registered by another module — see spec
- * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+ * `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md`.
  *
  * The pipeline has three tiers (highest precedence first):
  *   1. programmatic — `applyAiAgentOverrides` / `applyAiToolOverrides`
@@ -32,6 +32,23 @@ import {
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import type { AiToolDefinition } from '../types'
 import { z } from 'zod'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
 
 function makeAgent(id: string, overrides: Partial<AiAgentDefinition> = {}): AiAgentDefinition {
   return {
@@ -130,7 +147,8 @@ describe('applyAgentOverrideMap', () => {
   it('warns and skips a malformed override (id mismatch)', () => {
     const a = makeAgent('catalog.catalog_assistant')
     const malformed = makeAgent('catalog.merchandising_assistant')
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const out = applyAgentOverrideMap([a], {
       // The map key says one id but the value carries another.
       'catalog.catalog_assistant': malformed,
@@ -143,7 +161,8 @@ describe('applyAgentOverrideMap', () => {
 
   it('warns when an override targets an id with no base entry but does not throw', () => {
     const replacement = makeAgent('catalog.unknown')
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const out = applyAgentOverrideMap([], { 'catalog.unknown': replacement })
     expect(warnSpy).toHaveBeenCalled()
     // Override that registers a brand-new agent IS supported (synthetic agents)
@@ -264,7 +283,8 @@ describe('tool override map', () => {
   it('skips and warns on malformed overrides (name mismatch)', () => {
     const original = makeTool('customers.update_deal_stage')
     const malformed = makeTool('customers.list_people')
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const base = new Map<string, AiToolDefinition>([['customers.update_deal_stage', original]])
     const out = applyToolOverrideMap(base, { 'customers.update_deal_stage': malformed })
     expect(warnSpy).toHaveBeenCalled()

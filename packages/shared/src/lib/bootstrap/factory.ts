@@ -1,16 +1,18 @@
 import type { BootstrapData, BootstrapOptions } from './types'
 import { registerOrmEntities } from '../db/mikro'
-import { registerDiRegistrars } from '../di/container'
+import { registerAppDiRegistrar, registerDiRegistrars } from '../di/container'
 import { registerModules } from '../modules/registry'
 import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerCodeWorkflowEntries } from '../../modules/workflows/code-registry'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
 import { registerComponentOverrides } from '../../modules/widgets/component-registry'
 import { registerMutationGuards } from '../crud/mutation-guard-store'
 import { registerCommandInterceptors } from '../commands/command-interceptor-store'
+import { registerCommandLoaders } from '../commands/registry'
 import { registerNotificationHandlers } from '../notifications/handler-registry'
 import { clearRegisteredIntegrations, registerBundles, registerIntegrations } from '../../modules/integrations/types'
 import { applyComponentOverridesToEntries } from '../../modules/overrides'
@@ -32,6 +34,9 @@ let _asyncRegistrationPromise: Promise<void> | null = null
  */
 export function createBootstrap(data: BootstrapData, options: BootstrapOptions = {}) {
   return function bootstrap(): void {
+    if (options.appDiRegistrar) {
+      registerAppDiRegistrar(options.appDiRegistrar)
+    }
     // In development, always re-run registrations to handle HMR
     // (Module state may be reset when Turbopack reloads packages)
     if (_bootstrapped && process.env.NODE_ENV !== 'development') return
@@ -71,6 +76,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
       registerAnalyticsModuleConfigs(data.analyticsModuleConfigs)
     }
 
+    // === 6a. Code workflow definitions (so CLI/worker processes resolve them like the app runtime) ===
+    if (data.codeWorkflows?.length) {
+      registerCodeWorkflowEntries(data.codeWorkflows)
+    }
+
     // === 6b. Response enrichers (for CRUD response enrichment) ===
     if (data.enricherEntries) {
       registerResponseEnrichers(data.enricherEntries)
@@ -96,6 +106,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6f. Command interceptors (for command bus lifecycle) ===
     if (data.commandInterceptorEntries) {
       registerCommandInterceptors(data.commandInterceptorEntries)
+    }
+
+    // === 6f.1. Command loaders (for lazy command handler registration) ===
+    if (data.commandLoaderEntries) {
+      registerCommandLoaders(data.commandLoaderEntries)
     }
 
     // === 6g. Notification handlers (reactive notification side-effects) ===

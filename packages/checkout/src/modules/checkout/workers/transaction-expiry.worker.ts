@@ -4,6 +4,9 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutTransaction } from '../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'transaction-expiry' })
 
 export const CHECKOUT_EXPIRY_QUEUE = 'checkout-transaction-expiry'
 
@@ -59,7 +62,7 @@ export default async function handle(job: QueuedJob<CheckoutExpiryJob>, ctx: Han
         ctx: commandCtx,
       })
     } catch (error) {
-      console.error('[checkout:transaction-expiry] Failed to expire transaction', transaction.id, error)
+      logger.error('Failed to expire transaction', { transactionId: transaction.id, err: error })
     }
   }
 }

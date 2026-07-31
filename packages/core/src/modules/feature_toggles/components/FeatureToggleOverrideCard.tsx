@@ -1,6 +1,7 @@
 "use client"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
-import { DataLoader, ErrorNotice } from "@open-mercato/ui";
+import { DataLoader } from "@open-mercato/ui";
+import { Alert, AlertDescription, AlertTitle } from "@open-mercato/ui/primitives/alert";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
@@ -68,7 +69,10 @@ export function FeatureToggleOverrideCard({ toggleId }: { toggleId: string }) {
                     <CardTitle>{t('feature_toggles.override.title', 'Override')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <ErrorNotice message={error.message} />
+                    <Alert variant="destructive">
+                        <AlertTitle>{t('ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
+                        <AlertDescription>{error.message}</AlertDescription>
+                    </Alert>
                 </CardContent>
             </Card>
         )

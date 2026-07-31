@@ -140,7 +140,7 @@ curl http://localhost:4096/mcp
 ### Built-in Providers
 
 The registry ships 10 built-in providers via the ports & adapters
-architecture (see [`.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md`](../../.ai/specs/2026-04-14-llm-provider-ports-and-adapters.md)).
+architecture (see [`.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md`](../../.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md)).
 
 Native protocol adapters:
 

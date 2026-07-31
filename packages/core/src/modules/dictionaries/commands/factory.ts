@@ -12,6 +12,7 @@ import {
 } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { z } from 'zod'
@@ -20,6 +21,11 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 type DictionaryScope = {
   tenantId: string
   organizationId: string
+}
+
+export function ensureDictionaryEntryScope(ctx: CommandRuntimeContext, scope: DictionaryScope): void {
+  ensureTenantScope(ctx, scope.tenantId)
+  ensureOrganizationScope(ctx, scope.organizationId)
 }
 
 export type DictionaryEntrySnapshot = {
@@ -87,8 +93,8 @@ export type DictionaryEntryCommandConfig<TCreate, TUpdate> = {
   labels?: DictionaryEntryCommandLabels
 }
 
-function toScopeEnsurer(fn: EnsureScopeFn | undefined): EnsureScopeFn {
-  return typeof fn === 'function' ? fn : () => {}
+export function toScopeEnsurer(fn: EnsureScopeFn | undefined): EnsureScopeFn {
+  return typeof fn === 'function' ? fn : ensureDictionaryEntryScope
 }
 
 async function loadSnapshot(em: EntityManager, id: string): Promise<DictionaryEntrySnapshot | null> {

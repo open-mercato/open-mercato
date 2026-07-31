@@ -8,6 +8,9 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateNewDealsSettings, type CustomerNewDealsSettings } from './config'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type NewDealItem = {
   id: string
@@ -86,7 +89,7 @@ const CustomerNewDealsWidget: React.FC<DashboardWidgetComponentProps<CustomerNew
       const data = await loadNewDeals(hydrated)
       setItems(data)
     } catch (err) {
-      console.error('Failed to load new deals widget data', err)
+      logger.error('Failed to load new deals widget data', { err })
       setError(t('customers.widgets.newDeals.error'))
     } finally {
       setLoading(false)

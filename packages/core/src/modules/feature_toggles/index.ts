@@ -1,5 +1,4 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
-import './commands'
 
 export const metadata: ModuleInfo = {
   name: 'feature_toggles',
@@ -7,7 +6,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Global feature flags with tenant-level overrides.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
 }
 
 export { features } from './acl'

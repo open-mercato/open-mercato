@@ -115,6 +115,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "opencode_session_id": {
+          "name": "opencode_session_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "timestamptz",
@@ -188,6 +197,15 @@
           "constraint": true,
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "api_keys_opencode_session_id_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"api_keys_opencode_session_id_uq\" on \"api_keys\" (\"opencode_session_id\") where \"opencode_session_id\" is not null and \"deleted_at\" is null"
         }
       ],
       "checks": [],

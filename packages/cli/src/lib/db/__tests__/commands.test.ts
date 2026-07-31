@@ -228,6 +228,57 @@ describe('db commands', () => {
       mockConsoleError.mockRestore()
       mockExit.mockRestore()
     })
+
+    it('quotes discovered table names as single PostgreSQL identifiers', async () => {
+      const dangerousTableName = 'orders"; SELECT pg_sleep(10); --'
+      const migrationQuery = jest.fn().mockResolvedValue({ rows: [] })
+      const discoveredTableQuery = jest.fn().mockImplementation(async (sql: string) => {
+        if (sql.includes('FROM pg_tables')) {
+          return { rows: [{ tablename: dangerousTableName }] }
+        }
+        return { rows: [] }
+      })
+
+      const Client = jest
+        .fn()
+        .mockImplementationOnce(() => ({
+          connect: jest.fn().mockResolvedValue(undefined),
+          query: migrationQuery,
+          end: jest.fn().mockResolvedValue(undefined),
+        }))
+        .mockImplementationOnce(() => ({
+          connect: jest.fn().mockResolvedValue(undefined),
+          query: discoveredTableQuery,
+          end: jest.fn().mockResolvedValue(undefined),
+        }))
+      jest.doMock('pg', () => ({ Client }))
+
+      const originalDatabaseUrl = process.env.DATABASE_URL
+      process.env.DATABASE_URL = 'postgres://postgres:secret@127.0.0.1:5432/open_mercato'
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const resolver = {
+        loadEnabledModules: () => [],
+        getOutputDir: () => '/definitely/missing/generated',
+        getRootDir: () => '/definitely/missing',
+        getModulePaths: () => ({ appBase: '', pkgBase: '' }),
+      } as any
+
+      try {
+        await dbGreenfield(resolver, { yes: true })
+      } finally {
+        if (originalDatabaseUrl === undefined) {
+          delete process.env.DATABASE_URL
+        } else {
+          process.env.DATABASE_URL = originalDatabaseUrl
+        }
+        consoleLogSpy.mockRestore()
+        jest.dontMock('pg')
+      }
+
+      expect(discoveredTableQuery).toHaveBeenCalledWith(
+        'DROP TABLE IF EXISTS "orders""; SELECT pg_sleep(10); --" CASCADE',
+      )
+    })
   })
 
   describe('integration with sanitization', () => {

@@ -10,6 +10,23 @@
 import { recordTokenUsage, type RecordTokenUsageInput } from '../lib/token-usage-recorder'
 import type { AwilixContainer } from 'awilix'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeInput(overrides: Partial<RecordTokenUsageInput> = {}): RecordTokenUsageInput {
   return {
     authContext: {
@@ -71,7 +88,8 @@ describe('recordTokenUsage — R12 compliance', () => {
   })
 
   it('never throws when createEvent throws', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const input = makeInput()
     const container = makeContainer({ createEventThrows: true })
     await expect(recordTokenUsage(input, container)).resolves.toBeUndefined()
@@ -79,7 +97,8 @@ describe('recordTokenUsage — R12 compliance', () => {
   })
 
   it('never throws when upsertDaily throws', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const input = makeInput()
     const container = makeContainer({ upsertDailyThrows: true })
     await expect(recordTokenUsage(input, container)).resolves.toBeUndefined()
@@ -87,19 +106,21 @@ describe('recordTokenUsage — R12 compliance', () => {
   })
 
   it('logs a warn when DB write fails', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const input = makeInput()
     const container = makeContainer({ createEventThrows: true })
     await recordTokenUsage(input, container)
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[AI token-usage]'),
+      expect.stringContaining('recordTokenUsage failed'),
       expect.anything(),
     )
     warnSpy.mockRestore()
   })
 
   it('returns immediately without writing when tenantId is falsy', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const input = makeInput({ authContext: { tenantId: null, organizationId: null, userId: 'user-1' } })
     const container = makeContainer({})
     await expect(recordTokenUsage(input, container)).resolves.toBeUndefined()

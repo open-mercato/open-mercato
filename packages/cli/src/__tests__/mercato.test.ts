@@ -37,7 +37,10 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
     if (autoExit) {
       queueMicrotask(() => {
         if (child.exitCode !== null || child.signalCode !== null) return
-        if (pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
+        // A routed non-zero exit models a crash during startup, so the child must
+        // never announce readiness first — that is what the cold-start retry keys on.
+        const crashesBeforeReady = typeof autoExit.code === 'number' && autoExit.code !== 0
+        if (!crashesBeforeReady && pathIncludes(spawnargs[1] ?? '', 'next/dist/bin/next') && spawnargs.includes('dev')) {
           child.stdout.emit('data', '✓ Ready in 1ms\n')
         }
         queueMicrotask(() => {
@@ -352,9 +355,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -400,9 +401,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -451,9 +450,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -531,7 +528,7 @@ describe('init command failure output', () => {
   })
 })
 
-describe('generate post-step structural cache purge', () => {
+describe('generate post-step structural invalidation', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
     jest.resetModules()
@@ -540,28 +537,34 @@ describe('generate post-step structural cache purge', () => {
   afterEach(() => {
     jest.dontMock('../lib/generators')
     jest.dontMock('../lib/resolver')
+    jest.dontMock('../lib/post-generate-invalidation')
     jest.dontMock('@open-mercato/shared/lib/bootstrap/dynamicLoader')
     jest.resetModules()
   })
 
-  it('runs structural cache purge after successful generation when configs cache CLI is available', async () => {
+  it('uses the lightweight invalidation helper after successful generation', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateEntityIds = jest.fn().mockResolvedValue({
+      filesWritten: ['/tmp/test-app/.mercato/generated/entities.ids.generated.ts'],
+      filesUnchanged: [],
+      errors: [],
+    })
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
-    const cacheRun = jest.fn().mockResolvedValue(undefined)
+    const invalidate = jest.fn().mockResolvedValue({
+      cacheEntriesDeleted: 2,
+      generatedFilesTouched: ['/tmp/test-app/.mercato/generated/modules.generated.ts'],
+      cacheError: null,
+      generatedFilesError: null,
+    })
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -570,47 +573,88 @@ describe('generate post-step structural cache purge', () => {
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
         getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'configs', from: '@open-mercato/core' }],
       }),
     }))
-    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
-      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
-        modules: [
-          {
-            id: 'configs',
-            cli: [{ command: 'cache', run: cacheRun }],
-          },
-        ],
-      }),
+    jest.doMock('../lib/post-generate-invalidation', () => ({
+      runPostGenerateStructuralInvalidation: invalidate,
     }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => {
+      throw new Error('post-generation invalidation must not bootstrap generated modules')
+    })
 
     const mercato = await import('../mercato')
     const exitCode = await mercato.run(['node', 'mercato', 'generate'])
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
-    expect(cacheRun).toHaveBeenCalledWith(['structural', '--all-tenants', '--quiet'])
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledWith('/tmp/test-app')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
 
-  it('keeps generation successful when the post-generate cache purge bootstrap fails', async () => {
+  it('skips structural invalidation when every generated output is unchanged', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const unchangedResult = {
+      filesWritten: [],
+      filesUnchanged: ['/tmp/test-app/.mercato/generated/unchanged.generated.ts'],
+      errors: [],
+    }
+    const generators = {
+      generateEntityIds: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleRegistries: jest.fn().mockResolvedValue([unchangedResult, unchangedResult, unchangedResult]),
+      generateModuleEntities: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
+      generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
+      generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
+    }
+    const invalidate = jest.fn()
+
+    jest.doMock('../lib/generators', () => generators)
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'configs', from: '@open-mercato/core' }],
+      }),
+    }))
+    jest.doMock('../lib/post-generate-invalidation', () => ({
+      runPostGenerateStructuralInvalidation: invalidate,
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'generate'])
+
+    expect(exitCode).toBe(0)
+    expect(invalidate).not.toHaveBeenCalled()
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[generate] Generated outputs unchanged; skipping structural invalidation.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('keeps generation successful when lightweight invalidation fails', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const generateEntityIds = jest.fn().mockResolvedValue({
+      filesWritten: ['/tmp/test-app/.mercato/generated/entities.ids.generated.ts'],
+      filesUnchanged: [],
+      errors: [],
+    })
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
+    const invalidate = jest.fn().mockRejectedValue(new Error('cache maintenance unavailable'))
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -619,10 +663,11 @@ describe('generate post-step structural cache purge', () => {
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
         getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'configs', from: '@open-mercato/core' }],
       }),
     }))
-    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
-      bootstrapFromAppRoot: jest.fn().mockRejectedValue(new Error('generated cli bootstrap unavailable')),
+    jest.doMock('../lib/post-generate-invalidation', () => ({
+      runPostGenerateStructuralInvalidation: invalidate,
     }))
 
     const mercato = await import('../mercato')
@@ -630,6 +675,43 @@ describe('generate post-step structural cache purge', () => {
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledWith('/tmp/test-app')
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('skips cache infrastructure entirely when configs is not enabled', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const generate = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
+
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: generate,
+      generateModuleRegistries,
+      generateModuleEntities: generate,
+      generateModuleDi: generate,
+      generateModulePackageSources: generate,
+      generateOpenApi: generate,
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'auth', from: '@open-mercato/core' }],
+      }),
+    }))
+    jest.doMock('../lib/post-generate-invalidation', () => {
+      throw new Error('cache infrastructure must stay unloaded without configs')
+    })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'generate'])
+
+    expect(exitCode).toBe(0)
+    expect(generate).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -640,8 +722,11 @@ describe('server dev managed process exits', () => {
   const originalAutoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+  const originalLazyMode = process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
   const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   const originalGenerateWatchMode = process.env.OM_DEV_GENERATE_WATCH_MODE
+  const originalSingleDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
+  const originalExternalWorker = process.env.OM_EVENTS_EXTERNAL_WORKER
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -649,7 +734,14 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_SCHEDULER = 'false'
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    // These tests toggle AUTO_SPAWN_WORKERS to exercise scheduler/Next exits, not
+    // the events single-delivery guard. Acknowledge an external events worker so
+    // the (default-on) guard stays quiet, and start each test from a clean
+    // single-delivery env since the guard rewrites it in place.
+    delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    process.env.OM_EVENTS_EXTERNAL_WORKER = 'true'
     // These tests stub the resolver to an empty object; the in-process
     // generate watcher's default checksum function would error on the
     // missing methods. Force the legacy out-of-process mode so the
@@ -670,6 +762,7 @@ describe('server dev managed process exits', () => {
     if (originalGenerateWatchMode === undefined) delete process.env.OM_DEV_GENERATE_WATCH_MODE
     else process.env.OM_DEV_GENERATE_WATCH_MODE = originalGenerateWatchMode
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
@@ -678,8 +771,14 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = originalAutoSpawnWorkers
     if (originalLazy === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
+    if (originalLazyMode === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
+    else process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = originalLazyMode
     if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
     else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
+    if (originalSingleDelivery === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    else process.env.OM_EVENTS_SINGLE_DELIVERY = originalSingleDelivery
+    if (originalExternalWorker === undefined) delete process.env.OM_EVENTS_EXTERNAL_WORKER
+    else process.env.OM_EVENTS_EXTERNAL_WORKER = originalExternalWorker
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {
@@ -772,10 +871,330 @@ describe('server dev managed process exits', () => {
     consoleLogSpy.mockRestore()
   })
 
+  it('retries the Next.js dev server once when it exits before reporting ready', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () => {
+      const { EventEmitter } = jest.requireActual('node:events')
+      let nextSpawnCount = 0
+
+      const createChild = (autoExit?: { code: number | null; signal?: NodeJS.Signals | null; ready?: boolean }) => {
+        const child = new EventEmitter() as any
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.killed = false
+        child.exitCode = null
+        child.signalCode = null
+        child.kill = jest.fn(() => true)
+
+        if (autoExit) {
+          queueMicrotask(() => {
+            if (autoExit.ready) child.stdout.emit('data', '✓ Ready in 1ms\n')
+            queueMicrotask(() => {
+              child.exitCode = autoExit.code
+              child.signalCode = autoExit.signal ?? null
+              child.emit('exit', child.exitCode, child.signalCode)
+            })
+          })
+        }
+
+        return child
+      }
+
+      return {
+        spawn: jest.fn((_command: string, args: string[]) => {
+          if (pathIncludes(args[0] ?? '', 'next/dist/bin/next')) {
+            nextSpawnCount += 1
+            return nextSpawnCount === 1
+              ? createChild({ code: 1 })
+              : createChild({ code: null, signal: 'SIGTERM', ready: true })
+          }
+          return createChild()
+        }),
+      }
+    })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
+    )
+
+    expect(exitCode).toBe(0)
+    expect(nextSpawns).toHaveLength(2)
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...',
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('reports the failure when the retried Next.js dev server also exits before reporting ready', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: 1 } : undefined,
+      ),
+    )
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
+    )
+
+    expect(exitCode).toBe(1)
+    expect(nextSpawns).toHaveLength(2)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '💥 Failed: [server] Next.js dev server exited unexpectedly with exit code 1.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it.each([
+    ['Failed to restore task data (corrupted database or bug)'],
+    ['Unable to open static sorted file'],
+    ['TurbopackInternalError'],
+  ])('clears the Turbopack dev cache and restarts once on the lone signature %s', async (signature) => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    const rmSync = jest.fn()
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+        rmSync,
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () => {
+      const { EventEmitter } = jest.requireActual('node:events')
+      let nextSpawnCount = 0
+
+      const createChild = (options?: { output?: string; code?: number | null; signal?: NodeJS.Signals | null; ready?: boolean }) => {
+        const child = new EventEmitter() as any
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.killed = false
+        child.exitCode = null
+        child.signalCode = null
+        child.kill = jest.fn(() => true)
+
+        if (options) {
+          queueMicrotask(() => {
+            if (options.output) child.stderr.emit('data', options.output)
+            if (options.ready) child.stdout.emit('data', '✓ Ready in 1ms\n')
+            queueMicrotask(() => {
+              child.exitCode = options.code ?? null
+              child.signalCode = options.signal ?? null
+              child.emit('exit', child.exitCode, child.signalCode)
+            })
+          })
+        }
+
+        return child
+      }
+
+      return {
+        spawn: jest.fn((_command: string, args: string[]) => {
+          if (pathIncludes(args[0] ?? '', 'next/dist/bin/next')) {
+            nextSpawnCount += 1
+            return nextSpawnCount === 1
+              ? createChild({ output: `⨯ ${signature}\n`, code: 1 })
+              : createChild({ code: null, signal: 'SIGTERM', ready: true })
+          }
+          return createChild()
+        }),
+      }
+    })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
+    )
+    const cacheRemovals = rmSync.mock.calls.filter(([target]) =>
+      pathIncludes(String(target), '.mercato/next/dev'),
+    )
+
+    expect(exitCode).toBe(0)
+    expect(nextSpawns).toHaveLength(2)
+    expect(cacheRemovals).toHaveLength(1)
+    expect(cacheRemovals[0][1]).toEqual({ recursive: true, force: true })
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...',
+    )
+    // Corruption recovery owns this exit; the generic cold-start retry must not also fire.
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('exited before becoming ready'),
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('takes the plain cold-start retry without purging the cache when no corruption signature is present', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    const rmSync = jest.fn()
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+        rmSync,
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+    jest.doMock('child_process', () => {
+      const { EventEmitter } = jest.requireActual('node:events')
+      let nextSpawnCount = 0
+
+      const createChild = (options?: { output?: string; code?: number | null; signal?: NodeJS.Signals | null; ready?: boolean }) => {
+        const child = new EventEmitter() as any
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        child.killed = false
+        child.exitCode = null
+        child.signalCode = null
+        child.kill = jest.fn(() => true)
+
+        if (options) {
+          queueMicrotask(() => {
+            if (options.output) child.stderr.emit('data', options.output)
+            if (options.ready) child.stdout.emit('data', '✓ Ready in 1ms\n')
+            queueMicrotask(() => {
+              child.exitCode = options.code ?? null
+              child.signalCode = options.signal ?? null
+              child.emit('exit', child.exitCode, child.signalCode)
+            })
+          })
+        }
+
+        return child
+      }
+
+      return {
+        spawn: jest.fn((_command: string, args: string[]) => {
+          if (pathIncludes(args[0] ?? '', 'next/dist/bin/next')) {
+            nextSpawnCount += 1
+            return nextSpawnCount === 1
+              ? createChild({ output: 'Another next dev server is already running.\n', code: 1 })
+              : createChild({ code: null, signal: 'SIGTERM', ready: true })
+          }
+          return createChild()
+        }),
+      }
+    })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+    const { spawn } = await import('child_process')
+    const nextSpawns = (spawn as jest.Mock).mock.calls.filter((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next'),
+    )
+    const cacheRemovals = rmSync.mock.calls.filter(([target]) =>
+      pathIncludes(String(target), '.mercato/next/dev'),
+    )
+
+    expect(exitCode).toBe(0)
+    expect(nextSpawns).toHaveLength(2)
+    // A lock conflict is not cache corruption — the dev cache must survive.
+    expect(cacheRemovals).toHaveLength(0)
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
   it('starts the lazy worker supervisor instead of `queue worker --all` when OM_AUTO_SPAWN_WORKERS_LAZY=true', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     process.env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+    process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
 
     jest.doMock('node:fs', () => {
       const actual = jest.requireActual('node:fs')
@@ -826,7 +1245,14 @@ describe('server dev managed process exits', () => {
     expect(supervisorCall.workers.map((worker) => worker.queue)).toEqual(['events'])
     expect(supervisorCall.pollMs).toBe(1000)
     expect(supervisorCall.restartOnUnexpectedExit).toBe(true)
+    expect(supervisorCall.spawnMode).toBe('shared')
     expect(supervisorClose).toHaveBeenCalled()
+
+    const lazyLogLine = consoleLogSpy.mock.calls
+      .map((call) => call[0])
+      .find((line) => typeof line === 'string' && line.startsWith('[server] Lazy worker auto-spawn enabled'))
+    expect(lazyLogLine).toContain('shared worker mode')
+    expect(lazyLogLine).toContain('OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue')
 
     const { spawn } = await import('child_process')
     const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])
@@ -909,6 +1335,8 @@ describe('server start managed process exits', () => {
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
   const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+  const originalSingleDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
+  const originalExternalWorker = process.env.OM_EVENTS_EXTERNAL_WORKER
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -917,6 +1345,11 @@ describe('server start managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
+    // Not exercising the events single-delivery guard here — acknowledge an
+    // external worker so the default-on guard stays quiet, and reset the
+    // guard-rewritten single-delivery env between tests.
+    delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    process.env.OM_EVENTS_EXTERNAL_WORKER = 'true'
   })
 
   afterEach(() => {
@@ -938,6 +1371,10 @@ describe('server start managed process exits', () => {
     else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
     if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
     else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
+    if (originalSingleDelivery === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+    else process.env.OM_EVENTS_SINGLE_DELIVERY = originalSingleDelivery
+    if (originalExternalWorker === undefined) delete process.env.OM_EVENTS_EXTERNAL_WORKER
+    else process.env.OM_EVENTS_EXTERNAL_WORKER = originalExternalWorker
   })
 
   it('skips scheduler auto-start when the module is not enabled', async () => {

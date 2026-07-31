@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import spawn from 'cross-spawn'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
+import { assertLocalSplashRequest } from './dev-splash-shared.mjs'
 
 const FALSE_TOKENS = new Set(['0', 'false', 'no', 'off', 'disabled'])
 const GITHUB_REMOTE_PATTERNS = [
@@ -728,6 +729,12 @@ export function createDevSplashGitRepoFlow(options = {}) {
 
     if (req.method !== 'POST') {
       writeJson(res, 405, { ok: false, error: 'Method not allowed.' })
+      return true
+    }
+
+    const localCheck = assertLocalSplashRequest(req)
+    if (!localCheck.ok) {
+      writeJson(res, localCheck.status, { ok: false, error: localCheck.error })
       return true
     }
 
