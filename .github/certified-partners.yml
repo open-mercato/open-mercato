@@ -1,5 +1,8 @@
 # Certified partners of Open Mercato and their GitHub contributors.
 #
+# Contributors listed here may run `/label <label>` on pull requests
+# (see .github/workflows/community-labels.yml); everyone else is ignored.
+#
 # To add a contributor: open a PR extending your company's list.
 # An Open Mercato review + merge of that PR is the approval.
 
