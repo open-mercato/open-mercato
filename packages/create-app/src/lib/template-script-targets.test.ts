@@ -124,6 +124,15 @@ test('the template ignores raw agent session exports', () => {
   assert.match(gitignore, /^\.ai\/session-exports\/$/m)
 })
 
+test('the template predeclares Next type outputs under the configured build directory', () => {
+  const tsconfig = JSON.parse(
+    fs.readFileSync(new URL('tsconfig.json', TEMPLATE_DIR), 'utf8'),
+  ) as { include?: string[] }
+
+  assert.ok(tsconfig.include?.includes('.mercato/next/types/**/*.ts'))
+  assert.ok(tsconfig.include?.includes('.mercato/next/dev/types/**/*.ts'))
+})
+
 test('the standalone smoke test installs the scaffold before invoking its Yarn scripts', () => {
   const smokeTest = fs.readFileSync(
     new URL('../../../../scripts/test-create-app.ts', import.meta.url),
