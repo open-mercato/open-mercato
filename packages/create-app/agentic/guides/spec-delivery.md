@@ -5,7 +5,7 @@ Use this guide for a new application, multi-module feature, or other non-trivial
 ## Authoring readiness gate
 
 1. Invoke `om-spec-writing` before authoring or revising. Mentioning the skill or reading only `SPEC-000-template.md` is not sufficient.
-2. Preserve every template section; use `N/A — reason` only when a section genuinely does not apply.
+2. After invocation, read `.ai/specs/SPEC-000-template.md` and preserve every section; use `N/A — reason` only when a section genuinely does not apply.
 3. Keep status `Draft` until no blocking open question remains and every requirement maps to an acceptance criterion, implementation phase, and self-contained test oracle.
 4. For each affected UI route, inspect and cite the closest existing Open Mercato page plus `.ai/guides/backend-ui.md`; specify its text mockup/structure, actions, data source and mutations, permissions, canonical shell/components, and loading/empty/error/conflict/keyboard/a11y/responsive/light/dark states. Tabular admin data names `DataTable`; CRUD create/edit names `CrudForm`; backend reads name shared API helpers; every exception has an explicit rationale.
 5. New applications and multi-module requests also define domain vocabulary/invariants, measurable success, navigation/widgets, module ownership and extension points, architecture/data flow, and concrete risk scenarios. A page inventory alone is not an app architecture.

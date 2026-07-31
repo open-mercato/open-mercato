@@ -105,7 +105,7 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 - Load matched guides once, then only needed references/facts.
 - Hard budgets: guide > skill > references; open a reference only for its named subject.
-- Specs: list names; open one task match; skip README/template.
+- Specs: open one match; `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
 - Never bulk-read guide, skill, fact, or source trees.

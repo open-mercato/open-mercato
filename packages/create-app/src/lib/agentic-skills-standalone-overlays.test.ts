@@ -365,6 +365,10 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     new URL('../../agentic/shared/ai/specs/SPEC-000-template.md', import.meta.url),
     'utf8',
   )
+  const specsReadme = fs.readFileSync(
+    new URL('../../agentic/shared/ai/specs/README.md', import.meta.url),
+    'utf8',
+  )
   const deliveryGuide = fs.readFileSync(
     new URL('../../agentic/guides/spec-delivery.md', import.meta.url),
     'utf8',
@@ -418,6 +422,16 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     'routing must invoke om-spec-writing and load the readiness guide',
   )
   assert.match(
+    agentsTemplate,
+    /`spec-pr` reads template via spec-delivery/,
+    'the token-efficient routing policy must not skip the template during spec authoring',
+  )
+  assert.match(
+    deliveryGuide,
+    /After invocation, read `\.ai\/specs\/SPEC-000-template\.md` and preserve every section/,
+    'the readiness guide must load the standalone template after invoking om-spec-writing',
+  )
+  assert.match(
     deliveryGuide,
     /Only the current unblocked phase may be in progress/,
     'the routed delivery guide must prevent blocked phases from running concurrently',
@@ -447,6 +461,11 @@ test('standalone specs cannot become implementation-ready without UI, traceabili
     backendGuide,
     /`DataTable` has no `apiPath` prop/,
     'backend guidance must not send agents toward a nonexistent DataTable apiPath prop',
+  )
+  assert.match(
+    specsReadme,
+    /Implement through `om-implement-spec`.*one dependency-ordered phase at a time/,
+    'the generated specs README must not advertise an unphased template-to-code shortcut',
   )
 })
 
