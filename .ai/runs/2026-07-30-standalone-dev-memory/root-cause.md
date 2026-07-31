@@ -252,13 +252,13 @@ Raw reports:
 
 | Warmup mode | Median peak total | Median mean total | Median maximum `next-turbopack` | Median maximum `next-server` |
 | --- | ---: | ---: | ---: | ---: |
-| Suppressed | **9,104.50 MB** | 7,608.97 MB | **7,462.29 MB** | **6,890.12 MB** |
+| Suppressed | **9,104.50 MB** | 7,608.97 MB | **7,470.41 MB** | **6,898.57 MB** |
 | Login only | 9,265.74 MB | 6,983.29 MB | 8,259.28 MB | 7,819.54 MB |
 | Full | 11,033.66 MB | 7,530.15 MB | 9,755.57 MB | 9,224.11 MB |
 
-Login-only added 161.24 MB total, 796.99 MB class, and 929.42 MB server RSS over
-suppression. Full warmup added 1,929.16 MB total, 2,293.28 MB class, and
-2,333.99 MB server RSS. Suppression is the decisive directional warmup winner. Its
+Login-only added 161.24 MB total, 788.87 MB class, and 920.97 MB server RSS over
+suppression. Full warmup added 1,929.16 MB total, 2,285.16 MB class, and
+2,325.55 MB server RSS. Suppression is the decisive directional warmup winner. Its
 absolute ceiling deltas are not formal evidence; the acceptance conclusion comes
 from the Node 24 repeats above.
 

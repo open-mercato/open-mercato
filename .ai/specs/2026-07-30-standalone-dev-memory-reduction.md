@@ -372,7 +372,7 @@ the Node 24 baseline; its absolute ceiling comparisons are directional only.
 
 | Targeted warmup mode | Median peak total | Median mean total | Median maximum `next-turbopack` | Median maximum `next-server` |
 | --- | ---: | ---: | ---: | ---: |
-| Suppressed | **9,104.50 MB** | 7,608.97 MB | **7,462.29 MB** | **6,890.12 MB** |
+| Suppressed | **9,104.50 MB** | 7,608.97 MB | **7,470.41 MB** | **6,898.57 MB** |
 | Login only | 9,265.74 MB | 6,983.29 MB | 8,259.28 MB | 7,819.54 MB |
 | Full | 11,033.66 MB | 7,530.15 MB | 9,755.57 MB | 9,224.11 MB |
 
@@ -383,7 +383,9 @@ The six reports below the retained fixture are
 `.mercato/dev-rss/experiment-warm-seed-l2-login-only.json`,
 `.mercato/dev-rss/experiment-warm-seed-f1-full.json`, and
 `.mercato/dev-rss/experiment-warm-seed-f2-full.json`. Full warmup adds
-1,929.16 MB total and 2,293.28 MB class RSS over suppression. The absolute Node 25
+1,929.16 MB total and 2,285.16 MB class RSS over suppression; login-only adds
+161.24 MB total, 788.87 MB class, and 920.97 MB server RSS, while full warmup adds
+2,325.55 MB server RSS. The absolute Node 25
 ceiling deltas are not acceptance evidence; the conclusion comes from the Node 24
 repeats above.
 
