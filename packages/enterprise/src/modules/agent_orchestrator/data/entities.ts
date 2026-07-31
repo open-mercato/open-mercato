@@ -410,7 +410,7 @@ export type AgentEvalCaseStatus = 'draft' | 'approved' | 'archived'
 @Index({ name: 'agent_eval_cases_agent_input_key_idx', properties: ['organizationId', 'agentDefinitionId', 'inputKey'] })
 export class AgentEvalCase {
   [OptionalProps]?:
-    | 'processType' | 'inputKey' | 'expected' | 'assertions' | 'status' | 'approvedByUserId'
+    | 'name' | 'processType' | 'inputKey' | 'expected' | 'assertions' | 'status' | 'approvedByUserId'
     | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -431,6 +431,10 @@ export class AgentEvalCase {
 
   @Property({ name: 'agent_definition_id', type: 'varchar', length: 100 })
   agentDefinitionId!: string
+
+  /** Human label for the case, shown as the first list column. Plaintext (not PII). */
+  @Property({ name: 'name', type: 'varchar', length: 200, nullable: true })
+  name?: string | null
 
   @Property({ name: 'process_type', type: 'varchar', length: 100, nullable: true })
   processType?: string | null

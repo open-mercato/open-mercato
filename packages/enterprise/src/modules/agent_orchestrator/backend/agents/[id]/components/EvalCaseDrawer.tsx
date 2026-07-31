@@ -14,9 +14,13 @@ import {
   DrawerClose,
 } from '@open-mercato/ui/primitives/drawer'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Pencil } from 'lucide-react'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
+import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -40,6 +44,7 @@ const STATUS_TONE: StatusMap<EvalCaseStatus> = {
 
 type EvalCaseDetail = {
   id: string
+  name: string | null
   status: EvalCaseStatus
   sourceType: EvalCaseSourceType
   sourceId: string
@@ -54,6 +59,7 @@ type EvalCaseDetail = {
 
 type CaseFormValues = {
   agentDefinitionId: string
+  name?: string
   processType?: string
   input: string
   expected?: string
@@ -85,6 +91,7 @@ function mapDetail(record: Record<string, unknown>): EvalCaseDetail | null {
   const sourceTypeRaw = readString(record, 'source_type', 'sourceType')
   return {
     id,
+    name: readString(record, 'name') || null,
     status: statusRaw === 'approved' ? 'approved' : statusRaw === 'archived' ? 'archived' : 'draft',
     sourceType: sourceTypeRaw === 'correction' ? 'correction' : 'golden_run',
     sourceId: readString(record, 'source_id', 'sourceId'),
@@ -142,6 +149,7 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
   }, [caseId])
 
   React.useEffect(() => {
+    setEditing(false)
     if (!open || mode !== 'view' || !caseId) {
       setDetail(null)
       return
@@ -177,10 +185,53 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
     }
   }, [detail, runMutation, retryLastMutation, load, onChanged, t])
 
+  // Inline edit of an existing case: its name and the golden `expected` output
+  // (edited with the JSON tree builder). `input` stays read-only — it defines
+  // what live runs this case golden-matches, so editing it here would silently
+  // change the match key.
+  const [editing, setEditing] = React.useState(false)
+  const [editName, setEditName] = React.useState('')
+  const [editExpected, setEditExpected] = React.useState<unknown>({})
+
+  const startEdit = React.useCallback(() => {
+    if (!detail) return
+    setEditName(detail.name ?? '')
+    setEditExpected(detail.expected ?? {})
+    setEditing(true)
+  }, [detail])
+
+  const saveEdit = React.useCallback(async () => {
+    if (!detail) return
+    setIsBusy(true)
+    try {
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(detail.updatedAt),
+            () => apiCallOrThrow('/api/agent_orchestrator/eval-cases', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: detail.id, name: editName.trim() || null, expected: editExpected }),
+            }),
+          ),
+        context: { retryLastMutation },
+      })
+      flash(t('agent_orchestrator.evalCases.flash.saved', 'Case saved.'), 'success')
+      setEditing(false)
+      await load({ silent: true })
+      onChanged()
+    } catch (err) {
+      if (!surfaceRecordConflict(err, t)) flash(t('agent_orchestrator.evalCases.flash.actionError'), 'error')
+    } finally {
+      setIsBusy(false)
+    }
+  }, [detail, editName, editExpected, runMutation, retryLastMutation, load, onChanged, t])
+
   const createSchema = React.useMemo(
     () =>
       z.object({
         agentDefinitionId: z.string().min(1, 'agent_orchestrator.evalCases.form.errors.agentRequired'),
+        name: z.string().optional(),
         processType: z.string().optional(),
         input: z.string().min(1, 'agent_orchestrator.evalCases.form.errors.inputRequired'),
         expected: z.string().optional(),
@@ -203,6 +254,12 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
         seedOptions: agentOptions,
         allowCustomValues: true,
         required: true,
+      },
+      {
+        id: 'name',
+        label: t('agent_orchestrator.evalCases.form.name', 'Name'),
+        type: 'text',
+        description: t('agent_orchestrator.evalCases.form.nameHint', 'Optional label shown in the cases list.'),
       },
       {
         id: 'processType',
@@ -272,6 +329,7 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
                 const processType = values.processType?.trim() ?? ''
                 await createCrud('agent_orchestrator/eval-cases', {
                   agentDefinitionId: values.agentDefinitionId,
+                  name: values.name?.trim() || undefined,
                   input: parsedInput,
                   expected: expectedRaw ? parsedExpected : undefined,
                   processType: processType || undefined,
@@ -311,6 +369,21 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
                   </div>
 
                   <section className="space-y-2">
+                    <SectionHeader title={t('agent_orchestrator.evalCases.form.name', 'Name')} />
+                    {editing ? (
+                      <Input
+                        value={editName}
+                        onChange={(event) => setEditName(event.target.value)}
+                        placeholder={t('agent_orchestrator.evalCases.form.nameHint', 'Optional label shown in the cases list.')}
+                      />
+                    ) : (
+                      <p className={detail.name ? 'text-sm font-medium text-foreground' : 'text-sm text-muted-foreground'}>
+                        {detail.name || t('agent_orchestrator.evalCases.col.unnamed', 'Unnamed case')}
+                      </p>
+                    )}
+                  </section>
+
+                  <section className="space-y-2">
                     <SectionHeader title={t('agent_orchestrator.evalCases.detail.input')} />
                     {detail.input == null ? (
                       <p className="text-sm text-muted-foreground">{t('agent_orchestrator.evalCases.detail.noPayload')}</p>
@@ -321,7 +394,9 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
 
                   <section className="space-y-2">
                     <SectionHeader title={t('agent_orchestrator.evalCases.detail.expected')} />
-                    {detail.expected == null ? (
+                    {editing ? (
+                      <JsonBuilder value={editExpected} onChange={setEditExpected} />
+                    ) : detail.expected == null ? (
                       <p className="text-sm text-muted-foreground">{t('agent_orchestrator.evalCases.detail.noPayload')}</p>
                     ) : (
                       <JsonDisplay data={detail.expected} maxHeight="16rem" />
@@ -365,23 +440,43 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
               )}
             </DrawerBody>
             <DrawerFooter>
-              <DrawerClose asChild>
-                <Button type="button" variant="outline">
-                  {t('agent_orchestrator.evalCases.detail.back')}
-                </Button>
-              </DrawerClose>
-              {detail && detail.status === 'draft' ? (
-                <Button type="button" size="default" disabled={isBusy} onClick={() => { void changeStatus('approve') }}>
-                  <Check className="size-4" />
-                  {t('agent_orchestrator.evalCases.actions.approve')}
-                </Button>
-              ) : null}
-              {detail && (detail.status === 'draft' || detail.status === 'approved') ? (
-                <Button type="button" variant="outline" disabled={isBusy} onClick={() => { void changeStatus('archive') }}>
-                  <Archive className="size-4" />
-                  {t('agent_orchestrator.evalCases.actions.archive')}
-                </Button>
-              ) : null}
+              {editing ? (
+                <>
+                  <Button type="button" variant="outline" disabled={isBusy} onClick={() => setEditing(false)}>
+                    {t('agent_orchestrator.evalCases.actions.cancel', 'Cancel')}
+                  </Button>
+                  <Button type="button" disabled={isBusy} onClick={() => { void saveEdit() }}>
+                    <Check className="size-4" />
+                    {t('agent_orchestrator.evalCases.actions.save', 'Save')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <DrawerClose asChild>
+                    <Button type="button" variant="outline">
+                      {t('agent_orchestrator.evalCases.detail.back')}
+                    </Button>
+                  </DrawerClose>
+                  {detail && detail.status !== 'archived' ? (
+                    <Button type="button" variant="outline" disabled={isBusy} onClick={startEdit}>
+                      <Pencil className="size-4" />
+                      {t('agent_orchestrator.evalCases.actions.edit', 'Edit')}
+                    </Button>
+                  ) : null}
+                  {detail && detail.status === 'draft' ? (
+                    <Button type="button" size="default" disabled={isBusy} onClick={() => { void changeStatus('approve') }}>
+                      <Check className="size-4" />
+                      {t('agent_orchestrator.evalCases.actions.approve')}
+                    </Button>
+                  ) : null}
+                  {detail && (detail.status === 'draft' || detail.status === 'approved') ? (
+                    <Button type="button" variant="outline" disabled={isBusy} onClick={() => { void changeStatus('archive') }}>
+                      <Archive className="size-4" />
+                      {t('agent_orchestrator.evalCases.actions.archive')}
+                    </Button>
+                  ) : null}
+                </>
+              )}
             </DrawerFooter>
           </>
         )}
