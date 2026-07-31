@@ -55,18 +55,20 @@
 
 ### Phase 1: Prove the aggregate-evidence defect
 
-- [ ] 1.1 Add the disconnected-valid-evidence/raw-list fixture.
-- [ ] 1.2 Run it against the unchanged oracle and retain sanitized false-pass evidence.
+- [x] 1.1 Add the disconnected-valid-evidence/raw-list fixture. — 290039f68
+- [x] 1.2 Run it against the unchanged oracle and retain sanitized false-pass evidence. — 290039f68
 - [ ] 1.3 Run a fresh OMH-185 Claude attempt when capacity is available and classify the result honestly.
+
+Failure-first evidence: the focused fixture reached `module.table` and observed the unchanged aggregate oracle returning a false pass; no raw model output or target path was retained.
 
 ### Phase 2: Bind the oracle to the required route
 
-- [ ] 2.1 Add route-subtree source collection.
-- [ ] 2.2 Strengthen `module.table` with imports, props, actions, and raw-tag rejection.
-- [ ] 2.3 Add positive delegation and negative variant tests while keeping failures structured and sanitized.
+- [x] 2.1 Add route-subtree source collection. — 290039f68
+- [x] 2.2 Strengthen `module.table` with imports, props, actions, and raw-tag rejection. — 290039f68
+- [x] 2.3 Add positive delegation and negative variant tests while keeping failures structured and sanitized. — 290039f68
 
 ### Phase 3: Synchronize and certify
 
-- [ ] 3.1 Tighten OMH-185 and review documentation without adding a case ID.
+- [x] 3.1 Tighten OMH-185 and review documentation without adding a case ID. — 75c8418d9
 - [ ] 3.2 Run focused, package, deterministic, related, mandatory, template-parity, and configured repository gates.
 - [ ] 3.3 Run fresh writable target validation, generated review, and the full Claude release suite; publish only sanitized evidence.
