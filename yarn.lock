@@ -7438,6 +7438,7 @@ __metadata:
     "@napi-rs/canvas": "npm:^1.0.2"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
+    "@open-mercato/channel-discord": "workspace:*"
     "@open-mercato/channel-gmail": "workspace:*"
     "@open-mercato/channel-imap": "workspace:*"
     "@open-mercato/checkout": "workspace:*"
@@ -7536,7 +7537,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/channel-discord@workspace:packages/channel-discord":
+"@open-mercato/channel-discord@workspace:*, @open-mercato/channel-discord@workspace:packages/channel-discord":
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-discord@workspace:packages/channel-discord"
   dependencies:
