@@ -232,6 +232,11 @@ export default function WorkflowGraphImpl({
   // keeping React Flow's runtime out of the editor page chunk.
   const latestNodesRef = useRef(nodes)
   latestNodesRef.current = nodes
+  // React Flow renders `canvasNodes` (base nodes + the decorative trigger
+  // overlay), so a drag's change batch MUST be applied to that exact array —
+  // applying it to the base `nodes` breaks React Flow's controlled contract and
+  // freezes manual node dragging. Assigned below, once `canvasNodes` is derived.
+  const latestCanvasNodesRef = useRef<Node[]>(nodes)
   const latestEdgesRef = useRef(edges)
   latestEdgesRef.current = edges
 
@@ -344,7 +349,30 @@ export default function WorkflowGraphImpl({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      const nextNodes = applyNodeChanges(changes, latestNodesRef.current)
+      // Apply against the RENDERED array (`canvasNodes`) so React Flow's
+      // controlled drag stays consistent, then project the position/selection
+      // updates back onto the clean base nodes. The trigger overlay is absent
+      // from the base and drops out for free, and node decorations stay derived
+      // rather than baked into state.
+      const applied = applyNodeChanges(changes, latestCanvasNodesRef.current)
+      const appliedById = new Map(applied.map((node) => [node.id, node]))
+      const nextNodes = latestNodesRef.current.map((baseNode) => {
+        const next = appliedById.get(baseNode.id)
+        if (!next) return baseNode
+        if (
+          next.position === baseNode.position &&
+          next.selected === baseNode.selected &&
+          next.dragging === baseNode.dragging
+        ) {
+          return baseNode
+        }
+        return {
+          ...baseNode,
+          position: next.position,
+          selected: next.selected,
+          dragging: next.dragging,
+        }
+      })
       setNodes(nextNodes)
       if (onNodesChangeProp) {
         onNodesChangeProp(nextNodes, describeNodeChanges(changes))
@@ -496,6 +524,8 @@ export default function WorkflowGraphImpl({
     if (!triggerModel || !triggerAnchor) return overlaidNodes
     return [...overlaidNodes, buildTriggerNode(triggerModel, triggerAnchor, { onOpen: onOpenTriggers })]
   }, [overlaidNodes, triggerModel, triggerAnchor, onOpenTriggers])
+  // Keep the drag reducer applying changes to the exact array React Flow renders.
+  latestCanvasNodesRef.current = canvasNodes
 
   const displayEdges = useMemo(() => {
     const withGhosts = showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges
