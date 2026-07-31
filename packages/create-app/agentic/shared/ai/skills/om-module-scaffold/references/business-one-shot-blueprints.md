@@ -17,7 +17,7 @@ Once a row matches, its route key is binding: invoke every unparenthesized route
 
 ## Canonical Staff Record Inference
 
-Before applying this mapping or writing files, directly read all three complete-module procedures: `.ai/skills/om-module-scaffold/references/api-and-domain.md`, `.ai/skills/om-module-scaffold/references/module-surfaces.md`, and `.ai/skills/om-module-scaffold/references/verification.md`. Their canonical exports, callbacks, placements, and verification paths are binding; do not substitute plausible alternatives such as `locales/` for `i18n/` or module-level tests for `commands/__tests__/`.
+Immediately after this file and before any optional specialist reference, directly read all three complete-module procedures: `.ai/skills/om-module-scaffold/references/api-and-domain.md`, `.ai/skills/om-module-scaffold/references/module-surfaces.md`, and `.ai/skills/om-module-scaffold/references/verification.md`. When context is bounded, these required procedures win over allowed-extra references. Their canonical exports, callbacks, placements, and verification paths are binding; do not substitute plausible alternatives such as `locales/` for `i18n/` or module-level tests for `commands/__tests__/`.
 
 Business briefs should describe outcomes; translate familiar staff record-management language into the framework's canonical surfaces without making the user name them:
 

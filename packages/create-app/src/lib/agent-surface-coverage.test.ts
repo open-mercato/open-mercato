@@ -298,6 +298,8 @@ test('the business-language cohort includes the OMH-185 parity case without leak
   const businessCase = cases.find((entry) => entry.id === 'OMH-193')
   assert.ok(technicalCase)
   assert.ok(businessCase)
+  assert.match(businessCase.prompt, /Use every standard platform procedure/)
+  assert.match(businessCase.prompt, /checking the generated app/)
   assert.doesNotMatch(businessCase.prompt, /CrudForm|DataTable|makeCrudRoute|src\/modules|\/backend\/|\.tsx?\b|optimistic locking|UMES|i18n|Jest/)
   for (const field of ['owner', 'expectedRouter', 'requiredSkills', 'context', 'requiredDecisions', 'forbiddenPatterns', 'validators', 'fixture', 'oracle', 'allowedWrites', 'timeoutMs'] as const) {
     assert.deepEqual(businessCase[field], technicalCase[field], `OMH-193 must preserve OMH-185 ${field}`)
