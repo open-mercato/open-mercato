@@ -163,6 +163,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   ]) assert.ok(blueprint.includes(expected), `missing business-to-framework inference ${expected}`)
   assert.match(blueprint, /do not substitute plausible alternatives/)
   assert.match(blueprint, /### Complete Library Contract/)
+  assert.match(blueprint, /Do not route `framework-context`/)
   for (const expected of [
     '`library.books.view`',
     '`library.books.manage`',

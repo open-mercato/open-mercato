@@ -34,6 +34,8 @@ Treat this mapping as a completion checklist, not optional examples. Verify each
 
 When the selected row is the complete library app, do a final source-level check against this bounded contract before generation; do not generalize these library IDs into other domains:
 
+The required procedures plus this bounded contract resolve the library slice's framework choices. Do not route `framework-context` or load its resolver for this slice; spend that context on the three mandatory complete-module references instead.
+
 - Export and default-export `features` with exact IDs `library.books.view` and `library.books.manage`. Export `setup: ModuleSetupConfig = { defaultRoleFeatures }`; a detached `defaultRoleFeatures` export is not discovered setup.
 - Use entity ID `library:book`. The `makeCrudRoute` ORM keys are `tenantField` and `orgField`; its list keys are `schema`, `buildFilters`, and `transformItem`. Keep response transforms in supported `response` callbacks, register `library.books.create`, `library.books.update`, and `library.books.delete` with concrete `registerCommand(...)` calls, and use the installed `createCrudOpenApiFactory` signature exactly.
 - Keep custom fields in the framework data engine rather than an entity JSON column. Submission calls `collectCustomFieldValues`; snapshots call `loadCustomFieldSnapshot`; update and delete undo each call `buildCustomFieldResetMap` and restore through `setCustomFields` in the same `withAtomicFlush` boundary.
