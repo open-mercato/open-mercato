@@ -11,10 +11,11 @@ export default function PrivacyPage() {
       ]}
     >
       <p>
-        <strong>This Privacy Policy</strong> (this &ldquo;Policy&rdquo;) describes how <strong>CT Tornado</strong> sp. z o.o.,
+        <strong>This Privacy Policy</strong> (this &ldquo;Policy&rdquo;) describes how <strong>Open Mercato</strong> sp. z o.o.,
         a company duly incorporated and existing under the laws of the Republic of Poland, with its principal place of business
-        in Wroclaw (address: ul. Wyspa S&#322;odowa 7, 50-266 Wroclaw, Poland; registration: District Court for
-        Wroc&#322;aw-Fabryczna in Wroclaw, company no.: 873910; EU VAT no.: PL8982262377; share capital: PLN 5,000.00;
+        in Wroclaw (address: ul. Wyspa S&#322;odowa 7, 50-266 Wroclaw, Poland; entered in the Register of Entrepreneurs of the
+        National Court Register kept by the District Court for Wroc&#322;aw-Fabryczna in Wroclaw, VI Commercial Division of the
+        National Court Register, under KRS no.: 0001253104; REGON: 545230330; NIP (EU VAT) no.: PL8982336029;
         &ldquo;we&rdquo;) collects, uses, stores, and protects personal data in connection with the services provided through
         our platform (the &ldquo;<strong>Platform</strong>&rdquo; and &ldquo;<strong>Services</strong>&rdquo;, respectively),
         the browsing of our website at{' '}
@@ -181,8 +182,8 @@ export default function PrivacyPage() {
       <h2>9. How to Exercise Your Rights and Contact Us</h2>
       <p>For requests or questions about this Policy or our data practices, contact us at:</p>
       <ul>
-        <li>CT Tornado sp. z o.o., ul. Wyspa S&#322;odowa 7, 50-266 Wroc&#322;aw, Poland.</li>
-        <li>Email: <a href="mailto:info@catchthetornado.com">info@catchthetornado.com</a></li>
+        <li>Open Mercato sp. z o.o., ul. Wyspa S&#322;odowa 7, 50-266 Wroc&#322;aw, Poland.</li>
+        <li>Email: <a href="mailto:info@openmercato.com">info@openmercato.com</a></li>
       </ul>
       <p>
         We will respond within a reasonable time and may request identity verification where appropriate.
