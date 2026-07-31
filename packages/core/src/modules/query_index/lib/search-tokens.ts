@@ -1,5 +1,5 @@
-import { type Kysely, sql } from 'kysely'
-import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
+import { type Kysely, sql, type OnConflictBuilder, type InsertQueryBuilder } from 'kysely'
+import { resolveSearchConfig, resolveTokenCaps, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -15,17 +15,20 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
+// The concrete insertable token row. `created_at` is a raw `now()` SQL fragment,
+// so it is typed loosely; every other column is the strongly typed token tuple.
+type SearchTokenInsert = SearchTokenRow & { created_at: unknown }
+
 // #4681: token INSERTs must be idempotent so overlapping rebuilds (auto-reindex
 // stampede, un-awaited per-record rebuilds) can never duplicate rows. The
 // coalesced unique index `search_tokens_unique_tuple_idx` backs the conflict;
 // the target is left unspecified so Postgres matches it without us restating the
 // functional expression here.
-async function insertTokensIgnoringDuplicates(db: Kysely<any>, batch: unknown[]): Promise<void> {
+async function insertTokensIgnoringDuplicates(db: Kysely<any>, batch: SearchTokenInsert[]): Promise<void> {
   if (!batch.length) return
-  await db
-    .insertInto('search_tokens' as any)
-    .values(batch as any)
-    .onConflict((oc: any) => oc.doNothing())
+  await (db.insertInto('search_tokens' as any) as InsertQueryBuilder<any, any, unknown>)
+    .values(batch)
+    .onConflict((oc: OnConflictBuilder<any, any>) => oc.doNothing())
     .execute()
 }
 
@@ -102,23 +105,29 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
 
   // #4681: cap the total number of tokens emitted for a single record so a
   // pathological document can never contribute an unbounded number of rows.
-  const maxTokensPerRecord = config.maxTokensPerRecord > 0 ? config.maxTokensPerRecord : Infinity
+  const caps = resolveTokenCaps(config)
+  const maxTokensPerRecord = caps.maxTokensPerRecord > 0 ? caps.maxTokensPerRecord : Infinity
+  const maxTokensPerField = caps.maxTokensPerField > 0 ? caps.maxTokensPerField : Infinity
 
   for (const [field, rawValue] of Object.entries(params.doc)) {
     if (tokens.length >= maxTokensPerRecord) break
     if (!shouldIndexField(field, rawValue, config)) continue
     const values = collectTextValues(rawValue)
     const seen = new Set<string>()
+    // Track a single budget for the whole field so an array-valued field cannot
+    // contribute more than `maxTokensPerField` rows across all its entries.
+    let fieldTokenCount = 0
     for (const text of values) {
-      if (tokens.length >= maxTokensPerRecord) break
+      if (tokens.length >= maxTokensPerRecord || fieldTokenCount >= maxTokensPerField) break
       const { tokens: textTokens, hashes } = tokenizeText(text, config)
       for (let i = 0; i < textTokens.length; i += 1) {
-        if (tokens.length >= maxTokensPerRecord) break
+        if (tokens.length >= maxTokensPerRecord || fieldTokenCount >= maxTokensPerField) break
         const token = textTokens[i]
         const hash = hashes[i]
         const dedupeKey = `${field}|${hash}`
         if (seen.has(dedupeKey)) continue
         seen.add(dedupeKey)
+        fieldTokenCount += 1
         debug('token.generated', { entityType: params.entityType, recordId: params.recordId, field, hash })
         tokens.push({
           entity_type: params.entityType,

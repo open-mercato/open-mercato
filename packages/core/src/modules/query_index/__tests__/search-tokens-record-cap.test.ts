@@ -34,6 +34,20 @@ describe('buildSearchTokenRows record cap', () => {
     expect(rows.length).toBe(10)
   })
 
+  it('bounds an array-valued field to maxTokensPerField across all entries', () => {
+    // Distinct tokens per entry: without a field-spanning budget each entry would
+    // add up to maxTokensPerField (4×3=12); with it, the whole field caps at 4.
+    const distinct = (prefix: string) => Array.from({ length: 10 }, (_, i) => `${prefix}word${i}`).join(' ')
+    const config: SearchConfig = { ...baseConfig, maxTokensPerField: 4, maxTokensPerRecord: 1000 }
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'rec-arr',
+      doc: { tags: [distinct('a'), distinct('b'), distinct('c')] },
+      config,
+    })
+    expect(rows.length).toBe(4)
+  })
+
   it('does not cap a record that stays within the limit', () => {
     const config: SearchConfig = { ...baseConfig }
     const rows = buildSearchTokenRows({
