@@ -382,7 +382,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
               <span>
                 {translate(
                   'onboarding.form.marketingLabel',
-                  "I consent to receiving direct marketing from CT Tornado by email at the address I provide. I'm aware that I can withdraw my consent at any time (e.g., via the unsubscribe link), and that CT Tornado may also process my email address under its legitimate interests to manage its mailing list, keep proof of my consent, and record opt-outs. See our {termsLink} and {privacyLink}.",
+                  "I consent to receiving direct marketing from Open Mercato sp. z o.o. by email at the address I provide. I'm aware that I can withdraw my consent at any time (e.g., via the unsubscribe link), and that Open Mercato sp. z o.o. may also process my email address under its legitimate interests to manage its mailing list, keep proof of my consent, and record opt-outs. See our {termsLink} and {privacyLink}.",
                 )
                   .split(/{termsLink}|{privacyLink}/)
                   .map((part, index, parts) => (
@@ -403,6 +403,12 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
                   ))}
               </span>
             </label>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {translate(
+                'onboarding.form.legalEntity',
+                'Open Mercato sp. z o.o., with its registered office at ul. Wyspa Słodowa 7, 50-266 Wrocław, Poland, entered into the Register of Entrepreneurs of the National Court Register (KRS) maintained by the District Court for Wrocław-Fabryczna in Wrocław, 6th Commercial Division of the National Court Register, under KRS No. 0001253104, VAT No. (NIP) PL8982336029, REGON 545230330, with a share capital of PLN 5,000.00, fully paid.',
+              )}
+            </p>
             <Button
               type="submit"
               disabled={disabled}
