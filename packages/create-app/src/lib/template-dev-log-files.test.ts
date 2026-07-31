@@ -17,6 +17,73 @@ function rmTempDir(dir) {
   }
 }
 
+const moduleResourceUsageOutputPrefix = '__OM_MODULE_RESOURCE_USAGE_DIR__'
+
+function runTemplateDevWrapper(override?: string) {
+  const devScriptPath = new URL('../../template/scripts/dev.mjs', import.meta.url)
+  const tempDir = makeTempDir('template-module-resource-usage-dir-')
+  const runtimeScriptPath = path.join(tempDir, 'scripts', 'dev-runtime.mjs')
+  fs.mkdirSync(path.dirname(runtimeScriptPath), { recursive: true })
+  fs.writeFileSync(runtimeScriptPath, [
+    `console.log('${moduleResourceUsageOutputPrefix}' + JSON.stringify(process.env.OM_MODULE_RESOURCE_USAGE_DIR ?? null))`,
+  ].join('\n'))
+
+  const env = {
+    ...process.env,
+    OM_DEV_AUTO_MIGRATE: '0',
+    OM_DEV_AUTO_OPEN: '0',
+    OM_DEV_LOG_TEE: '0',
+    OM_DEV_SPLASH_PORT: 'off',
+  }
+  delete env.OM_MODULE_RESOURCE_USAGE_DIR
+  if (override !== undefined) {
+    env.OM_MODULE_RESOURCE_USAGE_DIR = override
+  }
+
+  try {
+    const result = spawnSync(process.execPath, [devScriptPath.pathname], {
+      cwd: tempDir,
+      env,
+      encoding: 'utf8',
+      timeout: 15_000,
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const outputLine = result.stdout
+      .split(/\r?\n/)
+      .find((line) => line.startsWith(moduleResourceUsageOutputPrefix))
+    assert.ok(outputLine, `expected standalone runtime environment in output:\n${result.stdout}\n${result.stderr}`)
+    return {
+      tempDir,
+      value: JSON.parse(outputLine.slice(moduleResourceUsageOutputPrefix.length)),
+    }
+  } catch (error) {
+    rmTempDir(tempDir)
+    throw error
+  }
+}
+
+test('standalone template dev wrapper defaults module resource snapshots below its Next distDir', () => {
+  const result = runTemplateDevWrapper()
+  try {
+    assert.equal(
+      result.value,
+      path.join(fs.realpathSync(result.tempDir), '.mercato', 'next', 'module-resource-usage'),
+    )
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
+
+test('standalone template dev wrapper preserves an explicit module resource snapshot directory', () => {
+  const override = './custom-module-resource-usage'
+  const result = runTemplateDevWrapper(override)
+  try {
+    assert.equal(result.value, override)
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
+
 test('standalone template dev-log-files exports the runtime logging API expected by dev.mjs', async () => {
   const moduleUrl = new URL('../../template/scripts/dev-log-files.mjs', import.meta.url)
   const devLogFiles = await import(moduleUrl.href)

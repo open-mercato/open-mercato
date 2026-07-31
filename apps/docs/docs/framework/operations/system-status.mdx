@@ -39,9 +39,11 @@ Enables local module resource attribution for API routes, event subscribers, que
 Writes best-effort local process telemetry files under `.mercato/module-resource-usage` so the admin page can include fresh data from sibling processes after restarts or worker activity.
 
 ### OM_MODULE_RESOURCE_USAGE_DIR {#om_module_resource_usage_dir}
-**Default:** `./.mercato/module-resource-usage`
+**Shared runtime default:** `./.mercato/module-resource-usage`
 
-Overrides the directory used for local process telemetry files.
+**Managed local-dev default (`yarn dev`):** `<app>/.mercato/next/module-resource-usage`
+
+Overrides the directory used for local process telemetry files. Managed local development places snapshots below the app's Next.js output directory so telemetry writes do not trigger source rebuilds. A non-empty explicit value is preserved unchanged. Production and processes started outside the managed dev wrapper continue to use the shared runtime default.
 
 ### OM_MODULE_RESOURCE_HEAVY_P95_MS {#om_module_resource_heavy_p95_ms}
 **Default:** `5000`

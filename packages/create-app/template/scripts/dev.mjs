@@ -553,9 +553,22 @@ function buildSplashChildEnv(options = {}) {
   }
 }
 
+function resolveLocalDevModuleResourceUsageDir() {
+  const configuredDir = process.env.OM_MODULE_RESOURCE_USAGE_DIR
+  if (typeof configuredDir === 'string' && configuredDir.trim() !== '') {
+    return configuredDir
+  }
+
+  const appDir = isMonorepo
+    ? path.join(process.cwd(), 'apps', 'mercato')
+    : process.cwd()
+  return path.join(appDir, '.mercato', 'next', 'module-resource-usage')
+}
+
 function applyLocalDevBackgroundServiceDefaults(childEnv) {
   const env = {
     ...(childEnv ?? {}),
+    OM_MODULE_RESOURCE_USAGE_DIR: resolveLocalDevModuleResourceUsageDir(),
     OM_DEV_WARMUP_READY_FILE: (childEnv && 'OM_DEV_WARMUP_READY_FILE' in childEnv)
       ? childEnv.OM_DEV_WARMUP_READY_FILE
       : warmupReadyFilePath,
