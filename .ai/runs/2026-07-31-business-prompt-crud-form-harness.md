@@ -28,6 +28,16 @@ Add OMH-193 as a business-language counterpart to OMH-185 that must produce the 
 - Business wording may under-route UI or extension guidance; failure-first evidence determines whether the shared business blueprint needs the smallest durable clarification.
 - Adding a writable release case raises catalog and release counts; every registry and documented total must stay synchronized without changing existing IDs.
 - The focused live generation is model-dependent and can exhaust its case timeout; availability or timeout failures must remain failures rather than being converted into passes.
+- The passing target's generated-code review could not be replayed after target validation changed its protected fingerprint. The discovered 16-file review cap was corrected and regression-tested for the canonical 22-file slice; later fresh model attempts remained strict failures and were retained as such rather than substituted for the passing evidence. The PR-level authoritative review completed with no findings.
+
+## Focused Verification Evidence
+
+- Live writable OMH-193: PASS with all 15 decisions, all mandatory procedures, the shared OMH-185 oracle, before-fail/after-pass evidence, and no violations (`2026-07-31T16-41-00-469Z-codex-OMH-193.json`).
+- Deterministic OMH-185 and OMH-193: PASS (1/1 each).
+- Focused catalog/evaluator/oracle tests: PASS (111/111); the review-cap follow-up suite passed 96/96.
+- Passing generated target: `yarn generate`, `yarn typecheck`, `yarn lint` (zero errors), and `yarn build` all passed. The focused generated Jest command was blocked before test loading by the standalone Jest/MikroORM ESM transform boundary.
+- GitHub checks on the final implementation head passed: prepare/package build and generation, lint, test/typecheck/i18n/template parity, audit-scope, CodeQL, and CLA.
+- Repository-wide local validation and the complete release suite were intentionally not run, per the task brief.
 
 ## Implementation Plan
 
@@ -52,6 +62,8 @@ Add OMH-193 as a business-language counterpart to OMH-185 that must produce the 
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
+PR: #4759
+
 ### Phase 1: Contrastive case and failure-first evidence
 
 - [x] 1.1 Add OMH-193 with a business-only library brief and exact OMH-185 outcome-contract parity — 33804a48f5
@@ -65,6 +77,6 @@ Add OMH-193 as a business-language counterpart to OMH-185 that must produce the 
 
 ### Phase 3: Focused proof and delivery
 
-- [ ] 3.1 Iterate OMH-193 live writable evaluation, target checks/tests, and generated-code review to a pass
-- [ ] 3.2 Run targeted catalog, OMH-185 compatibility, mandatory safety, and create-app harness unit checks
-- [ ] 3.3 Complete authoritative PR review/autofix and publish focused verification evidence
+- [x] 3.1 Iterate OMH-193 live writable evaluation, target checks/tests, and generated-code review to a pass — 11b4cd38b
+- [x] 3.2 Run targeted catalog, OMH-185 compatibility, mandatory safety, and create-app harness unit checks — 11b4cd38b
+- [x] 3.3 Complete authoritative PR review/autofix and publish focused verification evidence — 11b4cd38b
