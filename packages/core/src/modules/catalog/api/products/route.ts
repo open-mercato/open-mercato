@@ -40,6 +40,7 @@ import {
   type PriceRow,
 } from "../../lib/pricing";
 import { resolvePresentedPrice } from "../../lib/omnibusPresentation";
+import type { PriceKindPromotionCache } from "../../lib/omnibusPresentation";
 import type { CatalogOmnibusService } from "../../services/catalogOmnibusService";
 import type { OmnibusResolutionContext } from "../../lib/omnibusTypes";
 import type { CatalogPricingService } from "../../services/catalogPricingService";
@@ -425,6 +426,10 @@ async function decorateProductsWithOmnibus(
 
     if (!targets.length) return;
 
+    // Request-level facts, resolved once instead of once per row.
+    const personalization = detectOmnibusPersonalization(ctx);
+    const priceKindCache: PriceKindPromotionCache = new Map();
+
     const results = await Promise.all(
       targets.map(async (target) => {
         const resolutionCtx: OmnibusResolutionContext = {
@@ -440,7 +445,7 @@ async function decorateProductsWithOmnibus(
           firstListedAt: toOptionalDate(target.item.first_listed_at),
           omnibusExempt: target.item.omnibus_exempt === true ? true : null,
         };
-        const presented = await resolvePresentedPrice(em, resolutionCtx, config);
+        const presented = await resolvePresentedPrice(em, resolutionCtx, config, priceKindCache);
         const block = await omnibusService.resolveOmnibusBlock(
           em,
           resolutionCtx,
@@ -453,8 +458,11 @@ async function decorateProductsWithOmnibus(
 
     for (const { item, block } of results) {
       item.omnibus = block;
-      // Authoritative contract: top-level camelCase. Never nested snake_case under `pricing`.
-      const personalization = detectOmnibusPersonalization(ctx);
+    }
+    // Authoritative contract: top-level camelCase. Never nested snake_case under `pricing`.
+    // Set on every item, not only the priced ones, so one response never mixes items that
+    // carry the disclosure flag with items that silently omit it.
+    for (const item of items) {
       item.isPersonalized = personalization.isPersonalized;
       item.personalizationReason = personalization.personalizationReason;
     }

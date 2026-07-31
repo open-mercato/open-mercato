@@ -70,21 +70,37 @@ export interface CatalogOmnibusService {
 }
 
 export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
+  // The service is registered `.scoped()`, so this map lives exactly as long as one request.
+  // A products list resolves the same tenant config once per row; without memoisation that is
+  // one config round-trip per item, and because the rows resolve concurrently they all miss
+  // together. Storing the promise (not the value) collapses that burst into a single read.
+  private readonly configPromises = new Map<string, Promise<OmnibusConfig>>()
+
   constructor(
     private readonly moduleConfigService: ModuleConfigService,
     private readonly cache: CacheStrategy | null,
   ) {}
 
   async getConfig(scope?: { tenantId?: string | null; organizationId?: string | null }): Promise<OmnibusConfig> {
-    const value = await this.moduleConfigService.getValue<OmnibusConfig>(
-      CATALOG_SETTINGS_MODULE_ID,
-      OMNIBUS_CONFIG_KEY,
-      {
+    const tenantId = scope?.tenantId ?? null
+    const organizationId = scope?.organizationId ?? null
+    const key = `${tenantId ?? ''}:${organizationId ?? ''}`
+    const pending = this.configPromises.get(key)
+    if (pending) return pending
+
+    const promise = this.moduleConfigService
+      .getValue<OmnibusConfig>(CATALOG_SETTINGS_MODULE_ID, OMNIBUS_CONFIG_KEY, {
         defaultValue: {},
-        scope: { tenantId: scope?.tenantId ?? null, organizationId: scope?.organizationId ?? null },
-      },
-    )
-    return value ?? {}
+        scope: { tenantId, organizationId },
+      })
+      .then((value) => value ?? {})
+      .catch((err) => {
+        // Never memoise a failure: the next caller must be free to retry.
+        this.configPromises.delete(key)
+        throw err
+      })
+    this.configPromises.set(key, promise)
+    return promise
   }
 
   async getLowestPrice(
@@ -147,7 +163,14 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       if (progressive) return progressive
     }
 
-    const perishable = await this.resolvePerishableRule(em, ctx, channelConfig, lookbackDays, axis)
+    const perishable = await this.resolvePerishableRule(
+      em,
+      ctx,
+      channelConfig,
+      lookbackDays,
+      axis,
+      presentedPriceEntry,
+    )
     if (perishable) return perishable
 
     const newArrival = this.resolveNewArrivalAdjustment(channelConfig, ctx, lookbackDays)
@@ -462,21 +485,31 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     channelConfig: OmnibusChannelConfig | undefined,
     lookbackDays: number,
     axis: OmnibusMinimizationAxis,
+    presentedPriceEntry: OmnibusHistoryRow | null,
   ): Promise<OmnibusLowestPriceResult | null> {
     const rule = channelConfig?.perishableGoodsRule ?? 'standard'
     if (ctx.omnibusExempt !== true || rule === 'standard') return null
 
     if (rule === 'exempt') return earlyExitResult('perishable_exempt', lookbackDays, axis)
 
+    // Art. 6a(3) reads "the price immediately preceding the reduction", so the bound is the
+    // presented entry, not `now`. The price on display is normally the newest row in the log:
+    // without this bound the reduction becomes its own reference — EC-7 on the perishable path.
+    const filters = buildScopeFilters(ctx)
+    if (presentedPriceEntry) {
+      filters.recordedAt = { $lt: new Date(presentedPriceEntry.recordedAt) }
+    }
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
-      buildScopeFilters(ctx),
-      { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: 1 },
+      filters,
+      // Two rows so an entry sharing the presented timestamp can be skipped by identity; the
+      // `$lt` bound already excludes it, this only covers a same-instant tie.
+      { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: 2 },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
-    if (!rows[0]) return null
-    const lastEntry = mapRow(rows[0])
+    const lastEntry = rows.map(mapRow).find((row) => !isPresentedReduction(row, presentedPriceEntry)) ?? null
+    if (!lastEntry) return null
     const now = new Date()
     return {
       lowestRow: lastEntry,
@@ -521,6 +554,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   ): Promise<BackfillChannelResult> {
     const { organizationId, tenantId, channelId, lookbackDays, batchSize = 500 } = params
     const scope = { tenantId, organizationId }
+    // Own the EntityManager: a full-catalog backfill would otherwise leave every seeded row in
+    // the caller's identity map for the whole run, and clearing a shared EM between batches
+    // would detach entities the caller still holds.
+    const scopedEm = em.fork()
     // One millisecond before the window opens, so the seeded row reads as the price already in
     // effect at window start rather than a change inside the window.
     const recordedAt = new Date(Date.now() - lookbackDays * MS_PER_DAY - 1)
@@ -534,7 +571,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
 
     for (;;) {
       const prices = await findWithDecryption(
-        em,
+        scopedEm,
         CatalogProductPrice,
         priceFilters,
         {
@@ -548,7 +585,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       if (prices.length === 0) break
 
       const existing = await findWithDecryption(
-        em,
+        scopedEm,
         CatalogPriceHistoryEntry,
         { priceId: { $in: prices.map((price) => price.id) }, organizationId, tenantId },
         { fields: ['priceId'] as never[] },
@@ -585,11 +622,13 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
           endsAt: price.endsAt ? price.endsAt.toISOString() : null,
         }
         const fields = buildHistoryEntry({ snapshot, changeType: 'create', source: 'system', recordedAt })
-        em.persist(em.create(CatalogPriceHistoryEntry, { ...fields, idempotencyKey: null }))
+        scopedEm.persist(scopedEm.create(CatalogPriceHistoryEntry, { ...fields, idempotencyKey: null }))
         inserted += 1
       }
 
-      await em.flush()
+      await scopedEm.flush()
+      // Release the batch before loading the next one; the run is otherwise linear in memory.
+      scopedEm.clear()
       offset += prices.length
     }
 

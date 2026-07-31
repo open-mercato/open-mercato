@@ -386,6 +386,64 @@ describe('DefaultCatalogOmnibusService — perishable goods (Art. 6a(3))', () =>
     expect(block?.lowestPriceGross).toBe('88')
   })
 
+  // EC-7 on the perishable path: the entry on display is normally the newest row in the log,
+  // so taking "the newest entry" verbatim makes the reduction its own reference.
+  it('excludes the presented reduction and uses the entry before it', async () => {
+    const { service } = makeService({
+      ...euConfig,
+      channels: { 'ch-pl': { countryCode: 'PL', perishableGoodsRule: 'last_price' } },
+    })
+    const presentedRow = row({ id: 'promo', recordedAt: '2026-06-10T00:00:00.000Z', gross: '7' })
+    const priorRow = row({ id: 'before', recordedAt: '2026-06-09T00:00:00.000Z', gross: '10' })
+
+    // Behave like the database: return the log newest-first, honouring a recordedAt bound when
+    // the query carries one. Without the bound the promo row is the newest and wins.
+    findMock.mockImplementation(async (_em, _entity, where) => {
+      const bound = (where as { recordedAt?: { $lt?: Date } }).recordedAt?.$lt
+      const rows = [presentedRow, priorRow]
+      return bound ? rows.filter((entry) => entry.recordedAt < bound) : rows
+    })
+
+    const block = await service.resolveOmnibusBlock(
+      em,
+      { ...baseCtx, omnibusExempt: true },
+      {
+        id: presentedRow.id,
+        priceId: presentedRow.priceId,
+        changeType: presentedRow.changeType,
+        unitPriceNet: null,
+        unitPriceGross: '7',
+        recordedAt: '2026-06-10T00:00:00.000Z',
+        startsAt: null,
+        offerId: null,
+        isAnnounced: true,
+      },
+      false,
+    )
+
+    expect(block?.applicabilityReason).toBe('perishable_last_price')
+    expect(block?.lowestPriceGross).toBe('10')
+  })
+
+  it('bounds the lookup to entries strictly before the presented price', async () => {
+    const { service } = makeService({
+      ...euConfig,
+      channels: { 'ch-pl': { countryCode: 'PL', perishableGoodsRule: 'last_price' } },
+    })
+    findMock.mockResolvedValue([row({ id: 'before', recordedAt: '2026-06-09T00:00:00.000Z', gross: '10' })])
+
+    await service.resolveOmnibusBlock(
+      em,
+      { ...baseCtx, omnibusExempt: true },
+      row({ id: 'promo', recordedAt: '2026-06-10T00:00:00.000Z', gross: '7' }),
+      false,
+    )
+
+    expect(findMock.mock.calls[0][2]).toMatchObject({
+      recordedAt: { $lt: new Date('2026-06-10T00:00:00.000Z') },
+    })
+  })
+
   it('ignores the rule for a product that is not exempt', async () => {
     const { service } = makeService({
       ...euConfig,
@@ -472,5 +530,249 @@ describe('DefaultCatalogOmnibusService — caching', () => {
     const keyA = cache.set.mock.calls[0][0] as string
     const keyB = cache.set.mock.calls[1][0] as string
     expect(keyA).not.toBe(keyB)
+  })
+})
+
+// Compliance case C11. The seeded row must read as "the price already in effect when the
+// window opened", not as a change inside the window — otherwise it becomes the reference for
+// every product on the day omnibus is switched on.
+describe('DefaultCatalogOmnibusService.backfillChannel', () => {
+  const priceKind = { id: 'kind-1', code: 'regular' }
+
+  function priceRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'price-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      product: { id: 'product-1' },
+      variant: null,
+      offer: null,
+      channelId: 'ch-pl',
+      priceKind,
+      currencyCode: 'PLN',
+      unitPriceNet: '81.3008',
+      unitPriceGross: '100.0000',
+      taxRate: '23.0000',
+      taxAmount: '18.6992',
+      minQuantity: 1,
+      maxQuantity: null,
+      startsAt: null,
+      endsAt: null,
+      ...overrides,
+    }
+  }
+
+  function makeBackfillEm() {
+    const persisted: Array<Record<string, unknown>> = []
+    const clear = jest.fn()
+    const flush = jest.fn().mockResolvedValue(undefined)
+    const forked = {
+      create: (_entity: unknown, data: Record<string, unknown>) => data,
+      persist: (data: Record<string, unknown>) => {
+        persisted.push(data)
+      },
+      flush,
+      clear,
+    }
+    const fork = jest.fn(() => forked)
+    const em = { fork } as unknown as EntityManager
+    return { em, persisted, fork, flush, clear }
+  }
+
+  // findWithDecryption is called twice per batch: prices, then the already-recorded price ids.
+  function stubBatches(batches: Array<{ prices: unknown[]; existing?: unknown[] }>) {
+    let call = 0
+    findMock.mockImplementation(async () => {
+      const batch = batches[Math.floor(call / 2)]
+      const isPriceQuery = call % 2 === 0
+      call += 1
+      if (!batch) return []
+      return isPriceQuery ? batch.prices : (batch.existing ?? [])
+    })
+  }
+
+  it('seeds the baseline one millisecond before the window opens', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em, persisted } = makeBackfillEm()
+    stubBatches([{ prices: [priceRow()] }, { prices: [] }])
+
+    const before = Date.now()
+    const result = await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: 'ch-pl',
+      lookbackDays: 30,
+    })
+    const after = Date.now()
+
+    expect(result).toEqual({ inserted: 1, skipped: 0 })
+    expect(persisted).toHaveLength(1)
+    const recordedAt = (persisted[0].recordedAt as Date).getTime()
+    const windowStartLow = before - 30 * 24 * 60 * 60 * 1000
+    const windowStartHigh = after - 30 * 24 * 60 * 60 * 1000
+    expect(recordedAt).toBeGreaterThanOrEqual(windowStartLow - 1)
+    expect(recordedAt).toBeLessThanOrEqual(windowStartHigh - 1)
+  })
+
+  it('marks the seeded row as a system create with no idempotency key', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em, persisted } = makeBackfillEm()
+    stubBatches([{ prices: [priceRow()] }, { prices: [] }])
+
+    await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: 'ch-pl',
+      lookbackDays: 30,
+    })
+
+    expect(persisted[0]).toMatchObject({
+      changeType: 'create',
+      source: 'system',
+      idempotencyKey: null,
+      priceId: 'price-1',
+      productId: 'product-1',
+      priceKindCode: 'regular',
+      currencyCode: 'PLN',
+      unitPriceGross: '100.0000',
+    })
+  })
+
+  it('skips a price that already has history, so a re-run is idempotent', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em, persisted } = makeBackfillEm()
+    stubBatches([{ prices: [priceRow()], existing: [{ priceId: 'price-1' }] }, { prices: [] }])
+
+    const result = await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: 'ch-pl',
+      lookbackDays: 30,
+    })
+
+    expect(result).toEqual({ inserted: 0, skipped: 1 })
+    expect(persisted).toHaveLength(0)
+  })
+
+  it('skips a price whose product cannot be resolved rather than writing an orphan row', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em, persisted } = makeBackfillEm()
+    stubBatches([{ prices: [priceRow({ product: null, variant: null })] }, { prices: [] }])
+
+    const result = await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: 'ch-pl',
+      lookbackDays: 30,
+    })
+
+    expect(result).toEqual({ inserted: 0, skipped: 1 })
+    expect(persisted).toHaveLength(0)
+  })
+
+  it('derives the product from the variant when the price is variant-scoped', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em, persisted } = makeBackfillEm()
+    stubBatches([
+      { prices: [priceRow({ product: null, variant: { id: 'variant-1', product: { id: 'product-9' } } })] },
+      { prices: [] },
+    ])
+
+    await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: 'ch-pl',
+      lookbackDays: 30,
+    })
+
+    expect(persisted[0]).toMatchObject({ productId: 'product-9', variantId: 'variant-1' })
+  })
+
+  it('scopes the price query to the channel when one is given', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em } = makeBackfillEm()
+    stubBatches([{ prices: [] }])
+
+    await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: 'ch-pl',
+      lookbackDays: 30,
+    })
+
+    expect(findMock.mock.calls[0][2]).toEqual({ organizationId: 'org-1', tenantId: 'tenant-1', channelId: 'ch-pl' })
+  })
+
+  it('omits the channel filter for an unscoped backfill', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em } = makeBackfillEm()
+    stubBatches([{ prices: [] }])
+
+    await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: null,
+      lookbackDays: 30,
+    })
+
+    expect(findMock.mock.calls[0][2]).toEqual({ organizationId: 'org-1', tenantId: 'tenant-1' })
+  })
+
+  it('walks every batch until the source is exhausted', async () => {
+    const { service } = makeService({ enabled: true })
+    const { em, persisted } = makeBackfillEm()
+    stubBatches([
+      { prices: [priceRow({ id: 'price-1' }), priceRow({ id: 'price-2' })] },
+      { prices: [priceRow({ id: 'price-3' })] },
+      { prices: [] },
+    ])
+
+    const result = await service.backfillChannel(em, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      channelId: 'ch-pl',
+      lookbackDays: 30,
+      batchSize: 2,
+    })
+
+    expect(result).toEqual({ inserted: 3, skipped: 0 })
+    expect(persisted.map((entry) => entry.priceId)).toEqual(['price-1', 'price-2', 'price-3'])
+  })
+})
+
+describe('DefaultCatalogOmnibusService — request-scoped config memo', () => {
+  // The service is registered `.scoped()`, so one products-list request resolves the config
+  // once for every row. Without the memo that is one config round-trip per item.
+  it('reads the tenant config once even under a concurrent burst', async () => {
+    const { service, moduleConfigService } = makeService({ enabled: true, enabledCountryCodes: [] })
+
+    await Promise.all(
+      Array.from({ length: 25 }, () => service.resolveOmnibusBlock(em, baseCtx, null, false)),
+    )
+
+    expect(moduleConfigService.getValue).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps separate entries per tenant scope', async () => {
+    const { service, moduleConfigService } = makeService({ enabled: true, enabledCountryCodes: [] })
+
+    await service.resolveOmnibusBlock(em, baseCtx, null, false)
+    await service.resolveOmnibusBlock(em, { ...baseCtx, tenantId: 'tenant-2' }, null, false)
+
+    expect(moduleConfigService.getValue).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not memoise a failed read', async () => {
+    const { service, moduleConfigService } = makeService({ enabled: true })
+    moduleConfigService.getValue
+      .mockRejectedValueOnce(new Error('config store down'))
+      .mockResolvedValueOnce({ enabled: true, enabledCountryCodes: [] })
+
+    // The first call swallows the failure and degrades to null.
+    await expect(service.resolveOmnibusBlock(em, baseCtx, null, false)).resolves.toBeNull()
+    const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    expect(block?.applicabilityReason).toBe('not_in_eu_market')
+    expect(moduleConfigService.getValue).toHaveBeenCalledTimes(2)
   })
 })

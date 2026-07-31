@@ -62,6 +62,9 @@ async function GET(req: Request) {
     let productId = query.productId ?? null
     let omnibusExempt: boolean | null = null
     let firstListedAt: Date | null = null
+    // Tracks whether the product row was already read via the variant, so a product whose
+    // `first_listed_at` is legitimately null is not fetched a second time.
+    let productResolved = false
 
     if (query.variantId) {
       const variant = await findOneWithDecryption(
@@ -77,12 +80,18 @@ async function GET(req: Request) {
         if (variantProduct && typeof variantProduct !== 'string') {
           productId = variantProduct.id
           if (omnibusExempt === null) omnibusExempt = variantProduct.omnibusExempt ?? null
-          firstListedAt = variantProduct.firstListedAt ?? variantProduct.createdAt ?? null
+          // EC-19: a null `first_listed_at` (every row predating the omnibus migration) means
+          // "not a new arrival" — it MUST NOT fall back to `created_at`. Doing so shortens the
+          // window, raises the reference and overstates the reduction, and it would make this
+          // preview disagree with the authoritative products-list path, which reads the column
+          // verbatim. New rows default the column to `created_at` at creation time instead.
+          firstListedAt = variantProduct.firstListedAt ?? null
+          productResolved = true
         }
       }
     }
 
-    if (productId && firstListedAt === null) {
+    if (productId && !productResolved) {
       const product = await findOneWithDecryption(
         em,
         CatalogProduct,
@@ -92,7 +101,7 @@ async function GET(req: Request) {
       )
       if (product) {
         if (omnibusExempt === null) omnibusExempt = product.omnibusExempt ?? null
-        firstListedAt = product.firstListedAt ?? product.createdAt ?? null
+        firstListedAt = product.firstListedAt ?? null
       }
     }
 

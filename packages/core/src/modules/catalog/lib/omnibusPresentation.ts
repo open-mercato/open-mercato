@@ -18,6 +18,41 @@ export function resolvePresentedPriceKindId(config: OmnibusConfig, ctx: OmnibusR
   )
 }
 
+/**
+ * Per-request memo for the presented price kind.
+ *
+ * A products list resolves the same one or two price kinds for every row, so without this the
+ * kind lookup is a pure N+1: one query per item for a value that barely varies. Pass a map that
+ * lives for the duration of one request; omit it for a single-scope call such as the preview.
+ */
+export type PriceKindPromotionCache = Map<string, Promise<boolean>>
+
+async function readPriceKindIsPromotion(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string,
+  priceKindId: string,
+  cache?: PriceKindPromotionCache,
+): Promise<boolean> {
+  const cached = cache?.get(priceKindId)
+  if (cached) return cached
+
+  const promise = findOneWithDecryption(
+    em,
+    CatalogPriceKind,
+    { id: priceKindId, tenantId },
+    undefined,
+    { tenantId, organizationId },
+  )
+    .then((priceKind) => priceKind?.isPromotion === true)
+    .catch((err) => {
+      cache?.delete(priceKindId)
+      throw err
+    })
+  cache?.set(priceKindId, promise)
+  return promise
+}
+
 // The presented entry is what the customer is being shown right now. Every resolution path
 // (products list, admin preview, and any future storefront) MUST derive it the same way and
 // pass it in: it supplies the promotion anchor, drives the `applicable` decision, and — most
@@ -27,16 +62,17 @@ export async function resolvePresentedPrice(
   em: EntityManager,
   ctx: OmnibusResolutionContext,
   config: OmnibusConfig,
+  priceKindCache?: PriceKindPromotionCache,
 ): Promise<PresentedPrice> {
   const presentedPriceKindId = resolvePresentedPriceKindId(config, ctx)
   const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
 
-  const priceKind = await findOneWithDecryption(
+  const priceKindIsPromotion = await readPriceKindIsPromotion(
     em,
-    CatalogPriceKind,
-    { id: presentedPriceKindId, tenantId: ctx.tenantId },
-    undefined,
-    scope,
+    ctx.tenantId,
+    ctx.organizationId,
+    presentedPriceKindId,
+    priceKindCache,
   )
 
   const priceFilters: Record<string, unknown> = {
@@ -59,7 +95,7 @@ export async function resolvePresentedPrice(
   )
   const activePrice = prices[0]
   if (!activePrice) {
-    return { presentedPriceKindId, priceKindIsPromotion: priceKind?.isPromotion === true, presentedEntry: null }
+    return { presentedPriceKindId, priceKindIsPromotion, presentedEntry: null }
   }
 
   const entries = await findWithDecryption(
@@ -73,7 +109,7 @@ export async function resolvePresentedPrice(
 
   return {
     presentedPriceKindId,
-    priceKindIsPromotion: priceKind?.isPromotion === true,
+    priceKindIsPromotion,
     presentedEntry: entry
       ? {
           id: entry.id,
