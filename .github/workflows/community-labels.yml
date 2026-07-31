@@ -8,6 +8,7 @@ on:
 # or contributor-supplied code is used by this workflow.
 permissions:
   issues: write
+  pull-requests: write
 
 jobs:
   add-label:
