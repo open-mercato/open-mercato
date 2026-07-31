@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
@@ -7,6 +8,7 @@ import {
   CROSS_PACKAGE_EXCEPTIONS,
   REPO_WIDE_GUARDS,
   buildJestArgs,
+  escapesPackageRoot,
   findCrossPackageTestCandidates,
   listGuardPaths,
 } from '../repo-wide-guards.mjs'
@@ -115,5 +117,109 @@ test('the detector recognizes a cross-package audit and ignores a package-local 
   assert.ok(
     !candidates.includes('packages/core/src/__tests__/module-decoupling.test.ts'),
     'module-decoupling builds an in-memory registry and reads no other package — it must not be flagged.',
+  )
+})
+
+const INDIRECT_UPWARD_WALK_GUARDS = [
+  'packages/cli/src/lib/generators/__tests__/module-facts.customers.fixture.test.ts',
+  'packages/cli/src/lib/generators/__tests__/module-facts.auth-source.test.ts',
+  'packages/cli/src/lib/generators/__tests__/module-facts.extension-hosts.test.ts',
+]
+
+test('the detector catches the indirect upward-walk locator, not just the direct one', () => {
+  const candidates = findCrossPackageTestCandidates(repoRoot)
+  const missed = INDIRECT_UPWARD_WALK_GUARDS.filter((guardPath) => !candidates.includes(guardPath))
+
+  assert.deepEqual(
+    missed,
+    [],
+    `These tests assign __dirname to a variable and walk upward with path.dirname() until packages/core/src/modules exists, then read live module sources. A detector that only understands direct resolve(__dirname, '..') anchors reports "everything classified" while these audits stay unclassified, which makes this runner's primary acceptance criterion vacuous (#4534):\n${missed.join('\n')}`,
+  )
+})
+
+test('the indirect upward-walk guards are enumerated, so they actually run unfiltered', () => {
+  const guardPaths = new Set(listGuardPaths())
+  const unlisted = INDIRECT_UPWARD_WALK_GUARDS.filter((guardPath) => !guardPaths.has(guardPath))
+
+  assert.deepEqual(
+    unlisted,
+    [],
+    `Detecting these audits is only half the fix — they read packages/core sources from packages/cli, so a core-only PR must run them:\n${unlisted.join('\n')}`,
+  )
+})
+
+test('escapesPackageRoot classifies each locator shape the repository actually uses', () => {
+  const testPath = 'packages/cli/src/lib/generators/__tests__/module-facts.customers.fixture.test.ts'
+
+  assert.equal(
+    escapesPackageRoot(
+      "let dir = __dirname\nfor (let depth = 0; depth < 10; depth += 1) {\n  const candidate = path.join(dir, 'packages', 'core', 'src', 'modules')\n  if (fs.existsSync(candidate)) return candidate\n  dir = path.dirname(dir)\n}",
+      testPath,
+    ),
+    true,
+    'A bounded upward walk stops wherever the probed path exists, so its depth is a runtime decision and must be assumed to leave the workspace.',
+  )
+
+  assert.equal(
+    escapesPackageRoot("const root = path.resolve(__dirname, '../../../../..')\nfs.readFileSync(path.join(root, 'packages'))", testPath),
+    true,
+    'A single resolve() with the ascent written as one joined literal must count every segment, not one.',
+  )
+
+  assert.equal(
+    escapesPackageRoot("const fixtures = path.join(__dirname, '..', 'fixtures')", testPath),
+    false,
+    'An ascent that stays inside the workspace is package-local and must not be flagged.',
+  )
+
+  assert.equal(
+    escapesPackageRoot(
+      "const here = path.dirname(fileURLToPath(import.meta.url))\nconst sibling = path.join(here, 'fixture.json')",
+      'packages/create-app/src/lib/example.test.ts',
+    ),
+    false,
+    'dirname(fileURLToPath(import.meta.url)) is the ESM spelling of __dirname — the file\'s own directory, not one level above it.',
+  )
+})
+
+test('a fixture repository proves the indirect locator shape cannot slip through the detector', () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-wide-guards-'))
+  const walkerDir = path.join(fixtureRoot, 'packages', 'walker', 'src', '__tests__')
+  const localDir = path.join(fixtureRoot, 'packages', 'local', 'src', '__tests__')
+
+  try {
+    fs.mkdirSync(walkerDir, { recursive: true })
+    fs.mkdirSync(localDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(walkerDir, 'indirect-walk.test.ts'),
+      "let dir = __dirname\nwhile (!fs.existsSync(path.join(dir, 'packages'))) dir = path.dirname(dir)\nfs.readFileSync(path.join(dir, 'packages', 'other', 'src', 'index.ts'))\n",
+    )
+    fs.writeFileSync(
+      path.join(localDir, 'package-local.test.ts'),
+      "const fixtures = path.join(__dirname, '..', 'fixtures')\nfs.readFileSync(path.join(fixtures, 'packages.json'))\n",
+    )
+
+    assert.deepEqual(
+      findCrossPackageTestCandidates(fixtureRoot),
+      ['packages/walker/src/__tests__/indirect-walk.test.ts'],
+      'The fixture walker must be detected and the package-local sibling must not — this is the regression that made the manifest look complete while three real audits were missing (#4534).',
+    )
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+})
+
+test('the runner launches jest through cross-spawn so Windows command shims work', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'scripts', 'repo-wide-guards.mjs'), 'utf8')
+
+  assert.match(
+    source,
+    /import spawn from 'cross-spawn'/,
+    'resolveSpawnCommand() returns .cmd/.bat shims unchanged because it assumes a cross-spawn caller; Node\'s native spawnSync cannot execute those shims, so the runner would fail on Windows.',
+  )
+  assert.doesNotMatch(
+    source,
+    /from 'node:child_process'/,
+    'Importing from node:child_process reintroduces the Windows shim failure this runner was fixed for.',
   )
 })

@@ -27,10 +27,11 @@
  * Yarn shortcut: `yarn test:repo-wide-guards`
  */
 
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import spawn from 'cross-spawn'
 
 import { resolveProjectBinary, resolveSpawnCommand } from './dev-spawn-utils.mjs'
 
@@ -89,6 +90,18 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/generators/__tests__/module-facts.bc-guard.test.ts',
         scans: 'every package module source — generator BC resolve guard',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.customers.fixture.test.ts',
+        scans: 'live packages/core/src/modules/customers sources — module-facts anti-drift fixture (#4534)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.auth-source.test.ts',
+        scans: 'live packages/core/src/modules sources — module-facts auth extraction (#4534)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.extension-hosts.test.ts',
+        scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
       },
       {
         path: 'src/lib/generators/__tests__/example-public-route-safety.test.ts',
@@ -157,6 +170,14 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/agent-harness-evaluator.test.ts',
+    reason: 'Already unfiltered — the same create-app parity step (#3779); its process.cwd() anchors sit inside fixture sources written into a sandbox, not repository reads.',
+  },
+  {
+    path: 'packages/create-app/src/lib/agent-harness-release.test.ts',
+    reason: 'Already unfiltered — the same create-app parity step (#3779); its process.cwd() anchor sits inside a fixture script string, not a repository read.',
+  },
+  {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',
     reason: 'Package-local despite the repo-root anchor — it only reads packages/ui sources, so the turbo filter selects it correctly.',
   },
@@ -171,10 +192,111 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
 ]
 
 const CROSS_PACKAGE_ANCHOR = /findRepoRoot|process\.cwd\(\)/
-const DIRNAME_ASCENT = /(?:path\.)?(?:resolve|join)\(\s*__dirname\s*,([^)]*)\)/g
 const OUTSIDE_REFERENCE = /(['"`])(?:packages|apps|scripts|external)\/|(['"`])(?:packages|apps|scripts|external)\2|git ls-files/
 const TEST_FILE = /\.test\.tsx?$/
 const IGNORED_DIRECTORIES = new Set(['node_modules', 'dist', 'generated', '.turbo'])
+
+/** `dirname(fileURLToPath(import.meta.url))` and friends are the ESM spelling of `__dirname`, not an ascent. */
+const OWN_DIRECTORY_SPELLING = [
+  /(?:path\.)?dirname\s*\(\s*fileURLToPath\s*\([^)]*\)\s*\)/g,
+  /fileURLToPath\s*\(\s*new URL\s*\(\s*(['"`])\.?\/?\1\s*,[^)]*\)\s*\)/g,
+]
+const OWN_DIRECTORY_TOKEN = '__dirname'
+const DIRECTORY_ANCHOR = /(?:^|[^\w$.])(?:__dirname|import\.meta\.dirname)(?![\w$])/
+const BINDING = /(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*(?::\s*[^=;\n]+?)?\s*=\s*([^;\n]+)/g
+const PARENT_CALL = /(?:^|[^\w$])(?:path\.)?dirname\s*\(/g
+const INLINE_ASCENT = /(?:path\.)?(?:resolve|join)\(\s*__dirname\s*,([^)]*)\)/g
+const STRING_LITERAL = /'([^']*)'|"([^"]*)"|`([^`]*)`/g
+const BINDING_RESOLUTION_PASSES = 3
+
+/** Rewrites the ESM `__dirname` equivalents to the literal token, so they count as an anchor and not as an ascent. */
+function normalizeOwnDirectory(source) {
+  let normalized = source
+  for (const spelling of OWN_DIRECTORY_SPELLING) {
+    spelling.lastIndex = 0
+    normalized = normalized.replace(spelling, OWN_DIRECTORY_TOKEN)
+  }
+
+  return normalized
+}
+
+/** How many directory levels the expression's string literals climb — `'..'`, `'../..'` and `'../../x'` all count. */
+function countParentSegments(expression) {
+  let total = 0
+  STRING_LITERAL.lastIndex = 0
+  let match = STRING_LITERAL.exec(expression)
+  while (match) {
+    const literal = match[1] ?? match[2] ?? match[3] ?? ''
+    total += literal.split('/').filter((segment) => segment === '..').length
+    match = STRING_LITERAL.exec(expression)
+  }
+
+  return total
+}
+
+/** Identifier lookups must ignore string contents, or a `'fixtures'` literal reads as the `fixtures` binding. */
+function stripStringLiterals(expression) {
+  STRING_LITERAL.lastIndex = 0
+  return expression.replace(STRING_LITERAL, "''")
+}
+
+function countParentCalls(expression) {
+  PARENT_CALL.lastIndex = 0
+  let total = 0
+  while (PARENT_CALL.exec(expression)) total += 1
+  return total
+}
+
+function referencesIdentifier(expression, identifier) {
+  return new RegExp(`(?:^|[^\\w$.])${identifier}(?![\\w$])`).test(expression)
+}
+
+/**
+ * The ascent of a directory-valued expression, or `null` when it is not anchored on the test's own
+ * directory. `Infinity` marks the repository's upward-walk shape — `dir = path.dirname(dir)` inside a
+ * loop that stops when a probed path exists — whose depth is decided at runtime, so it must be assumed
+ * to leave the workspace.
+ */
+function ascentOfExpression(expression, ascents, assignedName) {
+  const code = stripStringLiterals(expression)
+  let base = DIRECTORY_ANCHOR.test(code) ? 0 : null
+  for (const [name, ascent] of ascents) {
+    if (name === assignedName) continue
+    if (referencesIdentifier(code, name)) base = Math.max(base ?? 0, ascent)
+  }
+
+  const climb = countParentCalls(code) + countParentSegments(expression)
+  const walksUpwardFromItself =
+    climb > 0 && ascents.has(assignedName) && referencesIdentifier(code, assignedName)
+  if (walksUpwardFromItself) return Infinity
+  if (base === null) return null
+
+  return base + climb
+}
+
+/** Every directory-valued binding derived from the test's own directory, mapped to how far above it it points. */
+function collectDirectoryAscents(source) {
+  const ascents = new Map()
+
+  for (let pass = 0; pass < BINDING_RESOLUTION_PASSES; pass += 1) {
+    let changed = false
+    BINDING.lastIndex = 0
+    let match = BINDING.exec(source)
+    while (match) {
+      const [, name, expression] = match
+      const ascent = ascentOfExpression(expression, ascents, name)
+      if (ascent !== null && ascent > (ascents.get(name) ?? -1)) {
+        ascents.set(name, ascent)
+        changed = true
+      }
+      match = BINDING.exec(source)
+    }
+
+    if (!changed) break
+  }
+
+  return ascents
+}
 
 function collectTestFiles(directory, collected) {
   let entries
@@ -194,22 +316,37 @@ function collectTestFiles(directory, collected) {
   return collected
 }
 
+/** Ascents written inline rather than bound to a name, e.g. `fs.readFileSync(path.resolve(__dirname, '..', '..'))`. */
+function* inlineAscents(source) {
+  INLINE_ASCENT.lastIndex = 0
+  let match = INLINE_ASCENT.exec(source)
+  while (match) {
+    yield countParentSegments(match[1])
+    match = INLINE_ASCENT.exec(source)
+  }
+}
+
 /**
  * True when the test anchors on a path above its own workspace directory. `relativePath` is
  * `<root>/<workspace>/<dirs…>/<file>`, so the directory depth below the workspace root is the
  * segment count minus the two leading segments and the file name; an ascent larger than that
  * leaves the workspace.
+ *
+ * Ascents are counted both inline and through named bindings, because the repository writes the
+ * locator both ways: `path.resolve(__dirname, '..', '..')` in one file, and a `let dir = __dirname`
+ * walked upward with `dir = path.dirname(dir)` until a probed path exists in another (#4534).
  */
-function escapesPackageRoot(source, relativePath) {
-  if (CROSS_PACKAGE_ANCHOR.test(source)) return true
+export function escapesPackageRoot(source, relativePath) {
+  const normalized = normalizeOwnDirectory(source)
+  if (CROSS_PACKAGE_ANCHOR.test(normalized)) return true
 
   const depthBelowPackageRoot = relativePath.split('/').length - 3
-  DIRNAME_ASCENT.lastIndex = 0
-  let match = DIRNAME_ASCENT.exec(source)
-  while (match) {
-    const ascent = (match[1].match(/\.\./g) ?? []).length
+  for (const ascent of collectDirectoryAscents(normalized).values()) {
     if (ascent > depthBelowPackageRoot) return true
-    match = DIRNAME_ASCENT.exec(source)
+  }
+
+  for (const ascent of inlineAscents(normalized)) {
+    if (ascent > depthBelowPackageRoot) return true
   }
 
   return false
@@ -277,7 +414,7 @@ function runGuardGroup(group) {
   const resolvedSpawn = resolveSpawnCommand(jestBinary, buildJestArgs(group))
 
   console.log(`\n▶ ${group.workspace} — ${group.tests.length} repo-wide guard(s)`)
-  const result = spawnSync(resolvedSpawn.command, resolvedSpawn.args, {
+  const result = spawn.sync(resolvedSpawn.command, resolvedSpawn.args, {
     cwd: workspaceDir,
     stdio: 'inherit',
     ...resolvedSpawn.spawnOptions,

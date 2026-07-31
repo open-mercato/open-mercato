@@ -539,8 +539,10 @@ jobs:
         #                          auth-onboarding-feedback-ds-tokens, license-metadata-consistency,
         #                          types-dependency-classification, optimistic-lock-ui-coverage-workspace,
         #                          optimistic-lock-command-coverage, modules/crud-indexer-config
-        #   @open-mercato/cli    — module-facts.bc-guard, example-public-route-safety,
-        #                          disabled-example-module, release-notes-retired
+        #   @open-mercato/cli    — module-facts.bc-guard, module-facts.customers.fixture,
+        #                          module-facts.auth-source, module-facts.extension-hosts,
+        #                          example-public-route-safety, disabled-example-module,
+        #                          release-notes-retired
         #   @open-mercato/shared — db/escapeLikePattern
         #   @open-mercato/ui     — primitives/zindex-overlay
         #   @open-mercato/app    — components/starter-chrome-ds, components/StartPageContent
