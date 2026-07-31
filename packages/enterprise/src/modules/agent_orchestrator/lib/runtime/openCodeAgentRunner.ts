@@ -262,6 +262,11 @@ export class OpenCodeAgentRunner {
       (entry.files.outputs ?? true) &&
       parseBooleanWithDefault(process.env.OM_OPENCODE_FILES_ENABLED, false)
     let workspace: AgentWorkspaceLease | null = null
+    // Hoisted so the `finally` can time a run that ended in an error too: a
+    // failed run used to reach the trace ingest only through the success path,
+    // leaving the debugger with no duration, no spans and no tool calls — the
+    // exact evidence needed to see WHERE it broke.
+    let startedAtMs: number | null = null
 
     try {
       if (filesEnabled) {
@@ -297,7 +302,7 @@ export class OpenCodeAgentRunner {
 
       const message = this.buildMessage(sessionToken, businessInput, workspace, stagedInputs)
 
-      const startedAtMs = Date.now()
+      startedAtMs = Date.now()
       const capturedOutcome = await this.driveSession({
         sessionId: session.id,
         message,
@@ -327,7 +332,6 @@ export class OpenCodeAgentRunner {
       }
 
       const result = shapeResult(entry.resultKind, parsed.data)
-      const latencyMs = Math.max(0, Math.round(Date.now() - startedAtMs))
 
       await completeRun(this.commandBus, commandCtx, {
         runId,
@@ -351,15 +355,6 @@ export class OpenCodeAgentRunner {
           stepId: ctx.stepId ?? null,
         })
       }
-
-      await this.ingestSessionTrace(commandCtx, {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        agentId,
-        externalRunId: session.id,
-        toolCalls: capturedToolCalls,
-        latencyMs,
-      })
 
       // File plane (#12): scan the sandbox `out/` and capture agent-authored files
       // as encrypted AgentRunArtifacts — BEFORE the `finally` wipes the sandbox.
@@ -387,6 +382,22 @@ export class OpenCodeAgentRunner {
 
       return result
     } finally {
+      // Persist the telemetry on EVERY exit path — success, a `failRun` throw, or
+      // an unexpected one. Whatever the session produced before it broke is the
+      // debugging material, and it is already in `capturedToolCalls`; skipping the
+      // ingest on failure discarded it. Best-effort by contract (see the method),
+      // so this can never turn a completed run into a failed one.
+      if (startedAtMs != null) {
+        await this.ingestSessionTrace(commandCtx, {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          agentId,
+          externalRunId: session.id,
+          toolCalls: capturedToolCalls,
+          latencyMs: Math.max(0, Math.round(Date.now() - startedAtMs)),
+        })
+      }
+
       // Wipe + release the sandbox lease first (frees the pooled container slot),
       // then remove the shared correlation row and best-effort revoke the per-run
       // token so it cannot be reused after the run.

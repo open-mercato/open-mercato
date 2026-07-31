@@ -344,6 +344,17 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(ids).toContain('agent_orchestrator.runs.fail')
     expect(ids).not.toContain('agent_orchestrator.runs.complete')
     expect(deleteSessionApiKeyMock).toHaveBeenCalled()
+
+    // A failed run is exactly the one an operator opens to find out what happened,
+    // so its telemetry must survive the failure: the ingest used to sit on the
+    // success path only, leaving the trace view with no duration and no spans.
+    const ingest = calls.find((call) => call.id === 'agent_orchestrator.trace.ingest')
+    expect(ingest).toBeDefined()
+    const payload = (ingest!.input as { payload: { latencyMs?: number; status?: string } }).payload
+    expect(typeof payload.latencyMs).toBe('number')
+    // The run row keeps the status `runs.fail` wrote — the ingest must not carry
+    // one of its own, or it would resurrect a failed run as something else.
+    expect(payload.status).toBeUndefined()
   })
 
   it('dispatches opencode-runtime agents through the runner from AgentRuntimeService.run', async () => {
