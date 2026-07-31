@@ -15382,6 +15382,7 @@ __metadata:
     ts-morph: "npm:^28.0.0"
     tsx: "npm:^4.23.1"
     typescript: "npm:7.0.2"
+    typescript-standalone: "npm:typescript@6.0.3"
   bin:
     create-mercato-app: ./bin/create-mercato-app
   languageName: unknown
@@ -29728,7 +29729,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript-js@npm:typescript@6.0.3, typescript@npm:^6.0.3":
+"typescript-js@npm:typescript@6.0.3, typescript-standalone@npm:typescript@6.0.3, typescript@npm:^6.0.3":
   version: 6.0.3
   resolution: "typescript@npm:6.0.3"
   bin:

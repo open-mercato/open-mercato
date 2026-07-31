@@ -57,17 +57,16 @@ async function withTty(stdin: boolean, stdout: boolean, run: () => Promise<void>
   }
 }
 
-test('promptSelection: a non-interactive shell takes the advertised default without prompting', async () => {
-  await withTty(false, false, async () => {
+test('promptSelection: piped stdin takes the advertised default without prompting', async () => {
+  await withTty(false, true, async () => {
     const refuse: AskFn = () => Promise.reject(new Error('prompted in a non-interactive shell'))
     assert.deepEqual(await promptSelection(refuse), ['claude-code'])
   })
 })
 
-test('promptSelection: a piped stdout alone is enough to skip the prompt', async () => {
+test('promptSelection: piped stdout still accepts a selection from interactive stdin', async () => {
   await withTty(true, false, async () => {
-    const refuse: AskFn = () => Promise.reject(new Error('prompted while stdout was piped'))
-    assert.deepEqual(await promptSelection(refuse), ['claude-code'])
+    assert.deepEqual(await promptSelection(() => Promise.resolve('5')), ['skip'])
   })
 })
 

@@ -141,3 +141,47 @@ test('buildPrefixIndex groups keys by every dotted prefix', () => {
   assert.deepEqual([...(index.get('x') ?? [])].sort(), ['x.y'])
   assert.equal(index.has('a.b.c'), false, 'leaf keys have no downstream bucket')
 })
+
+test('detects a t() call whose key argument sits on a following line (#4666)', () => {
+  const text = [
+    'const label = t(',
+    "  'module.multiline.key',",
+    "  'Fallback copy',",
+    ')',
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set())
+
+  assert.deepEqual(refs, [
+    { key: 'module.multiline.key', file: '<inline>', line: 2, direct: true },
+  ])
+})
+
+test('reports the line of the key argument, not of the call, for multiline calls', () => {
+  const text = [
+    'const first = t(',
+    '',
+    "    'module.spread.key'",
+    ')',
+    "const second = t('module.inline.key')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set())
+
+  assert.deepEqual(refs.map((ref) => [ref.key, ref.line]), [
+    ['module.spread.key', 3],
+    ['module.inline.key', 5],
+  ])
+})
+
+test('marks indirect literal matches as non-direct so they are never reported as missing', () => {
+  const text = [
+    "const config = { labelKey: 'known.key' }",
+    "const direct = t('unknown.key')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['known.key']))
+
+  assert.equal(refs.find((ref) => ref.key === 'known.key').direct, false)
+  assert.equal(refs.find((ref) => ref.key === 'unknown.key').direct, true)
+})
