@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
@@ -26,9 +26,12 @@ export const openApi = {
 
 export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveActiveOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')

@@ -112,6 +112,32 @@ describe('data_sync cancel run route', () => {
     })
   })
 
+  // When the super-admin override also switched tenants, the actor organization belongs to
+  // another tenant — the fallback must not fabricate a cross-tenant scope, and the answer
+  // must not be a 401 (which would re-enter the session-refresh loop).
+  it('answers 400 and cancels nothing when the actor organization belongs to another tenant', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-2',
+      orgId: null,
+      actorOrgId: 'org-1',
+      actorTenantId: 'tenant-1',
+      isSuperAdmin: true,
+    })
+
+    const response = await postHandler(
+      new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
+      { params: { id: '11111111-1111-4111-8111-111111111111' } },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ code: 'organization_scope_required' })
+    expect(mockSyncRunService.getRun).not.toHaveBeenCalled()
+    expect(mockSyncRunService.markStatus).not.toHaveBeenCalled()
+    expect(mockProgressService.markCancelled).not.toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.validateMutation).not.toHaveBeenCalled()
+  })
+
   it('marks the run as cancelled and records operational state and logs', async () => {
     const response = await postHandler(
       new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),

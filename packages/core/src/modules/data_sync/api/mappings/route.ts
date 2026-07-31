@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -36,9 +36,12 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveActiveOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const url = new URL(req.url)
@@ -94,9 +97,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveActiveOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const payload = await req.json().catch(() => null)

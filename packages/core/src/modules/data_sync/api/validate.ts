@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
@@ -18,9 +18,12 @@ export const openApi = {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveActiveOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const parsed = validateConnectionSchema.safeParse(await req.json())
