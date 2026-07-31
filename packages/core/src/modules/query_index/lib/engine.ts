@@ -30,6 +30,16 @@ const logger = createLogger('query_index').child({ component: 'engine' })
 
 const DECRYPT_CONCURRENCY = 8
 
+// #4681: last time an auto-reindex was scheduled per (entityType, tenant, org).
+// Module-level (process-global) on purpose: the query_index DI registrar builds a
+// fresh HybridQueryEngine per request container, so an instance-scoped map would
+// reset every request and never debounce the stampede that fired a reindex on
+// every query. Sharing it across all engines in the process collapses the burst.
+// Cross-process dedupe is not attempted here — the now-idempotent token writes
+// (unique index + ON CONFLICT) make a redundant reindex from another process
+// harmless rather than duplicating rows.
+const autoReindexScheduledAt = new Map<string, number>()
+
 function buildFilterableCustomFieldJoins(
   sources: QueryCustomFieldSource[] | undefined,
 ): Array<{
@@ -144,10 +154,6 @@ export class HybridQueryEngine implements QueryEngine {
   private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
   private autoReindexDebounceMs: number | null = null
-  // #4681: last time an auto-reindex was scheduled per (entityType, tenant, org).
-  // Collapses the stampede that fired a fresh fire-and-forget reindex on every
-  // query while coverage showed a gap.
-  private autoReindexScheduledAt = new Map<string, number>()
   private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
 
@@ -1984,10 +1990,10 @@ export class HybridQueryEngine implements QueryEngine {
     const debounceMs = this.getAutoReindexDebounceMs()
     if (debounceMs > 0) {
       const dedupeKey = [payload.entityType, payload.tenantId ?? '__tenant__', payload.organizationId ?? '__org__'].join('|')
-      const lastScheduledAt = this.autoReindexScheduledAt.get(dedupeKey)
+      const lastScheduledAt = autoReindexScheduledAt.get(dedupeKey)
       const now = Date.now()
       if (lastScheduledAt != null && now - lastScheduledAt < debounceMs) return
-      this.autoReindexScheduledAt.set(dedupeKey, now)
+      autoReindexScheduledAt.set(dedupeKey, now)
     }
     const context = stats
       ? { entity, tenantId: payload.tenantId, organizationId: payload.organizationId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
