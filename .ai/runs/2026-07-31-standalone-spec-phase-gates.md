@@ -8,6 +8,7 @@ Prevent large standalone-app requests from bypassing `om-spec-writing`, producin
 
 - Strengthen the standalone root instruction template and its `--agents none` fallback with a concise spec-readiness and phase-execution gate.
 - Expand the standalone specification template so it captures requirement traceability, page-level interaction contracts, canonical Open Mercato primitives, integration coverage, dependency-ordered phases, and phase validation.
+- Carry the stronger business/domain/architecture checks from the monorepo spec templates into the standalone template, and require cited native page references, semantic tokens, light/dark coverage, and explicit approval for custom UI exceptions.
 - Tighten the local `om-implement-spec` phase reference and add a standalone `om-auto-implement-spec` override for no-remote fallback behavior.
 - Add regression assertions to the create-app harness tests.
 
@@ -55,8 +56,9 @@ Prevent large standalone-app requests from bypassing `om-spec-writing`, producin
 
 - [x] 2.1 Enforce sequential phase checkpoints in local spec implementation — 94b7c1f4d
 - [x] 2.2 Add and test the standalone auto-implementation fallback contract — b9fcae8ad
+- [x] 2.3 Align app-scale specs and UI delivery with monorepo/native design-system gates — 95bd83727
 
 ### Phase 3: Validation and publication
 
-- [ ] 3.1 Run focused and configured validation gates
+- [x] 3.1 Run focused and configured validation gates — 075f2f5a7
 - [ ] 3.2 Complete automated review, PR evidence, and ready-for-review handoff
