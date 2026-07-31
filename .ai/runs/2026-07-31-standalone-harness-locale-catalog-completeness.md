@@ -53,8 +53,8 @@ Extend OMH-185's trusted complete-module oracle so literal `library.*` UI and na
 
 ### Phase 1: Failure-first evidence
 
-- [ ] 1.1 Add missing-key false-acceptance fixture and sanitized before evidence
-- [ ] 1.2 Add nested base-catalog and emitted sibling-locale fixtures
+- [x] 1.1 Add missing-key false-acceptance fixture and sanitized before evidence — 9e859bdaf
+- [x] 1.2 Add nested base-catalog and emitted sibling-locale fixtures — 9e859bdaf
 
 ### Phase 2: Bounded catalog oracle
 
