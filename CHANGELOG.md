@@ -1,8 +1,190 @@
 
-# 0.6.6 (2026-07-13)
+# 0.6.7 (2026-07-30)
 
 ## Highlights
 <!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+## ✨ Features
+- ✨ Implementation of WMS (warehouse management). (#4566) *(@patzick)*
+- ✨ Cache organization switcher responses (#2907). (#4538) *(@hubert-madej-softiq)*
+- ✨ Add initialValues prop to CreateDealForm (supersedes #3729). (#4485) *(@jakubsobczak-syhi, via @pkarw)*
+- ✨ Cache role lists safely (supersedes #3143). (#4480) *(@adeptofvoltron, via @pkarw)*
+- ✨ Honor custom-field priority and declaration order (supersedes #4417). (#4466) *(@wojciechszyjka, via @pkarw)*
+- ✨ Fail loud on colliding backend routes in mercato generate. (#4402) *(@tomaszscigalacshark)*
+- ✨ Configurable excludeInteractionType on profile activity sections. (#4390) *(@wojciechszyjka)*
+- ✨ Editor 'plain' renders multiline custom fields as a plain textarea. (#4389) *(@wojciechszyjka)*
+- ✨ Provide a complete country calling-code dictionary in PhoneNumberField (#4129). (#4195) *(@adeptofvoltron)*
+- ✨ Add phone custom field type with phone-number editor. (#4147) *(@DarrenStasiakDev4You)*
+- ✨ Allow disabling sales channels via feature toggle. (#3935) *(@jtomaszewski)*
+- ✨ Add demo autologin via env vars. (#3799) *(@jtomaszewski)*
+- ✨ Design-system & guardian refresh — docs drift fixes, guardian v2, backend reference, structural lint, Tabs migration, Figma canon. (#3777) *(@zielivia)*
+- ✨ DataTable interactive column resize + width persistence (#1835). (#3774) *(@zielivia)*
+
+## 🔒 Security
+- 🔒 Reject prototype keys in getNestedValue field paths (#3823). (#4517) *(@Marynat)*
+- 🔒 Bump the postcss resolution off the vulnerable 8.5.15 (#4499). (#4500) *(@wojciechszyjka)*
+- 🔒 Run a daily dependency audit and stop caching the audit result (#4479). (#4497) *(@wojciechszyjka)*
+- 🔒 Guard bounded bcrypt candidate loop invariant (#3812). (#4469) *(@DarrenStasiakDev4You)*
+- 🔒 Opt-in per-entity ACL for custom-entity records (supersedes #4208). (#4397) *(@ArtSadWLC, via @pkarw)*
+- 🔒 Consolidate security dependency updates. (#4363) *(@pkarw)*
+- 🔒 Fail closed on empty organization allowlist at key creation (#4168). (#4228) *(@wojciechszyjka)*
+- 🔒 Remove raw acceptance-token fallback in public quote endpoints (#2929). (#2997) *(@adeptofvoltron)*
+
+## 🐛 Fixes
+- 📦 Preapprove @open-mercato past yarn's minimum release age gate. (#4644) *(@patzick)*
+- 🔄 Stop reindex batches from silently dropping records (supersedes #4593). (#4598) *(@jtomaszewski, via @pkarw)*
+- 🔐 Fail closed on unresolved tenant scope in read routes. (#4590) *(@tomaszscigalacshark)*
+- 🔧 Surface swallowed Next.js dev startup errors, retry cold starts. (#4567) *(@patzick)*
+- 🐛 Avoid nested provider controls (supersedes #4524). (#4562) *(@hubert-madej-softiq, via @pkarw)*
+- 📦 Default the agentic wizard instead of hanging without a TTY. (#4557) *(@wojciechszyjka)*
+- 🔄 Await dynamic import so cache recovery runs (supersedes #4536). (#4540) *(@wojciechszyjka, via @pkarw)*
+- 📦 Update .gitignore to include npm cache directory. (#4533) *(@dominikpalatynski)*
+- 🔐 Enforce tenant scope in command CRUD. (#4531) *(@andrzejewsky)*
+- 🔧 Give the AGENTS.md budget chain sort an explicit comparator. (#4527) *(@wojciechszyjka)*
+- 🔐 Tenant-scope custom entity mutations (supersedes #4134). (#4511) *(@haxiorz, via @pkarw)*
+- 🔧 Invalidate trigger cache on customize and reset-to-code (#4425). (#4509) *(@wojciechszyjka)*
+- 🔧 Restore ESLint coverage and keep audit green (supersedes #4496). (#4501) *(@wojciechszyjka, via @pkarw)*
+- 🔐 Backfill poisoned customer_entity_id links (#4473). (#4494) *(@wojciechszyjka)*
+- 🔐 Harden rate-limit proxy trust (#4041) (supersedes #4074). (#4490) *(@haxiorz, via @pkarw)*
+- 💰 Reject over-limit captures (#3880) (supersedes #4083). (#4486) *(@haxiorz, via @pkarw)*
+- 🐛 Explain read-only system entity settings (supersedes #3713). (#4482) *(@adeptofvoltron, via @pkarw)*
+- 📦 Make yarn test pass on a fresh scaffold (#4328). (#4476) *(@wojciechszyjka)*
+- 🐛 Inline hint when dictionary options need organization context (supersedes #4406). (#4470) *(@wojciechszyjka, via @pkarw)*
+- 🔐 Return 400 for malformed uuid list filters (#3819). (#4468) *(@DarrenStasiakDev4You)*
+- 🐛 Restore request bodies from runtime registry (supersedes #4410). (#4467) *(@wojciechszyjka, via @pkarw)*
+- 🐛 Register code-defined workflow triggers with the trigger engine (supersedes #4443). (#4463) *(@wojciechszyjka, via @pkarw)*
+- 📦 Scaffolded apps run their own tooling (supersedes #4454). (#4456) *(@wojciechszyjka, via @pkarw)*
+- 🌍 Complete Polish translations and drop duplicated integrations keys (#2077). (#4452) *(@wojciechszyjka)*
+- 🖼️ Library interaction fixes — input focus and download-cell click. (#4450) *(@wojciechszyjka)*
+- 🌍 Translate the remaining Polish CRM strings (#2077, #4380). (#4446) *(@wojciechszyjka)*
+- 🔧 Malformed ?ids= no longer returns the full list. (#4444) *(@wojciechszyjka)*
+- 🔧 Load command interceptors in the CLI/queue-worker bootstrap. (#4414) *(@wojciechszyjka)*
+- 🐛 Apply overrides.widgets.dashboard to the server-side widget catalog (#4377). (#4408) *(@wojciechszyjka)*
+- 🔧 Restore standalone optimistic locking DI (supersedes #4209). (#4395) *(@migace, via @pkarw)*
+- 🐛 CustomFieldValuesList honors listVisible and formats values by kind. (#4388) *(@wojciechszyjka)*
+- 🐛 Give ActivityTimeline 'Mark done' the compact sizing its sibling uses. (#4387) *(@wojciechszyjka)*
+- 💰 Order-approval trigger listens for sales.order.created so it can auto-start. (#4385) *(@wojciechszyjka)*
+- 🐛 Resolve synthetic code-definition UUID in definitions/[id] GET. (#4383) *(@wojciechszyjka)*
+- 🐛 Simple-approval EMIT_EVENT activities use eventName so instances stop failing. (#4382) *(@wojciechszyjka)*
+- 🐳 Forward runtime environment and protect Redis queues. (#4369) *(@MStaniaszek1998)*
+- 🔐 Handle "All organizations" scope across audited org-scoped endpoints. (#4367) *(@jtomaszewski)*
+- 🔧 Stop pg idle-client errors crashing daemons and fix the webhook worker payload. (#4360) *(@MStaniaszek1998)*
+- 💰 Hide compose-message action on order/quote pages when messages module is disabled. (#4352) *(@jtomaszewski)*
+- 🌍 Translate directory edit page chrome and dashboard welcome widget (#4302). (#4343) *(@pkarw)*
+- 🔐 Make the public quote tenant guard fire on null-tenant sessions (#4309). (#4340) *(@pkarw)*
+- 📦 Include currencies and communication_channels in the CRM starter preset. (#4318) *(@dominikpalatynski)*
+- 🔐 Resolve global entity scope from metadata. (#4285) *(@vloneskorpion)*
+- 📦 Retry standalone install through npm quarantine window. (#4281) *(@patzick)*
+- 📦 Pin scaffolded app to yarn 4.17.1 for TS 7 install. (#4280) *(@patzick)*
+- 🔧 Register code workflows in CLI/worker bootstrap (#4257). (#4263) *(@wojciechszyjka)*
+- 🖼️ Heal attachment reconciliation inside a savepoint so a failed row cannot abort the batch (supersedes #4253). (#4260) *(@wojciechszyjka, via @pkarw)*
+- 🐛 Restore scheduler job payload contract parity (supersedes #4252). (#4259) *(@wojciechszyjka, via @pkarw)*
+- 🌍 Localize pay-page session-start failure and add field a11y semantics (#4212). (#4227) *(@wojciechszyjka)*
+- 🐛 Return 400 for invalid entry input and fix entry dialog a11y (#4218). (#4226) *(@wojciechszyjka)*
+- 🔐 Stop the 401 session-refresh loop on "all organizations". (#4224) *(@piotrchabros)*
+- 🔐 Stop session refresh minting "null" tenant/org scope claims. (#4223) *(@piotrchabros)*
+- 🔐 Stop the deals 401 session-refresh loop on "all organizations". (#4222) *(@piotrchabros)*
+- 🌍 Localize portal permission catalog (#4203). (#4204, #4205) *(@pat-lewczuk, @pkarw)*
+- 💰 Include custom/operator-defined order adjustments in the grand total (#4052). (#4198) *(@adeptofvoltron)*
+- 💰 Keep order linked to saved address on re-save (#4169). (#4196) *(@adeptofvoltron)*
+- 🐛 Mobile layout — clamp Export dropdown & demo overlays, scrollable calendar tabs. (#4188) *(@zielivia)*
+- 🔐 Rate-limit the unauthenticated tenant lookup (#3850). (#4182) *(@adeptofvoltron)*
+- 🔐 Fail closed on null-tenant widget-assignment ownership checks (#3843). (#4181) *(@adeptofvoltron)*
+- 🔐 Cap the organizations list pageSize at the platform 100 (#3851). (#4180) *(@adeptofvoltron)*
+- 🔐 Make entry command ensureScope fail closed on null org/tenant (#3846). (#4177) *(@adeptofvoltron)*
+- 🔐 Scope and rate-limit the public org slug lookup (#3849). (#4173) *(@adeptofvoltron)*
+- 🔐 Bound dashboard layout and widget-assignment arrays (#3844). (#4172) *(@adeptofvoltron)*
+- 🔧 Recognize structured-logger noise in dev log policies. (#4158) *(@pkarw)*
+- 💰 Make primary email fit the order details summary card (#4148). (#4156) *(@adeptofvoltron)*
+- 🐛 Integrations tabs use DS underline variant + violet hover (#2015). (#4138) *(@zielivia)*
+- 🔐 Require trusted webhook scope (#3865). (#4112) *(@haxiorz)*
+- 🔐 Close disabled self-service flow (#3878). (#4089) *(@haxiorz)*
+- 🔐 Make payment sessions concurrency-safe (#4035) (supersedes #4062). (#4087) *(@haxiorz, via @pkarw)*
+- 🔐 Enforce role organization scope (#4032) (supersedes #4050). (#4086) *(@haxiorz, via @pkarw)*
+- 🔐 Prevent anonymous feedback recipient emails (#3879). (#4082) *(@haxiorz)*
+- 🔐 Scope availability command target loads (#3884). (#4078) *(@haxiorz)*
+- 📦 Clear moderate production advisories (#4046). (#4065) *(@haxiorz)*
+- 💰 Prevent duplicate provider operations (#4036). (#4064) *(@haxiorz)*
+- 🔐 Protect OIDC requests from SSRF (#4037). (#4063) *(@haxiorz)*
+- 🐛 Resolve /start API base URL server-side to prevent hydration mismatch. (#3995) *(@pkarw)*
+- 🔐 Enforce scoped object access (#3915). (#3961) *(@haxiorz)*
+- 🔐 Scope S3 list prefixes to tenant namespace (#3916). (#3959) *(@haxiorz)*
+- 🔄 Block redirect-hop SSRF (#3919). (#3954) *(@haxiorz)*
+- 🔄 Stream customer CSV imports. (#3950) *(@haxiorz)*
+- 🔐 Gate injection widgets by features (#3930). (#3946) *(@haxiorz)*
+- 🔐 Guard unscoped inbound webhooks. (#3943) *(@haxiorz)*
+- 🔐 Gate UPDATE_ENTITY commands (#3933). (#3941) *(@haxiorz)*
+- 💰 Pin orders/quotes number column on horizontal scroll (#3039). (#3045) *(@haxiorz)*
+- 🔐 Auto-assign tenant on organization create for non-super-admins (#2988). (#2993) *(@adeptofvoltron)*
+
+## 🛠️ Improvements
+- 🛠️ Cache dictionary-entry value lookups on order create (supersedes #3948). (#4504) *(@KamilGrocholski, via @pkarw)*
+- 🛠️ Sync the main hotfixes already shipped in 0.6.6 (#4191, #4193, #4210, #4213) back into develop. (#4261) *(@patzick)*
+- 🛠️ Bump websocket-driver to 0.7.5 on develop. (#4258) *(@pkarw)*
+- 🛠️ Avoid app bootstrap after generation. (#4219) *(@andrzejewsky)*
+- 🛠️ Avoid invalidation after no-op generation. (#4217) *(@andrzejewsky)*
+- 🛠️ Stop hashing generator inputs while idle. (#4216) *(@andrzejewsky)*
+- 🛠️ Skip unchanged OpenAPI generation. (#4215) *(@andrzejewsky)*
+- 🛠️ Share registry discovery across generators. (#4214) *(@andrzejewsky)*
+- 🛠️ Migrate to TypeScript 7.0.2 native compiler. (#4199) *(@patzick)*
+- 🛠️ Adopt the standardized 404 helpers across customers and sales (#2364). (#4183) *(@adeptofvoltron)*
+- 🛠️ Prefer the canonical .agents/skills dir in install-skills (#4155). (#4164) *(@adeptofvoltron)*
+- 🛠️ Bump minor-and-patch dependency group (65 updates). (#4161) *(@pkarw)*
+- 🛠️ Rename "Storage" nav group to "Media". (#3731) *(@jtomaszewski)*
+
+## 🧪 Testing
+- 🧪 Stub DNS in the redirect-hop tests so develop is green again (#4515). (#4516) *(@wojciechszyjka)*
+
+## 📝 Specs & Documentation
+- 📝 Publish Enterprise License Agreement Terms v2.2. (#4610) *(@matgren)*
+- 📝 Fit the root AGENTS.md into Codex's 32 KiB instruction budget (#4484). (#4506) *(@wojciechszyjka)*
+- 📝 Note that finishing the self-QA exception needs `triage` permission (#4478). (#4498) *(@wojciechszyjka)*
+- 📝 Clarify three-store architecture, fix stale naming, add evolution spec. (#4492) *(@jtomaszewski)*
+- 📝 Exempt tested no-UI changes from manual QA (supersedes #4448). (#4461) *(@wojciechszyjka, via @pkarw)*
+- 📝 Sync agent-pipeline tracker & browser descriptors. (#4393) *(@pkarw)*
+- 📝 Specify secure durable user tasks. (#4336) *(@pmadajthey)*
+- 📝 Specify reliable completion events (supersedes #4314). (#4321) *(@PatrickMade, via @pkarw)*
+- 📝 Specify stable activity output paths (supersedes #4312). (#4320) *(@PatrickMade, via @pkarw)*
+- 📝 Sync skill roster and docs with skills collection consolidation. (#4296) *(@pkarw)*
+- 📝 DS developer-experience roadmap — brand import, UX walkthroughs, mockup composer. (#4270) *(@zielivia)*
+- 📝 Specify scoped member directory. (#4200) *(@pmadajthey)*
+
+## 👥 Contributors
+
+- @patzick
+- @matgren
+- @jtomaszewski
+- @tomaszscigalacshark
+- @hubert-madej-softiq
+- @wojciechszyjka
+- @dominikpalatynski
+- @andrzejewsky
+- @Marynat
+- @haxiorz
+- @KamilGrocholski
+- @jakubsobczak-syhi
+- @adeptofvoltron
+- @DarrenStasiakDev4You
+- @ArtSadWLC
+- @migace
+- @pkarw
+- @MStaniaszek1998
+- @pmadajthey
+- @PatrickMade
+- @vloneskorpion
+- @zielivia
+- @piotrchabros
+- @pat-lewczuk
+
+---
+
+# 0.6.6 (2026-07-17)
+
+## Highlights
+
+Open Mercato `0.6.6` is a big **tighten-the-bolts release** with a lot of new shine on top. The headline is trust: a sweeping 270-fix pass locks down tenant and organization scoping, closes permission gaps across customer accounts, dashboards, messages, attachments, and the AI assistant, and rolls out **unified optimistic locking** everywhere — so concurrent edits stop quietly stepping on each other, and money and orders behave.
+
+This release also runs **noticeably lighter**. A broad performance-and-footprint push trims resource usage across the board: selectable dev-mode watch scopes and the `OM_WATCH_SCOPE` memory lever, per-module CPU/RAM insight, lazy-loaded module commands, a shared dev scheduler/worker, throttled coverage warmup, coalesced job-update broadcasts, and a wide response-cache sweep over detail, list, and unread-count APIs — all backed by a new structured **pino logging** facade. On top of that, **CRM steals the show** with a full calendar (day/week/month/agenda) and a responsive event editor, configurable interaction statuses, and a new deals map view, while the ecosystem opens up with a shared **`om-*` skills mixin**, OpenRouter and Requesty AI presets, a two-way **Discord channel**, hardened MCP keys, signed webhooks, and a batch of security-CVE bumps. Enjoy!
 
 ## ✨ Features
 - ✨ Adopt skills mixin in the standalone create-app template (stacked on #4008). (#4026) *(@pkarw)*
@@ -335,6 +517,10 @@
 - 🔐 Pin logout/session-refresh redirects to allowlisted origin (#2686). (#2876) *(@pkarw)*
 - 🐛 Keep timesheet grid decimal edits through blur. (#2845) *(@pmadajthey)*
 - 🐛 Surface per-field validation errors on signup form (#2081). (#2088) *(@pat-lewczuk)*
+- 🔐 Don't force-logout all users on a transient DB failure. (#4191) *(@patzick)*
+- 🐛 Repair legacy checkout demo webhook failure. (#4193) *(@patzick)*
+- 🐛 Commit CALL_API one-time key outside execution transaction. (#4210) *(@patzick)*
+- 💰 Checkout demo order includes cart lines and non-zero totals. (#4213) *(@patzick)*
 
 ## 🛠️ Improvements
 - 🛠️ Share scheduler with lazy worker in dev mode. (#4125) *(@andrzejewsky)*

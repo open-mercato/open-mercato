@@ -102,6 +102,29 @@ describe('createEmbeddingProviderProbe', () => {
     expect(spy).toHaveBeenCalledTimes(2)
   })
 
+  it('probes a candidate Ollama base URL instead of the environment default', async () => {
+    const previous = process.env.OLLAMA_BASE_URL
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    const spy = mockFetch(async () => okTags(1))
+    const { container } = createContainerWithCache()
+    const probe = createEmbeddingProviderProbe(container)
+
+    try {
+      await probe.checkAvailability('ollama', {
+        force: true,
+        baseUrl: 'http://127.0.0.1:22434',
+      })
+    } finally {
+      if (previous === undefined) delete process.env.OLLAMA_BASE_URL
+      else process.env.OLLAMA_BASE_URL = previous
+    }
+
+    expect(spy).toHaveBeenCalledWith(
+      'http://127.0.0.1:22434/api/tags',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
   it('gates key-based providers on env-key presence', async () => {
     const { container } = createContainerWithCache()
     const probe = createEmbeddingProviderProbe(container)

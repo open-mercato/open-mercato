@@ -60,6 +60,7 @@
   "sales.channels.actions.backToList": "Zurück zu Kanälen",
   "sales.channels.actions.create": "Kanal hinzufügen",
   "sales.channels.create": "Vertriebskanal erstellen",
+  "sales.channels.disabledNotice": "Vertriebskanäle sind für diesen Mandanten deaktiviert. Aktivieren Sie das Feature-Toggle \"Sales Channels\", um sie zu verwalten.",
   "sales.channels.form.address1": "Adresszeile 1",
   "sales.channels.form.address2": "Adresszeile 2",
   "sales.channels.form.city": "Stadt",

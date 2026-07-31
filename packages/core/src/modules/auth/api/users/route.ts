@@ -22,6 +22,7 @@ import {
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { sql } from 'kysely'
@@ -41,6 +42,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   name: z.string().optional(),
   organizationId: z.string().uuid().optional(),
+  scopeToActiveOrganization: z.boolean().optional(),
   roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
 
@@ -180,6 +182,7 @@ export async function GET(req: Request) {
     search: url.searchParams.get('search') || undefined,
     name: url.searchParams.get('name') || undefined,
     organizationId: url.searchParams.get('organizationId') || undefined,
+    scopeToActiveOrganization: parseBooleanFlag(url.searchParams.get('scopeToActiveOrganization') || undefined),
     roleIds: rawRoleIds.length ? rawRoleIds : undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
@@ -195,7 +198,7 @@ export async function GET(req: Request) {
   } catch (err) {
     logger.error('Failed to resolve rbac', { err })
   }
-  const { id, page, pageSize, search, name, organizationId, roleIds } = parsed.data
+  const { id, page, pageSize, search, name, organizationId, scopeToActiveOrganization, roleIds } = parsed.data
   const filters: any[] = [{ deletedAt: null }]
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   let effectiveTenantId: string | null = null
@@ -244,6 +247,12 @@ export async function GET(req: Request) {
     ? effectiveSelectedOrganizationId
     : auth.orgId ?? null
   if (organizationId) filters.push({ organizationId })
+  // Recipient/assignee pickers scope to the caller's active organization so they never
+  // suggest users outside it. A message composed here is stamped with the caller's
+  // active org (auth.orgId), and the message detail endpoint enforces
+  // hasOrganizationAccess(scope.organizationId, message.organizationId); scoping the
+  // suggestions to the same org keeps a picked recipient able to open what they were sent.
+  if (scopeToActiveOrganization) filters.push({ organizationId: auth.orgId ?? null })
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   if (trimmedName) {
     const searchPattern = `%${escapeLikePattern(trimmedName)}%`
@@ -620,7 +629,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters.',
+        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record).',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },

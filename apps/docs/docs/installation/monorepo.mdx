@@ -306,6 +306,25 @@ yarn dev
 
 <TabItem value="windows" label="🪟 Windows">
 
+## One-command setup (recommended) {#windows-one-command}
+
+The fastest path on Windows — including a **completely clean machine with no Git, no Docker, and no Node.js** — is the bundled launcher:
+
+1. Get the repo (clone it, or download the [ZIP](https://github.com/open-mercato/open-mercato/archive/refs/heads/main.zip) and extract it). On a bare machine you can even download just [`start-windows.bat`](https://raw.githubusercontent.com/open-mercato/open-mercato/main/scripts/windows/start-windows.bat) — it installs Git and clones the repo for you.
+2. Double-click **`scripts\windows\start-windows.bat`**.
+
+The launcher installs missing prerequisites (Git, WSL2, Docker Desktop — **no Node.js or Build Tools needed**, everything runs in containers) using winget when it is available and falling back to a direct download of the official installers when it is not (so Windows LTSC / Server / locked-down images without the App Installer still work), reboots-and-resumes automatically when Windows requires it, generates `.env` secrets, prompts for an LLM provider API key (required — pass `-SkipLlmPrompt` on the underlying script to configure it later), then starts the fully containerized dev stack from `docker-compose.fullapp.dev.yml`: the app (`:3000`, hot reload), the MCP server (`:3001`), the OpenCode agent (`:4096`), plus PostgreSQL, Redis, and Meilisearch. It waits for everything to become healthy and prints URLs and superadmin credentials.
+
+- First boot takes 10–20 minutes (the container installs, builds, and seeds); progress is streamed from the build splash on `http://localhost:4000`. Subsequent starts take seconds.
+- `scripts\windows\stop-windows.bat` stops the stack (data survives in Docker volumes).
+- Re-running `start-windows.bat` is always safe — every step is idempotent. Useful flags on the underlying script (`scripts\windows\start-dev.ps1`): `-Status`, `-Logs`, `-Restart`, `-Reset` (deletes all data), `-DryRun`, `-NonInteractive`, `-SkipLlmPrompt`, `-Rebuild`, `-IncludeNativeToolchain`.
+- **No administrator rights?** The launcher elevates *only* to install missing prerequisites. If a container runtime + WSL2 are already present (e.g. provisioned by IT), it detects that and runs the whole flow without admin. On a machine where you can't elevate at all, run `powershell scripts\windows\start-dev.ps1 -NoAdmin` — it skips every admin step (and downloads the repo as a ZIP when Git is missing) and, if the runtime/WSL2 aren't installed, tells you exactly what to ask IT for.
+- **Rancher Desktop instead of Docker Desktop?** Fully supported — common where Docker Desktop licensing is not permitted. The launcher auto-detects an existing Rancher Desktop (machine-wide or per-user install) and uses it; make sure it runs the **dockerd (moby)** engine (the launcher requests this itself via `rdctl`). To install Rancher instead of Docker on a clean machine, pass `-Runtime rancher`.
+- **IDE setup:** edit the project folder with any Windows IDE (VS Code, JetBrains, Cursor) — hot reload flows through the bind mount, and WSL never enters your workflow (`/mnt/c/...` is only how a WSL shell would see the disk; don't run the project from there). One caveat: `node_modules` lives in a container volume, not on the host, so TypeScript IntelliSense/ESLint need one of: **(a)** VS Code → *Dev Containers: Attach to Running Container…* on the `app` container and open `/app` (recommended — full IntelliSense, zero host tooling), or **(b)** install Node 24 and run `yarn install` once, purely to feed the editor (the app still runs in containers). Power users who want maximum filesystem performance can use the full [WSL2-native guide](./wsl2) instead.
+- **Blocked downloads / air-gapped?** Drop the official installers (Git for Windows, Docker Desktop or Rancher Desktop, `wsl_update_x64.msi`) into an `installers` folder in the repository root (or next to the launcher scripts) (or point `OM_INSTALLERS_DIR` at them) — the launcher validates and uses them without any network access. winget is never required.
+
+The sections below cover the **native (non-Docker) toolchain** as an alternative for contributors who prefer running the app directly on Windows.
+
 :::tip WSL2 recommended for full monorepo development
 For the best developer experience on Windows — native Linux tooling, faster file I/O, full Docker support — use **WSL2 with Ubuntu** instead of running everything natively. See the dedicated [Windows with WSL2](./wsl2) guide which covers Ubuntu setup, memory configuration, Docker, GitHub CLI, and network bridging to a Windows-hosted database.
 
