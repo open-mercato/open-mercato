@@ -99,6 +99,56 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
   assert.match(source, /value\.endsWith\('\.delete'\)/)
 })
 
+test('the complete module oracle rejects a missing literal module locale key after the legacy localization signal passes', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+export function useT() { return (key: string) => key }
+export const metadata = { pageTitleKey: 'library.books.title' }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`)
+  fs.mkdirSync(path.join(root, 'src/modules/library/i18n'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'src/modules/library/i18n/en.json'), '{}\n')
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.localized-ui')?.passed, true)
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, false)
+    assert.match(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.requirement ?? '', /en\.json.*library\.books\.title/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle accepts nested base and emitted sibling locale catalogs', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+export function useT() { return (key: string) => key }
+export const metadata = {
+  pageTitleKey: 'library.books.title',
+  pageGroupKey: 'library.navigation.group',
+  breadcrumb: [{ label: 'library.books.breadcrumb' }],
+}
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`)
+  const catalogs = {
+    en: { library: { books: { title: 'Books', breadcrumb: 'Books' }, navigation: { group: 'Library' } } },
+    de: { library: { books: { title: 'Bücher', breadcrumb: 'Bücher' }, navigation: { group: 'Bibliothek' } } },
+  }
+  fs.mkdirSync(path.join(root, 'src/modules/library/i18n'), { recursive: true })
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    fs.writeFileSync(path.join(root, `src/modules/library/i18n/${locale}.json`), `${JSON.stringify(catalog)}\n`)
+  }
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the complete module oracle requires atomic and undo seams on each declared command', () => {
   const root = stageTarget('src/modules/library/commands/books.ts', `
 function withAtomicFlush() {}
