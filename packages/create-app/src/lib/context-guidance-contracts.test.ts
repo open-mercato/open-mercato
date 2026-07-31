@@ -25,6 +25,18 @@ test('standalone module contracts require structured runtime logging without ban
   assert.match(contracts, /CLI\/build scripts and test-local console spies remain valid/)
 })
 
+test('standalone debugging preserves work and validation evidence without leaking transcripts', () => {
+  const debugging = readAgentic('guides/testing-debugging.md')
+
+  assert.match(debugging, /use a separate worktree or a fresh scaffold/)
+  assert.match(debugging, /Never stash and drop active work/)
+  assert.match(debugging, /Never copy them into the app repository/)
+  assert.match(debugging, /user explicitly asks/)
+  assert.match(debugging, /Do not pipe gates through `grep`, `tail`, or a trailing `echo`/)
+  assert.match(debugging, /enable `pipefail`/)
+  assert.match(debugging, /Any nonzero status remains a failed gate/)
+})
+
 test('installed auth and onboarding context directs new routes to current contracts', () => {
   const auth = readPackage('core/src/modules/auth/AGENTS.md')
   assert.match(auth, /API metadata is per HTTP method/)
