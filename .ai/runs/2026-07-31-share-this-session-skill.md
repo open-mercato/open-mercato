@@ -73,5 +73,5 @@ PR: #4756
 
 ### Phase 3: Validation and publication
 
-- [ ] 3.1 Run targeted and configured validation gates
+- [x] 3.1 Run targeted and configured validation gates — b731e255f
 - [ ] 3.2 Complete automated review, PR evidence, and ready-for-review handoff
