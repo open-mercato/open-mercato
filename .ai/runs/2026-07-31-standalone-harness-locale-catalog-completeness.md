@@ -58,10 +58,10 @@ Extend OMH-185's trusted complete-module oracle so literal `library.*` UI and na
 
 ### Phase 2: Bounded catalog oracle
 
-- [ ] 2.1 Implement literal module and metadata key extraction
-- [ ] 2.2 Implement safe bounded locale discovery and parsing
-- [ ] 2.3 Implement base/sibling resolution, dangerous-segment defense, and non-vacuity
-- [ ] 2.4 Add the additive module.locale-catalog check and structured diagnostics
+- [x] 2.1 Implement literal module and metadata key extraction — c91ebf878
+- [x] 2.2 Implement safe bounded locale discovery and parsing — c91ebf878
+- [x] 2.3 Implement base/sibling resolution, dangerous-segment defense, and non-vacuity — c91ebf878
+- [x] 2.4 Add the additive module.locale-catalog check and structured diagnostics — c91ebf878
 
 ### Phase 3: Synchronization and proof
 
