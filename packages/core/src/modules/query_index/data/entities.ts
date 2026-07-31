@@ -255,12 +255,18 @@ export class IndexerStatusLog {
 @Index({ name: 'search_tokens_lookup_idx', properties: ['entityType', 'field', 'tokenHash', 'tenantId', 'organizationId'] })
 @Index({ name: 'search_tokens_entity_idx', properties: ['entityType', 'entityId'] })
 @Index({ name: 'search_tokens_tenant_token_hash_idx', properties: ['tenantId', 'tokenHash'] })
-// #4681: the token tuple is unique per record. Enforced through a coalesced
-// functional unique index (see Migration20260730120000_query_index) rather than
-// @Unique because the scope columns are nullable and Postgres treats NULLs as
-// distinct — a plain unique constraint would not collapse the global
-// (NULL organization/tenant) rows whose duplication caused the runaway growth.
-// Token INSERTs use ON CONFLICT DO NOTHING against it.
+// #4681: the token tuple is unique per record. Declared via @Unique with a raw
+// expression (not properties) because the scope columns are nullable and NULLs
+// must collapse to one bucket via coalesce — a plain unique constraint would treat
+// the global (NULL organization/tenant) rows as distinct and let them duplicate,
+// which is exactly what caused the runaway growth. Mirrors entity_index_jobs'
+// coalesced-scope unique. Token INSERTs use ON CONFLICT DO NOTHING against it;
+// the concurrent build lives in Migration20260730120000_query_index.
+@Unique({
+  name: 'search_tokens_unique_tuple_idx',
+  expression:
+    `create unique index "search_tokens_unique_tuple_idx" on "search_tokens" ("entity_type", "entity_id", "field", "token_hash", coalesce("organization_id", '00000000-0000-0000-0000-000000000000'::uuid), coalesce("tenant_id", '00000000-0000-0000-0000-000000000000'::uuid))`,
+})
 export class SearchToken {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

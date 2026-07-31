@@ -1374,6 +1374,15 @@
           "keyName": "search_tokens_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": true,
+          "keyName": "search_tokens_unique_tuple_idx",
+          "primary": false,
+          "unique": true,
+          "expression": "create unique index \"search_tokens_unique_tuple_idx\" on \"search_tokens\" (\"entity_type\", \"entity_id\", \"field\", \"token_hash\", coalesce(\"organization_id\", '00000000-0000-0000-0000-000000000000'::uuid), coalesce(\"tenant_id\", '00000000-0000-0000-0000-000000000000'::uuid))"
         }
       ],
       "checks": [],

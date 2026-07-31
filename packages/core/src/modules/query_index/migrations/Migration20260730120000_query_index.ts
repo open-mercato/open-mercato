@@ -13,20 +13,35 @@ import { Migration } from '@mikro-orm/migrations';
 // a sentinel zero UUID — otherwise the global-scope rows (the ones that actually
 // blew up) would stay un-deduplicated.
 //
-// Existing rows are de-duplicated first (keeping the lowest id per tuple) so the
-// unique index build cannot fail on pre-existing duplicates. The dedup + the
-// non-concurrent index build run outside a single implicit transaction wrapper
-// only where required; here we keep it transactional so the dedup and the index
-// creation are atomic.
+// Operational safety on the target 221M-row/~100GB table (why this migration is
+// NOT transactional):
+//   1. The index is built with CREATE UNIQUE INDEX CONCURRENTLY so it never holds
+//      a table-level write lock for the duration of the build. CONCURRENTLY cannot
+//      run inside a transaction, hence isTransactional() => false. The migration
+//      runner applies migrations one-by-one, so this opt-out is safe.
+//   2. Duplicates are removed first with a ctid-keyed self-join delete (ctid is
+//      cheaper than comparing the random-UUID primary key and lets Postgres keep
+//      exactly one physical row per tuple).
+//   3. A CONCURRENTLY build leaves an INVALID index behind if it is interrupted or
+//      if a new duplicate is written in the gap before the app deploys the
+//      ON CONFLICT code. We drop any pre-existing invalid index first so a rerun
+//      is clean; if a build fails, drop the invalid index and rerun this migration.
+//
+// For an operator whose table is already pathologically large, the fastest
+// recovery is the workaround from the issue — TRUNCATE search_tokens and run a
+// single controlled reindex — after which this migration builds the index on an
+// empty/small table instantly. This migration is written to also work in place.
 export class Migration20260730120000_query_index extends Migration {
 
-  override async up(): Promise<void> {
-    const scopeExpr =
-      `entity_type, entity_id, field, token_hash, ` +
-      `coalesce(organization_id, '00000000-0000-0000-0000-000000000000'::uuid), ` +
-      `coalesce(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)`;
+  override isTransactional(): boolean {
+    return false;
+  }
 
-    // De-duplicate existing rows, keeping the lowest id per token tuple.
+  override up(): void | Promise<void> {
+    // Drop a possible leftover INVALID index from an interrupted prior run.
+    this.addSql(`drop index if exists "search_tokens_unique_tuple_idx";`);
+
+    // De-duplicate existing rows, keeping one physical row (lowest ctid) per tuple.
     this.addSql(`
       delete from "search_tokens" t
       using "search_tokens" d
@@ -38,16 +53,19 @@ export class Migration20260730120000_query_index extends Migration {
             = coalesce(d."organization_id", '00000000-0000-0000-0000-000000000000'::uuid)
         and coalesce(t."tenant_id", '00000000-0000-0000-0000-000000000000'::uuid)
             = coalesce(d."tenant_id", '00000000-0000-0000-0000-000000000000'::uuid)
-        and t."id" > d."id";
+        and t.ctid > d.ctid;
     `);
 
     this.addSql(
-      `create unique index if not exists "search_tokens_unique_tuple_idx" on "search_tokens" (${scopeExpr});`,
+      `create unique index concurrently if not exists "search_tokens_unique_tuple_idx" on "search_tokens" ` +
+      `("entity_type", "entity_id", "field", "token_hash", ` +
+      `coalesce("organization_id", '00000000-0000-0000-0000-000000000000'::uuid), ` +
+      `coalesce("tenant_id", '00000000-0000-0000-0000-000000000000'::uuid));`,
     );
   }
 
-  override async down(): Promise<void> {
-    this.addSql(`drop index if exists "search_tokens_unique_tuple_idx";`);
+  override down(): void | Promise<void> {
+    this.addSql(`drop index concurrently if exists "search_tokens_unique_tuple_idx";`);
   }
 
 }
