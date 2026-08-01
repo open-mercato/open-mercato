@@ -90,6 +90,13 @@ const adminNavResponseSchema = z.object({
   profilePathPrefixes: z.array(z.string()),
   grantedFeatures: z.array(z.string()),
   roles: z.array(z.string()),
+  // Present when a single organization is in scope; `null` under an all-organizations selection or
+  // when the lookup fails. Declared optional so the response contract stays additive for clients
+  // generated against an older schema.
+  currentOrganization: z.object({
+    id: z.string(),
+    name: z.string(),
+  }).nullable().optional(),
 })
 
 const adminNavErrorSchema = z.object({
@@ -138,8 +145,13 @@ export async function GET(req: Request) {
     selectedTenantId = auth.tenantId ?? null
   }
 
-  const cacheVersion = 'v4'
-  const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
+  // v5: the payload gained `currentOrganization`, so v4 entries written before this deploy would be
+  // replayed without the field. The selection is part of the key because the resolved organization
+  // cannot distinguish "all organizations" from "my own organization" — both resolve to `auth.orgId`,
+  // so a key built only from the resolved scope would serve one scope's payload for the other.
+  const cacheVersion = 'v5'
+  const cacheSelection = selectedOrganizationId === undefined ? 'default' : (selectedOrganizationId ?? 'null')
+  const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}`
   try {
     if (cache?.get) {
       const cached = await cache.get(cacheKey)

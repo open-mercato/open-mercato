@@ -292,6 +292,11 @@ export async function resolveBackendChromePayload({
 
   let scopedOrganizationId: string | null = auth.orgId ?? null
   let scopedTenantId: string | null = auth.tenantId ?? null
+  // The organization the caller actually *selected*, as distinct from the one the scope resolver fell
+  // back to. `resolveFeatureCheckContext` resolves `organizationId` to `auth.orgId` when no concrete
+  // organization is selected — which is precisely what an all-organizations view produces — so the
+  // resolved id cannot answer "which organization am I viewing".
+  let concretelySelectedOrganizationId: string | null = null
   let allowNavigation = true
 
   try {
@@ -304,12 +309,14 @@ export async function resolveBackendChromePayload({
     })
     scopedOrganizationId = organizationId
     scopedTenantId = scope.tenantId ?? auth.tenantId ?? null
+    concretelySelectedOrganizationId = scope.selectedId ?? null
     if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
       allowNavigation = false
     }
   } catch {
     scopedOrganizationId = auth.orgId ?? null
     scopedTenantId = auth.tenantId ?? null
+    concretelySelectedOrganizationId = null
   }
 
   const acl = allowNavigation
@@ -428,6 +435,11 @@ export async function resolveBackendChromePayload({
     ?? (fallbackOrganizationId && !isAllOrganizationsSelection(fallbackOrganizationId) ? fallbackOrganizationId : null)
 
   let brand: BackendChromePayload['brand'] = null
+  // Resolved here rather than left to callers. `brand` only populates when the organization has a
+  // logo, so it is a branding channel, not a dependable "which organization am I viewing" source.
+  // Without this field every downstream app has to fetch `/api/directory/organization-switcher` and
+  // walk its tree for the selected id. The row is already loaded below, so the name costs nothing.
+  let currentOrganization: BackendChromePayload['currentOrganization'] = null
   if (brandOrganizationId && scopedTenantId) {
     try {
       const organization = await findOneWithDecryption(
@@ -437,6 +449,12 @@ export async function resolveBackendChromePayload({
         undefined,
         { tenantId: scopedTenantId, organizationId: brandOrganizationId },
       )
+      // Only when a concrete organization was selected. Under an all-organizations view
+      // `brandOrganizationId` still resolves (to the caller's own organization, which is what keeps
+      // branding working), so gating on the loaded row alone would misreport the scope.
+      if (organization && concretelySelectedOrganizationId === brandOrganizationId) {
+        currentOrganization = { id: String(organization.id), name: organization.name }
+      }
       if (organization?.logoUrl) {
         brand = {
           name: organization.name,
@@ -447,7 +465,9 @@ export async function resolveBackendChromePayload({
         }
       }
     } catch {
+      // Fail soft, as before: a failed organization lookup must not take down the nav payload.
       brand = null
+      currentOrganization = null
     }
   }
 
@@ -460,5 +480,6 @@ export async function resolveBackendChromePayload({
     grantedFeatures,
     roles: Array.isArray(auth.roles) ? auth.roles : [],
     brand,
+    currentOrganization,
   }
 }
