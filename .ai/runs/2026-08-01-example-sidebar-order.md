@@ -46,7 +46,7 @@ Source doc: `.ai/specs/2026-07-30-nav-group-order-override-domain.md`
 
 ### Phase 1: Runtime boundary
 
-- [ ] 1.1 Gate the applied Example nav override to integration-test runtimes
+- [x] 1.1 Gate the applied Example nav override to integration-test runtimes — 9b4c4e5c4
 
 ### Phase 2: Regression coverage and documentation
 
