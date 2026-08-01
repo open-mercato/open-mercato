@@ -33,6 +33,7 @@ Source doc: `.ai/specs/2026-06-11-crm-calendar.md`
 
 - Unicode normalization could accidentally alter meaningful visible punctuation. Mitigation: normalize only known space variants and keep locale-specific words, ordering, punctuation, and hour cycles untouched.
 - Different runtimes may vary beyond whitespace. The attached React diff shows visually identical range text, so this run deliberately addresses the proven invisible-character mismatch and leaves broader format redesign out of scope.
+- Verification is blocked by an unrelated base failure in `packages/core/src/modules/sales/api/__tests__/documents.routes.test.ts`: the clean CI runner and local no-cache suite both report three payment-ledger compatibility assertions receiving HTTP 400 instead of 201. Fixing sales behavior is outside this calendar-only plan; resume step 2.1 after the base suite is repaired.
 
 ## Progress
 
