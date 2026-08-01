@@ -86,7 +86,14 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
           type="button"
           className={`${CHIP_CLASSES} border-border text-foreground hover:border-primary`}
           aria-label={t('workflows.routeChips.conditionLabel', { summary: model.conditionSummary })}
-          onClick={() => onOpenSection?.('condition')}
+          onClick={(event) => {
+            // The chip lives in ReactFlow's EdgeLabelRenderer portal; a synthetic
+            // click bubbles through the React tree to the edge wrapper and would
+            // also fire onEdgeClick (opening the full transition editor). Stop it
+            // so a chip opens only its own surface.
+            event.stopPropagation()
+            onOpenSection?.('condition')
+          }}
         >
           <Filter className="size-3 shrink-0" aria-hidden="true" />
           <span className="font-mono">{model.conditionSummary}</span>
@@ -114,7 +121,11 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
             className={`${CHIP_CLASSES} border-border text-muted-foreground hover:border-primary hover:text-foreground`}
             aria-label={t('workflows.routeChips.activityLabel', { activity: label })}
             title={label}
-            onClick={() => (onOpenActivity ? onOpenActivity(activity.activityId) : onOpenSection?.('activities'))}
+            onClick={(event) => {
+              event.stopPropagation()
+              if (onOpenActivity) onOpenActivity(activity.activityId)
+              else onOpenSection?.('activities')
+            }}
           >
             <Icon className="size-3 shrink-0" aria-hidden="true" />
           </button>
@@ -126,7 +137,10 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
           type="button"
           className={`${CHIP_CLASSES} border-border text-muted-foreground hover:border-primary`}
           aria-label={t('workflows.routeChips.overflowLabel', { count: model.overflowCount })}
-          onClick={() => onOpenSection?.('activities')}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenSection?.('activities')
+          }}
           data-testid="route-chip-overflow"
         >
           +{model.overflowCount}
