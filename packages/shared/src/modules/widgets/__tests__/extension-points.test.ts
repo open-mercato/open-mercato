@@ -1,5 +1,7 @@
 import {
   CRUD_FORM_EXTENSION_SURFACES,
+  CRUD_FORM_LIFECYCLE_PHASES,
+  CRUD_FORM_OPERATIONS,
   DATA_TABLE_EXTENSION_SURFACES,
   crudFormExtensionHost,
   crudFormExtensionSpotId,
@@ -8,6 +10,7 @@ import {
   defineModuleExtensionPoints,
   extensionSpotChildId,
   injectionExtensionHost,
+  resolveExtensionPointPattern,
 } from '@open-mercato/shared/modules/widgets/extension-points'
 
 describe('module extension point declarations', () => {
@@ -35,6 +38,7 @@ describe('module extension point declarations', () => {
   })
 
   it('requires named parameters for dynamic patterns', () => {
+    // @ts-expect-error patterned declarations require named parameters
     expect(() => injectionExtensionHost({
       family: 'integration',
       pattern: 'integrations.detail:{integrationId}',
@@ -65,6 +69,23 @@ describe('module extension point declarations', () => {
       'fieldBefore',
       'fieldAfter',
     ])
+    expect(CRUD_FORM_LIFECYCLE_PHASES).toEqual([
+      'transformValidation',
+      'transformDisplayData',
+      'onBeforeNavigate',
+      'onAppEvent',
+      'onVisibilityChange',
+      'onBeforeDelete',
+      'onDelete',
+      'onAfterDelete',
+      'onDeleteError',
+      'onFieldChange',
+      'transformFormData',
+      'onBeforeSave',
+      'onSave',
+      'onAfterSave',
+    ])
+    expect(CRUD_FORM_OPERATIONS).toEqual(['create', 'update', 'delete'])
   })
 
   it('builds standard family ids without changing punctuation', () => {
@@ -73,5 +94,8 @@ describe('module extension point declarations', () => {
     )
     expect(crudFormExtensionSpotId('catalog.product', 'fields')).toBe('crud-form:catalog.product:fields')
     expect(extensionSpotChildId('legacy:custom-host', 'header')).toBe('legacy:custom-host:header')
+    expect(resolveExtensionPointPattern('integrations.detail:{integrationId}', {
+      integrationId: 'stripe',
+    })).toBe('integrations.detail:stripe')
   })
 })

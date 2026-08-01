@@ -60,13 +60,23 @@ type ExtensionHostDeclarationBase = {
   fallbacks?: readonly string[]
 }
 
-export type InjectionExtensionHostDeclaration = ExtensionHostDeclarationBase & {
+type InjectionExtensionHostDeclarationBase = ExtensionHostDeclarationBase & {
   family: Exclude<ExtensionHostFamily, 'data-table' | 'crud-form' | 'component-handle'>
-  spotId?: string
-  pattern?: string
-  parameters?: Readonly<Record<string, ExtensionPointPatternParameter>>
   supported: readonly ExtensionHostCapability[]
 }
+
+export type InjectionExtensionHostDeclaration = InjectionExtensionHostDeclarationBase & (
+  | {
+      spotId: string
+      pattern?: never
+      parameters?: never
+    }
+  | {
+      spotId?: never
+      pattern: string
+      parameters: Readonly<Record<string, ExtensionPointPatternParameter>>
+    }
+)
 
 export type DataTableExtensionHostDeclaration = ExtensionHostDeclarationBase & {
   family: 'data-table'
@@ -110,11 +120,9 @@ export function defineModuleExtensionPoints<
   })
 }
 
-export function injectionExtensionHost(
-  declaration: Omit<InjectionExtensionHostDeclaration, 'family'> & {
-    family: InjectionExtensionHostDeclaration['family']
-  },
-): InjectionExtensionHostDeclaration {
+export function injectionExtensionHost<const TDeclaration extends InjectionExtensionHostDeclaration>(
+  declaration: TDeclaration,
+): Readonly<TDeclaration> {
   const hasExactId = typeof declaration.spotId === 'string' && declaration.spotId.length > 0
   const hasPattern = typeof declaration.pattern === 'string' && declaration.pattern.length > 0
   if (hasExactId === hasPattern) {
@@ -126,21 +134,27 @@ export function injectionExtensionHost(
   return Object.freeze({ ...declaration })
 }
 
-export function dataTableExtensionHost(
-  declaration: Omit<DataTableExtensionHostDeclaration, 'family'>,
-): DataTableExtensionHostDeclaration {
+export function dataTableExtensionHost<
+  const TDeclaration extends Omit<DataTableExtensionHostDeclaration, 'family'>,
+>(
+  declaration: TDeclaration,
+): Readonly<TDeclaration & { family: 'data-table' }> {
   return Object.freeze({ family: 'data-table', ...declaration })
 }
 
-export function crudFormExtensionHost(
-  declaration: Omit<CrudFormExtensionHostDeclaration, 'family'>,
-): CrudFormExtensionHostDeclaration {
+export function crudFormExtensionHost<
+  const TDeclaration extends Omit<CrudFormExtensionHostDeclaration, 'family'>,
+>(
+  declaration: TDeclaration,
+): Readonly<TDeclaration & { family: 'crud-form' }> {
   return Object.freeze({ family: 'crud-form', ...declaration })
 }
 
-export function componentExtensionHost(
-  declaration: Omit<ComponentExtensionHostDeclaration, 'family'>,
-): ComponentExtensionHostDeclaration {
+export function componentExtensionHost<
+  const TDeclaration extends Omit<ComponentExtensionHostDeclaration, 'family'>,
+>(
+  declaration: TDeclaration,
+): Readonly<TDeclaration & { family: 'component-handle' }> {
   return Object.freeze({ family: 'component-handle', ...declaration })
 }
 
@@ -182,6 +196,7 @@ export const CRUD_FORM_EXTENSION_SURFACES = [
 
 export const CRUD_FORM_LIFECYCLE_PHASES = [
   'transformValidation',
+  'transformDisplayData',
   'onBeforeNavigate',
   'onAppEvent',
   'onVisibilityChange',
@@ -196,6 +211,8 @@ export const CRUD_FORM_LIFECYCLE_PHASES = [
   'onAfterSave',
 ] as const
 
+export const CRUD_FORM_OPERATIONS = ['create', 'update', 'delete'] as const
+
 export function dataTableExtensionSpotId(tableId: string, suffix?: string): string {
   return suffix ? `data-table:${tableId}:${suffix}` : `data-table:${tableId}`
 }
@@ -206,6 +223,13 @@ export function crudFormExtensionSpotId(entityId: string, suffix?: string): stri
 
 export function extensionSpotChildId(spotId: string, suffix: string): string {
   return `${spotId}:${suffix}`
+}
+
+export function resolveExtensionPointPattern(
+  pattern: string,
+  parameters: Readonly<Record<string, string>>,
+): string {
+  return pattern.replace(/\{([^}]+)\}/g, (token, parameterName: string) => parameters[parameterName] ?? token)
 }
 
 export type ModuleExtensionSurfaceFacts = {
@@ -246,9 +270,8 @@ export type ModuleExtensionTargetFact = {
   optionalOwnerPackage?: string
 }
 
-export type ModuleExtensionContributionFact = {
+export type ModuleExtensionContributionBase = {
   id: string
-  kind: string
   targets: ModuleExtensionTargetFact[]
   phases?: string[]
   operations?: string[]
@@ -258,9 +281,134 @@ export type ModuleExtensionContributionFact = {
   placement?: { relativeTo?: string; position?: 'first' | 'last' | 'before' | 'after'; priority?: number }
   roundTripId?: string
   override?: { domain: string; key: string; mode: 'disable-replace' | 'replace' | 'additive' }
-  details: Record<string, string | number | boolean | string[] | undefined>
   source: { path: string; symbol?: string }
 }
+
+export type ModuleExtensionContributionFact = ModuleExtensionContributionBase & (
+  | {
+      kind: 'widget'
+      details: {
+        payload: 'render' | 'headless' | 'menu' | 'dashboard' | 'notification' | 'integration'
+        registryKey: string
+        itemIds?: string[]
+        labelKeys?: string[]
+        contextContract?: string
+        dataContract?: string
+        executionGuard: 'host' | 'contribution' | 'both'
+      }
+    }
+  | {
+      kind: 'data-table'
+      details: {
+        payload: 'column' | 'row-action' | 'bulk-action' | 'filter' | 'toolbar' | 'render'
+        tableId: string
+        executionGuard: 'host' | 'contribution' | 'both'
+      }
+    }
+  | {
+      kind: 'crud-form'
+      details: {
+        payload: 'render' | 'field' | 'lifecycle-handler'
+        entityId: string
+        fieldIds?: string[]
+        groupIds?: string[]
+        requestHeaderCapability: boolean
+      }
+    }
+  | {
+      kind: 'component-override'
+      details: { handle: string; mode: 'replace' | 'wrapper' | 'props'; propsContract: string }
+    }
+  | {
+      kind: 'response-enricher'
+      details: {
+        targetEntity: string
+        surfaces: Array<'list' | 'detail'>
+        timeoutMs: number
+        fallback: 'none' | 'configured'
+        critical: boolean
+        cachePosture: 'record-pure' | 'rerun-on-list-cache-hit'
+        queryEngine?: {
+          engines: string[]
+          applyOn: Array<'list' | 'detail'>
+          activation: 'caller-opt-in'
+        }
+      }
+    }
+  | {
+      kind: 'api-interceptor'
+      details: {
+        route: string
+        methods: string[]
+        phases: Array<'before' | 'after'>
+        activation: 'crud-pipeline' | 'custom-route-bridge'
+        timeoutMs: number
+        failurePosture: 'fail-closed' | 'fallback'
+      }
+    }
+  | {
+      kind: 'command-interceptor'
+      details: {
+        targetCommand: string
+        phases: Array<'before-execute' | 'after-execute' | 'before-undo' | 'after-undo'>
+      }
+    }
+  | {
+      kind: 'mutation-guard'
+      details: {
+        entityId: string
+        operations: Array<'create' | 'update' | 'delete'>
+        capabilities: Array<'block' | 'rewrite' | 'after-success'>
+        optimisticLock: 'preserved'
+      }
+    }
+  | {
+      kind: 'entity-extension'
+      details: {
+        hostEntityId: string
+        extensionEntityId: string
+        linkId: string
+        scopeContract: string
+        orphanContract: string
+      }
+    }
+  | {
+      kind: 'subscriber'
+      details: {
+        event: string
+        subscriberId: string
+        persistent: boolean
+        sync: boolean
+        priority?: number
+      }
+    }
+  | {
+      kind: 'browser-reaction'
+      details: {
+        transports: Array<'client' | 'portal' | 'notification-effect'>
+        hooks: string[]
+        audienceScopeContract: string
+        maxPayloadBytes?: number
+        dedupWindowMs?: number
+      }
+    }
+  | {
+      kind: 'specialized-registry'
+      details: {
+        registry: 'notification' | 'integration' | 'search' | 'vector' | 'ai' | 'payment' | 'shipping' | 'currency' | 'workflow'
+        registryId: string
+        specialistRoute: string
+      }
+    }
+  | {
+      kind: 'module-override'
+      details: {
+        domain: string
+        key: string
+        mode: 'disable-replace' | 'replace' | 'additive'
+      }
+    }
+)
 
 export type ModuleExtensionUnresolvedFact = {
   key: string
