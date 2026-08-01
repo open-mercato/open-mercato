@@ -4,10 +4,14 @@ on:
   issue_comment:
     types: [created]
 
-# Pull requests are GitHub issues for labeling purposes. No repository checkout
-# or contributor-supplied code is used by this workflow.
+# Pull requests are GitHub issues for labeling purposes. The only checkout is a
+# sparse, credential-free copy of the certified partner registry pinned to the
+# default branch, so no pull request head and no contributor-supplied code ever
+# reaches this job.
 permissions:
+  contents: read
   issues: write
+  pull-requests: write
 
 jobs:
   add-label:
@@ -17,15 +21,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out the certified partner registry
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/certified-partners.yml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+
       - name: Add requested label
         uses: actions/github-script@v9
         with:
           script: |
+            const partnerRegistryPath = '.github/certified-partners.yml';
+
             // Only safe, existing taxonomy labels may be added by contributors.
             const allowedLabels = new Set([
-              'bug',
-              'documentation',
-              'feature',
+              'partner-request',
             ]);
 
             const requestedLabels = context.payload.comment.body
@@ -34,8 +47,122 @@ jobs:
               .map((label) => label.trim())
               .filter((label) => allowedLabels.has(label));
 
+            const commentId = context.payload.comment.id;
+            const react = (content) => github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: commentId,
+              content,
+            });
+
             if (requestedLabels.length === 0) {
+              await react('confused');
               core.setFailed('No allowed labels were requested.');
+              return;
+            }
+
+            const parsePartnerLogins = (registryText) => {
+              const logins = new Set();
+              const addLogin = (rawLogin) => {
+                const login = rawLogin.trim().replace(/^['"]|['"]$/g, '').trim();
+                if (/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(login)) logins.add(login.toLowerCase());
+              };
+
+              let insideContributorsBlock = false;
+              let contributorsIndent = 0;
+
+              for (const rawLine of registryText.split('\n')) {
+                const line = rawLine.replace(/\s+#.*$/, '').replace(/\s+$/, '');
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('#')) continue;
+                const indent = line.length - line.trimStart().length;
+
+                const flowList = trimmed.match(/^(?:-\s+)?contributors:\s*\[(.*)\]$/);
+                if (flowList) {
+                  insideContributorsBlock = false;
+                  flowList[1].split(',').forEach(addLogin);
+                  continue;
+                }
+
+                if (/^(?:-\s+)?contributors:\s*$/.test(trimmed)) {
+                  insideContributorsBlock = true;
+                  contributorsIndent = indent;
+                  continue;
+                }
+
+                if (insideContributorsBlock && trimmed.startsWith('- ') && indent > contributorsIndent) {
+                  addLogin(trimmed.slice(2));
+                  continue;
+                }
+
+                insideContributorsBlock = false;
+              }
+
+              return logins;
+            };
+
+            const readPartnerLogins = () => {
+              const fs = require('fs');
+              if (!fs.existsSync(partnerRegistryPath)) {
+                throw new Error(`${partnerRegistryPath} is missing from the default branch.`);
+              }
+              return parsePartnerLogins(fs.readFileSync(partnerRegistryPath, 'utf8'));
+            };
+
+            const hasWriteAccess = async (username) => {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username,
+                });
+                return data.permission === 'admin' || data.permission === 'write' || data.permission === 'maintain';
+              } catch (error) {
+                core.info(`Could not resolve repository permission for @${username}: ${error.message}`);
+                return false;
+              }
+            };
+
+            const requester = context.payload.comment.user.login;
+
+            let partnerLogins;
+            try {
+              partnerLogins = readPartnerLogins();
+            } catch (error) {
+              await react('confused');
+              core.setFailed(`Certified partner registry is unavailable: ${error.message}`);
+              return;
+            }
+
+            if (partnerLogins.size === 0) {
+              await react('confused');
+              core.setFailed(`No contributors could be parsed from ${partnerRegistryPath}.`);
+              return;
+            }
+
+            const isCertifiedPartner = partnerLogins.has(requester.toLowerCase());
+
+            if (!isCertifiedPartner && !(await hasWriteAccess(requester))) {
+              const registryUrl = [
+                context.payload.repository.html_url,
+                'blob',
+                context.payload.repository.default_branch,
+                partnerRegistryPath,
+              ].join('/');
+
+              await react('confused');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: [
+                  `@${requester} is not listed as a certified partner contributor, so \`/label\` was ignored.`,
+                  '',
+                  `Certified partners and their GitHub accounts live in [\`${partnerRegistryPath}\`](${registryUrl}).`,
+                  'To be added, open a pull request extending your company\'s `contributors` list.',
+                ].join('\n'),
+              });
+              core.setFailed(`@${requester} is not a certified partner contributor.`);
               return;
             }
 
@@ -45,3 +172,5 @@ jobs:
               issue_number: context.issue.number,
               labels: requestedLabels,
             });
+
+            await react('+1');

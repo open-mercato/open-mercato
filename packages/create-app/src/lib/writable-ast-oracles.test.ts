@@ -22,7 +22,7 @@ const EXPECTED_WRITABLE_CASE_IDS = [
   'OMH-093', 'OMH-105', 'OMH-107', 'OMH-115', 'OMH-122', 'OMH-128', 'OMH-130', 'OMH-133',
   'OMH-137', 'OMH-140', 'OMH-144', 'OMH-146', 'OMH-149', 'OMH-150', 'OMH-151', 'OMH-153',
   'OMH-156', 'OMH-163', 'OMH-164', 'OMH-165', 'OMH-171', 'OMH-172', 'OMH-181', 'OMH-185',
-  'OMH-188', 'OMH-189', 'OMH-190', 'OMH-191', 'OMH-192',
+  'OMH-188', 'OMH-189', 'OMH-190', 'OMH-191', 'OMH-192', 'OMH-193',
 ]
 
 type OracleResult = {
@@ -97,6 +97,17 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
   ]) assert.ok(source.includes(contract), `missing complete-module oracle contract ${contract}`)
   assert.match(source, /value\.endsWith\('\.edit'\)/)
   assert.match(source, /value\.endsWith\('\.delete'\)/)
+})
+
+test('the business-language complete module case reuses the OMH-185 trusted oracle', () => {
+  const root = stageTarget('src/modules/library/index.ts', 'export const metadata = {}\n')
+  try {
+    const technicalResult = runOracle(root, 'before', process.env, 'OMH-185')
+    const businessResult = runOracle(root, 'before', process.env, 'OMH-193')
+    assert.deepEqual(businessResult.parsed, technicalResult.parsed)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('the complete module oracle requires atomic and undo seams on each declared command', () => {

@@ -21,6 +21,7 @@ Example: 2026-03-01-inventory-module.md
 
 ## Workflow
 
-1. Before coding any significant feature, check for an existing spec
-2. If none: create from SPEC-000-template.md, review with team, then code
-3. After implementation: update the spec's Changelog and Acceptance Criteria
+1. Route every new application, multi-module feature, or non-trivial business slice through `om-spec-writing` and `.ai/guides/spec-delivery.md`.
+2. After invoking the skill, create the skeleton from `SPEC-000-template.md`; keep it `Draft` while blocking questions or incomplete contracts remain.
+3. Set `Ready for implementation` only after the final compliance report and requirement traceability pass and the user approves implementation.
+4. Implement through `om-implement-spec` (local) or `om-auto-implement-spec` (PR), one dependency-ordered phase at a time; update the Changelog, acceptance evidence, and phase state as work lands.

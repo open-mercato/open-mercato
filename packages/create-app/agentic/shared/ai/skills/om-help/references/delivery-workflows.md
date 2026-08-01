@@ -13,5 +13,6 @@ Load this reference when choosing how much planning and automation the request n
 | Review an existing diff/PR | External `om-code-review`/`om-auto-review-pr`. |
 | UI/API integration coverage | External `om-integration-tests` with a prepared ephemeral environment. |
 | Newly discovered harness miss | `om-evolve-harness`; require a failing semantic case before content edits. |
+| Share this completed harness run for upstream improvement | `om-share-this-session`; prepare locally, pass privacy review, then require fresh informed consent before any public write. |
 
 Escalate from direct work to spec-first when scope crosses independent capabilities, schema/public contracts, providers, auth/security, or multi-module architecture. Do not use process size as a substitute for the domain skill: the delivery workflow still loads every applicable task route.
