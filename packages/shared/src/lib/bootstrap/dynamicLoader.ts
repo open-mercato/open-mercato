@@ -6,6 +6,7 @@ import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
   recoverMikroOrmV7GeneratedCacheFromImportError,
 } from './generatedCacheRecovery'
+import { createClientOnlyStubPlugin } from './clientOnlyModules'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -27,6 +28,59 @@ class GeneratedFileNotFoundError extends Error {
     this.name = 'GeneratedFileNotFoundError'
     this.filePath = filePath
   }
+}
+
+/**
+ * esbuild plugins for the CLI bundle, in resolution order. The client-only stub must come
+ * first so it wins over the alias and external plugins for `*.client` dynamic imports.
+ *
+ * Exported so the wiring itself is testable: a test that only exercises
+ * `createClientOnlyStubPlugin` in isolation stays green if the plugin is dropped from this
+ * list, which would silently reintroduce #4623.
+ */
+export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugin[] {
+  // Plugin to resolve @/ alias to app root (works for @app modules)
+  const aliasPlugin: import('esbuild').Plugin = {
+    name: 'alias-resolver',
+    setup(build) {
+      // Resolve @/ alias to app root
+      build.onResolve({ filter: /^@\// }, (args) => {
+        const resolved = path.join(appRoot, args.path.slice(2))
+        // Try with .ts extension if base path doesn't exist
+        if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
+          return { path: resolved + '.ts' }
+        }
+        // Also check for /index.ts if it's a directory
+        if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
+          return { path: path.join(resolved, 'index.ts') }
+        }
+        return { path: resolved }
+      })
+    },
+  }
+
+  // Plugin to mark non-JSON package imports as external
+  const externalNonJsonPlugin: import('esbuild').Plugin = {
+    name: 'external-non-json',
+    setup(build) {
+      // Mark all package imports as external EXCEPT JSON files
+      // Filter matches paths that don't start with . or / (package imports like @open-mercato/shared)
+      build.onResolve({ filter: /^[^./]/ }, (args) => {
+        // Skip Windows absolute paths (e.g., C:\...) - they're local files, not packages
+        if (/^[a-zA-Z]:/.test(args.path)) {
+          return null // Let esbuild handle it
+        }
+        // If it's a JSON file, let esbuild bundle it
+        if (args.path.endsWith('.json')) {
+          return null // Let esbuild handle it
+        }
+        // Otherwise mark as external
+        return { path: args.path, external: true }
+      })
+    },
+  }
+
+  return [createClientOnlyStubPlugin(), aliasPlugin, externalNonJsonPlugin]
 }
 
 /**
@@ -53,47 +107,6 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
     // Dynamically import esbuild only when needed
     const esbuild = await import('esbuild')
 
-    // Plugin to resolve @/ alias to app root (works for @app modules)
-    const aliasPlugin: import('esbuild').Plugin = {
-      name: 'alias-resolver',
-      setup(build) {
-        // Resolve @/ alias to app root
-        build.onResolve({ filter: /^@\// }, (args) => {
-          const resolved = path.join(appRoot, args.path.slice(2))
-          // Try with .ts extension if base path doesn't exist
-          if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
-            return { path: resolved + '.ts' }
-          }
-          // Also check for /index.ts if it's a directory
-          if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
-            return { path: path.join(resolved, 'index.ts') }
-          }
-          return { path: resolved }
-        })
-      },
-    }
-
-    // Plugin to mark non-JSON package imports as external
-    const externalNonJsonPlugin: import('esbuild').Plugin = {
-      name: 'external-non-json',
-      setup(build) {
-        // Mark all package imports as external EXCEPT JSON files
-        // Filter matches paths that don't start with . or / (package imports like @open-mercato/shared)
-        build.onResolve({ filter: /^[^./]/ }, (args) => {
-          // Skip Windows absolute paths (e.g., C:\...) - they're local files, not packages
-          if (/^[a-zA-Z]:/.test(args.path)) {
-            return null // Let esbuild handle it
-          }
-          // If it's a JSON file, let esbuild bundle it
-          if (args.path.endsWith('.json')) {
-            return null // Let esbuild handle it
-          }
-          // Otherwise mark as external
-          return { path: args.path, external: true }
-        })
-      },
-    }
-
     // Use esbuild.build with bundling to handle JSON imports
     await esbuild.build({
       entryPoints: [tsPath],
@@ -102,7 +115,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
       format: 'esm',
       platform: 'node',
       target: 'node18',
-      plugins: [aliasPlugin, externalNonJsonPlugin],
+      plugins: createCliBundlePlugins(appRoot),
       // Allow JSON imports
       loader: { '.json': 'json' },
     })
