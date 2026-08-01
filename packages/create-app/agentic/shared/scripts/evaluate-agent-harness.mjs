@@ -228,6 +228,28 @@ function isSafeRelative(pattern) {
   return !pattern.replaceAll('\\', '/').split('/').includes('..')
 }
 
+function isInstalledSourceRelative(relative) {
+  const segments = relative.replaceAll('\\', '/').split('/')
+  return segments.length >= 5
+    && segments[0] === 'node_modules'
+    && segments[1] === '@open-mercato'
+    && Boolean(segments[2])
+    && segments[3] === 'src'
+    && !relative.includes('*')
+    && !relative.includes('?')
+}
+
+function installedSourceRelativeFromResolved(root, absolute, real) {
+  const dependencyPath = path.join(root, 'node_modules')
+  if (!fs.existsSync(dependencyPath)) return null
+  const dependencyRoot = fs.realpathSync(dependencyPath)
+  if (!isPathInside(dependencyRoot, real)) return null
+  const lexicalRelative = isPathInside(dependencyPath, absolute)
+    ? path.relative(root, absolute).replaceAll(path.sep, '/')
+    : `node_modules/${path.relative(dependencyRoot, real).replaceAll(path.sep, '/')}`
+  return isInstalledSourceRelative(lexicalRelative) ? lexicalRelative : null
+}
+
 function canonicalizeSelectedContextAliases(root, response) {
   const realRoot = fs.realpathSync(root)
   const selectedContext = []
@@ -239,6 +261,7 @@ function canonicalizeSelectedContextAliases(root, response) {
         try {
           const real = fs.realpathSync(absolute)
           if (isPathInside(realRoot, real)) canonical = path.relative(realRoot, real).replaceAll(path.sep, '/')
+          else canonical = installedSourceRelativeFromResolved(root, absolute, real) ?? canonical
         } catch { /* retain the declared spelling so normal validation fails closed */ }
       }
     }
@@ -409,15 +432,19 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
       if (!fs.existsSync(local) && !fs.existsSync(canonical) && !externalSkills.has(skill)) add(id, `unknown skill ${skill}`)
     }
     if (!isPlainObject(item.context) || !isUniqueStringArray(item.context?.required, { min: 1 })
-      || !isUniqueStringArray(item.context?.allowedExtra ?? []) || !isUniqueStringArray(item.context?.forbidden, { min: 1 })) add(id, 'context contract is invalid')
+      || !isUniqueStringArray(item.context?.allowedExtra ?? []) || !isUniqueStringArray(item.context?.warn ?? [])
+      || !isUniqueStringArray(item.context?.forbidden, { min: 1 })) add(id, 'context contract is invalid')
     if ((item.context?.required ?? []).some((reference) => (item.context?.allowedExtra ?? []).includes(reference))) add(id, 'required and allowed-extra context overlap')
+    const selectedContextReferences = [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? [])]
+    if ((item.context?.warn ?? []).some((reference) => selectedContextReferences.includes(reference))) add(id, 'warn context must not overlap selected context')
+    if ((item.context?.warn ?? []).some((reference) => (item.context?.forbidden ?? []).includes(reference))) add(id, 'warn and forbidden context overlap')
     const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
     if (compatibilityRequiredIds.has(id) && !(item.context?.required ?? []).includes(compatibilityPath)) add(id, 'required compatibility case must require BACKWARD_COMPATIBILITY.md')
     if ((item.context?.required ?? []).includes(compatibilityPath) && !compatibilityRequiredIds.has(id)) add(id, 'case requires BACKWARD_COMPATIBILITY.md but is not registered as compatibility-required')
     if (compatibilityExcludedIds.has(id)
       && [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? [])].includes(compatibilityPath)) add(id, 'excluded compatibility case must not route BACKWARD_COMPATIBILITY.md')
     if ((item.context?.allowedExtra ?? []).includes(compatibilityPath)) add(id, 'BACKWARD_COMPATIBILITY.md must be required or excluded, not allowed-extra')
-    for (const reference of [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? []), ...(item.context?.forbidden ?? [])]) {
+    for (const reference of [...selectedContextReferences, ...(item.context?.warn ?? []), ...(item.context?.forbidden ?? [])]) {
       if (!isSafeRelative(reference)) add(id, `unsafe context path ${reference}`)
     }
     if (!(item.context?.required ?? []).includes(item.owner?.path)) add(id, 'required context must include owner.path')
@@ -1207,13 +1234,15 @@ function normalizeObservedCandidate(raw, root) {
   const absolute = path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(absoluteRoot, candidate)
   let containedRoot
   let containedPath = absolute
+  let installedRelative = null
   if (fs.existsSync(absolute)) {
     containedPath = fs.realpathSync(absolute)
     if (isPathInside(realRoot, containedPath)) containedRoot = realRoot
+    else installedRelative = installedSourceRelativeFromResolved(absoluteRoot, absolute, containedPath)
   } else if (isPathInside(absoluteRoot, absolute)) containedRoot = absoluteRoot
   else if (isPathInside(realRoot, absolute)) containedRoot = realRoot
-  if (!containedRoot) return { unsafe: `unsafe out-of-root context read: ${candidate}` }
-  const relative = path.relative(containedRoot, containedPath).replaceAll(path.sep, '/')
+  if (!containedRoot && !installedRelative) return { unsafe: `unsafe out-of-root context read: ${candidate}` }
+  const relative = installedRelative ?? path.relative(containedRoot, containedPath).replaceAll(path.sep, '/')
   if (!relative || ['.', '*', '**'].includes(candidate)) return { unsafe: 'unsafe broad app-root context read' }
   if (!isSafeRelative(relative)) return { unsafe: `unsafe context read path: ${candidate}` }
   return { relative }
@@ -1331,6 +1360,7 @@ function caseReadAllowlist(caseRecord, writable) {
     'AGENTS.md',
     ...(caseRecord.context?.required ?? []),
     ...(caseRecord.context?.allowedExtra ?? []),
+    ...(caseRecord.context?.warn ?? []),
     ...permittedCaseRoutes(caseRecord).flatMap((route) => ROUTE_STANDARD_CONTEXT[route]?.guides ?? []),
     ...supportingSkillPaths(caseRecord),
     ...skillIds.flatMap((skill) => [
@@ -1346,6 +1376,7 @@ function permittedContextPath(relative, caseRecord) {
   const contextPaths = [
     ...(caseRecord.context?.required ?? []),
     ...(caseRecord.context?.allowedExtra ?? []),
+    ...(caseRecord.context?.warn ?? []),
     ...permittedCaseRoutes(caseRecord).flatMap((route) => ROUTE_STANDARD_CONTEXT[route]?.guides ?? []),
     ...(caseRecord.materializedFrameworkContextPatterns ?? []),
   ]
@@ -1369,6 +1400,11 @@ function expandObservedPath(root, relative, expand) {
   }
   const absolute = path.resolve(root, relative)
   try {
+    if (isInstalledSourceRelative(relative)) {
+      const real = fs.realpathSync(absolute)
+      const installedRelative = installedSourceRelativeFromResolved(root, absolute, real)
+      return installedRelative === relative && fs.statSync(real).isFile() ? [relative] : []
+    }
     const stat = fs.lstatSync(absolute)
     if (stat.isSymbolicLink() || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) return []
     if (stat.isFile()) return [relative]
@@ -1693,7 +1729,7 @@ function buildPrompt(caseRecord, root, writable, frameworkContextEntries = []) {
     ? 'This is an explicitly disposable writable evaluation. You must implement the complete request with repeated use of the allowlisted harness write tool before returning the routing object, then re-read the completed implementation. A manifest of intended files, metadata-only stub, TODO, placeholder, or response that only plans/routes fails: create every requested source, API, command, UI, registration, locale, migration snapshot, and focused test surface inside the write allowlist. You may read allowlisted target source files as implementation inputs, but selectedContext records only instruction/fact paths and must never include those target source paths. Write only inside the allowlist provided after the task; do not use network access or inspect environment values.'
     : 'Work read-only: do not edit files, run mutations, use network access, or inspect environment values. Do not implement the request. Accept the task premise for routing; fixture and implementation-target paths may be absent in this controller, so do not inspect them or report their absence as a blocker.'
   const frameworkContextInstruction = frameworkContextEntries.length
-    ? ` The controller has already materialized bounded read-only installed-package evidence for this case. Do not probe node_modules. Read each exact manifest and search result first, then read only exact source paths named by those search results beneath the supplied source root: ${frameworkContextEntries.map((entry) => `manifest=${entry.manifest}; search=${entry.searchResult}; source=${entry.sourceRoot}; query=${JSON.stringify(entry.query)}`).join(' | ')}. These successful reads belong in selectedContext.`
+    ? ` The controller has already materialized bounded read-only installed-package evidence for this case. Read each exact manifest and search result first, then read only exact source paths named by those search results beneath the supplied source root: ${frameworkContextEntries.map((entry) => `manifest=${entry.manifest}; search=${entry.searchResult}; source=${entry.sourceRoot}; query=${JSON.stringify(entry.query)}`).join(' | ')}. You may also follow an exact installed-source link from a generated module fact when it is useful; never enumerate node_modules or read outside @open-mercato package src trees. These successful reads belong in selectedContext.`
     : ''
   const toolInstruction = `The only MCP server is harness. Its exact-path tool is named read and takes JSON arguments {"path":"<exact app-relative path>"}${writable ? '; its allowlisted replacement tool is named write and takes {"path":"<exact app-relative path>","content":"<complete file>"}' : ''}. Call harness.read${writable ? ' or harness.write' : ''}; never call read_mcp_resource or any resource API.`
   return `You are evaluating routing for a standalone Open Mercato application. ${modeInstruction}${frameworkContextInstruction} ${toolInstruction} No shell, process, environment, discovery, or network tool exists. Your first tool action must call harness.read with {"path":"AGENTS.md"}, even when the runner auto-injected it, then load only the smallest task-matching context. Do not execute framework-context, generation, test, package, release, installer, or skill workflow commands during routing; select the instructions that would govern that later execution. Do not emit a provisional structured response. Do not inspect .ai/harness/**; those are evaluator internals, and decision labels never name readable paths. Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories; an all-guides/all-skills/all-facts read is an automatic failure. The emitted AGENTS.md and the context it routes are the only task-routing authority. Before the final response, open every instruction or fact path you will put in selectedContext with direct harness read calls. Never rely only on skill descriptions, filenames, discovery, metadata, or prior knowledge: an unobserved selected path automatically fails this evaluation.

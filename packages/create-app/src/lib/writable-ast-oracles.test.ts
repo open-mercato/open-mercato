@@ -588,6 +588,52 @@ export const openApi = { methods: {} }
   }
 })
 
+test('the trusted oracle rejects duplicate normalized API route methods', () => {
+  const root = stageTarget('src/modules/library/api/books/[id]/route.ts', 'export function GET() {}\n')
+  const duplicate = path.join(root, 'src/modules/duplicate/api/records/[recordId]/route.ts')
+  fs.mkdirSync(path.dirname(duplicate), { recursive: true })
+  fs.writeFileSync(duplicate, "export const metadata = { path: '/library/books/[bookId]' }\nexport function GET() {}\n")
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /api:\/library\/books\/\[\]/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle permits distinct methods on one legacy API URL', () => {
+  const root = stageTarget('src/modules/library/api/get/books.ts', 'export default function GET() {}\n')
+  const post = path.join(root, 'src/modules/library/api/post/books.ts')
+  fs.mkdirSync(path.dirname(post), { recursive: true })
+  fs.writeFileSync(post, 'export default function POST() {}\n')
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle rejects duplicate normalized backend and frontend pages', () => {
+  const root = stageTarget('src/modules/library/backend/[id]/page.tsx', 'export default function Page() { return null }\n')
+  const backendDuplicate = path.join(root, 'src/modules/duplicate/backend/[recordId]/page.tsx')
+  const frontendOne = path.join(root, 'src/modules/library/frontend/orders/[id]/page.tsx')
+  const frontendDuplicate = path.join(root, 'src/modules/duplicate/frontend/orders/[orderId]/page.tsx')
+  for (const file of [backendDuplicate, frontendOne, frontendDuplicate]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, 'export default function Page() { return null }\n')
+  }
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /backend:\/backend\/\[\]/)
+    assert.match(result.parsed.failures.join('\n'), /frontend:\/orders\/\[\]/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('after phase invokes only the fixed contained target yarn typecheck gate and reports its status', { skip: !targetSandboxAvailable }, () => {
   const root = stageTarget('src/modules/library/api/books/route.ts', `
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'

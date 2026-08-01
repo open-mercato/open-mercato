@@ -36,6 +36,34 @@ test('build emits the customers fact-sheet and the combined module-facts.json (T
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
   const facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.json'), 'utf8'))
   assert.ok(facts.customers, 'module-facts.json should contain the customers entry')
+  assert.equal(
+    facts.customers.sourceRoot,
+    'node_modules/@open-mercato/core/src/modules/customers',
+  )
+  assert.deepEqual(
+    facts.customers.cliCommands.map((command: { command: string }) => command.command),
+    facts.customers.cli,
+  )
+  assert.ok(facts.customers.backendPages.length > 0, 'customers facts should expose backend pages')
+  assert.ok(facts.customers.aiTools.length > 0, 'customers facts should expose AI/MCP tools')
+  assert.ok(facts.customers.aiAgents.length > 0, 'customers facts should expose AI agents')
+  const sourceLinkedFacts = [
+    ...facts.customers.backendPages,
+    ...facts.customers.cliCommands,
+    ...facts.customers.aiTools,
+    ...facts.customers.aiAgents,
+  ] as Array<{ sourcePath: string }>
+  assert.equal(
+    sourceLinkedFacts.every((fact) => fact.sourcePath.startsWith(`${facts.customers.sourceRoot}/`)),
+    true,
+  )
+
+  const markdown = fs.readFileSync(join(guidesDir, 'modules', 'customers.md'), 'utf8')
+  assert.match(markdown, /## Backend pages/)
+  assert.match(markdown, /## CLI commands/)
+  assert.match(markdown, /## AI tools \/ MCP capabilities/)
+  assert.match(markdown, /## AI agents/)
+  assert.match(markdown, /\.\.\/\.\.\/\.\.\/node_modules\/@open-mercato\/core\/src\/modules\/customers/)
 })
 
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {

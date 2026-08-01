@@ -21,6 +21,27 @@ export interface ModuleApiRouteFact {
   path: string
   methods: string[]
   auth: Record<string, ApiRouteAuthRule>
+  sourcePath: string | null
+}
+
+export interface ModulePageFact {
+  path: string
+  sourcePath: string
+}
+
+export interface ModuleCliCommandFact {
+  command: string
+  sourcePath: string
+}
+
+export interface ModuleAiToolFact {
+  name: string
+  sourcePath: string
+}
+
+export interface ModuleAiAgentFact {
+  id: string
+  sourcePath: string
 }
 
 export interface ModuleEventFact {
@@ -42,6 +63,7 @@ export interface ModuleFacts {
   coreVersion: string | null
   sourcePackage: string | null
   sourceVersion: string | null
+  sourceRoot: string
   entities: ModuleEntityFact[]
   events: ModuleEventFact[]
   aclFeatures: string[]
@@ -51,6 +73,10 @@ export interface ModuleFacts {
   hostTokens: ModuleHostTokens
   notifications: string[]
   cli: string[]
+  backendPages: ModulePageFact[]
+  cliCommands: ModuleCliCommandFact[]
+  aiTools: ModuleAiToolFact[]
+  aiAgents: ModuleAiAgentFact[]
   warnings: string[]
 }
 
@@ -495,13 +521,14 @@ function parseApiRouteEntry(entryLiteral: ts.ObjectLiteralExpression): ModuleApi
     }
   }
 
-  return { path: routePath, methods, auth }
+  return { path: routePath, methods, auth, sourcePath: null }
 }
 
 function extractApiRoutes(
   moduleId: string,
   registrySource: string | null,
   registryDescription: string,
+  routeSourcePaths: ReadonlyMap<string, string>,
   warnings: string[],
 ): ModuleApiRouteFact[] {
   if (registrySource == null) {
@@ -529,7 +556,7 @@ function extractApiRoutes(
           const route = parseApiRouteEntry(element)
           if (route && !seenPaths.has(route.path)) {
             seenPaths.add(route.path)
-            routes.push(route)
+            routes.push({ ...route, sourcePath: routeSourcePaths.get(route.path) ?? null })
           }
         }
       }
@@ -717,6 +744,182 @@ function listSourceFilesRecursive(directory: string): string[] {
   return files
 }
 
+function toPortableSourceRoot(moduleId: string, sourcePackage: string | null): string {
+  return path.posix.join('node_modules', sourcePackage ?? '@open-mercato/core', 'src', 'modules', moduleId)
+}
+
+function toPortableSourcePath(moduleRoot: string, sourceRoot: string, filePath: string): string {
+  const relativePath = path.relative(moduleRoot, filePath).split(path.sep).join('/')
+  return path.posix.join(sourceRoot, relativePath)
+}
+
+function sourceHasDefaultExport(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some((statement) => {
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) return true
+    if (!ts.isFunctionDeclaration(statement) && !ts.isClassDeclaration(statement)) return false
+    return statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ?? false
+  })
+}
+
+function readRouteMetadataPath(sourceFile: ts.SourceFile): string | null {
+  const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
+  return metadata ? readStringPropertyInitializer(metadata, 'path') ?? null : null
+}
+
+function extractApiRouteSourcePaths(
+  moduleId: string,
+  moduleRoot: string,
+  sourceRoot: string,
+): Map<string, string> {
+  const apiRoot = path.join(moduleRoot, 'api')
+  const sources = new Map<string, string>()
+  if (!fs.existsSync(apiRoot)) return sources
+  const methodDirectories = new Set(['get', 'post', 'put', 'patch', 'delete'])
+
+  for (const filePath of listSourceFilesRecursive(apiRoot)) {
+    const relativePath = path.relative(apiRoot, filePath).split(path.sep).join('/')
+    const segments = relativePath.split('/')
+    const fileName = segments.pop() as string
+    const fileStem = fileName.replace(/\.tsx?$/, '')
+    let routeSegments: string[]
+    if (fileStem === 'route') {
+      routeSegments = segments
+    } else if (segments[0] && methodDirectories.has(segments[0].toLowerCase())) {
+      routeSegments = [...segments.slice(1), fileStem]
+    } else {
+      routeSegments = [...segments, fileStem]
+    }
+    const defaultPath = `/${[moduleId, ...routeSegments].filter(Boolean).join('/')}`
+    const sourceFile = readSourceFile(filePath)
+    const routePath = sourceFile ? readRouteMetadataPath(sourceFile) ?? defaultPath : defaultPath
+    sources.set(routePath, toPortableSourcePath(moduleRoot, sourceRoot, filePath))
+  }
+  return sources
+}
+
+function extractBackendPages(moduleId: string, moduleRoot: string, sourceRoot: string): ModulePageFact[] {
+  const backendRoot = path.join(moduleRoot, 'backend')
+  if (!fs.existsSync(backendRoot)) return []
+  const pages: ModulePageFact[] = []
+  const seen = new Set<string>()
+
+  for (const filePath of listSourceFilesRecursive(backendRoot)) {
+    if (!filePath.endsWith('.tsx')) continue
+    const relativePath = path.relative(backendRoot, filePath).split(path.sep).join('/')
+    const segments = relativePath.split('/')
+    const fileName = segments.pop() as string
+    const fileStem = fileName.replace(/\.tsx$/, '')
+    const isModernPage = fileStem === 'page'
+    if (!isModernPage && (fileStem.endsWith('.meta') || /^[A-Z]/.test(fileStem))) continue
+    const sourceFile = readSourceFile(filePath)
+    if (!sourceFile || !sourceHasDefaultExport(sourceFile)) continue
+    const routePath = isModernPage
+      ? `/backend/${segments.join('/') || moduleId}`
+      : `/backend/${segments[0] === moduleId
+          ? [...segments, fileStem].filter(Boolean).join('/')
+          : [moduleId, ...segments, fileStem].filter(Boolean).join('/')}`
+    if (seen.has(routePath)) continue
+    seen.add(routePath)
+    pages.push({
+      path: routePath,
+      sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, filePath),
+    })
+  }
+  return pages.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function findAncestorVariableDeclaration(node: ts.Node): ts.VariableDeclaration | null {
+  let current: ts.Node | undefined = node.parent
+  while (current) {
+    if (ts.isVariableDeclaration(current)) return current
+    current = current.parent
+  }
+  return null
+}
+
+function findAncestorCallExpression(node: ts.Node): ts.CallExpression | null {
+  let current: ts.Node | undefined = node.parent
+  while (current) {
+    if (ts.isCallExpression(current)) return current
+    if (ts.isVariableDeclaration(current) || ts.isStatement(current)) return null
+    current = current.parent
+  }
+  return null
+}
+
+function extractNamedAiFacts(
+  filePaths: readonly string[],
+  moduleRoot: string,
+  sourceRoot: string,
+  propertyName: 'name' | 'id',
+): Array<{ value: string; sourcePath: string }> {
+  const facts: Array<{ value: string; sourcePath: string }> = []
+  const seen = new Set<string>()
+  for (const filePath of filePaths) {
+    const sourceFile = readSourceFile(filePath)
+    if (!sourceFile) continue
+    const initializers = buildVariableInitializerMap(sourceFile)
+    const readDefinitionValue = (objectLiteral: ts.ObjectLiteralExpression): string | undefined => {
+      const initializer = getObjectPropertyInitializer(objectLiteral, propertyName)
+      if (!initializer) return undefined
+      const resolved = unwrapExpression(initializer)
+      if (ts.isStringLiteralLike(resolved)) return resolved.text
+      if (ts.isIdentifier(resolved)) {
+        const declarationInitializer = initializers.get(resolved.text)
+        if (declarationInitializer) {
+          const declarationValue = unwrapExpression(declarationInitializer)
+          if (ts.isStringLiteralLike(declarationValue)) return declarationValue.text
+        }
+      }
+      return undefined
+    }
+    const visit = (node: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(node)) {
+        const value = readDefinitionValue(node)
+        if (value && !seen.has(value)) {
+          const declaration = findAncestorVariableDeclaration(node)
+          const declarationName = declaration && ts.isIdentifier(declaration.name) ? declaration.name.text : ''
+          const declarationType = declaration?.type?.getText(sourceFile) ?? ''
+          const call = findAncestorCallExpression(node)
+          const callee = call?.expression.getText(sourceFile) ?? ''
+          const isDefinition = propertyName === 'name'
+            ? /AiTool/.test(declarationType) || /tool$/i.test(declarationName) || /AiTool/.test(callee)
+            : /AiAgentDefinition/.test(declarationType) || /agent$/i.test(declarationName) || /defineAiAgent/.test(callee)
+          if (isDefinition) {
+            seen.add(value)
+            facts.push({
+              value,
+              sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, filePath),
+            })
+          }
+        }
+      }
+      node.forEachChild(visit)
+    }
+    sourceFile.forEachChild(visit)
+  }
+  return facts.sort((left, right) => left.value.localeCompare(right.value))
+}
+
+function extractAiTools(moduleRoot: string, sourceRoot: string): ModuleAiToolFact[] {
+  const files = new Set<string>()
+  const rootFile = resolveConventionFile(moduleRoot, 'ai-tools')
+  if (rootFile) files.add(rootFile)
+  const toolsDirectory = path.join(moduleRoot, 'ai-tools')
+  if (fs.existsSync(toolsDirectory)) {
+    for (const filePath of listSourceFilesRecursive(toolsDirectory)) files.add(filePath)
+  }
+  return extractNamedAiFacts([...files], moduleRoot, sourceRoot, 'name')
+    .map((fact) => ({ name: fact.value, sourcePath: fact.sourcePath }))
+}
+
+function extractAiAgents(moduleRoot: string, sourceRoot: string): ModuleAiAgentFact[] {
+  const agentsFile = resolveConventionFile(moduleRoot, 'ai-agents')
+  if (!agentsFile) return []
+  return extractNamedAiFacts([agentsFile], moduleRoot, sourceRoot, 'id')
+    .map((fact) => ({ id: fact.value, sourcePath: fact.sourcePath }))
+}
+
 function extractTableIds(moduleRoot: string): string[] {
   if (!fs.existsSync(moduleRoot)) return []
 
@@ -780,6 +983,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   if (!moduleRoot) {
     throw new Error(`[internal] extractModuleFacts requires moduleRoot or coreSrcRoot for module "${moduleId}"`)
   }
+  const sourceRoot = toPortableSourceRoot(moduleId, sourcePackage)
 
   const entitiesFilePath =
     resolveConventionFile(path.join(moduleRoot, 'data'), 'entities') ??
@@ -802,11 +1006,21 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   const aclFeatures = extractAclFeatures(aclFilePath)
 
   const { source: registrySource, description: registryDescription } = resolveRegistrySource(options)
-  const apiRoutes = extractApiRoutes(moduleId, registrySource, registryDescription, warnings)
+  const apiRouteSourcePaths = extractApiRouteSourcePaths(moduleId, moduleRoot, sourceRoot)
+  const apiRoutes = extractApiRoutes(moduleId, registrySource, registryDescription, apiRouteSourcePaths, warnings)
   const diTokens = extractDiTokens(diFilePath)
   const searchEntities = extractSearchEntities(searchFilePath, warnings)
   const notifications = extractNotifications(notificationsFilePath, warnings)
   const cli = extractCli(cliFilePath, warnings)
+  const cliCommands = cliFilePath
+    ? cli.map((command) => ({
+        command,
+        sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, cliFilePath),
+      }))
+    : []
+  const backendPages = extractBackendPages(moduleId, moduleRoot, sourceRoot)
+  const aiTools = extractAiTools(moduleRoot, sourceRoot)
+  const aiAgents = extractAiAgents(moduleRoot, sourceRoot)
   const hostTokens: ModuleHostTokens = {
     entityIds: extractHostEntityIds(entities),
     tableIds: extractTableIds(moduleRoot),
@@ -819,6 +1033,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     coreVersion,
     sourcePackage,
     sourceVersion,
+    sourceRoot,
     entities,
     events,
     aclFeatures,
@@ -828,6 +1043,10 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     hostTokens,
     notifications,
     cli,
+    backendPages,
+    cliCommands,
+    aiTools,
+    aiAgents,
     warnings,
   }
 }
@@ -844,6 +1063,7 @@ export interface ModuleFactsJsonEntry {
   coreVersion: string | null
   sourcePackage: string | null
   sourceVersion: string | null
+  sourceRoot: string
   entities: ModuleEntityFact[]
   events: ModuleFactsJsonEvent[]
   aclFeatures: string[]
@@ -853,6 +1073,10 @@ export interface ModuleFactsJsonEntry {
   hostTokens: ModuleHostTokens
   notifications: string[]
   cli: string[]
+  backendPages: ModulePageFact[]
+  cliCommands: ModuleCliCommandFact[]
+  aiTools: ModuleAiToolFact[]
+  aiAgents: ModuleAiAgentFact[]
 }
 
 const EMPTY_SECTION_MARKER = '_none_'
@@ -894,6 +1118,10 @@ function renderInlineListSection(heading: string, values: string[]): string {
   return `${heading}\n\n${values.join(' · ')}`
 }
 
+function renderSourceLink(sourcePath: string): string {
+  return `[${sourcePath}](../../../${sourcePath})`
+}
+
 function describeAuthRule(rule: ApiRouteAuthRule | undefined): string {
   if (!rule) return 'public'
   if (rule.requireFeatures && rule.requireFeatures.length > 0) return rule.requireFeatures.join(', ')
@@ -916,12 +1144,21 @@ function renderApiRouteAuthCell(route: ModuleApiRouteFact): string {
 
 function renderApiRoutesSection(routes: ModuleApiRouteFact[]): string {
   if (routes.length === 0) return `## API routes\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| Path | Methods | Auth (per-method requireFeatures) |'
-  const divider = '|---|---|---|'
+  const header = '| Path | Methods | Auth (per-method requireFeatures) | Source |'
+  const divider = '|---|---|---|---|'
   const rows = routes.map(
-    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} |`,
+    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} | ${route.sourcePath ? renderSourceLink(route.sourcePath) : '—'} |`,
   )
   return ['## API routes', '', header, divider, ...rows].join('\n')
+}
+
+function renderLinkedFactsSection(
+  heading: string,
+  facts: ReadonlyArray<{ label: string; sourcePath: string }>,
+): string {
+  if (facts.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
+  const rows = facts.map((fact) => `| ${fact.label} | ${renderSourceLink(fact.sourcePath)} |`)
+  return [heading, '', '| ID / path | Source |', '|---|---|', ...rows].join('\n')
 }
 
 function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
@@ -934,6 +1171,7 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
   const sections = [
     `# ${facts.module} — module facts (generated, do not edit)`,
     renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
+    `Source root: ${renderSourceLink(facts.sourceRoot)}`,
     '',
     renderEntitiesSection(facts.entities),
     '',
@@ -943,6 +1181,8 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderApiRoutesSection(facts.apiRoutes),
     '',
+    renderLinkedFactsSection('## Backend pages', facts.backendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
+    '',
     renderInlineListSection('## DI service tokens', facts.diTokens),
     '',
     renderInlineListSection('## Search entities', facts.searchEntities),
@@ -951,7 +1191,11 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderInlineListSection('## Notifications', facts.notifications),
     '',
-    renderInlineListSection('## CLI', facts.cli),
+    renderLinkedFactsSection('## CLI commands', facts.cliCommands.map((command) => ({ label: command.command, sourcePath: command.sourcePath }))),
+    '',
+    renderLinkedFactsSection('## AI tools / MCP capabilities', facts.aiTools.map((tool) => ({ label: tool.name, sourcePath: tool.sourcePath }))),
+    '',
+    renderLinkedFactsSection('## AI agents', facts.aiAgents.map((agent) => ({ label: agent.id, sourcePath: agent.sourcePath }))),
     '',
   ]
   return sections.join('\n')
@@ -964,6 +1208,7 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     coreVersion: facts.coreVersion,
     sourcePackage: facts.sourcePackage,
     sourceVersion: facts.sourceVersion,
+    sourceRoot: facts.sourceRoot,
     entities: facts.entities,
     events: facts.events.map((event) => ({ id: event.id, category: event.category, entity: event.entity })),
     aclFeatures: facts.aclFeatures,
@@ -973,6 +1218,10 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     hostTokens: facts.hostTokens,
     notifications: facts.notifications,
     cli: facts.cli,
+    backendPages: facts.backendPages,
+    cliCommands: facts.cliCommands,
+    aiTools: facts.aiTools,
+    aiAgents: facts.aiAgents,
   }
 }
 
