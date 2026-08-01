@@ -64,8 +64,8 @@ Generate a complete, deterministic, bidirectional catalog of every package-provi
 
 ### Phase 1: Canonical host taxonomy and parity
 
-- [ ] 1.1 Add shared serializable types, declaration helpers, and bound-family descriptors.
-- [ ] 1.2 Add canonical host declarations and bind audited UI call sites.
+- [x] 1.1 Add shared serializable types, declaration helpers, and bound-family descriptors. — e96969f29
+- [x] 1.2 Add canonical host declarations and bind audited UI call sites. — e96969f29
 - [ ] 1.3 Project existing-fact host capabilities.
 - [ ] 1.4 Add bound/unbound parity guards.
 
