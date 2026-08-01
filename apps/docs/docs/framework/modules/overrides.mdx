@@ -65,6 +65,7 @@ The default app and `create-mercato-app` template also export a non-applied `mod
 | ACL features | `acl.features` | feature id |
 | DI bindings | `di` | container key |
 | Encryption maps | `encryption.maps` | entity id |
+| Sidebar nav ordering | `nav.groupOrder` | nav group id |
 
 ## Examples
 
@@ -235,6 +236,34 @@ overrides: {
 }
 ```
 
+### Sidebar Nav Ordering
+
+Core ranks a built-in list of sidebar nav groups ahead of everything else, so an app's own group would
+otherwise sit below the shipped ones no matter what `priority` or `order` its pages declare.
+`nav.groupOrder` lets the app decide:
+
+```ts
+overrides: {
+  nav: {
+    groupOrder: ['my_app.nav.group'],
+  },
+}
+```
+
+- **Prepends, does not replace.** The ids listed rank first, in the order given. Any group not named
+  keeps the ordering it has today — so listing just your own group is enough, and you cannot
+  accidentally demote a shipped group by forgetting it.
+- **It is a default.** Role and per-user sidebar preferences still apply on top, so an operator's own
+  arrangement wins over this.
+- **Declare it once.** Ordering is a single app-wide decision; if two module entries declare it, the
+  later one in load order wins and a warning names both.
+- Unknown group ids are ignored.
+
+Per-role ordering is a different mechanism: seed `SidebarPreferencesSettings.groupOrder` on a
+`RoleSidebarPreference` row (see the sidebar customization page, which writes exactly those rows).
+Use `nav.groupOrder` for an app-wide default and role preferences when different roles need different
+orders.
+
 ## Programmatic Overrides
 
 Use programmatic helpers for env-driven boot decisions and tests:
@@ -249,6 +278,15 @@ import {
 applyApiRouteOverrides({ 'GET /api/example/override-probe': null })
 applyPageRouteOverrides({ '/backend/example': null })
 applyWorkerOverrides({ 'example:sync': null })
+```
+
+Sidebar nav ordering has the same tier, and it takes precedence over the `modules.ts` declaration:
+
+```ts
+import { applyNavGroupOrderOverrides } from '@open-mercato/shared/modules/overrides'
+
+applyNavGroupOrderOverrides(['my_app.nav.group'])
+applyNavGroupOrderOverrides(null) // clear, falling back to modules.ts
 ```
 
 Programmatic calls must happen before the affected registry registers its base entries. The standard app bootstrap already calls `applyModuleOverridesFromEnabledModules(enabledModules)` for inline `modules.ts` overrides.

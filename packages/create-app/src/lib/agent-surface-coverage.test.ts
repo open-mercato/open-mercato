@@ -10,6 +10,10 @@ function read(relativePath: string): string {
   return fs.readFileSync(path.join(agenticRoot, relativePath), 'utf8')
 }
 
+function readPackageDoc(relativePath: string): string {
+  return fs.readFileSync(path.join(agenticRoot, '..', relativePath), 'utf8')
+}
+
 test('standalone discovery catalog covers every public module contribution family', () => {
   const catalog = read('shared/ai/skills/om-module-scaffold/references/discovery-surface-catalog.md')
   const expectedPaths = [
@@ -143,15 +147,69 @@ test('UMES selector documents additive command interceptors across execute and u
   assert.match(branches, /never bypass the command, locking, audit, or undo/)
 })
 
-test('the 192-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('business one-shot guidance maps staff record outcomes to canonical complete-module contracts', () => {
+  const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
+  for (const expected of [
+    'references/api-and-domain.md',
+    'references/module-surfaces.md',
+    'references/verification.md',
+    'controlled-search `DataTable`',
+    '`CrudForm` create/edit/delete flows',
+    '`collectCustomFieldValues`',
+    '`extractUndoPayload`',
+    '`emitCrudUndoSideEffects`',
+    '`buildCustomFieldResetMap`',
+    '`withAtomicFlush`',
+    '`findWithDecryption`',
+    'intentional API enricher host',
+    'Preserve every statically discoverable baseline entry',
+    "enabledModules.push({ id: '<module>', from: '@app' })",
+  ]) assert.ok(blueprint.includes(expected), `missing business-to-framework inference ${expected}`)
+  assert.match(blueprint, /do not substitute plausible alternatives/)
+  assert.match(blueprint, /### Complete Library Contract/)
+  assert.match(blueprint, /Do not route `framework-context`/)
+  for (const expected of [
+    '`library.books.view`',
+    '`library.books.manage`',
+    '`setup: ModuleSetupConfig = { defaultRoleFeatures }`',
+    '`orgField`',
+    '`transformItem`',
+    '`loadCustomFieldSnapshot`',
+    '`@open-mercato\/shared\/lib\/commands\/undo`',
+    '`@open-mercato\/shared\/lib\/encryption\/find`',
+    '`searchConfig`',
+    '`@jest\/globals`',
+    '`CommandHandler<Input, Result>`',
+    '`@open-mercato\/ui\/backend\/confirm-dialog`',
+    '`execute(input, ctx)`',
+    '`async prepare(input, ctx)`',
+    '`async captureAfter(input, result, ctx)`',
+    '`undo` receives `{ input, ctx, logEntry }`',
+    'Never write `execute: async ({ input, ctx })`',
+    '`dataEngine.setCustomFields({ entityId, recordId, tenantId, organizationId, values, notify: false })`',
+    '`normalizeCustomFieldValues`',
+    '`findOneWithDecryption(em, Book, { id, tenant_id, organization_id }, undefined, { tenantId, organizationId })`',
+    'shared `Input`, `Button`, and `Alert`',
+    '`@open-mercato\/ui\/primitives\/input`',
+    'async execute(input, ctx)',
+    'Delete undo must call `buildCustomFieldResetMap`',
+    '`yarn generate` and then `yarn typecheck`',
+  ]) assert.ok(blueprint.includes(expected), `missing complete-library contract ${expected}`)
+  assert.match(blueprint, /Do not create any test outside `commands\/__tests__\/`/)
+  assert.match(blueprint, /do not hide oracle-significant behavior in shared helpers/)
+  assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
+})
+
+test('the 202-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
     context: { required: string[]; allowedExtra?: string[] }
     requiredDecisions: string[]
+    requiredSkills: string[]
     expectedRouter: { required: string[] }
   }>
-  assert.equal(cases.length, 192)
+  assert.equal(cases.length, 202)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -211,6 +269,42 @@ test('the 192-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/modules/customers.md', '.ai/skills/om-module-scaffold/references/verification.md'],
       decisions: ['trusted-scope-only', 'scalar-crm-customer-snapshot', 'atomic-one-winner-checkout', 'executable-jest-regression'],
     },
+    'OMH-194': {
+      contexts: ['.ai/guides/modules/dictionaries.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-195': {
+      contexts: ['.ai/guides/modules/api_keys.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'acl-features', 'tenant-scope', 'smallest-validation'],
+    },
+    'OMH-196': {
+      contexts: ['.ai/guides/modules/configs.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-197': {
+      contexts: ['.ai/guides/modules/perspectives.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-198': {
+      contexts: ['.ai/guides/modules/resources.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-199': {
+      contexts: ['.ai/guides/modules/sync_excel.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
+      decisions: ['facts-first', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-200': {
+      contexts: ['.ai/guides/modules/gateway_stripe.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
+      decisions: ['facts-first', 'app-module-activation', 'acl-features', 'smallest-validation'],
+    },
+    'OMH-201': {
+      contexts: ['.ai/guides/modules/sync_akeneo.md', '.ai/guides/architecture.md', '.ai/skills/om-integration-builder/SKILL.md'],
+      decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'smallest-validation'],
+    },
+    'OMH-202': {
+      contexts: ['.ai/guides/modules/wms.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -231,24 +325,146 @@ test('the 192-case catalog routes audited installed-module, runtime, and AI/prov
   assert.deepEqual(byId.get('OMH-186')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-187')?.expectedRouter.required, ['module-data'])
   assert.deepEqual(byId.get('OMH-192')?.expectedRouter.required, ['module-data', 'umes', 'testing'])
+  assert.deepEqual(byId.get('OMH-193')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
+
+  // Every reuse-installed case observes its module fact-sheet; the skill that governs the
+  // decision differs by framing. "Does something already own this?" opens om-help; a named
+  // provider or file-feed opens om-integration-builder, which is what live routing selects.
+  const reuseInstalledFacts: Record<string, { factSheet: string; skill: string }> = {
+    'OMH-194': { factSheet: '.ai/guides/modules/dictionaries.md', skill: 'om-help' },
+    'OMH-195': { factSheet: '.ai/guides/modules/api_keys.md', skill: 'om-help' },
+    'OMH-196': { factSheet: '.ai/guides/modules/configs.md', skill: 'om-help' },
+    'OMH-197': { factSheet: '.ai/guides/modules/perspectives.md', skill: 'om-help' },
+    'OMH-198': { factSheet: '.ai/guides/modules/resources.md', skill: 'om-help' },
+    'OMH-199': { factSheet: '.ai/guides/modules/sync_excel.md', skill: 'om-integration-builder' },
+    'OMH-200': { factSheet: '.ai/guides/modules/gateway_stripe.md', skill: 'om-integration-builder' },
+    'OMH-201': { factSheet: '.ai/guides/modules/sync_akeneo.md', skill: 'om-integration-builder' },
+    'OMH-202': { factSheet: '.ai/guides/modules/wms.md', skill: 'om-help' },
+  }
+  for (const [caseId, { factSheet, skill }] of Object.entries(reuseInstalledFacts)) {
+    const record = byId.get(caseId)
+    assert.deepEqual(record?.expectedRouter.required, ['architecture'], `${caseId}: reuse-installed routing is an architecture decision`)
+    assert.ok(record?.requiredSkills.includes(skill), `${caseId}: an installed-versus-new choice must open ${skill}`)
+    assert.ok(record?.context.required.includes('.ai/guides/architecture.md'), `${caseId}: the architecture guide must be observed, not merely allowed`)
+    assert.ok(record?.context.required.includes(`.ai/skills/${skill}/SKILL.md`), `${caseId}: the ${skill} skill must be observed, not merely allowed`)
+    assert.ok(record?.context.required.includes(factSheet), `${caseId}: the installed module fact-sheet must be observed, not merely allowed`)
+    assert.ok(record?.requiredDecisions.includes('facts-first'), `${caseId}: reuse-installed routing must decide facts-first`)
+  }
 })
 
-test('the second-round cohort is exactly 92 business-language prompts without leaked framework contracts', () => {
+test('the business-language cohort includes the OMH-185 parity case without leaked framework contracts', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
+    [key: string]: unknown
     id: string
     prompt: string
     tags: string[]
   }>
-  const expectedIds = Array.from({ length: 92 }, (_, index) => `OMH-${String(index + 93).padStart(3, '0')}`)
+  const expectedIds = [
+    ...Array.from({ length: 92 }, (_, index) => `OMH-${String(index + 93).padStart(3, '0')}`),
+    'OMH-193',
+  ]
   const cohort = cases.filter((entry) => entry.tags.includes('business-language'))
+  const releaseMatrix = JSON.parse(read('shared/ai/harness/release-matrix.json')) as {
+    generatedCodeReview: { maxChangedFiles: number }
+    generativeJudge: { maxChangedFiles: number }
+  }
 
   assert.equal(new Set(cases.map((entry) => entry.id)).size, cases.length, 'catalog case IDs must be unique')
-  assert.equal(cohort.length, 92)
+  assert.equal(cohort.length, 93)
   assert.deepEqual(cohort.map((entry) => entry.id), expectedIds)
+  assert.ok(releaseMatrix.generatedCodeReview.maxChangedFiles >= 22, 'complete library review must admit its canonical artifact layout')
+  assert.ok(releaseMatrix.generativeJudge.maxChangedFiles >= 22, 'complete library judge must admit its canonical artifact layout')
 
   const prohibitedImplementationVocabulary = /(?:\b(?:IntegrationDefinition|ChannelAdapter|GatewayAdapter|ShippingAdapter|availabilityAccessResolver|checkAttachmentAccess|onTenantCreated|seedDefaults|seedExamples|registerGatewayAdapter|registerWebhookHandler|registerPaymentGatewayDescriptor|registerShippingAdapter|tenantId|organizationId)\b|\/api\/staff\/team-members\/assignable\b|--no-examples\b|\bsetup\.ts\b)/
   for (const entry of cohort) {
     assert.doesNotMatch(entry.prompt, prohibitedImplementationVocabulary, `${entry.id} leaks an implementation contract into its business prompt`)
+  }
+
+  const technicalCase = cases.find((entry) => entry.id === 'OMH-185')
+  const businessCase = cases.find((entry) => entry.id === 'OMH-193')
+  assert.ok(technicalCase)
+  assert.ok(businessCase)
+  assert.match(businessCase.prompt, /Use every standard platform procedure/)
+  assert.match(businessCase.prompt, /checking the generated app/)
+  assert.doesNotMatch(businessCase.prompt, /CrudForm|DataTable|makeCrudRoute|src\/modules|\/backend\/|\.tsx?\b|optimistic locking|UMES|i18n|Jest/)
+  for (const field of ['owner', 'expectedRouter', 'requiredSkills', 'context', 'requiredDecisions', 'forbiddenPatterns', 'validators', 'fixture', 'oracle', 'allowedWrites', 'timeoutMs'] as const) {
+    assert.deepEqual(businessCase[field], technicalCase[field], `OMH-193 must preserve OMH-185 ${field}`)
+  }
+})
+
+test('the published case schema accepts the shipped catalog it pins', () => {
+  const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<Record<string, unknown>>
+  const schema = JSON.parse(read('shared/ai/harness/cases.schema.json')) as {
+    minItems: number
+    maxItems: number
+    items: {
+      required: string[]
+      properties: Record<string, { pattern?: string; items?: { pattern?: string }; properties?: Record<string, { items?: { pattern?: string } }> }>
+    }
+  }
+
+  assert.equal(schema.minItems, cases.length, 'schema minItems must pin the shipped catalog size')
+  assert.equal(schema.maxItems, cases.length, 'schema maxItems must pin the shipped catalog size')
+
+  function requirePattern(source: string | undefined, label: string): RegExp {
+    assert.ok(source, `schema must declare a ${label} pattern; an absent one would make this guard vacuous`)
+    return new RegExp(source)
+  }
+
+  const idPattern = requirePattern(schema.items.properties.id.pattern, 'case id')
+  const relatedPattern = requirePattern(schema.items.properties.relatedCases.items?.pattern, 'relatedCases')
+  const oraclePattern = requirePattern(schema.items.properties.oracle.properties?.validatorIds.items?.pattern, 'oracle validatorId')
+  const declaredProperties = new Set(Object.keys(schema.items.properties))
+
+  for (const entry of cases) {
+    const id = entry.id as string
+    assert.match(id, idPattern, `${id}: schema id pattern rejects a shipped case`)
+    for (const required of schema.items.required) {
+      assert.ok(required in entry, `${id}: missing schema-required property ${required}`)
+    }
+    for (const property of Object.keys(entry)) {
+      assert.ok(declaredProperties.has(property), `${id}: undeclared property ${property} under additionalProperties:false`)
+    }
+    for (const related of (entry.relatedCases as string[] | undefined) ?? []) {
+      assert.match(related, relatedPattern, `${id}: schema relatedCases pattern rejects ${related}`)
+    }
+    const oracle = entry.oracle as { validatorIds?: string[] } | undefined
+    for (const validatorId of oracle?.validatorIds ?? []) {
+      assert.match(validatorId, oraclePattern, `${id}: schema oracle validatorId pattern rejects ${validatorId}`)
+    }
+  }
+})
+
+test('every published case count states the shipped catalog or the portability sample', () => {
+  const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
+  const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
+  // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
+  // "46 writable implementation/regression cases" and "202 live-routing cases" are checked too; a
+  // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
+  const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)(?:[- ][a-z/-]+)*?[- ]cases?\b/g
+  const allowed = new Map([
+    [cases.length, 'the shipped catalog'],
+    [validators.catalog.writableCaseIds.length, 'the writable/portability sample'],
+  ])
+  const documents: Array<[string, string]> = [
+    ['packages/create-app/README.md', readPackageDoc('README.md')],
+    ['agentic/shared/ai/harness/README.md', read('shared/ai/harness/README.md')],
+    ['agentic/shared/ai/harness/RELEASE.md', read('shared/ai/harness/RELEASE.md')],
+    ['agentic/shared/scripts/run-agent-harness-release.mjs', read('shared/scripts/run-agent-harness-release.mjs')],
+    ['om-evolve-harness/references/case-template.md', read('shared/ai/skills/om-evolve-harness/references/case-template.md')],
+    ['om-evolve-harness/references/case-workflow.md', read('shared/ai/skills/om-evolve-harness/references/case-workflow.md')],
+  ]
+
+  for (const [label, contents] of documents) {
+    const matches = [...contents.matchAll(statedCounts)]
+    assert.ok(matches.length > 0, `${label}: states no case count; an absent one would make this guard vacuous`)
+    for (const match of matches) {
+      const stated = Number(match[1])
+      assert.ok(
+        allowed.has(stated),
+        `${label}: "${match[0]}" states ${stated}, but ${[...allowed].map(([count, source]) => `${source} has ${count}`).join(' and ')}`,
+      )
+    }
   }
 })
 

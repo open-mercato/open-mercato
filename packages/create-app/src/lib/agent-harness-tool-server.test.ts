@@ -78,6 +78,49 @@ test('the MCP read allowlist rejects readable source before returning its conten
   }
 })
 
+test('the MCP allows exact fact-linked installed source reads but not dependency discovery or writes', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-installed-root-')))
+  const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-installed-deps-')))
+  const sourceFile = path.join(
+    dependencies,
+    '@open-mercato',
+    'core',
+    'src',
+    'modules',
+    'customers',
+    'api',
+    'people',
+    'route.ts',
+  )
+  fs.mkdirSync(path.dirname(sourceFile), { recursive: true })
+  fs.writeFileSync(sourceFile, 'export async function GET() { return new Response() }\n')
+  fs.mkdirSync(path.join(dependencies, '@open-mercato', 'core', 'dist'), { recursive: true })
+  fs.writeFileSync(path.join(dependencies, '@open-mercato', 'core', 'dist', 'secret.js'), 'not-source\n')
+  fs.symlinkSync(dependencies, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    const allowedSource = 'node_modules/@open-mercato/core/src/modules/customers/api/people/route.ts'
+    const replies = call(
+      root,
+      'read-only',
+      ['node_modules/@open-mercato/*/src/**'],
+      [],
+      [
+        { name: 'read', arguments: { path: allowedSource } },
+        { name: 'read', arguments: { path: 'node_modules/@open-mercato/core/src' } },
+        { name: 'read', arguments: { path: 'node_modules/@open-mercato/core/dist/secret.js' } },
+        { name: 'read', arguments: { path: 'node_modules/example/index.js' } },
+        { name: 'write', arguments: { path: allowedSource, content: 'tampered\n' } },
+      ],
+    )
+    assert.match(replies[2].result.content[0].text, /export async function GET/)
+    for (const reply of replies.slice(3)) assert.equal(reply.result.isError, true)
+    assert.match(fs.readFileSync(sourceFile, 'utf8'), /export async function GET/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(dependencies, { recursive: true, force: true })
+  }
+})
+
 test('the writable MCP tool atomically changes only declared contained regular files', () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-write-')))
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-write-outside-')))

@@ -76,6 +76,8 @@ import {
   quoteLineCreateSchema,
   quoteAdjustmentCreateSchema,
   orderCreateSchema,
+  ORDER_PAYMENT_LEDGER_WARNING_CODE,
+  resolveSuppliedOrderPaymentLedgerFields,
   orderLineCreateSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
@@ -87,6 +89,7 @@ import {
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
   type OrderCreateInput,
+  type OrderPaymentLedgerWarning,
   type OrderLineCreateInput,
   type OrderAdjustmentCreateInput,
   type InvoiceCreateInput,
@@ -143,6 +146,7 @@ import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/tran
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+let warnedDeprecatedOrderPaymentLedgerInput = false
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -5505,14 +5509,22 @@ const updateOrderCommand: CommandHandler<
 
 const createOrderCommand: CommandHandler<
   OrderCreateInput,
-  { orderId: string }
+  { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
+    const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
+    if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
+      warnedDeprecatedOrderPaymentLedgerInput = true
+      logger.warn("sales.orders.create ignored deprecated payment ledger input", {
+        code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+        fields: deprecatedPaymentLedgerFields,
+      })
+    }
     const orderNumber =
       typeof initial.orderNumber === "string" &&
       initial.orderNumber.trim().length
@@ -5871,7 +5883,19 @@ const createOrderCommand: CommandHandler<
       previousStatus: null,
     });
 
-    return { orderId: order.id };
+    return {
+      orderId: order.id,
+      ...(deprecatedPaymentLedgerFields.length
+        ? {
+            warnings: [
+              {
+                code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+                fields: deprecatedPaymentLedgerFields,
+              },
+            ],
+          }
+        : {}),
+    };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -7041,6 +7065,14 @@ const orderLineDeleteCommand: CommandHandler<
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
         ));
+    }
+    if (filtered.length === 0) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          "sales.documents.items.errorDeleteLast",
+          "An order must contain at least one line item.",
+        ),
+      });
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapOrderLineEntityToSnapshot(line),

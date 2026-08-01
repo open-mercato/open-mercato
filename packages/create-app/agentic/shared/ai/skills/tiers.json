@@ -156,6 +156,8 @@
         "om-troubleshooter",
         "om-framework-context",
         "om-evolve-harness",
+        "om-judge-agent-session",
+        "om-share-this-session",
         "om-eject-and-customize"
       ]
     },

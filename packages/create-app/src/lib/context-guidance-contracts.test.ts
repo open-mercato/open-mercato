@@ -25,6 +25,18 @@ test('standalone module contracts require structured runtime logging without ban
   assert.match(contracts, /CLI\/build scripts and test-local console spies remain valid/)
 })
 
+test('standalone debugging preserves work and validation evidence without leaking transcripts', () => {
+  const debugging = readAgentic('guides/testing-debugging.md')
+
+  assert.match(debugging, /use a separate worktree or a fresh scaffold/)
+  assert.match(debugging, /Never stash and drop active work/)
+  assert.match(debugging, /Never copy them into the app repository/)
+  assert.match(debugging, /user explicitly asks/)
+  assert.match(debugging, /Do not pipe gates through `grep`, `tail`, or a trailing `echo`/)
+  assert.match(debugging, /enable `pipefail`/)
+  assert.match(debugging, /Any nonzero status remains a failed gate/)
+})
+
 test('installed auth and onboarding context directs new routes to current contracts', () => {
   const auth = readPackage('core/src/modules/auth/AGENTS.md')
   assert.match(auth, /API metadata is per HTTP method/)
@@ -272,6 +284,7 @@ test('standalone review flow enforces the customers-derived module and design-sy
     'atomic claim seam',
     'scalar IDs plus intentional snapshots',
     '@jest/globals',
+    'emitted locale JSON as inert source evidence',
   ]) assert.ok(checklist.includes(required), `missing module review rule ${required}`)
 
   const autoReview = readAgentic('shared/ai/skills/om-auto-review-pr/SKILL.md')
@@ -280,9 +293,12 @@ test('standalone review flow enforces the customers-derived module and design-sy
   assert.match(autoReview, /design-system/)
 
   const generatedPolicy = readAgentic('shared/ai/harness/generated-code-review-policy.md')
+  assert.match(generatedPolicy, /om-judge-agent-session/)
+  assert.match(generatedPolicy, /smallest harness owner/)
   assert.match(generatedPolicy, /\.ai\/review-checklist\.md/)
   assert.match(generatedPolicy, /module elements/)
   assert.match(generatedPolicy, /design-system/)
+  assert.match(generatedPolicy, /locale JSON.*inert data/)
 })
 
 test('backend UI defaults new editable entities to linked and filterable full CRUD', () => {
@@ -458,6 +474,16 @@ test('residual owner guidance binds implementation, provider, debugging, and bus
   )
   assert.match(implementSpec, /working app \(`working-phases`\)/)
   assert.match(implementSpec, /`integration-coverage` belongs to writing the spec/)
+  for (const decision of [
+    'spec-resolution',
+    'phase-execution-plan',
+    'interactive-confirmation',
+    'implementation-progress',
+    'stable-implementation-report',
+    'spec-reference-marker',
+  ]) {
+    assert.ok(implementSpec.includes(`\`${decision}\``), `missing implement-spec decision ${decision}`)
+  }
   assert.match(integration, /exact installed provider\/domain contract, invoke `om-framework-context`/)
   assert.match(integration, /superseded by an installed capability selects architecture \+ integration \+ framework-context/)
   assert.match(troubleshooter, /persisted create\/update\/clear\/reload defect also selects `module-data` and contracts/)
@@ -541,7 +567,15 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
   }
   assert.match(dataModelSkill, /staff surface showing current state, history, or evidence also adds backend UI/)
   assert.match(implementationSkill, /working app \(`working-phases`\) and report its smallest focused validation gate \(`smallest-validation`\)/)
-  assert.match(blueprints, /MUST invoke `om-data-model-design` and report `smallest-validation` for the lead record and scalar CRM link/)
+  assert.match(implementationSkill, /references\/spec-resolution\.md/)
+  assert.match(implementationSkill, /references\/planning-and-progress\.md/)
+  assert.match(implementationSkill, /references\/report-templates\.md/)
+  assert.match(blueprints, /MUST read `\.ai\/guides\/modules\/customers\.md`, invoke `om-data-model-design`, and report `smallest-validation` for the lead record and scalar CRM link/)
+  assert.match(blueprints, /explicit trusted config\/domain binding/)
+  assert.match(blueprints, /never select or persist the first\/oldest active tenant or organization/)
+  assert.match(blueprints, /idempotency lookup and database uniqueness include tenant\+organization/)
+  assert.match(blueprints, /merge and revalidate mutation guards' `modifiedPayload`/)
+  assert.match(blueprints, /`TenantDataEncryptionService` and `lookupHashCandidates`/)
   assert.match(blueprints, /load both `scheduler` and `customers` facts/)
   assert.match(blueprints, /trusted host scope \(`host-scope-contract`\)/)
 })
@@ -559,4 +593,49 @@ test('API and command fixes load trusted-scope domain contracts', () => {
   assert.match(dataModelSkill, /A persisted concurrency, atomicity, or idempotency implementation or fix cannot stop at this file/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
   assert.match(apiDomain, /runtime scope comes only from the trusted request\/command context/)
+  assert.match(apiDomain, /generated discovery mounts it at `\/api\/<moduleId>\/<resource>`/)
+  assert.match(apiDomain, /Merge any `modifiedPayload` into the validated input/)
+  assert.match(apiDomain, /parse the merged value again with the route schema/)
+})
+
+test('public lead eval keeps the request business-oriented while owners enforce safeguards', () => {
+  const catalog = JSON.parse(readAgentic('shared/ai/harness/cases.json')) as Array<{
+    id: string
+    prompt?: string
+    requiredDecisions?: string[]
+  }>
+  const leadCase = catalog.find((entry) => entry.id === 'OMH-130')
+  const checklist = readAgentic('shared/ai/review-checklist.md')
+  const sensitiveData = readAgentic(
+    'shared/ai/skills/om-data-model-design/references/sensitive-data.md',
+  )
+
+  assert.ok(leadCase, 'OMH-130 must remain in the harness catalog')
+  assert.match(leadCase.prompt ?? '', /public request-a-demo page/)
+  assert.match(leadCase.prompt ?? '', /contact details and consent/)
+  assert.match(leadCase.prompt ?? '', /records each genuine request once in the CRM/)
+  assert.match(leadCase.prompt ?? '', /serves multiple businesses/)
+  assert.match(leadCase.prompt ?? '', /keep personal information secure/)
+  assert.doesNotMatch(
+    leadCase.prompt ?? '',
+    /tenant|organization|idempotency|database uniqueness|modifiedPayload|TenantDataEncryptionService|lookupHashCandidates|SHA-256|command dispatch/,
+  )
+  for (const decision of [
+    'explicit-public-target-binding',
+    'scoped-idempotency-key',
+    'guard-modified-payload',
+  ]) {
+    assert.ok(leadCase.requiredDecisions?.includes(decision), `OMH-130 must require ${decision}`)
+  }
+  assert.match(checklist, /no path selects or persists the first\/oldest active tenant or organization/)
+  assert.match(checklist, /Idempotency queries and database uniqueness include tenant\+organization/)
+  assert.match(checklist, /merges the guard result's `modifiedPayload` into the validated input/)
+  assert.match(checklist, /client sends that record's version, the server enforces it/)
+  assert.match(checklist, /never a private installed entity import, direct cross-module ORM query\/relation/)
+  assert.match(checklist, /never raw SHA-256 for low-entropy PII/)
+  assert.match(checklist, /`lookupHashCandidates\(value\)` from `@open-mercato\/shared\/lib\/encryption\/aes`/)
+  assert.match(sensitiveData, /read back its registration/)
+  assert.match(sensitiveData, /assert the sensitive database columns are ciphertext/)
+  assert.match(sensitiveData, /Let `TenantDataEncryptionService` populate it/)
+  assert.match(sensitiveData, /`lookupHashCandidates\(value\)` from `@open-mercato\/shared\/lib\/encryption\/aes`/)
 })
