@@ -54,8 +54,8 @@ Add a reusable LLM-as-judge workflow for standalone generative evaluations and u
 
 ### Phase 1: Contracts and reusable skill
 
-- [ ] 1.1 Define the judge, bounded installed-source, route-uniqueness, and module-fact contracts in the existing standalone harness specification.
-- [ ] 1.2 Add the layered `om-judge-agent-session` skill to the monorepo and standalone default skill tiers, with support for harness artifacts and sanitized PR #4756 session-share bundles.
+- [x] 1.1 Define the judge, bounded installed-source, route-uniqueness, and module-fact contracts in the existing standalone harness specification. — 406e9e0967d3
+- [x] 1.2 Add the layered `om-judge-agent-session` skill to the monorepo and standalone default skill tiers, with support for harness artifacts and sanitized PR #4756 session-share bundles. — 406e9e0967d3
 
 ### Phase 2: Exact context and fixed guards
 
