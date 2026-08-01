@@ -18,8 +18,8 @@ import {
  *
  * The records list API's server-side search builds an $or of $ilike clauses that route
  * through the query engine's token-availability decision. This exercises both routings:
- *  1. a record is findable while its scope has tokens (whichever of the token or
- *     plain-column path serves it), and
+ *  1. after the test observes the record's indexed tokens, search finds it through
+ *     the token-backed route, and
  *  2. after the scope's tokens are removed (what a purge does), the same search still
  *     finds the record via the plain-column fallback — the observable difference
  *     between the availability answers `true` and `false`.
@@ -27,7 +27,7 @@ import {
  * The second poll allows generous time because the availability answer is cached
  * process-wide for OM_SEARCH_TOKEN_PRESENCE_CACHE_MS (default 30 s): right after the
  * SQL cleanup the server may still route through the (now empty) token path until the
- * cache entry expires, and token writes after record creation are deferred.
+ * cache entry expires. The first poll separately accounts for deferred token writes.
  */
 test.describe('TC-QIDX-4731: token presence routing', () => {
   test('search falls back to plain-column matching after a scope purge', async ({ request }) => {
@@ -69,8 +69,8 @@ test.describe('TC-QIDX-4731: token presence routing', () => {
       const findRecord = async (): Promise<boolean> => {
         const response = await listRecords(request, token, entityId, searchQuery)
         if (!response.ok()) return false
-        const body = (await response.json()) as { items?: Array<{ id?: string }> }
-        return (body.items ?? []).some((item) => item.id === recordId)
+        const body = await readJsonSafe<{ items?: Array<{ id?: string }> }>(response)
+        return (body?.items ?? []).some((item) => item.id === recordId)
       }
 
       await expect
