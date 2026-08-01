@@ -29,7 +29,8 @@
       "om-spec-writing",
       "om-auto-fix-pr",
       "om-close-fixed-issues",
-      "om-verify-in-repo"
+      "om-verify-in-repo",
+      "om-pr-autopilot"
     ]
   },
   "tiers": {

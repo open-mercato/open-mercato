@@ -6,6 +6,8 @@ import {
   buildDateTruncExpression,
   buildJsonbFieldExpression,
   buildAggregationQuery,
+  buildGroupSourceRowsQuery,
+  resolveGroupExpression,
   isValidGranularity,
   isValidAggregate,
 } from '../aggregations'
@@ -278,6 +280,91 @@ describe('aggregations', () => {
         metric: { field: 'invalidField', aggregate: 'sum' },
       })
       expect(result).toBeNull()
+    })
+  })
+
+  describe('resolveGroupExpression', () => {
+    it('resolves a plain column', () => {
+      const resolved = resolveGroupExpression(testRegistry, 'sales:orders', { field: 'status' })
+      expect(resolved).toEqual({ expression: 'status', dbColumn: 'status', jsonPath: null })
+    })
+
+    it('resolves a timestamp column with granularity', () => {
+      const resolved = resolveGroupExpression(testRegistry, 'sales:orders', {
+        field: 'placedAt',
+        granularity: 'month',
+      })
+      expect(resolved).toEqual({
+        expression: "DATE_TRUNC('month', placed_at)",
+        dbColumn: 'placed_at',
+        jsonPath: null,
+      })
+    })
+
+    it('exposes the underlying column and path for JSONB notation', () => {
+      const resolved = resolveGroupExpression(testRegistry, 'sales:orders', {
+        field: 'shippingAddressSnapshot.region',
+      })
+      expect(resolved).toEqual({
+        expression: "shipping_address_snapshot->>'region'",
+        dbColumn: 'shipping_address_snapshot',
+        jsonPath: 'region',
+      })
+    })
+
+    it('returns null for unknown fields', () => {
+      expect(resolveGroupExpression(testRegistry, 'sales:orders', { field: 'nope' })).toBeNull()
+      expect(resolveGroupExpression(testRegistry, 'sales:orders', { field: 'status.nested' })).toBeNull()
+    })
+  })
+
+  describe('buildGroupSourceRowsQuery', () => {
+    const baseOptions = {
+      entityType: 'sales:orders',
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' as const },
+      scope: { tenantId: 'tenant-123' },
+      registry: testRegistry,
+      groupColumn: 'shipping_address_snapshot',
+      rowLimit: 100,
+    }
+
+    it('selects the raw group source next to the metric column', () => {
+      const result = buildGroupSourceRowsQuery(baseOptions)
+      expect(result?.sql).toContain('SELECT shipping_address_snapshot AS group_source, grand_total_gross_amount AS metric_value')
+      expect(result?.sql).toContain('FROM "sales_orders"')
+      expect(result?.sql).not.toContain('GROUP BY')
+    })
+
+    it('keeps tenant, organization, soft-delete and date scoping', () => {
+      const start = new Date('2024-01-01')
+      const end = new Date('2024-01-31')
+      const result = buildGroupSourceRowsQuery({
+        ...baseOptions,
+        scope: { tenantId: 'tenant-123', organizationIds: ['org-1'] },
+        dateRange: { field: 'placedAt', start, end },
+      })
+      expect(result?.sql).toContain('tenant_id = ?')
+      expect(result?.sql).toContain('organization_id = ANY(?::uuid[])')
+      expect(result?.sql).toContain('deleted_at IS NULL')
+      expect(result?.sql).toContain('placed_at >= ?')
+      expect(result?.params).toEqual(['tenant-123', '{org-1}', start, end])
+    })
+
+    it('fetches one row beyond the cap so overflow is detectable', () => {
+      expect(buildGroupSourceRowsQuery({ ...baseOptions, rowLimit: 10 })?.sql).toContain('LIMIT 11')
+    })
+
+    it('rejects an unsafe group column', () => {
+      expect(() => buildGroupSourceRowsQuery({ ...baseOptions, groupColumn: 'a"; drop table x --' })).toThrow(
+        'Invalid group column',
+      )
+    })
+
+    it('returns null for an invalid entity type or metric field', () => {
+      expect(buildGroupSourceRowsQuery({ ...baseOptions, entityType: 'invalid' })).toBeNull()
+      expect(
+        buildGroupSourceRowsQuery({ ...baseOptions, metric: { field: 'nope', aggregate: 'sum' } }),
+      ).toBeNull()
     })
   })
 
