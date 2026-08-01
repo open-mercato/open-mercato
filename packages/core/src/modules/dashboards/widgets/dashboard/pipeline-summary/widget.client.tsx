@@ -13,6 +13,7 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type PipelineSummarySettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'pipeline-summary' })
@@ -126,6 +127,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           emptyMessage={t('dashboards.analytics.widgets.pipelineSummary.empty', 'No deal data for this period')}
         />
       </div>
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
     </div>
   )
 }

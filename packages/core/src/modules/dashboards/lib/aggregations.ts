@@ -97,6 +97,136 @@ export type BuildAggregationQueryOptions = {
   registry: AnalyticsRegistry
 }
 
+export type ScopedQueryOptions = {
+  entityType: string
+  dateRange?: {
+    field: string
+    start: Date
+    end: Date
+  }
+  filters?: Array<{
+    field: string
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'not_in' | 'is_null' | 'is_not_null'
+    value?: unknown
+  }>
+  scope: {
+    tenantId: string
+    organizationIds?: string[]
+  }
+  registry: AnalyticsRegistry
+}
+
+function appendScopeWhereClauses(options: ScopedQueryOptions, params: unknown[]): { clauses: string[] } {
+  const { registry } = options
+  const clauses: string[] = []
+
+  clauses.push(`tenant_id = ?`)
+  params.push(options.scope.tenantId)
+
+  if (options.scope.organizationIds && options.scope.organizationIds.length > 0) {
+    clauses.push(`organization_id = ANY(?::uuid[])`)
+    params.push(`{${options.scope.organizationIds.join(',')}}`)
+  }
+
+  clauses.push(`deleted_at IS NULL`)
+
+  if (options.dateRange) {
+    const dateMapping = registry.getFieldMapping(options.entityType, options.dateRange.field)
+    if (dateMapping) {
+      clauses.push(`${dateMapping.dbColumn} >= ?`)
+      params.push(options.dateRange.start)
+      clauses.push(`${dateMapping.dbColumn} <= ?`)
+      params.push(options.dateRange.end)
+    }
+  }
+
+  if (options.filters) {
+    for (const filter of options.filters) {
+      const filterMapping = registry.getFieldMapping(options.entityType, filter.field)
+      if (!filterMapping) continue
+
+      switch (filter.operator) {
+        case 'eq':
+          clauses.push(`${filterMapping.dbColumn} = ?`)
+          params.push(filter.value)
+          break
+        case 'neq':
+          clauses.push(`${filterMapping.dbColumn} != ?`)
+          params.push(filter.value)
+          break
+        case 'gt':
+          clauses.push(`${filterMapping.dbColumn} > ?`)
+          params.push(filter.value)
+          break
+        case 'gte':
+          clauses.push(`${filterMapping.dbColumn} >= ?`)
+          params.push(filter.value)
+          break
+        case 'lt':
+          clauses.push(`${filterMapping.dbColumn} < ?`)
+          params.push(filter.value)
+          break
+        case 'lte':
+          clauses.push(`${filterMapping.dbColumn} <= ?`)
+          params.push(filter.value)
+          break
+        case 'in':
+          clauses.push(`${filterMapping.dbColumn} = ANY(?)`)
+          params.push(filter.value)
+          break
+        case 'not_in':
+          clauses.push(`${filterMapping.dbColumn} != ALL(?)`)
+          params.push(filter.value)
+          break
+        case 'is_null':
+          clauses.push(`${filterMapping.dbColumn} IS NULL`)
+          break
+        case 'is_not_null':
+          clauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
+          break
+      }
+    }
+  }
+
+  return { clauses }
+}
+
+export type BuildDistinctCurrencyQueryOptions = ScopedQueryOptions
+
+/**
+ * Builds the query that reads the distinct per-row currencies of the rows an aggregation
+ * would sum, over exactly the same tenant/organization scope, date range and filters.
+ * Returns `null` when the entity declares no `currencyField`, which means its amounts are
+ * not per-row denominated and there is nothing to verify (#4676).
+ */
+export function buildDistinctCurrencyQuery(
+  options: BuildDistinctCurrencyQueryOptions,
+): AggregationQuery | null {
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
+  if (!config?.currencyField) return null
+
+  const currencyMapping = registry.getFieldMapping(options.entityType, config.currencyField)
+  if (!currencyMapping || !isSafeIdentifier(currencyMapping.dbColumn)) return null
+
+  const params: unknown[] = []
+  const tableName = config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
+  const { clauses } = appendScopeWhereClauses(options, params)
+  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+  const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyMapping.dbColumn}), ''))`
+
+  const sql = [
+    `SELECT DISTINCT ${normalizedCurrencyExpression} AS code`,
+    `FROM ${tableName}`,
+    whereClause,
+    'LIMIT 2',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return { sql, params }
+}
+
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
   const { registry } = options
   const config = registry.getEntityTypeConfig(options.entityType)
@@ -145,75 +275,7 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
     }
   }
 
-  const whereClauses: string[] = []
-
-  whereClauses.push(`tenant_id = ?`)
-  params.push(options.scope.tenantId)
-
-  if (options.scope.organizationIds && options.scope.organizationIds.length > 0) {
-    whereClauses.push(`organization_id = ANY(?::uuid[])`)
-    params.push(`{${options.scope.organizationIds.join(',')}}`)
-  }
-
-  whereClauses.push(`deleted_at IS NULL`)
-
-  if (options.dateRange) {
-    const dateMapping = registry.getFieldMapping(options.entityType, options.dateRange.field)
-    if (dateMapping) {
-      whereClauses.push(`${dateMapping.dbColumn} >= ?`)
-      params.push(options.dateRange.start)
-      whereClauses.push(`${dateMapping.dbColumn} <= ?`)
-      params.push(options.dateRange.end)
-    }
-  }
-
-  if (options.filters) {
-    for (const filter of options.filters) {
-      const filterMapping = registry.getFieldMapping(options.entityType, filter.field)
-      if (!filterMapping) continue
-
-      switch (filter.operator) {
-        case 'eq':
-          whereClauses.push(`${filterMapping.dbColumn} = ?`)
-          params.push(filter.value)
-          break
-        case 'neq':
-          whereClauses.push(`${filterMapping.dbColumn} != ?`)
-          params.push(filter.value)
-          break
-        case 'gt':
-          whereClauses.push(`${filterMapping.dbColumn} > ?`)
-          params.push(filter.value)
-          break
-        case 'gte':
-          whereClauses.push(`${filterMapping.dbColumn} >= ?`)
-          params.push(filter.value)
-          break
-        case 'lt':
-          whereClauses.push(`${filterMapping.dbColumn} < ?`)
-          params.push(filter.value)
-          break
-        case 'lte':
-          whereClauses.push(`${filterMapping.dbColumn} <= ?`)
-          params.push(filter.value)
-          break
-        case 'in':
-          whereClauses.push(`${filterMapping.dbColumn} = ANY(?)`)
-          params.push(filter.value)
-          break
-        case 'not_in':
-          whereClauses.push(`${filterMapping.dbColumn} != ALL(?)`)
-          params.push(filter.value)
-          break
-        case 'is_null':
-          whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
-          break
-        case 'is_not_null':
-          whereClauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
-          break
-      }
-    }
-  }
+  const { clauses: whereClauses } = appendScopeWhereClauses(options, params)
 
   const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
 

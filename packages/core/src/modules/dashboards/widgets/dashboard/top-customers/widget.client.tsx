@@ -10,6 +10,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { DEFAULT_SETTINGS, hydrateSettings, type TopCustomersSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'top-customers' })
@@ -145,13 +146,18 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
   }
 
   return (
-    <TopNTable
-      data={data}
-      columns={columns}
-      loading={loading}
-      error={error}
-      emptyMessage={t('dashboards.analytics.widgets.topCustomers.empty', 'No customer data for this period')}
-    />
+    <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0">
+        <TopNTable
+          data={data}
+          columns={columns}
+          loading={loading}
+          error={error}
+          emptyMessage={t('dashboards.analytics.widgets.topCustomers.empty', 'No customer data for this period')}
+        />
+      </div>
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
+    </div>
   )
 }
 

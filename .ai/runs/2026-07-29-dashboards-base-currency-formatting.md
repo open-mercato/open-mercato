@@ -39,3 +39,44 @@ in the tenant's own currency without a second round-trip and without a per-widge
 - [x] Unit tests (formatters + service)
 - [x] Validation gate
 - [x] PR opened — https://github.com/open-mercato/open-mercato/pull/4631
+
+## Follow-up: record-level currency uniformity (#4676)
+
+The base-currency resolution above guards **organization** ambiguity but not **record**
+ambiguity. `sales_orders.currency_code` is a per-row column and the money widgets sum
+`grand_total_gross_amount` with no currency filter, so a PLN-based organization holding
+900 PLN and 100 EUR of orders rendered `1 000 zł` — a credible label on a total that mixes
+two currencies. That limitation was filed as #4676 and is now closed by this follow-up.
+
+The symmetric guard chosen is the cheap one the issue describes, not the exchange-rate
+conversion route: the base currency survives only when the rows actually aggregated all
+carry exactly that code.
+
+1. `packages/shared/src/modules/analytics.ts` — `AnalyticsEntityTypeConfig` gains the
+   optional `currencyField`, so an entity can declare which of its mapped fields holds the
+   per-row currency. Additive and optional, so existing analytics configs are unaffected.
+2. `packages/core/src/modules/sales/analytics.ts` — `sales:orders` and `sales:quotes`
+   declare `currencyField: 'currencyCode'`.
+3. `lib/aggregations.ts` — the scope/date-range/filter WHERE building is extracted into a
+   shared helper, and `buildDistinctCurrencyQuery()` reuses it to read the distinct row
+   currencies over exactly the rows the aggregation sums (`LIMIT 2` — telling "one" from
+   "several" needs no more).
+4. `services/widgetDataService.ts` — `resolveCurrencyLabel()` keeps the resolved base
+   currency only when every aggregated range passes `rowsShareCurrency()`. The comparison
+   range is checked too, so a mixed previous period does not get a labelled delta. The check
+   is skipped entirely when no base currency resolved, so the unbounded-scope path costs
+   nothing extra. Anything unprovable — mixed codes, a NULL code, a lookup failure, a single
+   code that disagrees with the base — resolves to `null`.
+5. `components/UnlabelledAmountNotice.tsx` — a shared muted hint the seven money widgets
+   render when `metadata.currency` is `null`, so a bare number reads as a deliberate
+   omission rather than a broken widget. Copy lives in the four dashboards locale files.
+6. Tests — `services/__tests__/widgetDataService.test.ts` covers the record-level cases
+   alongside the existing organization-level ones, and `lib/__tests__/aggregations.test.ts`
+   covers the query builder.
+
+### Remaining limitation
+
+Amounts are still never converted. A genuinely multi-currency period shows an unlabelled
+total rather than a base-currency-converted one. Converting through `exchangeRateService`
+the way `customers/api/deals/summary/route.ts` does — reporting `convertedAll` and
+`missingRateCurrencies` — remains the complete answer and is deliberately out of scope here.

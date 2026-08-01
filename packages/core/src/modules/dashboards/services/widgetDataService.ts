@@ -17,8 +17,12 @@ import {
   type AggregateFunction,
   type DateGranularity,
   buildAggregationQuery,
+  buildDistinctCurrencyQuery,
 } from '../lib/aggregations'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AnalyticsRegistry } from './analyticsRegistry'
+
+const logger = createLogger('dashboards').child({ component: 'widget-data-service' })
 
 const WIDGET_DATA_CACHE_TTL = 120_000
 const WIDGET_DATA_SEGMENT_TTL = 86_400_000
@@ -149,12 +153,15 @@ export class WidgetDataService {
 
     const shouldFetchComparison = Boolean(comparisonRange && request.dateRange)
 
+    const aggregatedRanges =
+      shouldFetchComparison && comparisonRange ? [dateRangeResolved, comparisonRange] : [dateRangeResolved]
+
     const [mainResult, comparisonResult, currency] = await Promise.all([
       this.executeQuery(request, dateRangeResolved),
       shouldFetchComparison && comparisonRange
         ? this.executeQuery(request, comparisonRange)
         : Promise.resolve<{ value: number | null; data: WidgetDataItem[] } | undefined>(undefined),
-      this.resolveBaseCurrency(),
+      this.resolveCurrencyLabel(request, aggregatedRanges),
     ])
 
     const response: WidgetDataResponse = {
@@ -190,6 +197,77 @@ export class WidgetDataService {
     }
 
     return response
+  }
+
+  /**
+   * Resolves the currency the response may be labelled with. The base currency of the
+   * scope is only half the answer: it describes how the organizations are configured, not
+   * what the aggregated rows are actually denominated in. A PLN-based organization holding
+   * both PLN and EUR orders would otherwise sum them and present the total as PLN (#4676),
+   * so the base currency survives only when every aggregated row carries exactly that code.
+   *
+   * The check is deliberately conservative — anything it cannot prove resolves to `null`
+   * and the widgets render an explicitly unlabelled number, which is recoverable, while a
+   * confident wrong label is not.
+   */
+  private async resolveCurrencyLabel(
+    request: WidgetDataRequest,
+    aggregatedRanges: Array<{ start: Date; end: Date } | undefined>,
+  ): Promise<string | null> {
+    const baseCurrency = await this.resolveBaseCurrency()
+    if (!baseCurrency) return null
+
+    try {
+      for (const range of aggregatedRanges) {
+        const uniform = await this.rowsShareCurrency(request, range, baseCurrency)
+        if (!uniform) return null
+      }
+      return baseCurrency
+    } catch (err) {
+      logger.warn('Row-currency uniformity check failed; leaving the amount unlabelled', {
+        err,
+        entityType: request.entityType,
+      })
+      return null
+    }
+  }
+
+  /**
+   * Reads the distinct per-row currencies of the rows one aggregation range would sum.
+   * Entities that declare no `currencyField` carry no per-row currency to contradict the
+   * base one, so they pass. An empty range has nothing to mislabel and also passes.
+   *
+   * A missing currency cannot prove the row uses the scope's base currency, so it fails
+   * closed just like a conflicting code. An empty range has no row to mislabel and passes.
+   */
+  private async rowsShareCurrency(
+    request: WidgetDataRequest,
+    dateRange: { start: Date; end: Date } | undefined,
+    expectedCode: string,
+  ): Promise<boolean> {
+    const query = buildDistinctCurrencyQuery({
+      entityType: request.entityType,
+      dateRange: dateRange && request.dateRange ? { field: request.dateRange.field, ...dateRange } : undefined,
+      filters: request.filters,
+      scope: this.scope,
+      registry: this.registry,
+    })
+
+    if (!query) return true
+
+    const rows = await this.em.getConnection().execute(query.sql, query.params)
+    const resultRows = (Array.isArray(rows) ? rows : []) as Array<Record<string, unknown>>
+
+    const recordedCodes = new Set<string>()
+    for (const row of resultRows) {
+      const code = typeof row.code === 'string' ? row.code.trim().toUpperCase() : ''
+      if (!code) return false
+      recordedCodes.add(code)
+    }
+
+    if (recordedCodes.size === 0) return true
+    if (recordedCodes.size > 1) return false
+    return recordedCodes.has(expectedCode)
   }
 
   /**

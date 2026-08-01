@@ -6,6 +6,7 @@ import {
   buildDateTruncExpression,
   buildJsonbFieldExpression,
   buildAggregationQuery,
+  buildDistinctCurrencyQuery,
   isValidGranularity,
   isValidAggregate,
 } from '../aggregations'
@@ -325,4 +326,73 @@ describe('aggregations', () => {
       expect(fields).toContain('placedAt')
     })
   })
+
+  describe('buildDistinctCurrencyQuery (#4676)', () => {
+    it('reads the distinct per-row currencies over the aggregation scope', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'sales:orders',
+        dateRange: { field: 'placedAt', start: new Date('2026-01-01'), end: new Date('2026-01-31') },
+        scope: { tenantId: 'tenant-1', organizationIds: ['org-1', 'org-2'] },
+        registry: testRegistry,
+      })
+
+      expect(query).not.toBeNull()
+      expect(query!.sql).toContain("SELECT DISTINCT UPPER(NULLIF(BTRIM(currency_code), '')) AS code")
+      expect(query!.sql).toContain('FROM "sales_orders"')
+      expect(query!.sql).toContain('tenant_id = ?')
+      expect(query!.sql).toContain('organization_id = ANY(?::uuid[])')
+      expect(query!.sql).toContain('deleted_at IS NULL')
+      expect(query!.sql).toContain('placed_at >= ?')
+      expect(query!.sql).toContain('placed_at <= ?')
+      expect(query!.sql).toContain('LIMIT 2')
+      expect(query!.params[0]).toBe('tenant-1')
+      expect(query!.params[1]).toBe('{org-1,org-2}')
+    })
+
+    it('applies the same filters the aggregation applies', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'sales:orders',
+        filters: [{ field: 'status', operator: 'eq', value: 'completed' }],
+        scope: { tenantId: 'tenant-1' },
+        registry: testRegistry,
+      })
+
+      expect(query!.sql).toContain('status = ?')
+      expect(query!.params).toContain('completed')
+    })
+
+    it('covers every entity the money widgets aggregate', () => {
+      for (const entityType of ['sales:orders', 'sales:order_lines', 'customers:deals']) {
+        const query = buildDistinctCurrencyQuery({
+          entityType,
+          scope: { tenantId: 'tenant-1' },
+          registry: testRegistry,
+        })
+
+        expect(query).not.toBeNull()
+      }
+    })
+
+    it('returns null for an entity that declares no per-row currency column', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'catalog:products',
+        scope: { tenantId: 'tenant-1' },
+        registry: testRegistry,
+      })
+
+      expect(query).toBeNull()
+    })
+
+    it('normalizes codes before limiting the distinct result', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'sales:orders',
+        scope: { tenantId: 'tenant-1' },
+        registry: testRegistry,
+      })
+
+      expect(query!.sql).toContain("UPPER(NULLIF(BTRIM(currency_code), ''))")
+      expect(query!.sql).toContain('LIMIT 2')
+    })
+  })
+
 })

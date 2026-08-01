@@ -14,6 +14,7 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'revenue-kpi' })
@@ -118,6 +119,7 @@ const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSetting
       loading={loading}
       error={error}
       formatValue={money.format}
+      footer={<UnlabelledAmountNotice currency={currency} loading={loading} error={error} />}
       headerAction={
         <InlineDateRangeSelect
           value={hydrated.dateRange}
