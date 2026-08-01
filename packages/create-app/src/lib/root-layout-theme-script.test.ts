@@ -16,7 +16,7 @@ test('root layouts use a pre-interactive Next.js script for theme initialization
     const source = fs.readFileSync(rootLayoutPath, 'utf8')
 
     assert.match(source, /import Script from ['"]next\/script['"]/, rootLayoutPath)
-    assert.doesNotMatch(source, /<script(?:\s|>)/, rootLayoutPath)
+    assert.equal(source.includes('<script'), false, rootLayoutPath)
     assert.match(
       source,
       /<Script\s+id="om-theme-init"\s+strategy="beforeInteractive">/,
