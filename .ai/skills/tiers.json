@@ -48,6 +48,7 @@
         "om-create-ai-agent",
         "om-help",
         "om-refresh-standalone-harness",
+        "om-judge-agent-session",
         "om-share-this-session"
       ]
     },
