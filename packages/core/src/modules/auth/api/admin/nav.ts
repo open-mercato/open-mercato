@@ -128,6 +128,7 @@ export async function GET(req: Request) {
 
   let cacheScopeTenantId = auth.tenantId ?? null
   let cacheScopeOrganizationId = auth.orgId ?? null
+  let cacheScopeSelectedOrganizationId = auth.orgId ?? null
   try {
     const { organizationId, scope } = await resolveFeatureCheckContext({
       container,
@@ -138,9 +139,11 @@ export async function GET(req: Request) {
     })
     cacheScopeOrganizationId = organizationId
     cacheScopeTenantId = scope.tenantId ?? auth.tenantId ?? null
+    cacheScopeSelectedOrganizationId = scope.selectedId ?? null
   } catch {
     cacheScopeOrganizationId = auth.orgId ?? null
     cacheScopeTenantId = auth.tenantId ?? null
+    cacheScopeSelectedOrganizationId = auth.orgId ?? null
     selectedOrganizationId = auth.orgId ?? null
     selectedTenantId = auth.tenantId ?? null
   }
@@ -150,7 +153,7 @@ export async function GET(req: Request) {
   // cannot distinguish "all organizations" from "my own organization" — both resolve to `auth.orgId`,
   // so a key built only from the resolved scope would serve one scope's payload for the other.
   const cacheVersion = 'v5'
-  const cacheSelection = selectedOrganizationId === undefined ? 'default' : (selectedOrganizationId ?? 'null')
+  const cacheSelection = cacheScopeSelectedOrganizationId ?? '__all__'
   const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}`
   try {
     if (cache?.get) {

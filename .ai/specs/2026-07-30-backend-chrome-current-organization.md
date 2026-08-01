@@ -167,6 +167,17 @@ still yields a non-null `organizationId`:
 - row missing → `null`
 - the lookup is scoped to the resolved tenant and organization
 
+**Provider coverage** — `packages/ui/src/backend/__tests__/BackendChromeProvider.test.tsx` exercises
+the public `useCurrentOrganization()` boundary:
+
+- outside a provider and before the payload arrives → `null`
+- a hydrated payload exposes its resolved organization without another request
+- an organization-scope change refreshes the payload and updates the hook result
+
+**Cache-key coverage** — `packages/core/src/modules/auth/api/__tests__/admin-nav.test.ts` asserts the
+`v5` namespace, rejects reuse of the old `v4` namespace, and verifies that concrete and
+all-organizations selections resolve to distinct keys.
+
 ## Risks & Impact Review
 
 ### Risk 1: readers assume this supersedes `brand`
@@ -246,3 +257,8 @@ No migration is required, for applications or for data.
   the response cache key gained the selection plus a version bump so the two scopes cannot share an
   entry. Added `TC-AUTH-NAV-ORG-001` for route-level coverage and rebuilt the unit fixtures to match
   the real `OrganizationScope` shape.
+
+- 2026-08-01: Added provider/hook coverage for unloaded, hydrated, and scope-refresh states; added a
+  cache-key regression assertion for the `v5` namespace and selection component; and made the route
+  integration test fail rather than skip when its token lacks the home organization needed to
+  exercise the fallback path.
