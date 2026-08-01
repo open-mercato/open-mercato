@@ -25,6 +25,8 @@ import {
   isSearchFilterOp,
   hasSearchFilter,
   type SearchTokenAvailability,
+  type SearchTokenProbeDb,
+  type SearchTokenProbeQueryBuilder,
 } from '@open-mercato/shared/lib/search/availability'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
@@ -183,9 +185,13 @@ export class HybridQueryEngine implements QueryEngine {
   private searchAvailability(): SearchTokenAvailability {
     if (!this.searchAvailabilityInstance) {
       this.searchAvailabilityInstance = createSearchTokenAvailability({
-        getDb: () => this.getDb() as any,
+        getDb: () => this.getDb() as unknown as SearchTokenProbeDb,
         getConfig: resolveSearchConfig,
-        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(query as AnyBuilder, column, scope) as any,
+        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(
+          query as unknown as AnyBuilder,
+          column,
+          scope,
+        ) as unknown as SearchTokenProbeQueryBuilder,
         logDebug: (event, payload) => this.logSearchDebug(event, payload),
       })
     }
@@ -435,11 +441,15 @@ export class HybridQueryEngine implements QueryEngine {
         .map((src) => ({ entity: String(src.entityId), recordIdColumn: src.recordIdColumn }))
         .filter((src) => src.recordIdColumn && src.entity)
       const searchFilters = normalizedFilters.filter((filter) => isSearchFilterOp(filter.op))
+      const sourceSearchFilters = [
+        ...baseFilters,
+        ...normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:')),
+      ].filter((filter) => isSearchFilterOp(filter.op))
       // Probe `search_tokens` only when this query actually searches (#4723). Every consumer of
       // `searchRuntime.enabled` already sits behind a like/ilike guard, so on a plain list load the
       // answer is unused — and the probe is a `LIMIT 1` the planner can resolve as a seq scan over a
       // large `search_tokens`. The join path below already probes lazily for the same reason.
-      const hasSearchTokens = searchEnabled && searchSources.length && searchFilters.length
+      const hasSearchTokens = searchEnabled && searchSources.length && sourceSearchFilters.length
         ? await this.searchAvailability().anySourceHasTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }

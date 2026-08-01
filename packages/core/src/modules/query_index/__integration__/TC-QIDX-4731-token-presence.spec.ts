@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCustomEntity,
   createRecord,
   deleteCustomEntityIfExists,
   deleteRecordIfExists,
+  expectUuid,
   listRecords,
   saveFieldDefinitions,
   uniqueEntityId,
@@ -49,8 +51,19 @@ test.describe('TC-QIDX-4731: token presence routing', () => {
 
       const record = await createRecord(request, token, entityId, { title: `The ${marker} record` })
       expect(record.ok(), `record create failed: ${record.status()}`).toBeTruthy()
-      recordId = ((await record.json()) as { id?: string }).id ?? null
-      expect(recordId, 'record id').toBeTruthy()
+      const recordBody = await readJsonSafe<{ item?: { recordId?: string } }>(record)
+      recordId = expectUuid(recordBody?.item?.recordId, 'record id')
+
+      const hasIndexedTokens = async (): Promise<boolean> => withClient(async (client) => {
+        const result = await client.query(
+          'select 1 from search_tokens where entity_type = $1 limit 1',
+          [entityId],
+        )
+        return (result.rowCount ?? 0) > 0
+      })
+      await expect
+        .poll(hasIndexedTokens, { timeout: 30_000, message: 'record tokens should be indexed' })
+        .toBe(true)
 
       const searchQuery = `&search=${encodeURIComponent(marker)}&searchFields=title`
       const findRecord = async (): Promise<boolean> => {

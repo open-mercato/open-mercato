@@ -41,7 +41,7 @@ The key unlock: #4723's original "no index rescues this query" conclusion was tr
 ## Changes
 
 - `data/entities.ts` — `@Index({ name: 'search_tokens_presence_idx', properties: ['entityType', 'tenantId', 'organizationId'] })` on `SearchToken`.
-- `Migration20260731105052_query_index.ts` — `create index concurrently if not exists`, with `isTransactional() => false` (CREATE INDEX CONCURRENTLY cannot run inside a transaction; same pattern as `Migration20260611103000_query_index`). Snapshot updated additively.
+- `Migration20260731105052_query_index.ts` — retry-safe `drop index concurrently if exists` followed by `create index concurrently`, with `isTransactional() => false` (concurrent index operations cannot run inside a transaction; same pattern as `Migration20260611103000_query_index`). Dropping first removes an invalid index stub left by an interrupted build instead of letting `IF NOT EXISTS` silently accept it. Snapshot updated additively.
 - No API, resolver, or engine code changes — the resolver's probe already emits the served shape.
 
 ## Backward Compatibility
@@ -51,7 +51,7 @@ Additive index only. No table, column, API route, event, DI key, or type changes
 ## Testing
 
 - The Phase 4 unit suites already pin the probe's predicate shape (`tenant_id = ? / IS NULL`) and count probes on both engines; an index changes no observable SQL, so they pass unchanged.
-- Integration: `packages/core/src/modules/query_index/__integration__/TC-QIDX-4731-token-presence.spec.ts` — records-API search finds a created record, then still finds it via the plain-column fallback after its scope's tokens are deleted (polling past the process TTL cache).
+- Integration: `packages/core/src/modules/query_index/__integration__/TC-QIDX-4731-token-presence.spec.ts` — records-API search first waits for the created record's tokens so it proves the token-backed route, then still finds the record via the plain-column fallback after its scope's tokens are deleted (polling past the process TTL cache).
 - Perf evidence for the PR: `EXPLAIN` of the probe's miss case on a large-table instance, before/after the index.
 
 ## Non-goals
@@ -62,4 +62,5 @@ Additive index only. No table, column, API route, event, DI key, or type changes
 
 ## Changelog
 
+- 2026-08-01 — Re-review hardening: made the concurrent index migration retry-safe after an interrupted build and made the integration test establish its token-backed routing precondition before testing fallback.
 - 2026-07-31 — Initial version. Supersedes the same-day `search-token-presence-marker` draft: the marker table was implemented, then replaced by this index once the maintainer asked whether a third table was avoidable — the Phase 4 predicate reshape had made a purpose-ordered index sufficient, with zero drift risk and zero maintenance code.

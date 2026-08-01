@@ -14,7 +14,9 @@ import { Migration } from '@mikro-orm/migrations';
 // blocking writes during the build. CREATE INDEX CONCURRENTLY cannot run
 // inside a transaction, hence isTransactional() => false; the migration runner
 // applies migrations one-by-one, so this opt-out is safe (same pattern as
-// Migration20260611103000_query_index).
+// Migration20260611103000_query_index). Drop first so retrying a failed
+// concurrent build removes PostgreSQL's invalid index stub instead of letting
+// IF NOT EXISTS silently accept it.
 export class Migration20260731105052_query_index extends Migration {
 
   override isTransactional(): boolean {
@@ -22,11 +24,12 @@ export class Migration20260731105052_query_index extends Migration {
   }
 
   override up(): void | Promise<void> {
-    this.addSql(`create index concurrently if not exists "search_tokens_presence_idx" on "search_tokens" ("entity_type", "tenant_id", "organization_id");`);
+    this.addSql(`drop index concurrently if exists "search_tokens_presence_idx";`);
+    this.addSql(`create index concurrently "search_tokens_presence_idx" on "search_tokens" ("entity_type", "tenant_id", "organization_id");`);
   }
 
   override down(): void | Promise<void> {
-    this.addSql(`drop index if exists "search_tokens_presence_idx";`);
+    this.addSql(`drop index concurrently if exists "search_tokens_presence_idx";`);
   }
 
 }

@@ -5,20 +5,35 @@ export type OrganizationScope = { ids: string[]; includeNull: boolean }
 
 export type SearchTokenSourceRef = { entity: string; recordIdColumn?: string }
 
-type ProbeQueryBuilder = {
-  select: (...args: unknown[]) => ProbeQueryBuilder
-  where: (...args: unknown[]) => ProbeQueryBuilder
-  limit: (count: number) => ProbeQueryBuilder
-  executeTakeFirst: () => Promise<unknown>
+type ProbeExpression = object | string | readonly string[] | null
+
+export type SearchTokenProbeQueryBuilder = {
+  select: (selection: ProbeExpression) => SearchTokenProbeQueryBuilder
+  where: (column: ProbeExpression, operator?: string, value?: ProbeExpression) => SearchTokenProbeQueryBuilder
+  limit: (count: number) => SearchTokenProbeQueryBuilder
+  executeTakeFirst: () => Promise<object | undefined>
 }
 
-type ProbeDb = { selectFrom: (table: string) => ProbeQueryBuilder }
+export type SearchTokenProbeDb = { selectFrom: (table: string) => SearchTokenProbeQueryBuilder }
+
+export type SearchTokenAvailabilityDebugPayload = {
+  entity: string
+  tenantId: string | null
+  organizationScope?: OrganizationScope | null
+  recordIdColumn?: string
+  hasTokens?: boolean
+  error?: string
+}
 
 export type SearchTokenAvailabilityDeps = {
-  getDb: () => ProbeDb
+  getDb: () => SearchTokenProbeDb
   getConfig: () => { enabled: boolean }
-  applyOrganizationScope: (query: ProbeQueryBuilder, column: string, scope: OrganizationScope) => ProbeQueryBuilder
-  logDebug: (event: string, payload: Record<string, unknown>) => void
+  applyOrganizationScope: (
+    query: SearchTokenProbeQueryBuilder,
+    column: string,
+    scope: OrganizationScope,
+  ) => SearchTokenProbeQueryBuilder
+  logDebug: (event: string, payload: SearchTokenAvailabilityDebugPayload) => void
 }
 
 export type SearchTokenAvailability = {
@@ -52,7 +67,7 @@ export type SearchTokenAvailability = {
   ) => Promise<boolean>
 }
 
-export function isSearchFilterOp(op: unknown): boolean {
+export function isSearchFilterOp(op: string | null | undefined): boolean {
   return op === 'like' || op === 'ilike'
 }
 
@@ -62,7 +77,7 @@ export function isSearchFilterOp(op: unknown): boolean {
  * returns `false` the `hasTokens` probe's answer would never be read — gate
  * the probe on it.
  */
-export function hasSearchFilter(filters: ReadonlyArray<{ op?: unknown }>): boolean {
+export function hasSearchFilter(filters: ReadonlyArray<{ op?: string | null }>): boolean {
   return filters.some((filter) => isSearchFilterOp(filter.op))
 }
 

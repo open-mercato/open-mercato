@@ -4,6 +4,7 @@ import {
   hasSearchFilter,
   isSearchFilterOp,
   type OrganizationScope,
+  type SearchTokenProbeQueryBuilder,
 } from '../availability'
 
 beforeEach(() => {
@@ -17,7 +18,7 @@ afterAll(() => {
 
 type ProbeLog = { table: string; wheres: unknown[][] }
 
-function createFakeDb(options?: { rowsByTable?: Record<string, unknown>; failTables?: string[] }) {
+function createFakeDb(options?: { rowsByTable?: Record<string, object | undefined>; failTables?: string[] }) {
   const probes: ProbeLog[] = []
   const db = {
     selectFrom(table: string) {
@@ -44,7 +45,7 @@ function createFakeDb(options?: { rowsByTable?: Record<string, unknown>; failTab
 function buildAvailability(options?: Parameters<typeof createFakeDb>[0] & { enabled?: boolean }) {
   const { db, probes } = createFakeDb(options)
   const logDebug = jest.fn()
-  const applyOrganizationScope = jest.fn((query: any) => query)
+  const applyOrganizationScope = jest.fn((query: SearchTokenProbeQueryBuilder) => query)
   const availability = createSearchTokenAvailability({
     getDb: () => db,
     getConfig: () => ({ enabled: options?.enabled ?? true }),

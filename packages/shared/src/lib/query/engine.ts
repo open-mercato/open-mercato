@@ -16,6 +16,8 @@ import {
   createSearchTokenAvailability,
   isSearchFilterOp,
   type SearchTokenAvailability,
+  type SearchTokenProbeDb,
+  type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
@@ -238,9 +240,13 @@ export class BasicQueryEngine implements QueryEngine {
   private searchAvailability(): SearchTokenAvailability {
     if (!this.searchAvailabilityInstance) {
       this.searchAvailabilityInstance = createSearchTokenAvailability({
-        getDb: () => this.getDb() as any,
+        getDb: () => this.getDb() as unknown as SearchTokenProbeDb,
         getConfig: resolveSearchConfig,
-        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(query as AnyBuilder, column, scope) as any,
+        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(
+          query as unknown as AnyBuilder,
+          column,
+          scope,
+        ) as unknown as SearchTokenProbeQueryBuilder,
         logDebug: (event, payload) => this.logSearchDebug(event, payload),
       })
     }

@@ -467,13 +467,14 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    const tableProbe = fakeDb._calls.find((call: any) =>
+    const calls = fakeDb._calls as Array<{ _ops: { table: string; wheres: unknown[][] } }>
+    const tableProbe = calls.find((call) =>
       call._ops.table === 'information_schema.tables' &&
-      call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'table_name' && w[2] === 'search_tokens'))
+      call._ops.wheres.some((where) => where[0] === 'table_name' && where[2] === 'search_tokens'))
     expect(tableProbe).toBeTruthy()
-    const tokenProbe = fakeDb._calls.find((call: any) =>
+    const tokenProbe = calls.find((call) =>
       call._ops.table === 'search_tokens' &&
-      call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'entity_type' && w[2] === 'example:todo'))
+      call._ops.wheres.some((where) => where[0] === 'entity_type' && where[2] === 'example:todo'))
     expect(tokenProbe).toBeTruthy()
     expect(applySearchTokensSpy).toHaveBeenCalledWith(
       expect.anything(),
@@ -508,7 +509,8 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(fakeDb._calls.some((call: any) => call._ops.table === 'search_tokens')).toBe(false)
+    const calls = fakeDb._calls as Array<{ _ops: { table: string } }>
+    expect(calls.some((call) => call._ops.table === 'search_tokens')).toBe(false)
     expect(applySearchTokensSpy).not.toHaveBeenCalled()
     const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === 'todos')
     expect(baseCall?._ops.wheres).toContainEqual(['todos.search_text', 'ilike', '%avision%'])
@@ -942,8 +944,15 @@ describe('BasicQueryEngine (Kysely)', () => {
   })
 
   describe('search_tokens coverage probe (#4723 parity)', () => {
-    const countProbes = (fakeDb: any): number =>
-      fakeDb._calls.filter((call: any) => call._ops.table === 'search_tokens').length
+    type ProbeDbLog = { _calls: Array<{ _ops: { table: string } }> }
+
+    const countProbes = (fakeDb: ProbeDbLog): number =>
+      fakeDb._calls.filter((call) => call._ops.table === 'search_tokens').length
+
+    const buildEngine = (fakeDb: unknown): BasicQueryEngine => new BasicQueryEngine(
+      {} as ConstructorParameters<typeof BasicQueryEngine>[0],
+      (() => fakeDb) as unknown as NonNullable<ConstructorParameters<typeof BasicQueryEngine>[1]>,
+    )
 
     const buildDb = () => createFakeKysely({
       users: [],
@@ -952,7 +961,7 @@ describe('BasicQueryEngine (Kysely)', () => {
 
     test('is skipped when the query carries no like/ilike filter', async () => {
       const fakeDb = buildDb()
-      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+      const engine = buildEngine(fakeDb)
 
       await engine.query('auth:user', {
         tenantId: 't1',
@@ -965,7 +974,7 @@ describe('BasicQueryEngine (Kysely)', () => {
 
     test('still runs when the query actually searches', async () => {
       const fakeDb = buildDb()
-      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+      const engine = buildEngine(fakeDb)
 
       await engine.query('auth:user', {
         tenantId: 't1',

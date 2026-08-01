@@ -93,6 +93,10 @@ function createFakeKysely(config: KyselyMockConfig) {
         log.wheres.push(args)
         return chain
       },
+      whereRef: (...args: unknown[]) => {
+        log.wheres.push(args)
+        return chain
+      },
       orderBy: (...args: any[]) => { log.orderBys.push(args); return chain },
       groupBy: (...cols: any[]) => { log.groupBys.push(...cols); return chain },
       having: (...args: any[]) => { log.havings.push(args); return chain },
@@ -1155,8 +1159,11 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
   })
 
   describe('search_tokens coverage probe (#4723)', () => {
-    const countProbes = (db: any): number =>
+    const countProbes = (db: ReturnType<typeof createFakeKysely>): number =>
       (db._chains as ChainLog[]).filter((chain) => chain.table === 'search_tokens').length
+
+    const buildFallback = (): ConstructorParameters<typeof HybridQueryEngine>[1] =>
+      ({ query: jest.fn() }) as unknown as ConstructorParameters<typeof HybridQueryEngine>[1]
 
     const buildDb = () => createFakeKysely({
       baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
@@ -1173,7 +1180,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('is skipped when the query carries no like/ilike filter', async () => {
       const db = buildDb()
-      const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
 
       await engine.query('example:todo', {
         fields: ['id'],
@@ -1187,7 +1194,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('still runs when the query actually searches', async () => {
       const db = buildDb()
-      const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
 
       await engine.query('example:todo', {
         fields: ['id'],
@@ -1201,7 +1208,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('is skipped on the custom-entity storage path without a like/ilike filter', async () => {
       const db = buildCustomEntityDb()
-      const engine = new HybridQueryEngine(buildEmWithOrmMetadata(db, {}), { query: jest.fn() } as any)
+      const engine = new HybridQueryEngine(buildEmWithOrmMetadata(db, {}), buildFallback())
 
       await engine.query('example:calendar_entity', {
         fields: ['id'],
@@ -1215,7 +1222,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('still runs on the custom-entity storage path when the query searches', async () => {
       const db = buildCustomEntityDb()
-      const engine = new HybridQueryEngine(buildEmWithOrmMetadata(db, {}), { query: jest.fn() } as any)
+      const engine = new HybridQueryEngine(buildEmWithOrmMetadata(db, {}), buildFallback())
 
       await engine.query('example:calendar_entity', {
         fields: ['id'],
@@ -1229,7 +1236,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('probes each joined-source entity once even when several filters hit the same source', async () => {
       const db = buildDb()
-      const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
 
       await engine.query('example:todo', {
         fields: ['id'],
@@ -1242,6 +1249,35 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
       })
 
       expect(countProbes(db)).toBe(1)
+    })
+
+    test('a join-only search probes the joined entity without probing the base source', async () => {
+      const db = createFakeKysely({
+        baseTable: 'todos',
+        hasIndexAny: true,
+        baseCount: 10,
+        indexCount: 10,
+        customFieldKeys: {},
+        columns: [{ table_name: 'users', column_name: 'display_name' }],
+      })
+      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        joins: [{
+          alias: 'assignee',
+          entityId: 'auth:user',
+          from: { field: 'assignee_id' },
+          to: { field: 'id' },
+        }],
+        filters: [{ field: 'assignee.display_name', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBe(1)
+      const tokenProbe = (db._chains as ChainLog[]).find((chain) => chain.table === 'search_tokens')
+      expect(tokenProbe?.wheres).toContainEqual(['entity_type', '=', 'auth:user'])
     })
   })
 })

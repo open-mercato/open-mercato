@@ -1033,3 +1033,23 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Publish source and instruction files in package tarballs, resolve them through the app's declared module package and exact installed version, and materialize only the requested read-only context outside `node_modules`. Keep a versioned root/BC snapshot for offline fallback, report version skew, and never teach agents to edit or broadly ingest installed dependencies.
 
 **Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
+
+## Integration routing tests must establish the route they claim to cover
+
+**Context**: A search-token fallback test created a record and immediately searched for it before deleting its tokens.
+
+**Problem**: Token indexing is asynchronous, so the first search could already use the plain-column fallback. The test could pass without ever exercising the token-backed route, while also decoding the create response from the wrong envelope.
+
+**Rule**: Decode fixture responses through the shared API helpers, then poll the authoritative persistence condition before asserting behavior that depends on an asynchronous route. Prove both the precondition and the fallback transition.
+
+**Applies to**: search indexing, background projections, cache-backed routing, async event handlers, and integration tests that claim to cover a specific execution path.
+
+## Concurrent index migrations must recover from invalid build stubs
+
+**Context**: `CREATE INDEX CONCURRENTLY IF NOT EXISTS` was used for a large online index build.
+
+**Problem**: PostgreSQL can leave an invalid index relation after an interrupted concurrent build. A retry with `IF NOT EXISTS` sees the relation and skips rebuilding it, allowing the migration to finish without a usable index.
+
+**Rule**: For a new concurrently built index, make the migration retry-safe by dropping the named index concurrently before creating it, and keep the migration non-transactional.
+
+**Applies to**: PostgreSQL online index migrations and deployment retries after interrupted schema changes.
