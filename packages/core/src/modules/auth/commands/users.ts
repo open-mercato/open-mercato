@@ -534,10 +534,6 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       ? await loadUserRoleNames(em, parsed.id)
       : null
 
-    // Resolve the tenant the user will belong to after this update first, so the email
-    // duplicate check below can be scoped to it. Email is unique per-tenant, not globally
-    // (see Migration20260610120000: users_tenant_email_hash_uniq) — a matching email in another
-    // tenant must not block the update or leak cross-tenant account existence (#2934).
     let tenantId: string | null | undefined
     if (parsed.organizationId !== undefined) {
       const organization = await findOneWithDecryption(
@@ -555,30 +551,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const targetTenantId = tenantId !== undefined ? tenantId : userTenantId
     const isTenantChanging = targetTenantId !== userTenantId
 
-    await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
-      deactivating: parsed.isConfirmed === false || isTenantChanging,
-      newRoles: parsed.roles,
-    })
-
-    if (parsed.email !== undefined) {
-      const targetTenantIdCheck = tenantId !== undefined
-        ? tenantId
-        : await resolveUserTenantId(em, parsed.id)
-      const duplicate = await findOneWithDecryption(
-        em,
-        User,
-        {
-          $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
-          deletedAt: null,
-          tenantId: targetTenantIdCheck,
-          id: { $ne: parsed.id } as any,
-        } as FilterQuery<User>,
-        {},
-        { tenantId: null, organizationId: null },
-      )
-      if (duplicate) await throwDuplicateEmailError()
-    }
-
+    // Hash password BEFORE transaction begins to avoid holding locks during CPU-heavy tasks
     let hashed: string | null = null
     let emailHash: string | null = null
     if (parsed.password) {
@@ -593,51 +566,82 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     if (actorTenantScope) updateWhere.tenantId = actorTenantScope
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let user: User | null
-    try {
-      user = await de.updateOrmEntity({
-        entity: User,
-        where: updateWhere as FilterQuery<User>,
-        apply: (entity) => {
-          if (parsed.email !== undefined) {
-            entity.email = parsed.email
-            entity.emailHash = emailHash
-          }
-          if (parsed.name !== undefined) {
-            entity.name = parsed.name
-          }
-          if (parsed.organizationId !== undefined) {
-            entity.organizationId = parsed.organizationId
-            entity.tenantId = tenantId ?? null
-          }
-          if (parsed.isConfirmed !== undefined) {
-            entity.isConfirmed = parsed.isConfirmed
-          }
-          if (hashed) entity.passwordHash = hashed
-        },
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) await throwDuplicateEmailError()
-      throw error
-    }
-    if (!user) throw new CrudHttpError(404, { error: 'User not found' })
+    let user!: User
 
-    if (hashed) {
-      await em.nativeDelete(Session, { user: parsed.id })
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        // Floor check must run inside the transaction so that LockMode.PESSIMISTIC_WRITE locks Role rows properly
+        await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
+          deactivating: parsed.isConfirmed === false || isTenantChanging,
+          newRoles: parsed.roles,
+        })
 
-    if (Array.isArray(parsed.roles)) {
-      await syncUserRoles(em, user, parsed.roles, user.tenantId ? String(user.tenantId) : tenantId ?? null)
-    }
+        if (parsed.email !== undefined) {
+          const targetTenantIdCheck = tenantId !== undefined
+            ? tenantId
+            : await resolveUserTenantId(em, parsed.id)
+          const duplicate = await findOneWithDecryption(
+            em,
+            User,
+            {
+              $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
+              deletedAt: null,
+              tenantId: targetTenantIdCheck,
+              id: { $ne: parsed.id } as any,
+            } as FilterQuery<User>,
+            {},
+            { tenantId: null, organizationId: null },
+          )
+          if (duplicate) await throwDuplicateEmailError()
+        }
 
-    await setCustomFieldsIfAny({
-      dataEngine: de,
-      entityId: E.auth.user,
-      recordId: String(user.id),
-      organizationId: user.organizationId ? String(user.organizationId) : null,
-      tenantId: user.tenantId ? String(user.tenantId) : tenantId ?? null,
-      values: custom,
-    })
+        try {
+          const updated = await de.updateOrmEntity({
+            entity: User,
+            where: updateWhere as FilterQuery<User>,
+            apply: (entity) => {
+              if (parsed.email !== undefined) {
+                entity.email = parsed.email
+                entity.emailHash = emailHash
+              }
+              if (parsed.name !== undefined) {
+                entity.name = parsed.name
+              }
+              if (parsed.organizationId !== undefined) {
+                entity.organizationId = parsed.organizationId
+                entity.tenantId = tenantId ?? null
+              }
+              if (parsed.isConfirmed !== undefined) {
+                entity.isConfirmed = parsed.isConfirmed
+              }
+              if (hashed) entity.passwordHash = hashed
+            },
+          })
+          if (updated) user = updated
+        } catch (error) {
+          if (isUniqueViolation(error)) await throwDuplicateEmailError()
+          throw error
+        }
+        if (!user) throw new CrudHttpError(404, { error: 'User not found' })
+
+        if (hashed || parsed.isConfirmed === false) {
+          await em.nativeDelete(Session, { user: parsed.id })
+        }
+
+        if (Array.isArray(parsed.roles)) {
+          await syncUserRoles(em, user, parsed.roles, user.tenantId ? String(user.tenantId) : tenantId ?? null)
+        }
+
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.user,
+          recordId: String(user.id),
+          organizationId: user.organizationId ? String(user.organizationId) : null,
+          tenantId: user.tenantId ? String(user.tenantId) : tenantId ?? null,
+          values: custom,
+        })
+      }
+    ], { transaction: true })
 
     const identifiers = {
       id: String(user.id),
@@ -807,15 +811,15 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       throw new CrudHttpError(404, { error: 'User not found' })
     }
 
-    const userTenantId = existing.tenantId ? String(existing.tenantId) : null
-    await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true })
-
     const deleteWhere: Record<string, unknown> = { id, deletedAt: null }
     if (actorTenantScope) deleteWhere.tenantId = actorTenantScope
 
     let user!: User
     await withAtomicFlush(em, [
       async () => {
+        const userTenantId = existing.tenantId ? String(existing.tenantId) : null
+        await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true })
+
         await em.nativeDelete(UserAcl, { user: id })
         await em.nativeDelete(UserRole, { user: id })
         await em.nativeDelete(Session, { user: id })
@@ -1142,12 +1146,15 @@ async function enforceProtectedRoleFloor(
   const normalizedTenantId = normalizeTenantId(tenantId) ?? null
   if (!normalizedTenantId) return
 
-  // Find all protected roles in this tenant, acquiring a pessimistic write lock to prevent concurrent races
+  // Find all protected roles in this tenant, acquiring a pessimistic write lock in a deterministic primary key order
   const protectedRoles = await findWithDecryption(em, Role, {
     tenantId: normalizedTenantId,
     minActiveHolders: { $gt: 0 },
     deletedAt: null
-  }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId: normalizedTenantId, organizationId: null })
+  }, { 
+    lockMode: LockMode.PESSIMISTIC_WRITE,
+    orderBy: { id: 'ASC' }
+  }, { tenantId: normalizedTenantId, organizationId: null })
 
   if (protectedRoles.length === 0) return
 
@@ -1157,17 +1164,25 @@ async function enforceProtectedRoleFloor(
     const minFloor = role.minActiveHolders ?? 0
     if (minFloor <= 0) continue
 
-    // Find all active links for this role
+    // Find all active links for this role, strictly scoping the user to this tenant
     const activeLinks = await findWithDecryption(em, UserRole, {
       role: role.id,
       deletedAt: null,
       user: {
         deletedAt: null,
-        isConfirmed: true
+        isConfirmed: true,
+        tenantId: normalizedTenantId
       }
     }, { populate: ['user'] }, { tenantId: null, organizationId: null })
 
-    const activeUserIds = activeLinks.map(link => String(link.user.id))
+    // Count distinct user IDs in the tenant holding this role to prevent overcounting due to duplicate links
+    const activeUserIds = Array.from(
+      new Set(
+        activeLinks
+          .map(link => (link.user && String(link.user.tenantId) === normalizedTenantId ? String(link.user.id) : null))
+          .filter((id): id is string => !!id)
+      )
+    )
 
     // Is the target user currently one of the active holders?
     if (activeUserIds.includes(userId)) {

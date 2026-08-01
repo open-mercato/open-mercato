@@ -120,7 +120,7 @@ export async function POST(req: Request) {
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
   const ok = await auth.verifyPassword(user, parsed.data.password)
-  if (!user || !ok) {
+  if (!user || !ok || user.isConfirmed === false) {
     const reason = user?.passwordHash ? 'invalid_password' : 'invalid_credentials'
     void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })

@@ -246,10 +246,14 @@ export class CommandBus {
     let interceptorContextMerged: Record<string, unknown> = {}
     if (interceptorMetadata && interceptorMetadata.size > 0) {
       for (const meta of interceptorMetadata.values()) {
-        if (meta && typeof meta === 'object' && 'context' in meta && meta.context && typeof meta.context === 'object') {
-          interceptorContextMerged = {
-            ...interceptorContextMerged,
-            ...meta.context,
+        const metaRecord = asRecord(meta)
+        if (metaRecord && 'context' in metaRecord) {
+          const ctxRecord = asRecord(metaRecord.context)
+          if (ctxRecord) {
+            interceptorContextMerged = {
+              ...interceptorContextMerged,
+              ...ctxRecord,
+            }
           }
         }
       }

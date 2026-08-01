@@ -12,7 +12,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
-    translate: (_key: string, fallback?: string, params?: Record<string, any>) => {
+    translate: (_key: string, fallback?: string, params?: Record<string, unknown>) => {
       let msg = fallback ?? _key
       if (params) {
         for (const [k, v] of Object.entries(params)) {
@@ -40,6 +40,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { LockMode } from '@mikro-orm/core'
+import type { AwilixContainer } from 'awilix'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
 describe('auth.users.update/delete protected role floor floor checks', () => {
   let findMock: jest.Mock
@@ -74,14 +76,24 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
         if (token === 'dataEngine') return dataEngine
         throw new Error(`Unexpected dependency: ${token}`)
       },
+    } as unknown as AwilixContainer
+
+    const auth: AuthContext = {
+      sub: 'a7b05934-d021-4f11-9a74-b97c2718ef55',
+      tenantId: tenantScope,
+      orgId: 'e7b05934-d021-4f11-9a74-b97c2718ef55',
+      isApiKey: false,
+      sid: 'session-id',
+      email: 'admin1@test.com',
+      roles: ['admin']
     }
+
     return {
-      container: container as unknown as CommandRuntimeContext['container'],
-      auth: { sub: 'a7b05934-d021-4f11-9a74-b97c2718ef55', tenantId: tenantScope, orgId: 'e7b05934-d021-4f11-9a74-b97c2718ef55' } as any,
+      container,
+      auth,
       organizationScope: null,
       selectedOrganizationId: null,
       organizationIds: null,
-      request: undefined as any,
     }
   }
 
@@ -256,13 +268,10 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
   it('fails with 404 when target user is in a different tenant (Oracle Defense)', async () => {
     const em = makeEm()
     const dataEngine = {}
-    // Scoped ctx to 'tenant-1' (userId is mockUser1 which has 'tenant-1')
-    // We try to access mockUser1 with a different tenantScope in ctx
     const ctx = makeCtx(em, dataEngine, foreignTenantId)
 
     findOneMock.mockImplementation((entity, where) => {
       if (entity === User) {
-        // User exists but belongs to 'tenant-1'
         return mockUser1
       }
       return null
@@ -275,7 +284,7 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
     )
   })
 
-  it('acquires pessimistic write lock on Roles to prevent concurrent races', async () => {
+  it('acquires pessimistic write lock on Roles in deterministic ASC order to prevent concurrent races', async () => {
     const em = makeEm()
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => mockUser1),
@@ -299,10 +308,12 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
       await handler.execute({ id: userId }, ctx)
     } catch {}
 
-    // Verify find option passed LockMode.PESSIMISTIC_WRITE for Roles
     const roleCall = findMock.mock.calls.find(call => call[0] === Role)
     expect(roleCall[2]).toEqual(
-      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE })
+      expect.objectContaining({ 
+        lockMode: LockMode.PESSIMISTIC_WRITE,
+        orderBy: { id: 'ASC' }
+      })
     )
   })
 
