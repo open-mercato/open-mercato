@@ -20,6 +20,7 @@ import {
   type CustomFieldDefinitionRow,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
+import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { mapWithConcurrency } from './bounded-decrypt'
 import { createLogger } from '../logger'
@@ -331,6 +332,18 @@ export class BasicQueryEngine implements QueryEngine {
           table,
           tenantId: opts.tenantId ?? null,
           organizationScope: orgScope,
+        })
+      }
+      if (!searchActive) {
+        await warnOnCiphertextLikeFallback({
+          entity: String(entity),
+          fields,
+          tenantId: opts.tenantId ?? null,
+          // `searchEnabled` also folds in the missing-table and
+          // omitAutomaticTenantOrgScope cases, which are "no usable tokens"
+          // rather than "the operator switched search off".
+          reason: searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          service: this.getEncryptionService(),
         })
       }
     }

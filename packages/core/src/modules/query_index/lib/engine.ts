@@ -22,6 +22,7 @@ import {
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
+import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -446,6 +447,17 @@ export class HybridQueryEngine implements QueryEngine {
           organizationScope: orgScope,
           searchSources,
         })
+        if (!searchRuntime.enabled) {
+          await warnOnCiphertextLikeFallback({
+            entity: String(entity),
+            fields: searchFilters.map((filter) => String(filter.field)),
+            tenantId: opts.tenantId ?? null,
+            // `searchEnabled` also folds in the missing-table case, which is
+            // "no usable tokens" rather than "the operator switched search off".
+            reason: searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+            service: this.getEncryptionService(),
+          })
+        }
       }
       const hasNonBaseSearchSource = searchSources.some(
         (src) => src.entity !== String(entity) || src.recordIdColumn !== 'b.id'
