@@ -75,19 +75,19 @@ Plus `yarn lint`, which the spec's own gate names.
 
 ### Phase 2: Pin the current generator behavior with tests
 
-- [ ] 2.1 Extract the pure `buildLucideRegistrySource` into a side-effect-free module consumed by `build.mjs`
-- [ ] 2.2 Add `lucideRegistryGenerator.test.ts` (populated / empty / duplicate-export / non-identifier-key / syntax / barrel / importer-grep)
+- [x] 2.1 Extract the pure `buildLucideRegistrySource` into a side-effect-free module consumed by `build.mjs` — 0d6a37f81
+- [x] 2.2 Add `lucideRegistryGenerator.test.ts` (populated / empty / duplicate-export / non-identifier-key / syntax / barrel / importer-grep) — 0d6a37f81 (14 tests, green against the string implementation)
 
 ### Phase 3: Migrate the lucide generator to ts-morph
 
-- [ ] 3.1 Add `ts-morph@^28.0.0` to `packages/ui` devDependencies
-- [ ] 3.2 Reimplement `buildLucideRegistrySource` on an in-memory ts-morph project with a syntactic-diagnostics assertion
-- [ ] 3.3 Regenerate and commit `lucideRegistry.generated.tsx`; adjust step-2 assertions to parsed structure
+- [x] 3.1 Add `ts-morph@^28.0.0` to `packages/ui` devDependencies — 0d6a37f81 (landed with Phase 2; the syntax-validity test needs the parser)
+- [x] 3.2 Reimplement `buildLucideRegistrySource` on an in-memory ts-morph project with a syntactic-diagnostics assertion — 6233b34b8
+- [x] 3.3 Regenerate and commit `lucideRegistry.generated.tsx`; adjust step-2 assertions to parsed structure — 6233b34b8
 
 ### Phase 4: Migrate the shared version injection to ts-morph
 
-- [ ] 4.1 Add `ts-morph@^28.0.0` to `packages/shared` devDependencies and add `buildVersionSource`
-- [ ] 4.2 Add `versionSource.test.ts` and confirm `dist/lib/version.js` still exports both values
+- [x] 4.1 Add `ts-morph@^28.0.0` to `packages/shared` devDependencies and add `buildVersionSource` — 0d6a37f81 / 1c3b2217a
+- [x] 4.2 Add `versionSource.test.ts` and confirm `dist/lib/version.js` still exports both values — 1c3b2217a (6 tests; `dist/lib/version.js` exports `APP_VERSION = "0.6.6"` + `appVersion`)
 
 ### Phase 5: Validation gate
 
