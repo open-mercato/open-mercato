@@ -42,12 +42,14 @@ Recreate the dependency update from PR #4650 on the repository's configured `dev
 
 ## Progress
 
+PR: #4804
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Port the dependency update
 
-- [ ] 1.1 Replay PR #4650's manifest version changes onto `origin/develop` and regenerate a coherent lockfile.
-- [ ] 1.2 Compare the migrated delta with PR #4650 to confirm that all still-applicable dependency updates are preserved without reverting newer `develop` changes.
+- [x] 1.1 Replay PR #4650's manifest version changes onto `origin/develop` and regenerate a coherent lockfile. — 3c4539e1b
+- [x] 1.2 Compare the migrated delta with PR #4650 to confirm that all still-applicable dependency updates are preserved without reverting newer `develop` changes. — 3c4539e1b
 
 ### Phase 2: Validate the migrated dependency graph
 
