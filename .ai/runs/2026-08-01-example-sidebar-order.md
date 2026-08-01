@@ -50,8 +50,8 @@ Source doc: `.ai/specs/2026-07-30-nav-group-order-override-domain.md`
 
 ### Phase 2: Regression coverage and documentation
 
-- [ ] 2.1 Add synchronized app/template regression coverage
-- [ ] 2.2 Record the corrected integration-fixture boundary in the source spec
+- [x] 2.1 Add synchronized app/template regression coverage — 994e21945
+- [x] 2.2 Record the corrected integration-fixture boundary in the source spec — fdaa1ca8a
 
 ### Phase 3: Verification and review
 
