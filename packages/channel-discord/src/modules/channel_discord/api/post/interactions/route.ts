@@ -4,11 +4,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
-import { discordCredentialsSchema } from '../../../../lib/credentials'
+import { discordCredentialsSchema } from '../../../lib/credentials'
 import {
   handleDiscordInteraction,
   type InteractionCandidate,
-} from '../../../../lib/interactions-handler'
+} from '../../../lib/interactions-handler'
 
 const logger = createLogger('channel_discord').child({ component: 'interactions-route' })
 
@@ -28,6 +28,11 @@ const logger = createLogger('channel_discord').child({ component: 'interactions-
  * verifies against no candidate channel → 401).
  */
 export const metadata = {
+  // Pinned explicitly (the Gmail webhook route sets its path the same way):
+  // module-scoped routes derive `/<moduleId>/<path-under-the-method-folder>`, so
+  // the operator-facing URL below is part of this route's contract, not a
+  // by-product of where the file happens to sit.
+  path: '/channel_discord/interactions',
   POST: {
     requireAuth: false,
     // Unauthenticated by design; bound per-IP volume so a caller can't drive the
