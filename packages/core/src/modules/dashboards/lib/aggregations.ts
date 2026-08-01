@@ -151,6 +151,9 @@ export function resolveGroupExpression(
  * and that renders a JavaScript array as a bare comma-separated list. The previous
  * `= ANY(?)` / `!= ALL(?)` form therefore produced `= ANY('a', 'b')`, which PostgreSQL rejects
  * for every shape of value (#4669).
+ *
+ * A missing value yields an empty set rather than a dropped filter, so an `in` filter the caller
+ * failed to populate selects nothing instead of silently widening the result.
  */
 function normalizeSetFilterValues(value: unknown): unknown[] {
   if (Array.isArray(value)) return value

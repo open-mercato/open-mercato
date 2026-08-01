@@ -343,8 +343,10 @@ describe('aggregations', () => {
         expect(rendered).toContain("payment_status NOT IN ('refunded')")
       })
 
-      it('rejects the array-as-single-parameter form this fix replaced', () => {
-        // Kept as an executable record of the defect in #4669: PostgreSQL answers
+      it('pins the array-as-single-parameter rendering this fix replaced', () => {
+        // Kept as an executable record of the defect in #4669, and as a canary: the fix assumes
+        // MikroORM flattens an array parameter, so this fails loudly if that ever changes.
+        // PostgreSQL answers
         // `syntax error at or near ","` for a multi-member list and `malformed array literal`
         // for a single-member one, so `in`/`not_in` failed for every possible value.
         expect(platform.formatQuery('status = ANY(?)', [['completed', 'shipped']])).toBe(
