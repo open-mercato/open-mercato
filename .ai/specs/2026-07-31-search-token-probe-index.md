@@ -51,7 +51,7 @@ Additive index only. No table, column, API route, event, DI key, or type changes
 ## Testing
 
 - The Phase 4 unit suites already pin the probe's predicate shape (`tenant_id = ? / IS NULL`) and count probes on both engines; an index changes no observable SQL, so they pass unchanged.
-- Integration: `packages/core/src/modules/query_index/__integration__/TC-QIDX-4731-token-presence.spec.ts` — records-API search first waits for the created record's tokens so it proves the token-backed route, then still finds the record via the plain-column fallback after its scope's tokens are deleted (polling past the process TTL cache).
+- Integration: `packages/core/src/modules/query_index/__integration__/TC-QIDX-4731-token-presence.spec.ts` — two isolated custom-entity scopes receive explicit token fixtures; records-API search proves the token-backed route in one scope, then proves the plain-column fallback in the other after that scope's tokens are deleted. Distinct scopes keep both availability answers deterministic without waiting for the process TTL cache.
 - Perf evidence for the PR: `EXPLAIN` of the probe's miss case on a large-table instance, before/after the index.
 
 ## Non-goals
@@ -62,5 +62,6 @@ Additive index only. No table, column, API route, event, DI key, or type changes
 
 ## Changelog
 
+- 2026-08-01 — Stabilized the routing integration test with two independently cached entity scopes and explicit token fixtures; this removes the false assumption that custom document-storage writes schedule token indexing and avoids timeout-based cache expiry.
 - 2026-08-01 — Re-review hardening: made the concurrent index migration retry-safe after an interrupted build and made the integration test establish its token-backed routing precondition before testing fallback.
 - 2026-07-31 — Initial version. Supersedes the same-day `search-token-presence-marker` draft: the marker table was implemented, then replaced by this index once the maintainer asked whether a third table was avoidable — the Phase 4 predicate reshape had made a purpose-ordered index sufficient, with zero drift risk and zero maintenance code.

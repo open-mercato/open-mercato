@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import {
   createCustomEntity,
   createRecord,
@@ -18,81 +19,110 @@ import {
  *
  * The records list API's server-side search builds an $or of $ilike clauses that route
  * through the query engine's token-availability decision. This exercises both routings:
- *  1. after the test observes the record's indexed tokens, search finds it through
+ *  1. while the first record has indexed tokens, search finds it through
  *     the token-backed route, and
- *  2. after the scope's tokens are removed (what a purge does), the same search still
- *     finds the record via the plain-column fallback — the observable difference
+ *  2. after the second scope's tokens are removed (what a purge does), search still
+ *     finds that record via the plain-column fallback — the observable difference
  *     between the availability answers `true` and `false`.
  *
- * The second poll allows generous time because the availability answer is cached
- * process-wide for OM_SEARCH_TOKEN_PRESENCE_CACHE_MS (default 30 s): right after the
- * SQL cleanup the server may still route through the (now empty) token path until the
- * cache entry expires. The first poll separately accounts for deferred token writes.
+ * The two independent entity scopes avoid coupling this routing test to the process-wide
+ * availability cache. Tokens are seeded explicitly because custom-entity record writes
+ * use document storage directly and do not own the query-index token pipeline.
  */
 test.describe('TC-QIDX-4731: token presence routing', () => {
-  test('search falls back to plain-column matching after a scope purge', async ({ request }) => {
-    test.setTimeout(120_000)
+  test('search uses tokens when present and plain columns after a scope purge', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const entityId = uniqueEntityId('presence_item')
-    const marker = `presenceprobe${Date.now().toString(36)}`
-    let recordId: string | null = null
+    const tokenEntityId = uniqueEntityId('token_presence_item')
+    const fallbackEntityId = uniqueEntityId('fallback_presence_item')
+    const tokenMarker = `tokenpresence${Date.now().toString(36)}`
+    const fallbackMarker = `fallbackpresence${Date.now().toString(36)}`
+    let tokenRecordId: string | null = null
+    let fallbackRecordId: string | null = null
 
     try {
-      const created = await createCustomEntity(request, token, {
-        entityId,
-        label: 'Presence probe item',
+      for (const entity of [
+        { id: tokenEntityId, label: 'Token presence probe item' },
+        { id: fallbackEntityId, label: 'Fallback presence probe item' },
+      ]) {
+        const created = await createCustomEntity(request, token, {
+          entityId: entity.id,
+          label: entity.label,
+        })
+        expect(created.ok(), `entity create failed: ${created.status()}`).toBeTruthy()
+
+        const fields = await saveFieldDefinitions(request, token, entity.id, [
+          { key: 'title', kind: 'text' },
+        ])
+        expect(fields.ok(), `field definitions failed: ${fields.status()}`).toBeTruthy()
+      }
+
+      const tokenRecord = await createRecord(request, token, tokenEntityId, {
+        title: `The ${tokenMarker} record`,
       })
-      expect(created.ok(), `entity create failed: ${created.status()}`).toBeTruthy()
+      expect(tokenRecord.ok(), `token record create failed: ${tokenRecord.status()}`).toBeTruthy()
+      const tokenRecordBody = await readJsonSafe<{ item?: { recordId?: string } }>(tokenRecord)
+      tokenRecordId = expectUuid(tokenRecordBody?.item?.recordId, 'token record id')
 
-      const fields = await saveFieldDefinitions(request, token, entityId, [
-        { key: 'title', kind: 'text' },
-      ])
-      expect(fields.ok(), `field definitions failed: ${fields.status()}`).toBeTruthy()
-
-      const record = await createRecord(request, token, entityId, { title: `The ${marker} record` })
-      expect(record.ok(), `record create failed: ${record.status()}`).toBeTruthy()
-      const recordBody = await readJsonSafe<{ item?: { recordId?: string } }>(record)
-      recordId = expectUuid(recordBody?.item?.recordId, 'record id')
-
-      const hasIndexedTokens = async (): Promise<boolean> => withClient(async (client) => {
-        const result = await client.query(
-          'select 1 from search_tokens where entity_type = $1 limit 1',
-          [entityId],
-        )
-        return (result.rowCount ?? 0) > 0
+      const fallbackRecord = await createRecord(request, token, fallbackEntityId, {
+        title: `The ${fallbackMarker} record`,
       })
-      await expect
-        .poll(hasIndexedTokens, { timeout: 30_000, message: 'record tokens should be indexed' })
-        .toBe(true)
+      expect(fallbackRecord.ok(), `fallback record create failed: ${fallbackRecord.status()}`).toBeTruthy()
+      const fallbackRecordBody = await readJsonSafe<{ item?: { recordId?: string } }>(fallbackRecord)
+      fallbackRecordId = expectUuid(fallbackRecordBody?.item?.recordId, 'fallback record id')
 
-      const searchQuery = `&search=${encodeURIComponent(marker)}&searchFields=title`
-      const findRecord = async (): Promise<boolean> => {
+      const seedTokens = async (entityId: string, recordId: string, marker: string): Promise<void> => {
+        const hashes = tokenizeText(marker).hashes
+        expect(hashes.length, 'marker should produce search-token hashes').toBeGreaterThan(0)
+        await withClient(async (client) => {
+          const inserted = await client.query(
+            `insert into search_tokens
+               (id, entity_type, entity_id, organization_id, tenant_id, field, token_hash, token, created_at)
+             select gen_random_uuid(), storage.entity_type, storage.entity_id,
+                    storage.organization_id, storage.tenant_id, 'title', hash.token_hash, null, now()
+             from custom_entities_storage storage
+             cross join unnest($3::text[]) as hash(token_hash)
+             where storage.entity_type = $1 and storage.entity_id = $2`,
+            [entityId, recordId, hashes],
+          )
+          expect(inserted.rowCount, 'fixture should seed every marker hash').toBe(hashes.length)
+        })
+      }
+
+      await seedTokens(tokenEntityId, tokenRecordId, tokenMarker)
+      await seedTokens(fallbackEntityId, fallbackRecordId, fallbackMarker)
+
+      const findRecord = async (entityId: string, marker: string, recordId: string): Promise<boolean> => {
+        const searchQuery = `&search=${encodeURIComponent(marker)}&searchFields=title`
         const response = await listRecords(request, token, entityId, searchQuery)
         if (!response.ok()) return false
         const body = await readJsonSafe<{ items?: Array<{ id?: string }> }>(response)
         return (body?.items ?? []).some((item) => item.id === recordId)
       }
 
-      await expect
-        .poll(findRecord, { timeout: 30_000, message: 'record should be findable after creation' })
-        .toBe(true)
+      expect(
+        await findRecord(tokenEntityId, tokenMarker, tokenRecordId),
+        'record should be found through its seeded search tokens',
+      ).toBe(true)
 
-      // Simulate what TokenSearchStrategy.purge does for this scope: drop the tokens.
-      // From here the availability answer must become `false` (once the process cache
-      // expires) and search must keep working via ilike.
       await withClient(async (client) => {
-        await client.query('delete from search_tokens where entity_type = $1', [entityId])
+        await client.query('delete from search_tokens where entity_type = $1', [fallbackEntityId])
       })
 
-      await expect
-        .poll(findRecord, {
-          timeout: 60_000,
-          message: 'record should remain findable via the plain-column fallback after purge',
-        })
-        .toBe(true)
+      expect(
+        await findRecord(fallbackEntityId, fallbackMarker, fallbackRecordId),
+        'record should remain findable via the plain-column fallback after purge',
+      ).toBe(true)
     } finally {
-      await deleteRecordIfExists(request, token, entityId, recordId)
-      await deleteCustomEntityIfExists(request, token, entityId)
+      await withClient(async (client) => {
+        await client.query(
+          'delete from search_tokens where entity_type = any($1::text[])',
+          [[tokenEntityId, fallbackEntityId]],
+        )
+      }).catch(() => undefined)
+      await deleteRecordIfExists(request, token, tokenEntityId, tokenRecordId)
+      await deleteRecordIfExists(request, token, fallbackEntityId, fallbackRecordId)
+      await deleteCustomEntityIfExists(request, token, tokenEntityId)
+      await deleteCustomEntityIfExists(request, token, fallbackEntityId)
     }
   })
 })
