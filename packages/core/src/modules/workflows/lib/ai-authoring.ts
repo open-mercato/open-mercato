@@ -141,6 +141,13 @@ export interface WorkflowDraftCatalog {
   commands: WorkflowDraftCatalogEntry[]
   functions: WorkflowDraftCatalogEntry[]
   events: string[]
+  /**
+   * The agents an `INVOKE_AGENT` activity may target. Empty when the optional
+   * `agent_orchestrator` peer is absent or exposes none — which is exactly when
+   * `INVOKE_AGENT` must be forbidden (an agent step with no agent to run can
+   * only fail the strict `invokeAgentConfigSchema` later). Fail-closed.
+   */
+  agents: WorkflowDraftCatalogEntry[]
 }
 
 export interface WorkflowDraftCatalogInput {
@@ -150,6 +157,8 @@ export interface WorkflowDraftCatalogInput {
   commands: readonly { id: string; label?: string }[]
   functions: readonly { name: string; label?: string }[]
   events: readonly { id: string }[]
+  /** Usable agents; omitted/empty ⇒ `INVOKE_AGENT` is fail-closed forbidden. */
+  agents?: readonly { id: string; label?: string }[]
 }
 
 /**
@@ -179,6 +188,9 @@ export function buildWorkflowDraftCatalog(
       .slice(0, WORKFLOW_DRAFT_CATALOG_LIMIT)
       .map((entry) => ({ id: entry.name, ...(entry.label ? { description: entry.label } : {}) })),
     events: input.events.slice(0, WORKFLOW_DRAFT_CATALOG_LIMIT).map((entry) => entry.id),
+    agents: (input.agents ?? [])
+      .slice(0, WORKFLOW_DRAFT_CATALOG_LIMIT)
+      .map((entry) => ({ id: entry.id, ...(entry.label ? { description: entry.label } : {}) })),
   }
 }
 
@@ -201,6 +213,10 @@ export interface WorkflowDraftPromptInput {
  */
 export function buildWorkflowDraftPrompt(input: WorkflowDraftPromptInput): string {
   const { prompt, catalog } = input
+  const invokeAgentRule =
+    catalog.agents.length > 0
+      ? '- An INVOKE_AGENT activity MUST set config.agentId to one of the catalog `agents` ids and config.onResult (either { autoApproveThreshold } or { alwaysAsk: true }).'
+      : '- Do NOT use the INVOKE_AGENT activity type: this installation has no usable agents, so an agent step cannot be run. Use other activity types instead.'
   return [
     'Author a workflow definition for this request:',
     '',
@@ -216,6 +232,8 @@ export function buildWorkflowDraftPrompt(input: WorkflowDraftPromptInput): strin
     '- Step, transition and activity ids are lowercase letters, numbers, hyphens and underscores only.',
     '- Activities belong to the transition that LEAVES the step whose work they do.',
     '- Reference run context as {{context.<path>}}, and declare every path you reference in contextSchema.input.fields.',
+    invokeAgentRule,
+    '- Call the workflows.validate_workflow_definition tool on your draft and fix every reported error before you return it.',
     '- Prefer the smallest graph that answers the request.',
   ].join('\n')
 }

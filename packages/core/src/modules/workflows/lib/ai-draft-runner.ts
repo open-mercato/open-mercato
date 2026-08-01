@@ -86,6 +86,12 @@ export async function resolveWorkflowDraftRunner(): Promise<WorkflowDraftRunner 
       input: input.prompt,
       authContext: input.authContext,
       container: input.container,
+      // Object-mode tool loop: the agent's one read-only tool
+      // (workflows.validate_workflow_definition) lets it self-correct against
+      // the real definition schema before returning. The runtime's `enableTools`
+      // branch still finalizes through `Output.object`, so `mode` stays
+      // 'generate' and the assertion below is unaffected.
+      enableTools: true,
       output: { schemaName: input.schemaName, schema: input.schema, mode: 'generate' },
     })
 

@@ -159,7 +159,7 @@ function makeCtx(
 }
 
 describe('workflows AI tool pack — declaration', () => {
-  it('ships exactly the six tools the spec names', () => {
+  it('ships exactly the tools the spec names', () => {
     expect(workflowsAiTools.map((tool) => tool.name).sort()).toEqual([
       'workflows.create_definition',
       'workflows.get_context_schema',
@@ -167,6 +167,7 @@ describe('workflows AI tool pack — declaration', () => {
       'workflows.start_test_run',
       'workflows.update_definition',
       'workflows.validate_definition',
+      'workflows.validate_workflow_definition',
     ])
   })
 

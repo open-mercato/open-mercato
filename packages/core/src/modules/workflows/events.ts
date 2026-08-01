@@ -65,6 +65,23 @@ const events = [
   { id: 'workflows.activity.completed', label: 'Activity Completed', category: 'lifecycle' },
   { id: 'workflows.activity.failed', label: 'Activity Failed', category: 'lifecycle' },
 
+  /**
+   * Live agent-action telemetry for an INVOKE_AGENT step (spec §Phase 2). Emitted
+   * per AI-SDK step by the optional `agent_orchestrator` peer's native runner so
+   * the run view can show what the agent is doing WHILE it runs, instead of only
+   * refetching on `instance.*` lifecycle changes. `clientBroadcast` so it reaches
+   * the browser via the DOM Event Bridge; `excludeFromTriggers` because it is UI
+   * telemetry, not a business signal a workflow should react to.
+   *
+   * Ephemeral and safe to broadcast: the payload is instance/step identity plus
+   * a coarse action descriptor (`kind`: step_finish | tool_call, an optional tool
+   * `name`, step index, tool-call count) — NO token text, NO model output, NO
+   * authored content — and is tenant + organization scoped like the lifecycle
+   * events. Low-frequency (a handful per agent run), so it fits the bridge's
+   * dedup/heartbeat envelope where a token stream never could.
+   */
+  { id: 'workflows.agent.action', label: 'Workflow Agent Action', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
+
   // Event Triggers
   { id: 'workflows.trigger.created', label: 'Trigger Created', entity: 'trigger', category: 'crud' },
   { id: 'workflows.trigger.updated', label: 'Trigger Updated', entity: 'trigger', category: 'crud' },

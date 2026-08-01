@@ -247,6 +247,60 @@ export class NativeAgentRunner {
       })
     }
 
+    // Live agent-action telemetry (workflows spec Phase 2). When this run is a
+    // workflow INVOKE_AGENT step (`ctx.processId` present) and an event bus is
+    // resolvable, emit a coarse `workflows.agent.action` per AI-SDK step so the
+    // run view can show what the agent is doing WHILE it runs. Best-effort and
+    // fully isolated: it never touches agent execution or the parked-step resume,
+    // carries no token text or model output, and is skipped entirely for
+    // non-workflow (e.g. chat) runs. Steps + tool calls only — token-level
+    // streaming is deliberately out of scope (the tool loop uses generateText).
+    const buildAgentActionEmitter = (): ((event: unknown) => Promise<void>) | null => {
+      const instanceId = ctx.processId
+      if (!instanceId || !ctx.tenantId) return null
+      let eventBus:
+        | { emitEvent: (event: string, payload: Record<string, unknown>) => Promise<void> }
+        | undefined
+      try {
+        eventBus = this.container.resolve('eventBus')
+      } catch {
+        return null
+      }
+      if (!eventBus || typeof eventBus.emitEvent !== 'function') return null
+      const bus = eventBus
+      let stepIndex = 0
+      return async (event: unknown): Promise<void> => {
+        const raw = event as { toolCalls?: Array<{ toolName?: string }>; finishReason?: string }
+        const toolCalls = raw.toolCalls ?? []
+        const toolNames = toolCalls.map((call) => call.toolName).filter((name): name is string => !!name)
+        const index = stepIndex
+        stepIndex += 1
+        try {
+          await bus.emitEvent('workflows.agent.action', {
+            id: instanceId,
+            instanceId,
+            stepId: ctx.stepId ?? null,
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId ?? null,
+            agentId,
+            kind: toolNames.length > 0 ? 'tool_call' : 'step_finish',
+            ...(toolNames.length > 0 ? { name: toolNames.join(', ') } : {}),
+            stepIndex: index,
+            toolCallCount: toolCalls.length,
+            finishReason: raw.finishReason ?? null,
+          })
+        } catch {
+          // Telemetry is best-effort: a bus failure must never affect the run.
+        }
+      }
+    }
+    const emitAgentAction = buildAgentActionEmitter()
+    const wireStepFinish = traceEnabled || emitAgentAction !== null
+    const onAgentStepFinish = async (event: unknown): Promise<void> => {
+      if (traceEnabled) await recordStep(event)
+      if (emitAgentAction) await emitAgentAction(event)
+    }
+
     // Provider budget key: the same resolution the model call performs. Fail
     // open to a shared 'unknown' bucket — a resolution failure here must
     // surface from the model call itself, not the budget gate.
@@ -332,7 +386,7 @@ export class NativeAgentRunner {
             // generate when no tools resolve, so toolless agents are unaffected.
             // Writes never execute directly (read-only policy + proposal → effector).
             enableTools: true,
-            ...(traceEnabled ? { loop: { onStepFinish: recordStep } } : {}),
+            ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
           })
           // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
           if (objectResult.mode === 'stream') {

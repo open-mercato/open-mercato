@@ -6,14 +6,19 @@
  *
  *  - `executionMode: 'object'` — it emits a structured draft against
  *    `workflowDraftGenerationSchema`, not prose. Generation targets schemas.
- *  - `allowedTools: []` — it has NO tools. Not "read-only tools", none. There
- *    is no surface through which it can read tenant data or write anything;
- *    everything it needs to author against travels in the request as the
- *    platform's own catalogs (`lib/ai-authoring.ts`). The `workflows.*`
- *    authoring tool pack exists for EXTERNAL agents driving the MCP surface —
- *    this in-Studio path deliberately does not reach it.
+ *    Its one tool runs inside the runtime's object-mode tool loop
+ *    (`runAiAgentObject({ enableTools: true })`), which still finalizes through
+ *    `Output.object`, so the emitted result stays a validated draft.
+ *  - `allowedTools: ['workflows.validate_workflow_definition']` — exactly ONE
+ *    READ-ONLY tool. It reads no tenant rows and writes nothing; it re-runs the
+ *    real definition schema + Problems pass so the agent can self-correct a
+ *    draft (e.g. a partial INVOKE_AGENT config) before returning. This is a
+ *    deliberate, bounded relaxation of the former empty allowlist — the broader
+ *    `workflows.*` authoring/write tools (create/update/test-run) remain out of
+ *    reach; this in-Studio path reaches only the validator.
  *  - `readOnly: true` + `mutationPolicy: 'read-only'` — belt and braces, so a
- *    later tool addition cannot quietly become write-capable.
+ *    later tool addition cannot quietly become write-capable (the runtime
+ *    strips any `isMutation` tool from a read-only agent).
  *
  * The route that calls it (`api/definitions/generate`) persists NOTHING. A
  * generated definition becomes real only after a human applies it to the canvas
@@ -31,7 +36,9 @@ import {
 const SYSTEM_PROMPT = [
   'ROLE: You author Open Mercato workflow definitions from a plain-language request.',
   '',
-  'SCOPE: You produce a DRAFT for a human to review in the workflow Studio. You never publish, enable or execute anything, and you have no tools — the request carries every identifier you are allowed to use.',
+  'SCOPE: You produce a DRAFT for a human to review in the workflow Studio. You never publish, enable or execute anything. Your only tool is workflows.validate_workflow_definition, a read-only validator; the request carries every identifier you are allowed to use.',
+  '',
+  'SELF-CHECK: Before you return, call workflows.validate_workflow_definition with your draft and fix every reported error. Re-validate until it reports no errors.',
   '',
   'DATA: The request contains a catalog of the step types, transition triggers, activity types (with their JSON-Schema config contracts), safe command ids, registered function names and declared event ids this installation actually has. Any identifier outside that catalog does not exist. If the request cannot be satisfied with the catalog, author the closest workflow you can and describe the gap in `summary`.',
   '',
@@ -49,11 +56,16 @@ const workflowAuthorAgent: AiAgentDefinition = {
   description:
     'Turns a plain-language request into a draft workflow definition, authored against this installation\'s real activity, command, function and event catalogs. Proposes only — never publishes.',
   systemPrompt: SYSTEM_PROMPT,
-  allowedTools: [],
+  allowedTools: ['workflows.validate_workflow_definition'],
   executionMode: 'object',
   readOnly: true,
   mutationPolicy: 'read-only',
   requiredFeatures: ['workflows.definitions.create'],
+  // A validate loop needs only a couple of round-trips; keep it tight so a
+  // model that never converges cannot burn tokens or wall-clock unbounded.
+  loop: {
+    budget: { maxToolCalls: 4, maxWallClockMs: 20_000, maxTokens: 120_000 },
+  },
   output: {
     schemaName: 'WorkflowDraft',
     schema: workflowDraftGenerationSchema,

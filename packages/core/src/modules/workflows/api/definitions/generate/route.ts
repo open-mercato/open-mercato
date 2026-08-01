@@ -92,6 +92,37 @@ const generateDefinitionResponseSchema = z.object({
   warningCount: z.number().int().nonnegative().optional(),
 })
 
+type DraftAgentBridgeLike = {
+  listAgentOutcomeContracts?: () => Promise<Array<{ agentId?: unknown }>>
+}
+
+/**
+ * The agents an `INVOKE_AGENT` draft may target, from the OPTIONAL
+ * `agent_orchestrator` peer. Absent peer, missing method, or any failure ⇒ an
+ * empty list, which makes the catalog fail-closed: `buildWorkflowDraftPrompt`
+ * then forbids `INVOKE_AGENT` outright rather than letting the model author an
+ * agent step with no agent to run.
+ */
+async function resolveDraftAgents(
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+): Promise<{ id: string }[]> {
+  let bridge: DraftAgentBridgeLike | undefined
+  try {
+    bridge = container.resolve<DraftAgentBridgeLike>('agentWorkflowBridge')
+  } catch {
+    return []
+  }
+  if (!bridge || typeof bridge.listAgentOutcomeContracts !== 'function') return []
+  try {
+    const snapshots = await bridge.listAgentOutcomeContracts()
+    return snapshots
+      .map((snapshot) => (typeof snapshot.agentId === 'string' ? { id: snapshot.agentId } : null))
+      .filter((entry): entry is { id: string } => entry !== null)
+  } catch {
+    return []
+  }
+}
+
 /** Compute the ledger for the generated definition, tolerating a broken graph. */
 async function tryComputeLedger(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
@@ -173,6 +204,7 @@ export async function POST(request: NextRequest) {
       events: getDeclaredEvents()
         .filter((event) => !event.excludeFromTriggers)
         .map((event) => ({ id: event.id })),
+      agents: await resolveDraftAgents(container),
     })
 
     const acl = (await rbacService.loadAcl?.(auth.sub, { tenantId, organizationId })) ?? null
