@@ -1118,6 +1118,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "custom_fieldset_code": {
+          "name": "custom_fieldset_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "capacity": {
           "name": "capacity",
           "type": "int",

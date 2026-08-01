@@ -127,7 +127,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   // Kept outside the guard below: a failure while building the aggregate search field is a
   // bug in the aggregation or its configuration, and must surface instead of being mistaken
   // for an encryption failure and silently skipping encryption.
-  doc = attachAggregateSearchField(doc)
+  doc = attachAggregateSearchField(doc, { entityType: params.entityType })
 
   try {
     const encryption = resolveTenantEncryptionService(em as any)

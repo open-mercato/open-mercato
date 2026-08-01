@@ -31,6 +31,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         id: { dbColumn: 'id', type: 'uuid' },
         valueAmount: { dbColumn: 'value_amount', type: 'numeric' },
         status: { dbColumn: 'status', type: 'text' },
+        closureOutcome: { dbColumn: 'closure_outcome', type: 'text' },
         pipelineStage: { dbColumn: 'pipeline_stage', type: 'text' },
         probability: { dbColumn: 'probability', type: 'numeric' },
         createdAt: { dbColumn: 'created_at', type: 'timestamp' },

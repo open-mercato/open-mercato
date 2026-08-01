@@ -61,6 +61,11 @@ export const moduleOverrideExamples: ModuleOverrides = {
   encryption: {
     maps: { 'example:item': null },
   },
+  nav: {
+    // Prepends sidebar nav group ids ahead of the built-in ordering; unnamed groups keep their
+    // current position. Applied beneath role and per-user sidebar preferences.
+    groupOrder: ['example.nav.group'],
+  },
 }
 
 export const enabledModules: ModuleEntry[] = [
@@ -128,6 +133,11 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
+      // Applied (not just catalogued) so integration coverage can prove a real nav override survives
+      // bootstrap, mirroring how the override-probe route below is proven by TC-UMES-022.
+      nav: {
+        groupOrder: ['example.nav.group'],
+      },
       routes: {
         api: {
           'GET /api/example/override-probe': {

@@ -59,8 +59,13 @@ type StoredResult = {
 type StoredReviewResult = {
   status: string
   verdict: string
+  judgeVerdict?: string
+  judgeReport?: string
   report: string
   findings: Array<{ severity: string; path: string }>
+  artifactFindings?: Array<{ severity: string; path: string }>
+  harnessOwnerFindings?: unknown[]
+  designSystemReview?: { reviewer: string; status: string; findings: string[] }
   violations: string[]
   attempts: number
   corrections: number
@@ -70,8 +75,18 @@ type StoredReviewResult = {
   validationResult?: { path: string; sha256: string }
   validationEvidence: Array<{ id: string; status: string }>
   skill: { name: string; source: string; ref: string; declaredHash: string; installedHash: string; ownershipLedgerHash: string; bundleHash: string }
+  judgeSkill?: { name: string; bundleHash: string }
   actualContext: { paths: string[] }
   sourceResult: { path: string; sha256: string }
+}
+
+// The evaluator's own initial-context rule, mirrored so budget assertions measure what it measures.
+function isInitialContextPath(relative: string): boolean {
+  return !relative.includes('/references/')
+    && !relative.startsWith('.ai/framework-context/')
+    && !relative.startsWith('.ai/guides/modules/')
+    && !relative.startsWith('.ai/guides/upstream/')
+    && !relative.startsWith('.agents/skills/')
 }
 
 function stageApp(): string {
@@ -257,8 +272,9 @@ test('the catalog count and release coverage are derived from the validator regi
     routing: { required: { caseIds: string }; portability: { caseIds: string[] }; runners: Record<string, { modelSelector: string }> }
     writable: Array<{ caseId: string }>
     generatedCodeReview: { required: boolean; skill: string; caseIds: string[] }
+    generativeJudge: { required: boolean; skill: string; reviewSkill: string; caseIds: string[] }
     generatedTests: { required: boolean; entries: Array<{ caseId: string; runner: string; artifact: string; network: string }> }
-    releaseSuite: { supportedRunners: string[]; requireGeneratedCodeReview: boolean; validationCommands: string[] }
+    releaseSuite: { supportedRunners: string[]; requireGenerativeJudge: boolean; requireGeneratedCodeReview: boolean; validationCommands: string[] }
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
   assert.equal(casesSchema.items.properties.maxInitialContextBytes.maximum, validators.catalog.maxInitialContextBytes)
@@ -276,7 +292,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 45)
+  assert.equal(validators.catalog.writableCaseIds.length, 46)
   assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
     ['OMH-185', 600_000],
     ['OMH-188', 600_000],
@@ -284,10 +300,15 @@ test('the catalog count and release coverage are derived from the validator regi
     ['OMH-190', 420_000],
     ['OMH-191', 420_000],
     ['OMH-192', 600_000],
+    ['OMH-193', 600_000],
   ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
   assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)
+  assert.equal(matrix.generativeJudge.required, true)
+  assert.equal(matrix.generativeJudge.skill, 'om-judge-agent-session')
+  assert.equal(matrix.generativeJudge.reviewSkill, 'om-code-review')
+  assert.deepEqual(matrix.generativeJudge.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.generatedTests.required, true)
   assert.deepEqual(matrix.generatedTests.entries, [
     { caseId: 'OMH-163', runner: 'jest', artifact: 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts', network: 'none' },
@@ -296,6 +317,7 @@ test('the catalog count and release coverage are derived from the validator regi
     { caseId: 'OMH-192', runner: 'jest', artifact: 'src/modules/library/commands/__tests__/crm-loans.test.ts', network: 'none' },
   ])
   assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
+  assert.equal(matrix.releaseSuite.requireGenerativeJudge, true)
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
   assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
   const portabilityCount = validators.catalog.writableCaseIds.length
@@ -446,6 +468,80 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
   }
 })
 
+test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4565)', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      id: string
+      context: { required: string[]; allowedExtra?: string[] }
+      maxContextFiles: number
+      maxInitialContextBytes: number
+      maxTotalContextBytes: number
+    }>
+    // Mirror the evaluator: skip what is absent (fact-sheets are generated after module
+    // discovery) and count only initial paths toward the initial budgets.
+    const measure = (paths: string[], initialOnly: boolean) => paths.reduce((total, relative) => {
+      if (initialOnly && !isInitialContextPath(relative)) return total
+      try { return total + fs.statSync(path.join(root, relative)).size } catch { return total }
+    }, 0)
+    const measured = measure(cases[0].context.required, true)
+    assert.ok(measured > 4096, 'the first case must require more than the smallest legal byte budget')
+    cases[0].maxInitialContextBytes = 4096
+    cases[1].context.allowedExtra = [...(cases[1].context.allowedExtra ?? []), '.ai/guides/testing-debugging.md']
+    cases[1].maxContextFiles = cases[1].context.required.length
+    // The total-byte arm needs a non-initial path so the initial budgets stay satisfiable and only
+    // maxTotalContextBytes can fail; a `/references/` file is non-initial and ships with the skills.
+    const nonInitial = '.ai/skills/om-evolve-harness/references/case-template.md'
+    cases[2].context.required = [...cases[2].context.required, nonInitial]
+    const declaredOfThird = [...cases[2].context.required, ...(cases[2].context.allowedExtra ?? [])]
+    const declaredInitialOfThird = measure(declaredOfThird, true)
+    const declaredTotalOfThird = measure(declaredOfThird, false)
+    assert.ok(declaredTotalOfThird > declaredInitialOfThird, 'the third case must declare a non-initial path with bytes')
+    cases[2].maxInitialContextBytes = declaredInitialOfThird
+    cases[2].maxTotalContextBytes = declaredInitialOfThird
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[0].id}:.*required context exceeds maxInitialContextBytes: ${measured}/4096`))
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[1].id}:.*declared context exceeds maxContextFiles`))
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*declared context exceeds maxTotalContextBytes: ${declaredTotalOfThird}/${declaredInitialOfThird}`))
+    assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*exceeds maxInitialContextBytes`))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the evaluator, the mirrored helper, and the calibration template agree on initial-context exclusions (#4565)', () => {
+  const evaluatorSource = fs.readFileSync(sourceEvaluator, 'utf8')
+  const productionRule = /function isInitialContextPath\(relative\) \{\n([\s\S]*?)\n\}/.exec(evaluatorSource)
+  assert.ok(productionRule, 'the evaluator must still declare isInitialContextPath for this mirror to track')
+  const body = productionRule[1]
+  const prefixes = [...body.matchAll(/!relative\.startsWith\('([^']+)'\)/g)].map((match) => match[1])
+  const substrings = [...body.matchAll(/!relative\.includes\('([^']+)'\)/g)].map((match) => match[1])
+  assert.ok(prefixes.includes('.ai/framework-context/'), 'materialized framework context stays outside the initial budgets')
+  assert.equal(
+    prefixes.length + substrings.length,
+    (body.match(/!relative\./g) ?? []).length,
+    'every production exclusion must be expressed as a startsWith or includes clause this mirror can read',
+  )
+
+  const template = fs.readFileSync(
+    path.join(sharedRoot, 'ai', 'skills', 'om-evolve-harness', 'references', 'case-template.md'),
+    'utf8',
+  )
+  assert.equal(isInitialContextPath('AGENTS.md'), true, 'an ordinary root path stays initial context')
+  for (const prefix of prefixes) {
+    assert.equal(isInitialContextPath(`${prefix}sample.md`), false, `the mirrored helper must exclude ${prefix}`)
+    assert.ok(template.includes(`\`${prefix}\``), `the calibration template must list ${prefix}`)
+  }
+  for (const substring of substrings) {
+    assert.equal(isInitialContextPath(`.ai/skills/om-sample${substring}sample.md`), false, `the mirrored helper must exclude ${substring}`)
+    assert.ok(template.includes(`\`${substring}\``), `the calibration template must list ${substring}`)
+  }
+})
+
 test('deterministic evaluation rejects module-fact context absent from an emitted controller', () => {
   const root = stageApp()
   try {
@@ -476,12 +572,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-192', () => {
+test('deterministic evaluation enforces the case schema through OMH-202', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-192')
+    assert.equal(cases.at(-1)?.id, 'OMH-202')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -1877,11 +1973,22 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['spec-pr'], selectedSkills: ['om-implement-spec'],
-  selectedContext: ['AGENTS.md', '.agents/skills/om-implement-spec/SKILL.md'],
-  decisions: ['working-phases', 'smallest-validation'], violations: []
+  selectedContext: [
+    'AGENTS.md',
+    '.agents/skills/om-implement-spec/SKILL.md',
+    '.agents/skills/om-implement-spec/references/spec-resolution.md',
+    '.agents/skills/om-implement-spec/references/phases-and-gates.md',
+    '.agents/skills/om-implement-spec/references/planning-and-progress.md',
+    '.agents/skills/om-implement-spec/references/report-templates.md'
+  ],
+  decisions: [
+    'spec-resolution', 'phase-execution-plan', 'interactive-confirmation',
+    'working-phases', 'smallest-validation', 'implementation-progress',
+    'stable-implementation-report', 'spec-reference-marker'
+  ], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md'
+  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/report-templates.md'
 } }))
 `)
   try {
@@ -1890,7 +1997,14 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
-    assert.deepEqual(storedResults(root)[0].selectedContext, ['AGENTS.md', '.ai/skills/om-implement-spec/SKILL.md'])
+    assert.deepEqual(storedResults(root)[0].selectedContext, [
+      'AGENTS.md',
+      '.ai/skills/om-implement-spec/SKILL.md',
+      '.ai/skills/om-implement-spec/references/spec-resolution.md',
+      '.ai/skills/om-implement-spec/references/phases-and-gates.md',
+      '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+      '.ai/skills/om-implement-spec/references/report-templates.md',
+    ])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -2536,7 +2650,7 @@ test('writable mode remains explicit and refuses a target without acknowledgemen
   }
 })
 
-test('generated-code review uses a source-only bundle, pinned external skill evidence, and an explicit prior writable result', { skip: !targetSandboxAvailable }, () => {
+test('generative judge uses the reusable judge skill, pinned code-review evidence, design-system context, and an explicit writable result', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -2557,7 +2671,8 @@ const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index 
 if (args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('--ignore-user-config') || !disabled.includes('shell_tool') || !disabled.includes('unified_exec')) process.exit(9)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
 const allowedReads = JSON.parse(mcpArgs.at(-2))
-for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
+const judgeFiles = ['SKILL.md', 'references/agentic-setup.md', 'references/input-normalization.md', 'references/judge-workflow.md', 'references/report-template.md', 'references/rules.md'].map((file) => '.ai/skills/om-judge-agent-session/' + file)
+for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', ...judgeFiles, 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
@@ -2583,22 +2698,44 @@ const report = [
   '## 🧪 Test Coverage',
   'The trusted AST and target typecheck evidence cover the generated route shape; this supplemental review ran no target scripts.'
 ].join('\\n')
-fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
-for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', '.agents/skills/om-code-review/references/agentic-setup.md', '.agents/skills/om-code-review/references/output-format.md', '.agents/skills/om-code-review/references/review-checklist.md', '.agents/skills/om-code-review/references/rules.md', '.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/crud-surfaces.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md', '.ai/skills/om-backend-ui-design/references/page-and-navigation.md', '.ai/skills/om-backend-ui-design/references/quality-states.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
+const judgeReport = [
+  '# Agent Session Judge Report',
+  '## Verdict',
+  'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
+  '## Evidence',
+  'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
+  '## Artifact Findings',
+  'No artifact findings.',
+  '## Design-System Review',
+  'om-backend-ui-design references were applied and no design-system finding applies to this API-only artifact.',
+  '## Harness-Owner Findings',
+  'No harness-owner finding is needed.',
+  '## Missing or Unverifiable Evidence',
+  'None.',
+  '## Recommended Next Actions',
+  'Retain the fixed gates and rerun this case when its route contract changes.'
+].join('\\n')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', judgeVerdict: 'pass', report, judgeReport, fixedEvidenceStatus: 'pass', validationEvidence: evidence, findings: [], artifactFindings: [], harnessOwnerFindings: [], designSystemReview: { reviewer: 'om-backend-ui-design', status: 'pass', findings: [] } }))
+for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', ...judgeFiles, '.agents/skills/om-code-review/SKILL.md', '.agents/skills/om-code-review/references/agentic-setup.md', '.agents/skills/om-code-review/references/output-format.md', '.agents/skills/om-code-review/references/review-checklist.md', '.agents/skills/om-code-review/references/rules.md', '.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/crud-surfaces.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md', '.ai/skills/om-backend-ui-design/references/page-and-navigation.md', '.ai/skills/om-backend-ui-design/references/quality-states.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
 `)
     const review = runEvaluator(controller, [
-      '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
     ], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(review.status, 0, `${review.stdout}\n${review.stderr}`)
-    assert.match(review.stdout, /PASS review OMH-011/)
+    assert.match(review.stdout, /PASS judge OMH-011/)
     const [stored] = storedReviewResults(controller)
     assert.equal(stored.status, 'pass')
     assert.equal(stored.attempts, 1)
     assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
+    assert.equal(stored.judgeVerdict, 'pass')
+    assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
+    assert.deepEqual(stored.artifactFindings, [])
+    assert.deepEqual(stored.harnessOwnerFindings, [])
+    assert.equal(stored.designSystemReview?.reviewer, 'om-backend-ui-design')
     assert.deepEqual(stored.reviewedPaths, ['src/modules/library/api/books/route.ts'])
     assert.ok(stored.reviewedBytes > 0)
     assert.equal(stored.skill.name, 'om-code-review')
@@ -2609,6 +2746,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.match(stored.skill.bundleHash, /^[a-f0-9]{64}$/)
     assert.match(stored.sourceResult.path, /^\.ai\/harness\/results\//)
     assert.ok(stored.actualContext.paths.includes('.agents/skills/om-code-review/references/review-checklist.md'))
+    assert.ok(stored.actualContext.paths.includes('.ai/skills/om-judge-agent-session/references/judge-workflow.md'))
     assert.ok(stored.actualContext.paths.includes('.ai/review-checklist.md'))
     assert.deepEqual(stored.reviewReferences, [
       '.ai/guides/backend-ui.md',
