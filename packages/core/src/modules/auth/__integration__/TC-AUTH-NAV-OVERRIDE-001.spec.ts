@@ -12,7 +12,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * through a real bootstrap. This does, following the same pattern the repository already uses for the
  * API-route domain (`TC-UMES-022`, where the example app applies a real override so a test can prove
  * it): `apps/mercato/src/modules.ts` applies `nav: { groupOrder: ['example.nav.group'] }` to the
- * `example` entry.
+ * `example` entry only under `OM_INTEGRATION_TEST`, which the ephemeral runner sets for the app.
  *
  * Verified-against-source contract:
  * - `overrides.nav.groupOrder` prepends group ids ahead of the built-in `defaultGroupOrder`
