@@ -135,7 +135,10 @@ export default function LoginPage() {
       try {
         const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-om-unauthorized-redirect': '0',
+          },
           body: JSON.stringify({ features: [] }),
           cache: 'no-store',
         })

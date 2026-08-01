@@ -6,6 +6,7 @@ export const metadata = {
   pageGroup: 'Currencies',
   pageGroupKey: 'currencies.nav.group',
   pageOrder: 20,
+  pageContext: 'settings' as const,
   icon: 'refresh-cw',
   breadcrumb: [
     { label: 'Currencies', labelKey: 'currencies.page.title', href: '/backend/currencies' },

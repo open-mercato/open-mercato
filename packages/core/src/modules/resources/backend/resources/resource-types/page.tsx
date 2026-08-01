@@ -20,6 +20,9 @@ import { Package } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('resources').child({ component: 'resource-types-page' })
 
 const PAGE_SIZE = 50
 const DESCRIPTION_CLASSNAME = 'line-clamp-3 whitespace-pre-line text-sm text-foreground'
@@ -228,7 +231,7 @@ export default function ResourcesResourceTypesPage() {
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (error) {
-      console.error('resources.resource-types.list', error)
+      logger.error('Failed to list resource types', { err: error })
       flash(translations.errors.load, 'error')
     } finally {
       setIsLoading(false)
@@ -271,7 +274,7 @@ export default function ResourcesResourceTypesPage() {
       flash(translations.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
-      console.error('resources.resource-types.delete', error)
+      logger.error('Failed to delete resource type', { err: error })
       flash(translations.errors.delete, 'error')
     }
   }, [confirm, handleRefresh, runResourceTypeMutation, translations.actions.deleteConfirm, translations.errors.delete, translations.errors.deleteAssigned, translations.messages.deleted])

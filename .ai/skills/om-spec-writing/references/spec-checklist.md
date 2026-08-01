@@ -27,6 +27,7 @@ Append to changelog:
 
 ## 1. Design Logic & Phasing
 - [ ] TLDR defines scope, value, and clear boundaries.
+- [ ] Spec covers ONE independently deployable capability. Bundle signals: the spec's own TLDR or Design Decisions admits parts function without each other ("separate module", "either functions without the other", "must run even if X is disabled") while the coupling is a single integration seam. A SPLIT verdict goes back to the maintainer as an Open Question, not an automatic rewrite. At review time, run this item in a fresh-context subagent given only the spec file.
 - [ ] MVP is explicit; future work is deferred and labeled.
 - [ ] User stories/use cases map to API/data/UI sections.
 - [ ] Terminology aligns with existing modules and AGENTS naming.

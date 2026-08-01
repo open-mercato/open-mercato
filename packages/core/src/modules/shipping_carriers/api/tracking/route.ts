@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { CarrierShipmentNotFoundError, type ShippingCarrierService } from '../../lib/shipping-service'
+import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { trackingQuerySchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -34,8 +35,10 @@ export async function GET(req: Request) {
     })
     return NextResponse.json(tracking)
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to fetch tracking'
-    return NextResponse.json({ error: message }, { status: 502 })
+    if (error instanceof CarrierShipmentNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 })
+    }
+    return shippingCarrierUpstreamErrorResponse('tracking.get', error)
   }
 }
 
@@ -48,6 +51,7 @@ export const openApi = {
       tags: [shippingCarriersTag],
       responses: [
         { status: 200, description: 'Tracking returned' },
+        { status: 404, description: 'Shipment not found' },
         { status: 422, description: 'Validation failed' },
         { status: 502, description: 'Provider upstream error' },
       ],

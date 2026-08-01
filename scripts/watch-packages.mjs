@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
 import {
   AUTO_EXPAND_INTERVAL_MS,
+  describeWatchMode,
   detectTouchedPackages,
   discoverWatchTargets,
   resolveWatchScope,
@@ -230,8 +231,9 @@ export async function runConsolidatedWatch({
   const selection = selectWatchedPackages({ packages: allPackages, config: scopeConfig, root, runGit })
   const selected = selection.selected.length ? selection.selected : allPackages
 
+  const watchMode = describeWatchMode(selection.mode)
+  log(`[watch] watch scope: ${watchMode.emoji} ${watchMode.mode} — ${selection.reason}`)
   if (selection.mode !== 'all') {
-    log(`[watch] watch scope: ${selection.mode} — ${selection.reason}`)
     const excluded = allPackages.length - selected.length
     if (excluded > 0) {
       log(`[watch] watch scope: ${excluded} of ${allPackages.length} package(s) are not watched (set OM_WATCH_SCOPE=all to watch everything)`)

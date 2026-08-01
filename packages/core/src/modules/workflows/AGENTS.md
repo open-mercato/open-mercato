@@ -10,7 +10,7 @@ Use the workflows module for business process automation: defining step-based wo
 4. **MUST follow the instance state machine** — instances transition `RUNNING → COMPLETED|FAILED|CANCELLED`; intermediate states include `PAUSED`, `WAITING_FOR_ACTIVITIES`, `COMPENSATING`
 5. **MUST keep activity handlers idempotent** — check state before mutating; activities may be retried on failure
 6. **MUST use event sourcing** — log all workflow events via `eventLogger.logWorkflowEvent()`; never mutate instance state without a corresponding event
-7. **MUST use variable interpolation** for dynamic activity config — use `{{context.*}}`, `{{workflow.*}}`, `{{env.*}}`, `{{now}}`; never hardcode values
+7. **MUST use variable interpolation** for dynamic activity config — use `{{context.*}}`, `{{workflow.*}}`, server-allowlisted non-secret `{{env.*}}` keys such as `{{env.APP_URL}}`, and `{{now}}`; never hardcode values or read secrets from `{{env.*}}`
 8. **MUST use event triggers, signals, and widget injection** for cross-module integration.
 9. **MUST declare new events in `events.ts`** with `as const` — undeclared events trigger TypeScript errors and runtime warnings
 10. **MUST scope all queries by `organization_id`** — workflow data is tenant-scoped; never expose cross-tenant instances or tasks
@@ -99,6 +99,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | Variable | Effect | Default |
 |----------|--------|---------|
 | `OM_WORKFLOWS_ALLOW_PRIVATE_URLS` | When `1`/`true`/`yes`, bypasses the SSRF guard in `CALL_WEBHOOK` so workflow authors can hit `localhost`, RFC1918, and `.internal` targets. For dev only — MUST remain unset in production. | unset (guard enforced) |
+| `OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST` | Comma-separated non-secret process env keys allowed for `{{env.*}}` interpolation in workflow activity config. `APP_URL` is always allowed. Never include secrets. | unset (`APP_URL` only) |
 
 ## DI Services
 
@@ -140,6 +141,28 @@ Configure automatic workflow starts from domain events:
 4. Configure `filterConditions` to narrow which events match
 5. Configure `contextMapping` to extract event payload into workflow context
 6. Use `debounceMs` and `maxConcurrentInstances` to prevent trigger storms
+
+### Trigger Sources And Precedence
+
+`loadTriggersForTenant()` (`lib/event-trigger-service.ts`) merges three sources into `UnifiedTrigger`s, each tagged with a `source` discriminator:
+
+| `source` | Origin | Notes |
+|----------|--------|-------|
+| `legacy` | `workflow_event_triggers` rows | Backward compatibility with triggers created before triggers were embedded in definitions |
+| `embedded` | `triggers[]` inside a `workflow_definitions` row's `definition` JSONB | What the visual editor and the definitions API write |
+| `code` | `triggers[]` on a code-defined workflow in the in-memory registry (`defineWorkflow`) | Projected by `loadCodeTriggers()`; no DB row required (#4425) |
+
+Precedence: **a DB-backed definition wins over its code counterpart.** Any non-deleted `workflow_definitions` row shadows the code projection for the same `workflowId` — including a disabled row, and including a customization whose `triggers[]` was emptied. This preserves `customize` semantics: once an operator materializes a code workflow, the DB row alone decides which triggers are live.
+
+MUST invalidate the trigger cache after any write that changes which source owns a workflow's triggers — `loadTriggersForTenant()` caches per tenant/organization for `TRIGGER_CACHE_TTL` (5 min), so without invalidation the wildcard subscriber keeps matching a stale snapshot:
+
+```typescript
+import { invalidateTriggerCache } from '../lib/event-trigger-service'
+
+if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
+```
+
+This covers definition create/update/delete **and** `POST .../[id]/customize` (code projection → embedded row) and `POST .../[id]/reset-to-code` (embedded row → code projection). Invalidate for the **written row's own** tenant/organization rather than the caller's — `customize` looks an override up by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization. Omitting `organizationId` clears every organization under the tenant.
 
 ## Widget Injection
 

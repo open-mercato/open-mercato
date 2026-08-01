@@ -4,6 +4,9 @@ import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '../primitives/button'
 import { Check, Copy, ChevronRight, ChevronDown } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 type JsonDisplayProps = {
   data: unknown
@@ -51,7 +54,7 @@ export function JsonDisplay({
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
-      console.error('Failed to copy to clipboard:', err)
+      logger.error('Failed to copy to clipboard', { err })
     }
   }, [jsonString])
 

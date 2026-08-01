@@ -25,6 +25,10 @@ import {
   normalizeDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { SALES_DOCUMENT_NUMBER_COLUMN_META } from './salesDocumentsColumns'
+import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit-memo'
 
@@ -154,6 +158,7 @@ function normalizeNumberInput(value: unknown): number | null {
 
 export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -290,7 +295,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false })
       setStatusMap(createDictionaryMap(entries))
     } catch (err) {
-      console.error('sales.documents.statuses.load', err)
+      logger.error('sales.documents.statuses.load', { err })
       setStatusMap({})
     }
   }, [])
@@ -326,12 +331,12 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
 
   React.useEffect(() => {
     if (supportsChannelsAndTags) {
-      loadChannelOptions().catch(() => {})
+      if (channelsEnabled) loadChannelOptions().catch(() => {})
       loadTagOptions().catch(() => {})
       loadCustomerOptions().catch(() => {})
       loadStatusMap().catch(() => setStatusMap({}))
     }
-  }, [loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion, supportsChannelsAndTags])
+  }, [channelsEnabled, loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion, supportsChannelsAndTags])
 
   const filters = React.useMemo<FilterDef[]>(() => {
     const base: FilterDef[] = [
@@ -365,13 +370,15 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           return match?.label ?? val
         },
       })
-      base.unshift({
-        id: 'channelId',
-        label: t('sales.documents.list.filters.channel', 'Channel'),
-        type: 'select',
-        options: channelOptions,
-        loadOptions: loadChannelOptions,
-      })
+      if (channelsEnabled) {
+        base.unshift({
+          id: 'channelId',
+          label: t('sales.documents.list.filters.channel', 'Channel'),
+          type: 'select',
+          options: channelOptions,
+          loadOptions: loadChannelOptions,
+        })
+      }
       base.push(
         {
           id: 'lineItemCountMin',
@@ -406,7 +413,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     }
 
     return base
-  }, [channelOptions, customerOptions, loadChannelOptions, loadCustomerOptions, loadTagOptions, supportsChannelsAndTags, tagOptions, t])
+  }, [channelsEnabled, channelOptions, customerOptions, loadChannelOptions, loadCustomerOptions, loadTagOptions, supportsChannelsAndTags, tagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -562,7 +569,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       setTotalPages(pages)
       setCacheStatus(call.cacheStatus ?? null)
     } catch (err) {
-      console.error('sales.documents.list', err)
+      logger.error('sales.documents.list', { err })
       flash(t('sales.documents.list.errors.load', 'Failed to load documents.'), 'error')
     } finally {
       setLoading(false)
@@ -629,7 +636,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         }
       } catch (err) {
         if (surfaceRecordConflict(err, t)) return
-        console.error('sales.documents.delete', err)
+        logger.error('sales.documents.delete', { err })
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
     },
@@ -776,13 +783,21 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     switch (kind) {
       case 'order':
       case 'quote':
-        return [numberColumn, customerColumn, channelColumn, lineItemCountColumn, totalNetColumn, totalGrossColumn, dateColumn]
+        return [
+          numberColumn,
+          customerColumn,
+          ...(channelsEnabled ? [channelColumn] : []),
+          lineItemCountColumn,
+          totalNetColumn,
+          totalGrossColumn,
+          dateColumn,
+        ]
       case 'invoice':
         return [numberColumn, customerColumn, dateColumn, dueDateColumn, totalGrossColumn, outstandingColumn]
       case 'credit-memo':
         return [numberColumn, customerColumn, reasonColumn, dateColumn, totalGrossColumn]
     }
-  }, [channelOptions, kind, numberColumnHeader, statusMap, t])
+  }, [channelsEnabled, channelOptions, kind, numberColumnHeader, statusMap, t])
 
   const emptyLabel = (() => {
     switch (kind) {
@@ -797,6 +812,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     <Page>
       <PageBody>
         <DataTable<SalesDocumentRow>
+          stickyFirstColumn
           stickyActionsColumn
           title={(
             <div className="flex flex-col">

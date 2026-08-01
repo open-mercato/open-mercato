@@ -34,7 +34,8 @@ export class ScimTokenService {
     scope: SsoAdminScope,
   ): Promise<ScimTokenCreateResult> {
     const where: Record<string, unknown> = { id: ssoConfigId, deletedAt: null }
-    if (!scope.isSuperAdmin && scope.organizationId) {
+    if (!scope.isSuperAdmin) {
+      if (!scope.organizationId) throw new ScimTokenError('Organization context is required', 403)
       where.organizationId = scope.organizationId
     }
     const config = await this.em.findOne(SsoConfig, where)
@@ -54,8 +55,8 @@ export class ScimTokenService {
       tokenPrefix,
       isActive: true,
       createdBy: null,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId!,
+      tenantId: config.tenantId ?? null,
+      organizationId: config.organizationId,
     } as RequiredEntityData<ScimToken>)
 
     await this.em.persist(token).flush()

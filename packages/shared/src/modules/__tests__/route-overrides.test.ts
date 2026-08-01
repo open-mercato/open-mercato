@@ -26,7 +26,22 @@ import {
   resetModuleContractOverridesForTests,
   type ApiRouteOverridesMap,
 } from '../overrides'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerWarn = createLogger('shared').warn as jest.Mock
 import {
+
   getApiRouteManifests,
   getBackendRouteManifests,
   getFrontendRouteManifests,
@@ -165,20 +180,19 @@ describe('applyApiOverridesToManifests', () => {
   })
 
   it('warns when an override key does not match any manifest entry', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     applyApiOverridesToManifests([makeEntry('a', '/api/foo', ['GET'])], {
       'GET /api/missing': null,
     })
-    const staleCalls = warnSpy.mock.calls.filter((args) =>
+    const staleCalls = loggerWarn.mock.calls.filter((args) =>
       typeof args[0] === 'string' && args[0].includes('did not match any registered API route'),
     )
     expect(staleCalls).toHaveLength(1)
-    expect(staleCalls[0][0]).toContain('GET /api/missing')
-    warnSpy.mockRestore()
+    expect(staleCalls[0][1]).toEqual(expect.objectContaining({ key: 'GET /api/missing' }))
   })
 
   it('skips malformed override values (not null and not a definition)', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     const entries = [makeEntry('a', '/api/foo', ['GET'])]
     const result = applyApiOverridesToManifests(entries, {
       // @ts-expect-error intentionally malformed
@@ -186,8 +200,7 @@ describe('applyApiOverridesToManifests', () => {
     })
     expect(result).toHaveLength(1)
     expect(result[0].methods).toEqual(['GET'])
-    expect(warnSpy).toHaveBeenCalled()
-    warnSpy.mockRestore()
+    expect(loggerWarn).toHaveBeenCalled()
   })
 })
 
@@ -203,17 +216,16 @@ describe('applyApiRouteOverrides (programmatic)', () => {
   })
 
   it('warns on malformed keys and skips them', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     applyApiRouteOverrides({
       'NOT_A_METHOD /api/foo': null,
       'GET': null,
       '': null,
     })
     expect(Object.keys(composeApiRouteOverrides())).toHaveLength(0)
-    expect(warnSpy.mock.calls.filter((c) =>
+    expect(loggerWarn.mock.calls.filter((c) =>
       typeof c[0] === 'string' && c[0].includes('malformed routes.api key'),
     )).toHaveLength(3)
-    warnSpy.mockRestore()
   })
 
   it('supersedes modules.ts inline overrides for the same key', () => {
@@ -231,23 +243,22 @@ describe('applyApiRouteOverrides (programmatic)', () => {
 
 describe('dispatcher → routes applier', () => {
   it('routes `overrides.routes.api` to the wired applier without the "not yet wired" warning', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     applyModuleOverridesFromEnabledModules([
       {
         id: 'app',
         overrides: { routes: { api: { 'GET /api/foo': null } } },
       },
     ])
-    const unwiredCalls = warnSpy.mock.calls.filter((args) =>
-      typeof args[0] === 'string' && args[0].includes('Domain "routes" not yet wired'),
+    const unwiredCalls = loggerWarn.mock.calls.filter((args) =>
+      typeof args[0] === 'string' && args[0].includes('not yet wired') && args[1]?.domain === 'routes',
     )
     expect(unwiredCalls).toHaveLength(0)
     expect(composeApiRouteOverrides()['GET /api/foo']).toBeNull()
-    warnSpy.mockRestore()
   })
 
   it('routes `overrides.routes.pages` to the page override composer', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     applyModuleOverridesFromEnabledModules([
       {
         id: 'first',
@@ -271,7 +282,7 @@ describe('dispatcher → routes applier', () => {
         },
       },
     ])
-    const unwiredCalls = warnSpy.mock.calls.filter((args) =>
+    const unwiredCalls = loggerWarn.mock.calls.filter((args) =>
       typeof args[0] === 'string' && args[0].includes('not yet wired'),
     )
     expect(unwiredCalls).toHaveLength(0)
@@ -280,7 +291,6 @@ describe('dispatcher → routes applier', () => {
       'backend:/backend/bar': null,
       'frontend:/store': { metadata: { title: 'Store Override' } },
     })
-    warnSpy.mockRestore()
   })
 
   it('preserves module load order when multiple entries override the same key (last wins)', () => {
@@ -301,7 +311,7 @@ describe('dispatcher → routes applier', () => {
   })
 
   it('ignores malformed sub-keys but still processes well-formed ones', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     const handler = makeHandler('ok')
     applyModuleOverridesFromEnabledModules([
       {
@@ -317,10 +327,9 @@ describe('dispatcher → routes applier', () => {
       },
     ])
     expect(composeApiRouteOverrides()['GET /api/ok']).toEqual({ handler })
-    expect(warnSpy.mock.calls.filter((c) =>
+    expect(loggerWarn.mock.calls.filter((c) =>
       typeof c[0] === 'string' && c[0].includes('malformed routes.api key'),
     )).toHaveLength(1)
-    warnSpy.mockRestore()
   })
 })
 

@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
@@ -38,6 +38,9 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const fallbackShipmentLogger = createLogger('sales').child({ component: 'shipments' })
 
 const shipmentCrudEvents: CrudEventsConfig = {
   module: 'sales',
@@ -156,8 +159,7 @@ const logShipmentDeleteScopeRejection = (
     logger.warn(payload, reason)
     return
   }
-  // eslint-disable-next-line no-console
-  console.warn(`[sales.shipments.delete] ${reason}`, payload)
+  fallbackShipmentLogger.warn(reason, payload)
 }
 
 export async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<ShipmentSnapshot | null> {
@@ -338,7 +340,7 @@ async function loadOrder(
   scope?: { tenantId: string; organizationId: string }
 ): Promise<SalesOrder> {
   const order = await findOneWithDecryption(em, SalesOrder, { id, deletedAt: null }, {}, scope)
-  if (!order) throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
+  if (!order) throw notFound('sales.shipments.not_found')
   return order
 }
 
@@ -401,7 +403,7 @@ async function validateShipmentItems(params: {
     }
     const line = lineMap.get(lineId)
     if (!line) {
-      throw new CrudHttpError(404, { error: translate('sales.shipments.line_missing', 'Order line not found.') })
+      throw notFound(translate('sales.shipments.line_missing', 'Order line not found.'))
     }
     const lineTotal = toNumber(line.quantity)
     const alreadyShipped = shippedTotals.get(lineId) ?? 0
@@ -673,7 +675,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         { tenantId: input.tenantId, organizationId: input.organizationId },
       )
       if (!shipmentEntity || !shipmentEntity.order) {
-        throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
+        throw notFound('sales.shipments.not_found')
       }
       ensureSameScope(shipmentEntity, input.organizationId, input.tenantId)
       const order = shipmentEntity.order as SalesOrder
@@ -968,7 +970,7 @@ const deleteShipmentCommand: CommandHandler<
         { tenantId: payload.tenantId, organizationId: payload.organizationId },
       )
       if (!shipmentEntity || !shipmentEntity.order) {
-        throw new CrudHttpError(404, { error: translate('sales.shipments.not_found', 'Shipment not found') })
+        throw notFound(translate('sales.shipments.not_found', 'Shipment not found'))
       }
       try {
         ensureSameScope(shipmentEntity, payload.organizationId, payload.tenantId)

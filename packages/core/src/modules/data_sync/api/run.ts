@@ -13,6 +13,9 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('data_sync').child({ component: 'run' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['data_sync.run'] },
@@ -138,7 +141,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const stack = error instanceof Error ? error.stack : undefined
-    console.error('[data_sync.run] unhandled error', { message, stack })
+    logger.error('Unhandled error starting sync run', { message, stack })
     return NextResponse.json(
       { error: 'Failed to start data sync run.' },
       { status: 500 },

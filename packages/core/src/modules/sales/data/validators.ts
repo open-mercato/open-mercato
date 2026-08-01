@@ -624,6 +624,38 @@ export const quoteAdjustmentUpdateSchema = z
   })
   .merge(quoteAdjustmentCreateSchema.partial())
 
+export const ORDER_PAYMENT_LEDGER_FIELDS = [
+  'paidTotalAmount',
+  'refundedTotalAmount',
+  'outstandingAmount',
+] as const
+
+export type OrderPaymentLedgerField = (typeof ORDER_PAYMENT_LEDGER_FIELDS)[number]
+
+export const ORDER_PAYMENT_LEDGER_WARNING_CODE =
+  'sales.order.payment_ledger_input_deprecated' as const
+
+export type OrderPaymentLedgerWarning = {
+  code: typeof ORDER_PAYMENT_LEDGER_WARNING_CODE
+  fields: OrderPaymentLedgerField[]
+}
+
+export function resolveSuppliedOrderPaymentLedgerFields(value: unknown): OrderPaymentLedgerField[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return ORDER_PAYMENT_LEDGER_FIELDS.filter((field) =>
+    Object.prototype.hasOwnProperty.call(value, field),
+  )
+}
+
+const orderPaymentLedgerShape = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount: decimal().optional(),
+}
+
 const orderTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
@@ -634,9 +666,6 @@ const orderTotalsSchema = z.object({
   surchargeTotalAmount: decimal({ min: 0 }).optional(),
   grandTotalNetAmount: decimal({ min: 0 }).optional(),
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
-  paidTotalAmount: decimal({ min: 0 }).optional(),
-  refundedTotalAmount: decimal({ min: 0 }).optional(),
-  outstandingAmount: decimal().optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
 
@@ -649,6 +678,8 @@ const quoteTotalsSchema = z.object({
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
+
+export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
 
 export const orderCreateSchema = scoped.extend({
   orderNumber: z.string().trim().min(1).max(191).optional(),
@@ -686,10 +717,15 @@ export const orderCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
-  lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
+  lines: z
+    .array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
+      error: SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
+    })
+    .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
   ...orderTotalsSchema.shape,
+  ...orderPaymentLedgerShape,
 })
 
 export const orderUpdateSchema = z
@@ -1048,8 +1084,23 @@ export type PaymentMethodCreateInput = z.infer<typeof paymentMethodCreateSchema>
 export type PaymentMethodUpdateInput = z.infer<typeof paymentMethodUpdateSchema>
 export type TaxRateCreateInput = z.infer<typeof taxRateCreateSchema>
 export type TaxRateUpdateInput = z.infer<typeof taxRateUpdateSchema>
-export type OrderCreateInput = z.infer<typeof orderCreateSchema>
-export type OrderUpdateInput = z.infer<typeof orderUpdateSchema>
+export type DeprecatedOrderPaymentLedgerInput = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount?: number
+}
+
+export type OrderCreateInput = Omit<
+  z.infer<typeof orderCreateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
+export type OrderUpdateInput = Omit<
+  z.infer<typeof orderUpdateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
 export type OrderLineCreateInput = z.infer<typeof orderLineCreateSchema>
 export type OrderLineUpdateInput = z.infer<typeof orderLineUpdateSchema>
 export type OrderAdjustmentCreateInput = z.infer<typeof orderAdjustmentCreateSchema>

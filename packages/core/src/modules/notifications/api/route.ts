@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
+import { buildNotificationReadScopeWhere } from '../lib/notificationScope'
 import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
@@ -32,6 +33,7 @@ export async function GET(req: Request) {
   const filters: Record<string, unknown> = {
     recipientUserId: scope.userId,
     tenantId: scope.tenantId,
+    ...buildNotificationReadScopeWhere(scope),
   }
 
   if (input.status) {

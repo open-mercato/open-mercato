@@ -34,6 +34,9 @@ import {
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 import { isUuid, resolveConflictId, runAcceptIncoming } from './conflictResolution'
 import { isOptimisticLockFloorConflict } from '@open-mercato/enterprise/modules/record_locks/lib/optimisticLockFloor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('record_locks').child({ component: 'record-locking-widget' })
 
 type CrudInjectionContext = {
   formId?: string
@@ -556,7 +559,7 @@ function releaseLockWithKeepalive(state: {
     keepalive: true,
     credentials: 'include',
   }).catch((error) => {
-    console.warn('[RecordLockingWidget] Failed to release lock with keepalive fallback', error)
+    logger.warn('Failed to release lock with keepalive fallback', { err: error })
   })
 }
 
@@ -661,7 +664,7 @@ export default function RecordLockingWidget({
       token: current.lock.token,
       reason: 'cancelled',
     }).catch((error) => {
-      console.warn('[RecordLockingWidget] Failed to release lock while demoting owner', error)
+      logger.warn('Failed to release lock while demoting owner', { err: error })
     })
     clearRecordLockFormState(formId)
   }, [formId, isPrimaryInstance])

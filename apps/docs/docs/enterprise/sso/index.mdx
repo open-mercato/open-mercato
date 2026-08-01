@@ -98,6 +98,13 @@ JIT and SCIM cannot be enabled simultaneously on the same SSO config:
 | **TTL** | 5-minute state cookie lifetime |
 | **CSRF** | SameSite=Lax cookies + encrypted state parameter |
 | **Return URL** | Sanitized to prevent open redirects |
+| **Outbound Requests** | Discovery and all provider endpoints reject private/reserved or mixed DNS answers, pin the validated address, disable redirects, and enforce time/size limits |
+
+Public HTTPS identity providers work without additional configuration. For a private or on-premises
+provider, an operator must explicitly list every trusted private endpoint origin in
+`OM_SSO_OIDC_PRIVATE_ORIGIN_ALLOWLIST` (comma-separated exact HTTPS origins, including non-default
+ports). Discovered JWKS, token, and user-info origins are validated independently; allowing the
+issuer origin does not implicitly allow a different private origin.
 
 ### SCIM Security Controls
 
@@ -170,6 +177,7 @@ Google does not send group claims by default. Role mapping is not available for 
 | `SSO_STATE_SECRET` | Yes (production) | 32+ byte secret for state cookie encryption |
 | `APP_URL` / `NEXT_PUBLIC_APP_URL` | Recommended | Base URL for redirect URI construction |
 | `SSO_DEV_SEED` | No | Set to `true` to seed demo SSO config in development |
+| `OM_SSO_OIDC_PRIVATE_ORIGIN_ALLOWLIST` | No | Comma-separated exact HTTPS origins allowed to resolve to private ranges for trusted on-prem IdPs |
 
 ## Troubleshooting
 

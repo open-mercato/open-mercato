@@ -25,6 +25,9 @@ import type {
   ModuleResourceUsageTimeBucket,
   ModuleResourceUsageTimeBucketModule,
 } from '@open-mercato/shared/lib/modules/resource-usage'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('configs')
 
 const API_PATH = '/api/configs/module-telemetry'
 
@@ -628,7 +631,7 @@ function copyRowStats(module: RangeModuleSummary, translate: (key: string, fallb
       flash(translate('configs.moduleTelemetry.table.copySuccess', 'Row stats copied to clipboard.'), 'success')
     })
     .catch((err) => {
-      console.warn('[ModuleTelemetryPanel] clipboard write failed', err)
+      logger.warn('clipboard write failed', { component: 'ModuleTelemetryPanel', err })
       flash(translate('configs.moduleTelemetry.table.copyError', 'Failed to copy row stats.'), 'error')
     })
 }

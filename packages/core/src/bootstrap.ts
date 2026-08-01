@@ -18,6 +18,9 @@ import {
 import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('core')
 
 // Use globalThis to survive tsx/webpack module duplication (same pattern as container.ts DI registrars)
 const RL_GLOBAL_KEY = '__openMercatoRateLimiterService__'
@@ -57,7 +60,7 @@ export function getCachedCacheService(): CacheStrategy | null {
       try {
         service = createCacheService()
       } catch (err) {
-        console.warn('Cache service initialization failed; falling back to memory strategy:', (err as Error)?.message || err)
+        logger.warn('Cache service initialization failed; falling back to memory strategy', { err })
         service = createCacheService({ strategy: 'memory' })
       }
       ;(globalThis as any)[CACHE_GLOBAL_KEY] = service
@@ -70,7 +73,7 @@ export function getCachedCacheService(): CacheStrategy | null {
         ;(globalThis as any)[CACHE_SHUTDOWN_KEY] = true
       }
     } catch (err) {
-      console.warn('[cache] Failed to create cache service:', (err as Error)?.message || err)
+      logger.warn('Failed to create cache service', { component: 'cache', err })
     }
   }
   return service
@@ -86,7 +89,7 @@ export function getCachedRateLimiterService(): RateLimiterService | null {
       // memory strategy works synchronously, and Redis has an in-memory
       // insurance limiter so the first few requests are still protected)
       service.initialize().catch((err) => {
-        console.warn('[ratelimit] Async initialization failed:', (err as Error)?.message || err)
+        logger.warn('Async initialization failed', { component: 'ratelimit', err })
       })
       ;(globalThis as any)[RL_GLOBAL_KEY] = service
 
@@ -98,7 +101,7 @@ export function getCachedRateLimiterService(): RateLimiterService | null {
         ;(globalThis as any)[RL_SHUTDOWN_KEY] = true
       }
     } catch (err) {
-      console.warn('[ratelimit] Failed to create rate limiter service:', (err as Error)?.message || err)
+      logger.warn('Failed to create rate limiter service', { component: 'ratelimit', err })
     }
   }
   return service
@@ -113,7 +116,7 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       cache = createCacheService()
     } catch (err: any) {
-      console.warn('Cache service initialization failed; falling back to memory strategy:', err?.message || err)
+      logger.warn('Cache service initialization failed; falling back to memory strategy', { err })
       cache = createCacheService({ strategy: 'memory' })
     }
   }
@@ -128,7 +131,7 @@ export async function bootstrap(container: AwilixContainer) {
     eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, queueStrategy })
   } catch (err: any) {
     // Fall back to local strategy to avoid breaking the app on misconfiguration
-    console.warn('Event bus initialization failed; falling back to local strategy:', err?.message || err)
+    logger.warn('Event bus initialization failed; falling back to local strategy', { err })
     try {
       eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, queueStrategy: 'local' })
     } catch {
@@ -175,7 +178,7 @@ export async function bootstrap(container: AwilixContainer) {
       }
     }
   } catch (err) {
-    console.error("Failed to register module subscribers:", err);
+    logger.error("Failed to register module subscribers:", { err });
   }
 
   // KMS + tenant encryption
@@ -192,13 +195,13 @@ export async function bootstrap(container: AwilixContainer) {
       try {
         registerTenantEncryptionSubscriber(em, tenantEncryptionService)
       } catch (err) {
-        console.warn('[encryption] Failed to register MikroORM encryption subscriber:', (err as Error)?.message || err)
+        logger.warn('Failed to register MikroORM encryption subscriber', { component: 'encryption', err })
       }
     } else if (isTenantDataEncryptionEnabled() && !kmsService.isHealthy()) {
-      console.warn('[encryption] Vault/KMS unhealthy - tenant data encryption is disabled until recovery')
+      logger.warn('Vault/KMS unhealthy - tenant data encryption is disabled until recovery', { component: 'encryption' })
     }
   } catch (err) {
-    console.warn('[encryption] Failed to initialize tenant encryption service:', (err as Error)?.message || err)
+    logger.warn('Failed to initialize tenant encryption service', { component: 'encryption', err })
   }
 
   // Register rate limiter service (singleton via globalThis — reused across request containers)
@@ -236,6 +239,6 @@ export async function bootstrap(container: AwilixContainer) {
       // searchIndexer may not be available
     }
   } catch (err) {
-    console.warn('[search] Failed to register search module:', (err as Error)?.message || err)
+    logger.warn('Failed to register search module', { component: 'search', err })
   }
 }

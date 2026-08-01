@@ -98,6 +98,8 @@ packages/shared/src/lib/data/consistency.ts
 
 Coverage refresh is throttled (`shouldTriggerCoverageRefresh`, 5-min window, `engine.ts:40-48`) and intentionally eventually-consistent. **Decision:** when the flag is ON, run the coverage `COUNT` **inline and bypass the throttle for that write** so the badge count is converged on return. Document this as the most expensive part of the ON path. (Alternative considered: leave coverage eventual even when ON — rejected, because it would make "always consistent" misleading. Implementer may gate this sub-behavior behind the same flag with a code comment if COUNT cost proves prohibitive in bulk paths; if so, document the carve-out.)
 
+**Update (2026-07-05):** `query_index/subscribers/delete_one.ts` now has its own **independent** local throttle (`lastDeleteCoverageRefreshAt`, 5-min window, mirroring `shouldTriggerCoverageRefresh` rather than sharing its Map) so per-record deletes stop firing an unthrottled recount. An explicit `coverageDelayMs` on the payload already bypasses this local throttle (mirroring the shared engine's `scheduleCoverageRefresh` contract), and `suppressCoverage: true` skips the recount entirely — both are the levers a future ON-path implementation should use here, **in addition to** bypassing the shared engine's throttle at the `emitOrmEntityEvent` call site. Missing the `delete_one.ts`-local bypass would leave delete-triggered coverage recomputes throttled even with the flag ON.
+
 ### 4.6 Error propagation chain (must all be reversed when ON)
 
 For the flag to surface failures, propagation must be added at **each** swallow point — otherwise the awaited tail still fails silently and the flag is a no-op:

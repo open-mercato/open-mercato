@@ -46,6 +46,7 @@ export type MessageAction = {
 
 export type MessageDetail = {
   id: string
+  updatedAt?: string | null
   type: string
   isDraft: boolean
   canEditDraft: boolean

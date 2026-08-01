@@ -40,8 +40,11 @@ describe('DetailTabsLayout', () => {
     const tasksTab = getByRole('tab', { name: 'Tasks' })
 
     expect(notesTab).toHaveAttribute('type', 'button')
-    expect(notesTab.className).toContain('hover:bg-transparent')
+    expect(notesTab).toHaveAttribute('data-slot', 'tabs-trigger')
+    expect(notesTab).toHaveAttribute('data-variant', 'underline')
+    expect(notesTab).toHaveAttribute('data-state', 'active')
     expect(tasksTab).toHaveAttribute('type', 'button')
+    expect(tasksTab).toHaveAttribute('data-state', 'inactive')
 
     fireEvent.click(tasksTab)
 

@@ -48,6 +48,13 @@ jest.mock('../definitions.cache', () => ({
   invalidateDefinitionsCache: (...args: unknown[]) => invalidateDefinitionsCacheMock(...args),
 }))
 
+// The aggregate version is exercised in definitions.batch.optimistic-lock.test.ts.
+// Stub it here so these prefetch/bounds tests keep asserting on the mutation-loop
+// query shape without the version reader adding its own em.findOne calls.
+jest.mock('../../lib/definitions-version', () => ({
+  resolveEntityDefinitionsVersion: jest.fn(async () => null),
+}))
+
 const makeRequest = (body: unknown) =>
   new Request('http://x/api/entities/definitions/batch', {
     method: 'POST',

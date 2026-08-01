@@ -19,6 +19,9 @@ import type {
   DealsMapCanvasProps,
   DealsMapPreview,
 } from './DealsMapCanvas'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const leafletRuntime = ((L as { default?: typeof L }).default ?? L) as typeof L
 
@@ -29,8 +32,18 @@ const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 // True whenever the EFFECTIVE tile URL targets OSM's public CDN — whether from the bundled default
 // (env unset) OR an env value pointed back at the same public host. OSM's tile usage policy
-// prohibits production/commercial traffic against it.
-const USING_PUBLIC_OSM_TILES = TILE_URL.includes('tile.openstreetmap.org')
+// prohibits production/commercial traffic against it. Match on the parsed hostname rather than a raw
+// substring so a lookalike host (e.g. `tile.openstreetmap.org.example.com`) is not mistaken for OSM.
+function targetsPublicOsmTileHost(tileUrl: string): boolean {
+  try {
+    const { hostname } = new URL(tileUrl)
+    return hostname === 'openstreetmap.org' || hostname.endsWith('.openstreetmap.org')
+  } catch {
+    return false
+  }
+}
+
+const USING_PUBLIC_OSM_TILES = targetsPublicOsmTileHost(TILE_URL)
 
 let publicOsmTileWarningEmitted = false
 // Warn once (per session) so deployments point NEXT_PUBLIC_OM_DEALS_MAP_TILE_URL at a self-hosted or
@@ -38,9 +51,8 @@ let publicOsmTileWarningEmitted = false
 function warnOnPublicOsmTilesOnce(): void {
   if (publicOsmTileWarningEmitted || !USING_PUBLIC_OSM_TILES) return
   publicOsmTileWarningEmitted = true
-  // eslint-disable-next-line no-console
-  console.warn(
-    '[open-mercato] Deals map is using the public OpenStreetMap tile server. ' +
+  logger.warn(
+    'Deals map is using the public OpenStreetMap tile server. ' +
       "OSM's tile usage policy prohibits production/commercial traffic — point " +
       'NEXT_PUBLIC_OM_DEALS_MAP_TILE_URL at a self-hosted or commercial tile service before deploying.',
   )

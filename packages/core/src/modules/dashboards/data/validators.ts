@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+export const MAX_DASHBOARD_LAYOUT_ITEMS = 100
+export const MAX_DASHBOARD_WIDGET_ASSIGNMENTS = 200
+
 export const dashboardWidgetIdSchema = z.string().min(1)
 
 export const dashboardLayoutItemSchema = z.object({
@@ -12,7 +15,7 @@ export const dashboardLayoutItemSchema = z.object({
 })
 
 export const dashboardLayoutSchema = z.object({
-  items: z.array(dashboardLayoutItemSchema),
+  items: z.array(dashboardLayoutItemSchema).max(MAX_DASHBOARD_LAYOUT_ITEMS),
 })
 
 export const dashboardLayoutItemPatchSchema = z.object({
@@ -23,13 +26,13 @@ export const dashboardLayoutItemPatchSchema = z.object({
 
 export const roleWidgetSettingsSchema = z.object({
   roleId: z.string().uuid(),
-  widgetIds: z.array(dashboardWidgetIdSchema),
+  widgetIds: z.array(dashboardWidgetIdSchema).max(MAX_DASHBOARD_WIDGET_ASSIGNMENTS),
 })
 
 export const userWidgetSettingsSchema = z.object({
   userId: z.string().uuid(),
   mode: z.enum(['inherit', 'override']).default('inherit'),
-  widgetIds: z.array(dashboardWidgetIdSchema),
+  widgetIds: z.array(dashboardWidgetIdSchema).max(MAX_DASHBOARD_WIDGET_ASSIGNMENTS),
 })
 
 export type DashboardLayoutPayload = z.infer<typeof dashboardLayoutSchema>

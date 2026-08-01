@@ -21,6 +21,9 @@ import {
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -162,7 +165,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Error listing workflow definitions:', error)
+    logger.error('Error listing workflow definitions', { err: error })
     return NextResponse.json(
       { error: 'Failed to list workflow definitions' },
       { status: 500 }
@@ -275,7 +278,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.error('Error creating workflow definition:', error)
+    logger.error('Error creating workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to create workflow definition' },
       { status: 500 }

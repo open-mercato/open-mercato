@@ -1,7 +1,10 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { handleOpenCodeHealth } from '../../lib/opencode-handlers'
+
+const logger = createLogger('ai_assistant')
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -30,7 +33,7 @@ export async function GET(req: NextRequest) {
     const health = await handleOpenCodeHealth()
     return NextResponse.json(health)
   } catch (error) {
-    console.error('[AI Health] Error:', error)
+    logger.error('AI Health — Error', { err: error })
     return NextResponse.json(
       { error: 'Failed to check health', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

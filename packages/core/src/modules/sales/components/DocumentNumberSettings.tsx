@@ -15,6 +15,9 @@ import {
   DEFAULT_ORDER_NUMBER_FORMAT,
   DEFAULT_QUOTE_NUMBER_FORMAT,
 } from '../lib/documentNumberTokens'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type SettingsResponse = {
   orderNumberFormat: string
@@ -115,7 +118,7 @@ export function DocumentNumberSettings() {
         flash(translations.errors.load, 'error')
       }
     } catch (err) {
-      console.error('sales.document-number-settings.load failed', err)
+      logger.error('sales.document-number-settings.load failed', { err })
       flash(translations.errors.load, 'error')
     } finally {
       setLoading(false)
@@ -164,7 +167,7 @@ export function DocumentNumberSettings() {
       setTokens(Array.isArray(call.result?.tokens) && call.result.tokens.length ? call.result.tokens : DOCUMENT_NUMBER_TOKENS)
       flash(translations.messages.saved, 'success')
     } catch (err) {
-      console.error('sales.document-number-settings.save failed', err)
+      logger.error('sales.document-number-settings.save failed', { err })
       flash(translations.errors.save, 'error')
     } finally {
       setSaving(false)

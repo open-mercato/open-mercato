@@ -11,6 +11,9 @@ import type { AwilixContainer } from 'awilix'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'redo' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['audit_logs.redo_self'] },
@@ -157,7 +160,7 @@ export async function POST(req: Request) {
     }
     return response
   } catch (err) {
-    console.error('Redo failed', err)
+    logger.error('Redo failed', { err })
     return NextResponse.json({ error: 'Redo failed' }, { status: 400 })
   }
 }

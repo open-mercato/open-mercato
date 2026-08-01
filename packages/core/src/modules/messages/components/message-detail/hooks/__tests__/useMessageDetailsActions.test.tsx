@@ -4,14 +4,17 @@
 
 import { act, renderHook } from '@testing-library/react'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { useMessageDetailsActions } from '../useMessageDetailsActions'
 import type { MessageAction, MessageDetail } from '../../types'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => unknown) => run()),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -79,6 +82,8 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     // the underlying apiCall/refetch/success behavior is preserved.
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
     mockApiCall.mockResolvedValue(okResult({ ok: true }))
+    ;(withScopedApiRequestHeaders as jest.Mock).mockClear()
+    dismissRecordConflict()
   })
 
   it('routes message read toggle through runMutation and refetches', async () => {
@@ -111,8 +116,8 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     expect(mockApiCall).toHaveBeenCalledWith('/api/messages/message-1/archive', { method: 'PUT' })
   })
 
-  it('routes message delete through runMutation and preserves success navigation', async () => {
-    const { result, onDeleted } = setup()
+  it('routes message delete through runMutation with the optimistic-lock header and preserves success navigation', async () => {
+    const { result, onDeleted } = setup({ updatedAt: '2026-06-18T00:00:00.000Z' })
 
     await act(async () => {
       await result.current.handleDelete()
@@ -122,6 +127,10 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({ resourceKind: 'message', action: 'delete' }),
     }))
+    expect(withScopedApiRequestHeaders).toHaveBeenCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-06-18T00:00:00.000Z' },
+      expect.any(Function),
+    )
     expect(mockApiCall).toHaveBeenCalledWith('/api/messages/message-1', { method: 'DELETE' })
     expect(onDeleted).toHaveBeenCalledTimes(1)
     expect(mockFlash).toHaveBeenCalledWith('Message deleted.', 'success')
@@ -173,7 +182,7 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
     expect(refetch).toHaveBeenCalledTimes(1)
   })
 
-  it('surfaces failures through the guarded path (conflict / error)', async () => {
+  it('surfaces a 409 optimistic-lock conflict on the shared banner instead of a generic flash', async () => {
     mockApiCall.mockResolvedValue({
       ok: false,
       status: 409,
@@ -187,16 +196,38 @@ describe('useMessageDetailsActions guarded writes (#3258)', () => {
       cacheStatus: null,
     })
 
+    const { result, onDeleted } = setup({ updatedAt: '2026-06-18T00:00:00.000Z' })
+
+    await act(async () => {
+      await result.current.handleDelete()
+    })
+
+    // A stale-version 409 routes to the shared RecordConflictBanner, not a
+    // transient flash, and never navigates away (#3260).
+    expect(mockRunMutation).toHaveBeenCalledTimes(1)
+    expect(onDeleted).not.toHaveBeenCalled()
+    expect(getRecordConflictForTest()).not.toBeNull()
+    expect(mockFlash).not.toHaveBeenCalledWith(expect.any(String), 'error')
+  })
+
+  it('flashes a generic error when a non-conflict write fails', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: false,
+      status: 500,
+      result: { error: 'Boom' },
+      response: {} as Response,
+      cacheStatus: null,
+    })
+
     const { result, onDeleted } = setup()
 
     await act(async () => {
       await result.current.handleDelete()
     })
 
-    // The mutation still flows through the guard (which owns conflict
-    // surfacing), and the failure is reported via flash rather than navigation.
     expect(mockRunMutation).toHaveBeenCalledTimes(1)
     expect(onDeleted).not.toHaveBeenCalled()
+    expect(getRecordConflictForTest()).toBeNull()
     expect(mockFlash).toHaveBeenCalledWith(expect.any(String), 'error')
   })
 
@@ -231,6 +262,8 @@ describe('useMessageDetailsActions mark-unread redirect (#3576)', () => {
     mockUseGuardedMutation.mockClear()
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
     mockApiCall.mockResolvedValue(okResult({ ok: true }))
+    ;(withScopedApiRequestHeaders as jest.Mock).mockClear()
+    dismissRecordConflict()
   })
 
   it('navigates back to the inbox after marking a read message unread', async () => {

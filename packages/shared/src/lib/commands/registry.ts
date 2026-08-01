@@ -1,4 +1,7 @@
 import type { CommandHandler } from './types'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
 
 export type CommandLoader = {
   id?: string | null
@@ -21,7 +24,7 @@ class CommandRegistry {
     if (this.handlers.has(handler.id)) {
       if (process.env.NODE_ENV === 'development') {
         if (!this.didWarnAboutDevelopmentReregistration) {
-          console.debug('[Bootstrap] Commands re-registered (this may occur during HMR)')
+          logger.debug('Commands re-registered (this may occur during HMR)')
           this.didWarnAboutDevelopmentReregistration = true
         }
         this.handlers.set(handler.id, handler)
@@ -42,7 +45,7 @@ class CommandRegistry {
           throw new Error(`Duplicate command loader registration for id ${loader.id}`)
         }
         if (this.loadersById.has(loader.id) && process.env.NODE_ENV === 'development' && !this.didWarnAboutDevelopmentLoaderReregistration) {
-          console.debug('[Bootstrap] Command loaders re-registered (this may occur during HMR)')
+          logger.debug('Command loaders re-registered (this may occur during HMR)')
           this.didWarnAboutDevelopmentLoaderReregistration = true
         }
         this.loadersById.set(loader.id, loader)
@@ -55,7 +58,7 @@ class CommandRegistry {
         throw new Error(`Duplicate command loader registration for key ${key}`)
       }
       if (existing.has(key) && process.env.NODE_ENV === 'development' && !this.didWarnAboutDevelopmentLoaderReregistration) {
-        console.debug('[Bootstrap] Command loaders re-registered (this may occur during HMR)')
+        logger.debug('Command loaders re-registered (this may occur during HMR)')
         this.didWarnAboutDevelopmentLoaderReregistration = true
       }
       existing.set(key, loader)

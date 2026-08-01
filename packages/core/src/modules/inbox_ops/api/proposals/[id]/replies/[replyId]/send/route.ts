@@ -16,6 +16,9 @@ import {
   handleRouteError,
   isErrorResponse,
 } from '../../../../../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'reply-send' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.replies.send'] },
@@ -159,7 +162,7 @@ export async function POST(req: Request) {
           { metadata: raw(`"metadata" - 'replySendClaimedAt'`) },
         )
       } catch (releaseError) {
-        console.error('[inbox_ops:reply:send] Failed to release send claim:', releaseError)
+        logger.error('Failed to release send claim', { err: releaseError })
       }
     }
 
@@ -211,7 +214,7 @@ export async function POST(req: Request) {
         messageRecordId: messagesResult?.messageId ?? null,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:reply:send] Failed to emit event:', eventError)
+      logger.error('Failed to emit event', { err: eventError })
     }
 
     return NextResponse.json({

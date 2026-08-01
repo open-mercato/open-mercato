@@ -7,3 +7,11 @@
 
 # Shell scripts must always be LF.
 *.sh text eol=lf
+
+# Batch files are stored with literal CRLF bytes (-text disables all
+# normalization): `eol=crlf` would only fix git checkouts, while the
+# documented bare-machine path downloads the raw blob from GitHub — raw
+# serves repo bytes, and cmd.exe parsing of LF-only batch files is fragile.
+*.bat -text
+# PowerShell is newline-agnostic; CRLF checkout is just editor-friendliness.
+*.ps1 text eol=crlf

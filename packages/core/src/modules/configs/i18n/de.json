@@ -179,7 +179,19 @@
   "configs.systemStatus.variables.passwordRequireUppercase.label": "Passwort erfordert Großbuchstabe",
   "configs.systemStatus.variables.queryEngineDebugSql.description": "Roh-SQL der Hybrid-Query-Engine protokollieren.",
   "configs.systemStatus.variables.queryEngineDebugSql.label": "Query-Engine-SQL-Debug",
+  "configs.systemStatus.variables.queryIndexWarmupConcurrency.description": "Anzahl der Coverage-Refreshes, die pro Block während des Warmups nach der Anmeldung ausgelöst werden.",
+  "configs.systemStatus.variables.queryIndexWarmupConcurrency.label": "Warmup-Blockgröße",
+  "configs.systemStatus.variables.queryIndexWarmupEnabled.description": "Schalter zum Deaktivieren des Coverage-Warmups nach der Anmeldung.",
+  "configs.systemStatus.variables.queryIndexWarmupEnabled.label": "Coverage-Warmup aktiviert",
+  "configs.systemStatus.variables.queryIndexWarmupStaggerMs.description": "Verzögerung in Millisekunden zwischen Warmup-Blöcken, um die Spitzenlast bei Speicher/Verbindungen zu verteilen.",
+  "configs.systemStatus.variables.queryIndexWarmupStaggerMs.label": "Warmup-Staffelung",
+  "configs.systemStatus.variables.queryIndexWarmupThrottleMs.description": "Mindestabstand in Millisekunden zwischen Warmup-Durchläufen für denselben Entitätstyp und Mandanten.",
+  "configs.systemStatus.variables.queryIndexWarmupThrottleMs.label": "Warmup-Drosselfenster",
   "configs.systemStatus.variables.scheduleAutoReindex.description": "Automatisch Query-Index-Neuindizierungsaufträge bei Lücken planen.",
   "configs.systemStatus.variables.scheduleAutoReindex.label": "Automatische Neuindizierung",
-  "configs.systemStatus.viewDocs": "Dokumentation anzeigen"
+  "configs.systemStatus.viewDocs": "Dokumentation anzeigen",
+  "configs.upgrades.attachmentsOrgReconcile.cta": "Anhang-Organisationen abgleichen",
+  "configs.upgrades.attachmentsOrgReconcile.loading": "Anhang-Organisationen werden abgeglichen…",
+  "configs.upgrades.attachmentsOrgReconcile.message": "Version {{version}} behebt Anhänge, die unter der falschen Organisation gespeichert wurden. Führen Sie den Abgleich aus, um vorhandene Anhänge in die Organisation des zugehörigen Datensatzes zu verschieben.",
+  "configs.upgrades.attachmentsOrgReconcile.success": "Anhang-Organisationen abgeglichen."
 }

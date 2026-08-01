@@ -14,6 +14,7 @@ import {
 } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
+import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fieldsets'
 import { installCustomEntitiesFromModules } from '../lib/install-from-ce'
@@ -25,6 +26,12 @@ import {
   FIELD_DEFINITION_RESOURCE_KIND,
 } from './definitions.mutation-guard'
 import {
+  canReadAllEntityMetadata,
+  canReadEntityMetadata,
+  getDeclaredCustomEntityRestriction,
+  resolveEntityAclRequirement,
+} from '../lib/entityAcl'
+import {
   createExactDefinitionWhere,
   createScopedDefinitionTombstone,
   createVisibleDefinitionWhere,
@@ -33,6 +40,10 @@ import {
   resolveDefinitionMutationScope,
   selectVisibleDefinitionWinner,
 } from '../lib/definition-scope'
+import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'definitions' })
 
 /**
  * Validate defaultValue against the field kind. Returns an error message string
@@ -81,7 +92,7 @@ async function validateDefaultValueByKind(
           if (!entry) return `defaultValue "${value}" does not match any entry in the configured dictionary`
         } catch (err) {
           // If the dictionaries module is not available, skip entry validation
-          console.debug('[entities.definitions] dictionary validation skipped — module not available', err)
+          logger.debug('Dictionary validation skipped — module not available', { err })
         }
       }
       return null
@@ -98,7 +109,7 @@ async function validateDefaultValueByKind(
         if (!currency) return `defaultValue "${value}" does not match any available currency`
       } catch (err) {
         // If the currencies module is not available, skip currency validation
-        console.debug('[entities.definitions] currency validation skipped — module not available', err)
+        logger.debug('Currency validation skipped — module not available', { err })
       }
       return null
     }
@@ -222,8 +233,8 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const entityIds = filterSelectableSystemEntityIds(requestedEntityIds)
-  if (!entityIds.length) {
+  const selectableEntityIds = filterSelectableSystemEntityIds(requestedEntityIds)
+  if (!selectableEntityIds.length) {
     return NextResponse.json({ items: [] })
   }
 
@@ -237,6 +248,48 @@ export async function GET(req: Request) {
   const organizationId = definitionScope.organizationId
   const { resolve } = container
   const em = resolve('em') as any
+  const rbac = resolve('rbacService') as RbacService
+  const acl = await rbac.loadAcl(auth.sub ?? '', {
+    tenantId,
+    organizationId,
+  })
+  const designerCanRead = canReadAllEntityMetadata(acl)
+  const customEntityRestrictions = new Map<string, boolean>()
+  for (const entityId of selectableEntityIds) {
+    if (isOrmBackedSystemEntityId(em, entityId)) continue
+    const declaredRestriction = getDeclaredCustomEntityRestriction(entityId)
+    if (declaredRestriction !== undefined) customEntityRestrictions.set(entityId, declaredRestriction)
+  }
+  if (!designerCanRead) {
+    const unresolvedEntityIds = selectableEntityIds.filter(
+      (entityId) => !resolveEntityAclRequirement(entityId) && !customEntityRestrictions.has(entityId),
+    )
+    if (unresolvedEntityIds.length) {
+      const registrations = await em.find(CustomEntity as any, {
+        entityId: { $in: unresolvedEntityIds },
+        isActive: true,
+        $and: [
+          { $or: [{ tenantId }, { tenantId: null }] },
+          { $or: [{ organizationId }, { organizationId: null }] },
+        ],
+      } as any)
+      for (const registration of registrations as any[]) {
+        const entityId = String(registration.entityId)
+        if (!isOrmBackedSystemEntityId(em, entityId)) {
+          customEntityRestrictions.set(entityId, registration.accessRestricted === true)
+        }
+      }
+    }
+  }
+  const entityIds = selectableEntityIds.filter((entityId) => canReadEntityMetadata({
+    entityId,
+    isCustomEntity: customEntityRestrictions.has(entityId),
+    isRestricted: customEntityRestrictions.get(entityId) === true,
+    acl,
+  }))
+  if (!entityIds.length) {
+    return NextResponse.json({ items: [], fieldsetsByEntity: {}, entitySettings: {} })
+  }
   let cache: CacheStrategy | undefined
   try {
     cache = resolve('cache') as CacheStrategy
@@ -245,7 +298,6 @@ export async function GET(req: Request) {
   let canManageDefinitions = false
   if (typeof auth.sub === 'string' && auth.sub.length > 0) {
     try {
-      const rbac = resolve('rbacService') as RbacService
       canManageDefinitions = await rbac.userHasAllFeatures(auth.sub, ['entities.definitions.manage'], {
         tenantId,
         organizationId,
@@ -264,7 +316,7 @@ export async function GET(req: Request) {
         createOnly: true,
       })
     } catch (err) {
-      console.warn('[entities.definitions] Failed to synchronize module-backed definitions', {
+      logger.warn('Failed to synchronize module-backed definitions', {
         tenantId,
         entityIds,
         err,
@@ -285,7 +337,7 @@ export async function GET(req: Request) {
         return NextResponse.json(cached)
       }
     } catch (err) {
-      console.warn('[entities.definitions.cache] Failed to read cache', err)
+      logger.warn('Failed to read cache', { err })
     }
   }
 
@@ -417,6 +469,8 @@ export async function GET(req: Request) {
         // attachments config passthrough
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
+        // phone config passthrough
+        defaultCountryIso2: typeof d.configJson?.defaultCountryIso2 === 'string' ? d.configJson.defaultCountryIso2 : undefined,
         entityId,
         fieldset: normalizedFieldset ?? effectiveFieldsets[0],
         fieldsets: effectiveFieldsets.length > 0 ? effectiveFieldsets : undefined,
@@ -470,7 +524,7 @@ export async function GET(req: Request) {
         tags,
       })
     } catch (err) {
-      console.warn('[entities.definitions.cache] Failed to store cache entry', err)
+      logger.warn('Failed to store cache entry', { err })
     }
   }
 
@@ -620,7 +674,14 @@ export async function DELETE(req: Request) {
     entityIds: [entityId],
   })
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch
-  return NextResponse.json({ ok: true })
+  // Return the post-delete aggregate version so the edit form keeps its optimistic-lock
+  // token in sync after removing a field out-of-band (issue #3152).
+  const version = await resolveEntityDefinitionsVersion(em, {
+    entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  return NextResponse.json({ ok: true, version })
 }
 
 const definitionsQuerySchema = z
@@ -716,6 +777,7 @@ const deleteDefinitionRequestSchema = z.object({
 
 const deleteDefinitionResponseSchema = z.object({
   ok: z.literal(true),
+  version: z.string().nullable().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {

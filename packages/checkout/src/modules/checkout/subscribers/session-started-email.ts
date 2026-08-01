@@ -1,4 +1,7 @@
 import { dispatchCheckoutEmailJob } from '../lib/emailQueue'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'session-started-email' })
 
 export const metadata = {
   event: 'checkout.transaction.sessionStarted',
@@ -23,6 +26,6 @@ export default async function handle(payload: SessionStartedPayload) {
       organizationId: payload.organizationId,
     })
   } catch (err) {
-    console.error('[checkout:session-started-email] email enqueue failed:', err)
+    logger.error('email enqueue failed', { transactionId: payload.transactionId, err })
   }
 }

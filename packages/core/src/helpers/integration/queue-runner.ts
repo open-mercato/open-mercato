@@ -55,6 +55,11 @@ export async function drainQueueFromAppRoot(
       )
       const handled = result.processed + result.failed
       processedJobs += handled
+      if (result.failed > 0) {
+        process.stderr.write(
+          `[queue-drain] ${result.failed} job(s) FAILED in "${queueName}" (processed ${result.processed}); failed jobs retry with backoff and dead-letter after max attempts\n`,
+        )
+      }
       if (handled === 0) return processedJobs
     }
   } finally {
@@ -73,7 +78,7 @@ export async function runQueueDrainFromEnv(): Promise<void> {
     jobLimit,
     queueBaseDir: process.env.QUEUE_BASE_DIR,
   })
-  console.log(JSON.stringify({ processed }))
+  process.stdout.write(`${JSON.stringify({ processed })}\n`)
 }
 
 const currentFile = fileURLToPath(import.meta.url)
@@ -85,7 +90,7 @@ if (invokedFile === currentFile) {
       process.exit(0)
     })
     .catch((error) => {
-      console.error(error)
+      process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`)
       process.exit(1)
     })
 }

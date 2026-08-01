@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { POST } from '@open-mercato/core/modules/inbox_ops/api/proposals/[id]/translate/route'
+import { metadata, POST } from '@open-mercato/core/modules/inbox_ops/api/proposals/[id]/translate/route'
 
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
@@ -53,6 +53,10 @@ describe('POST /api/inbox_ops/proposals/[id]/translate', () => {
     mockEm.fork.mockReturnValue(mockEm)
     mockFlush.mockResolvedValue(undefined)
     mockFindWithDecryption.mockResolvedValue([])
+  })
+
+  it('requires proposal management permission', () => {
+    expect(metadata.POST.requireFeatures).toEqual(['inbox_ops.proposals.manage'])
   })
 
   it('returns cached translation when available', async () => {

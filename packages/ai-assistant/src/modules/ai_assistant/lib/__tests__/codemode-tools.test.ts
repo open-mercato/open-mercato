@@ -477,3 +477,149 @@ describe('mutation call cap (issue #2724)', () => {
     expect(counts()).toEqual({ apiCallCount: CODE_MODE_MAX_MUTATION_CALLS + 5, mutationCallCount: 0 })
   })
 })
+
+describe('scope enforcement (issue #2658)', () => {
+  const listCompaniesEndpoint = {
+    id: 'list_companies',
+    operationId: 'list_companies',
+    method: 'GET',
+    path: '/api/customers/companies',
+    summary: '',
+    description: '',
+    tags: [],
+    requiredFeatures: [],
+    parameters: [],
+    requestBodySchema: null,
+    deprecated: false,
+  }
+  const createCompanyEndpoint = {
+    id: 'create_company',
+    operationId: 'create_company',
+    method: 'POST',
+    path: '/api/customers/companies',
+    summary: '',
+    description: '',
+    tags: [],
+    requiredFeatures: ['customers.companies.create'],
+    parameters: [],
+    requestBodySchema: null,
+    deprecated: false,
+  }
+
+  beforeEach(() => {
+    mockedGetApiEndpoints.mockReset()
+    mockedFetchWithTimeout.mockReset()
+    mockedFetchWithTimeout.mockResolvedValue(okResponse())
+  })
+
+  function fetchedUrl(): URL {
+    const [url] = mockedFetchWithTimeout.mock.calls[0]
+    return new URL(url as string)
+  }
+  function fetchedBody(): Record<string, unknown> {
+    const [, init] = mockedFetchWithTimeout.mock.calls[0]
+    return JSON.parse((init as { body: string }).body)
+  }
+  function creatorContext(scope: Partial<McpToolContext> = {}): McpToolContext {
+    return createContext({
+      userFeatures: ['ai_assistant.view', 'customers.companies.create'],
+      ...scope,
+    })
+  }
+
+  it('drops AI-supplied query scope when ctx scope is null (fail closed)', async () => {
+    mockedGetApiEndpoints.mockResolvedValue([listCompaniesEndpoint])
+    const apiRequest = createApiRequestFn(
+      createContext({ tenantId: null, organizationId: null }),
+      () => {}
+    )
+
+    await apiRequest({
+      method: 'GET',
+      path: '/api/customers/companies',
+      query: { tenantId: 'evil', organizationId: 'evil-org', city: 'NYC' },
+    })
+
+    const params = fetchedUrl().searchParams
+    expect(params.get('tenantId')).toBeNull()
+    expect(params.get('organizationId')).toBeNull()
+    expect(params.get('city')).toBe('NYC')
+  })
+
+  it('overrides AI-supplied query scope with ctx scope', async () => {
+    mockedGetApiEndpoints.mockResolvedValue([listCompaniesEndpoint])
+    const apiRequest = createApiRequestFn(createContext(), () => {})
+
+    await apiRequest({
+      method: 'GET',
+      path: '/api/customers/companies',
+      query: { tenantId: 'evil' },
+    })
+
+    expect(fetchedUrl().searchParams.get('tenantId')).toBe('tenant-1')
+  })
+
+  it('strips AI-supplied body scope when ctx scope is null', async () => {
+    mockedGetApiEndpoints.mockResolvedValue([createCompanyEndpoint])
+    const apiRequest = createApiRequestFn(
+      creatorContext({ tenantId: null, organizationId: null }),
+      () => {}
+    )
+
+    await apiRequest({
+      method: 'POST',
+      path: '/api/customers/companies',
+      body: { name: 'Acme', tenantId: 'evil', organizationId: 'evil-org' },
+    })
+
+    const body = fetchedBody()
+    expect(body.name).toBe('Acme')
+    expect('tenantId' in body).toBe(false)
+    expect('organizationId' in body).toBe(false)
+  })
+
+  it('overrides AI-supplied body scope with ctx scope', async () => {
+    mockedGetApiEndpoints.mockResolvedValue([createCompanyEndpoint])
+    const apiRequest = createApiRequestFn(creatorContext(), () => {})
+
+    await apiRequest({
+      method: 'POST',
+      path: '/api/customers/companies',
+      body: { name: 'Acme', tenantId: 'evil' },
+    })
+
+    const body = fetchedBody()
+    expect(body.tenantId).toBe('tenant-1')
+    expect(body.organizationId).toBe('org-1')
+  })
+
+  it('enforces query scope on non-GET methods too (not only GET)', async () => {
+    mockedGetApiEndpoints.mockResolvedValue([createCompanyEndpoint])
+    const apiRequest = createApiRequestFn(creatorContext(), () => {})
+
+    await apiRequest({
+      method: 'POST',
+      path: '/api/customers/companies',
+      query: { tenantId: 'evil' },
+      body: {},
+    })
+
+    expect(fetchedUrl().searchParams.get('tenantId')).toBe('tenant-1')
+  })
+
+  it('drops dangerous prototype-pollution keys from the body', async () => {
+    mockedGetApiEndpoints.mockResolvedValue([createCompanyEndpoint])
+    const apiRequest = createApiRequestFn(creatorContext(), () => {})
+
+    await apiRequest({
+      method: 'POST',
+      path: '/api/customers/companies',
+      body: { name: 'Acme', ['__proto__']: { polluted: true } } as Record<string, unknown>,
+    })
+
+    const body = fetchedBody()
+    expect(body.name).toBe('Acme')
+    expect(Object.prototype.hasOwnProperty.call(body, '__proto__')).toBe(false)
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+})
