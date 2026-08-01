@@ -117,6 +117,21 @@ export interface EncryptionOverridesShape {
 }
 
 /**
+ * Backend navigation ordering.
+ *
+ * `groupOrder` **prepends** sidebar nav group ids: the ids listed here rank ahead of every other
+ * group, in the order given, and any group not named keeps the ordering it has today. Prepending
+ * rather than replacing means an app that only cares about its own group lists that one id, instead of
+ * having to enumerate every shipped group and accidentally demoting the ones it forgot.
+ *
+ * This is a *default*, applied beneath both role and user sidebar preferences — an operator's own
+ * arrangement still wins.
+ */
+export interface NavOverridesShape {
+  groupOrder?: string[]
+}
+
+/**
  * Umbrella shape for `entry.overrides`. Every key is optional; a
  * downstream app sets only the domains it cares about.
  */
@@ -136,6 +151,7 @@ export interface ModuleOverrides {
   acl?: AclOverridesShape
   di?: DiOverridesMap | LooseOverrideMap
   encryption?: EncryptionOverridesShape
+  nav?: NavOverridesShape
 }
 
 /**
@@ -175,6 +191,7 @@ export type ModuleOverrideDomain =
   | 'acl'
   | 'di'
   | 'encryption'
+  | 'nav'
 
 export interface ModuleOverrideEntry<TShape> {
   moduleId: string
@@ -227,6 +244,7 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
   'acl',
   'di',
   'encryption',
+  'nav',
 ]
 
 const TRACKING_ISSUE_HINT =
@@ -440,6 +458,71 @@ const aclFeatureOverrideStore: OverrideStore<Exclude<AclFeatureOverride, null>> 
 const encryptionMapOverrideStore: OverrideStore<ModuleEncryptionMap> = { modules: {}, programmatic: {} }
 const diOverrideStore: OverrideStore<Exclude<DiBindingOverride, null>> = { modules: {}, programmatic: {} }
 const setupOverridesByModule: Record<string, SetupOverridesShape> = {}
+
+/**
+ * Sidebar nav ordering state.
+ *
+ * Persisted on `globalThis` rather than in a module-local variable. This is the one override domain
+ * whose consumer lives in a *different package* (`@open-mercato/core`'s backend chrome reads what the
+ * app's bootstrap wrote), and standalone builds can evaluate `@open-mercato/shared` through more than
+ * one server chunk — bootstrap would store the value in one instance while the reader saw `null` from
+ * another. See `.ai/lessons.md`, "Global registries in publishable packages must use `globalThis`".
+ *
+ * Two tiers, matching every other override domain and the documented resolution order: programmatic
+ * calls win over `modules.ts` inline declarations.
+ */
+const GLOBAL_NAV_OVERRIDE_STATE_KEY = '__openMercatoNavOverrideState__'
+
+type NavOverrideState = {
+  /** From `modules.ts` inline `overrides.nav`, with the module entry that supplied it. */
+  modules: { moduleId: string; groupOrder: string[] } | null
+  /** From `applyNavGroupOrderOverrides`. Takes precedence over `modules`. */
+  programmatic: string[] | null
+}
+
+function getNavOverrideState(): NavOverrideState {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_NAV_OVERRIDE_STATE_KEY]
+  if (existing && typeof existing === 'object') {
+    const typed = existing as NavOverrideState
+    if ('modules' in typed && 'programmatic' in typed) return typed
+  }
+  const initial: NavOverrideState = { modules: null, programmatic: null }
+  ;(globalThis as Record<string, unknown>)[GLOBAL_NAV_OVERRIDE_STATE_KEY] = initial
+  return initial
+}
+
+/** Drops blank/duplicate ids and returns `null` when nothing usable remains. */
+function normalizeNavGroupOrder(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const ids = Array.from(
+    new Set(
+      value
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map((id) => id.trim()),
+    ),
+  )
+  return ids.length > 0 ? ids : null
+}
+
+/**
+ * Programmatic nav ordering, for env-driven boot decisions and tests. Takes precedence over
+ * `modules.ts` inline `overrides.nav`, consistent with the other domains' programmatic tier. Pass
+ * `null` to clear it and fall back to the inline declaration.
+ */
+export function applyNavGroupOrderOverrides(groupOrder: string[] | null): void {
+  getNavOverrideState().programmatic = groupOrder === null ? null : normalizeNavGroupOrder(groupOrder)
+}
+
+/**
+ * Nav group ids an app wants ranked ahead of the built-in order, or `null` when none is configured.
+ *
+ * Consumers MUST treat `null` as "use the shipped ordering unchanged" — this is a default, applied
+ * beneath role and user sidebar preferences.
+ */
+export function getNavGroupOrderOverride(): readonly string[] | null {
+  const state = getNavOverrideState()
+  return state.programmatic ?? state.modules?.groupOrder ?? null
+}
 
 function normalizeIdOverrideKey(key: string, label: string): string | null {
   if (typeof key !== 'string') return null
@@ -721,6 +804,9 @@ export function resetModuleContractOverridesForTests(): void {
   clearStore(encryptionMapOverrideStore)
   clearStore(diOverrideStore)
   for (const key of Object.keys(setupOverridesByModule)) delete setupOverridesByModule[key]
+  const navState = getNavOverrideState()
+  navState.modules = null
+  navState.programmatic = null
 }
 
 /**
@@ -1500,7 +1586,24 @@ function encryptionOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<E
   }
 }
 
+function navOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<NavOverridesShape>>): void {
+  const state = getNavOverrideState()
+  for (const entry of entries) {
+    const groupOrder = normalizeNavGroupOrder(entry.overrides?.groupOrder)
+    if (!groupOrder) continue
+    if (state.modules && state.modules.moduleId !== entry.moduleId) {
+      logger.warn('nav.groupOrder declared by more than one module — the later one wins', {
+        previousModuleId: state.modules.moduleId,
+        moduleId: entry.moduleId,
+        hint: 'Sidebar group ordering is a single app-wide decision; declare it on one module entry.',
+      })
+    }
+    state.modules = { moduleId: entry.moduleId, groupOrder }
+  }
+}
+
 function registerBuiltInModuleOverrideAppliers(): void {
+  registerModuleOverrideApplier<NavOverridesShape>('nav', navOverridesApplier)
   registerModuleOverrideApplier<RoutesOverridesShape>('routes', routesOverridesApplier)
   registerModuleOverrideApplier<EventsOverridesShape>('events', eventsOverridesApplier)
   registerModuleOverrideApplier<WorkerOverridesMap>('workers', workersOverridesApplier)
