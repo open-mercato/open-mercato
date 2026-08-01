@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "catalog": {
+    "expectedCaseCount": 193,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 262144,
+    "backwardCompatibilityRuleIds": [
+      "BC-01", "BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07",
+      "BC-08", "BC-09", "BC-10", "BC-11", "BC-12", "BC-13", "BC-14"
+    ],
+    "mandatoryCaseIds": [
+      "OMH-057", "OMH-058", "OMH-059", "OMH-060", "OMH-061", "OMH-062", "OMH-063",
+      "OMH-064", "OMH-065", "OMH-066", "OMH-067", "OMH-068", "OMH-069", "OMH-070",
+      "OMH-186", "OMH-187"
+    ],
+    "compatibilityRequiredCaseIds": [
+      "OMH-007", "OMH-022", "OMH-030", "OMH-048", "OMH-057", "OMH-064", "OMH-072", "OMH-074",
+      "OMH-082", "OMH-087", "OMH-088", "OMH-089", "OMH-105", "OMH-108", "OMH-118", "OMH-130", "OMH-131", "OMH-147", "OMH-150",
+      "OMH-182"
+    ],
+    "compatibilityExcludedCaseIds": [
+      "OMH-006", "OMH-011", "OMH-012", "OMH-014", "OMH-018", "OMH-026",
+      "OMH-081", "OMH-091", "OMH-093", "OMH-172", "OMH-177", "OMH-181"
+    ],
+    "writableCaseIds": [
+      "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027", "OMH-029", "OMH-031",
+      "OMH-042", "OMH-045", "OMH-049", "OMH-054", "OMH-057", "OMH-060", "OMH-061", "OMH-070",
+      "OMH-093", "OMH-105", "OMH-107", "OMH-115", "OMH-122", "OMH-128", "OMH-130", "OMH-133",
+      "OMH-137", "OMH-140", "OMH-144", "OMH-146", "OMH-149", "OMH-150", "OMH-151", "OMH-153",
+      "OMH-156", "OMH-163", "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
+      "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193"
+    ]
+  },
+  "validators": {
+    "catalog.schema": { "kind": "catalog", "implementation": "validateCaseShape" },
+    "catalog.relations": { "kind": "catalog", "implementation": "validateRelations" },
+    "catalog.bc-coverage": { "kind": "catalog", "implementation": "validateBackwardCompatibilityCoverage" },
+    "owner.reference": { "kind": "static", "implementation": "validateOwnerReference" },
+    "router.contract": { "kind": "routing", "implementation": "validateRoutingResult" },
+    "context.budget": { "kind": "routing", "implementation": "validateContextBudget" },
+    "context.forbidden": { "kind": "routing", "implementation": "validateForbiddenContext" },
+    "patterns.forbidden": { "kind": "routing", "implementation": "validateForbiddenPatterns" },
+    "skills.reference": { "kind": "static", "implementation": "validateSkillReference" },
+    "safety.mandatory": { "kind": "catalog", "implementation": "validateMandatoryCases" },
+    "writable.allowed-paths": { "kind": "oracle", "implementation": "validateAllowedWrites" },
+    "oracle.artifacts": { "kind": "oracle", "implementation": "validateExpectedArtifacts" },
+    "oracle.module.entity": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.module.crud": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.module.command": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.module.ui": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.module.complete": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.umes.form-field": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.umes.data-table": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.umes.page-override": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.umes.interceptor": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.integration.data-sync": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.integration.rest-client": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.ai.agent": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.workflow.call-api": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.regression.fail-closed": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.regression.atomic": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.regression.null-roundtrip": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.regression.cursor": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.command": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.ui-surface": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.async-operation": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.ai-safe-agent": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.provider-adapter": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.booking-overlap": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.business.provider-transport": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.umes.response-enricher": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.workflow.durable-timer": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.regression.crm-library": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.data-flow": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
+    "oracle.business.test-authoring": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] }
+  }
+}
