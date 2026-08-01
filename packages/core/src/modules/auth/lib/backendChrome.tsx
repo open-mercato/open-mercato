@@ -22,6 +22,7 @@ import { resolveRegisteredLucideIconNode } from '@open-mercato/ui/backend/icons/
 import { profilePathPrefixes, profileSections } from './profile-sections'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { getNavGroupOrderOverride } from '@open-mercato/shared/modules/overrides'
 import {
   getSelectedOrganizationFromRequest,
   resolveFeatureCheckContext,
@@ -147,19 +148,35 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
   }
 }
 
+const defaultGroupOrder = [
+  'customers.nav.group',
+  'catalog.nav.group',
+  'customers~sales.nav.group',
+  'wms.nav.group',
+  'resources.nav.group',
+  'staff.nav.group',
+  'entities.nav.group',
+  'directory.nav.group',
+  'attachments.nav.group',
+]
+
+/**
+ * Group ids ranked ahead of everything else, most significant first.
+ *
+ * An app may prepend its own ids via `overrides.nav.groupOrder` in `modules.ts`; ids it does not name
+ * keep the ordering they have today. With no override configured this returns `defaultGroupOrder`
+ * itself, so ordering is unchanged for every existing install.
+ */
+function resolveGroupOrder(): string[] {
+  const override = getNavGroupOrderOverride()
+  if (!override || override.length === 0) return defaultGroupOrder
+  const overridden = new Set(override)
+  return [...override, ...defaultGroupOrder.filter((id) => !overridden.has(id))]
+}
+
 function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight[] {
-  const defaultGroupOrder = [
-    'customers.nav.group',
-    'catalog.nav.group',
-    'customers~sales.nav.group',
-    'wms.nav.group',
-    'resources.nav.group',
-    'staff.nav.group',
-    'entities.nav.group',
-    'directory.nav.group',
-    'attachments.nav.group',
-  ]
-  const groupOrderIndex = new Map(defaultGroupOrder.map((id, index) => [id, index]))
+  const groupOrder = resolveGroupOrder()
+  const groupOrderIndex = new Map(groupOrder.map((id, index) => [id, index]))
   groups.sort((a, b) => {
     const aIndex = groupOrderIndex.get(a.id)
     const bIndex = groupOrderIndex.get(b.id)
@@ -171,7 +188,7 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
     if (a.weight !== b.weight) return a.weight - b.weight
     return a.name.localeCompare(b.name)
   })
-  const defaultGroupCount = defaultGroupOrder.length
+  const defaultGroupCount = groupOrder.length
   groups.forEach((group, index) => {
     const rank = groupOrderIndex.get(group.id)
     const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
