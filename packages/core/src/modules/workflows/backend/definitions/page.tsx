@@ -452,7 +452,7 @@ export default function WorkflowDefinitionsListPage() {
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="destructive" onClick={confirmDelete}>
+              <Button variant="destructive-solid" onClick={confirmDelete}>
                 <Trash2/>
                 {t('common.delete')}
               </Button>
