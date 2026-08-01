@@ -12,6 +12,7 @@ import {
   parseCheckoutInput,
   toMoneyString,
 } from '../lib/utils'
+import { assertValidCheckoutStatusTransition } from '../lib/transaction-status-machine'
 
 function resolveTransactionScope(input: { tenantId?: string | null; organizationId?: string | null }) {
   if (!input.organizationId || !input.tenantId) {
@@ -168,10 +169,54 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       const previousTerminal = isTerminalCheckoutStatus(previousStatus)
       const nextTerminal = isTerminalCheckoutStatus(nextStatus)
 
+      // State-machine guard: reject any transition not permitted by the
+      // VALID_CHECKOUT_TRANSITIONS map (e.g. completed → processing).
+      // This runs inside the DB transaction so the check and the write share
+      // the same serialisable snapshot.
+      assertValidCheckoutStatusTransition(previousStatus, nextStatus)
+
+      // Resolve the new field values before the write.
+      const newPaymentStatus = parsed.paymentStatus ?? transaction.paymentStatus ?? null
+      const newGatewayTransactionId = parsed.gatewayTransactionId ?? transaction.gatewayTransactionId ?? null
+
+      // Atomic compare-and-swap: the WHERE clause pins the current status so
+      // a concurrent writer that already advanced the status to a terminal
+      // state will cause this update to match 0 rows — eliminating the TOCTOU
+      // window between the findOne above and this write.
+      const affected = await tx.nativeUpdate(
+        CheckoutTransaction,
+        {
+          id: parsed.id,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          status: previousStatus,
+        },
+        {
+          status: nextStatus,
+          paymentStatus: newPaymentStatus,
+          gatewayTransactionId: newGatewayTransactionId,
+          updatedAt: new Date(),
+        },
+      )
+
+      if (affected === 0) {
+        // A concurrent writer (webhook or poller) already advanced the status.
+        // Treat this as a no-op conflict: throw 409 so callers that already
+        // swallow errors (subscriber `.catch(() => null)`, error-path in
+        // submit route) handle it gracefully, while direct callers surface it.
+        throw new CrudHttpError(409, {
+          error: `Transaction status was already updated by a concurrent process (expected status "${previousStatus}")`,
+          code: 'concurrent_status_update',
+          currentStatus: previousStatus,
+          requestedStatus: nextStatus,
+        })
+      }
+
+      // Sync the in-memory entity so the terminal-event builder below sees the
+      // correct values without an extra round-trip.
       transaction.status = nextStatus
-      transaction.paymentStatus = parsed.paymentStatus ?? transaction.paymentStatus ?? null
-      transaction.gatewayTransactionId = parsed.gatewayTransactionId ?? transaction.gatewayTransactionId ?? null
-      await tx.flush()
+      transaction.paymentStatus = newPaymentStatus
+      transaction.gatewayTransactionId = newGatewayTransactionId
 
       if (!previousTerminal && nextTerminal) {
         const { usageLimitReached } = applyTerminalTransactionState(link, nextStatus)
