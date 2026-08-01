@@ -109,7 +109,7 @@ The bare `packages/create-app/template/AGENTS.md` becomes the same small safety/
 | `om-framework-context` | Generated facts are insufficient and the exact installed framework implementation/AGENTS hierarchy is needed. | resolver procedure, narrow source search, version/skew report, upstream-report boundary |
 | `om-evolve-harness` | Add a new harness use case or correct a failed routing/implementation pattern. | case capture/schema, owner selection, affected-case calculation, before/after eval |
 | `om-eject-and-customize` | UMES/overrides cannot provide the required behavior and an installed module must be copied into app source. | decision gate, eject procedure, upgrade ownership |
-| `om-implement-spec` | Implement selected standalone spec phases without PR automation. | phase orchestration, subagent boundaries, progress, review/test gates |
+| `om-implement-spec` | Implement selected standalone spec phases interactively without PR automation. | spec resolution, confirmed phase-derived plan, progress, review/test gates, stable local report/reference output |
 | `om-trim-unused-modules` | Disable unused built-ins after dependency analysis. | dependency analysis, modules.ts edit, generation/cache validation |
 
 Existing public local skill names remain available. Their old monolithic bodies are replaced, not aliased to stale content. Version-specific upgrade skills remain opt-in and are not part of the daily routing surface.
@@ -701,6 +701,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
+- **2026-08-01** — Expanded OMH-006/OMH-168 and aligned the interactive standalone `om-implement-spec` owner with shared `om-auto-implement-spec` resolution, planning/progress, report-section, and stable `Spec:` reference contracts while retaining user confirmation and no-PR local delivery.
 - **2026-07-24** — Skeleton created under the autonomous Open Questions policy; standalone boundary, source-context, evaluation, and migration assumptions resolved from the user brief.
 - **2026-07-24** — Added prior-spec/PR-history findings, the initial case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.
 - **2026-07-24** — Added a three-axis context assembler, 12 business one-shot cases, four test authoring/execution cases, and byte-accurate issue #4484 instruction-budget regressions.

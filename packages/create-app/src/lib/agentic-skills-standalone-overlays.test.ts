@@ -323,6 +323,23 @@ test('local spec implementation shares stable planning and report contracts with
   assert.match(reportTemplate, /never emit `PR:` or `Issue:`/)
   assert.match(implementation, /does not create branches, commits, labels, issues, or pull requests/)
   assert.match(implementation, /wait for the user's confirmation before coding/)
+
+  const catalog = JSON.parse(
+    fs.readFileSync(new URL('../harness/cases.json', skillsDir), 'utf8'),
+  ) as Array<{ id: string; context: { required: string[] } }>
+  const requiredReferences = [
+    '.ai/skills/om-implement-spec/references/spec-resolution.md',
+    '.ai/skills/om-implement-spec/references/phases-and-gates.md',
+    '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+    '.ai/skills/om-implement-spec/references/report-templates.md',
+  ]
+  for (const caseId of ['OMH-006', 'OMH-168']) {
+    const harnessCase = catalog.find((entry) => entry.id === caseId)
+    assert.ok(harnessCase, `${caseId} must remain in the harness catalog`)
+    for (const reference of requiredReferences) {
+      assert.ok(harnessCase.context.required.includes(reference), `${caseId} must require ${reference}`)
+    }
+  }
 })
 
 // Setup never creates a directory-level link. The installer owns Claude's
