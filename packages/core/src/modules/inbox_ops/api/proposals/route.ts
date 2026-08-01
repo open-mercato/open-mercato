@@ -4,6 +4,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
+import { E } from '#generated/entities.ids.generated'
 import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy, type InboxProposalCategory } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
@@ -47,7 +49,24 @@ export async function GET(req: Request) {
       }
     }
     if (query.search) {
-      where.summary = { $ilike: `%${escapeLikePattern(query.search)}%` }
+      // `summary` is covered by the inbox_ops encryption map, so an ILIKE alone
+      // compares the pattern against ciphertext and matches nothing once
+      // encryption is on. Union it with the token index, which stores hashes of
+      // the plaintext. Issue #2990.
+      const searchOr: FilterQuery<InboxProposal>[] = [
+        { summary: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+      ]
+      const tokenMatch = await findEntityIdsBySearchTokens({
+        db: ctx.em.getKysely<any>(),
+        entityType: E.inbox_ops.inbox_proposal,
+        query: query.search,
+        fields: ['summary'],
+        scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      })
+      if (tokenMatch.matched && tokenMatch.ids.length) {
+        searchOr.push({ id: { $in: tokenMatch.ids } })
+      }
+      where.$or = searchOr
     }
 
     const offset = (query.page - 1) * query.pageSize

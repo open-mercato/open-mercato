@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
 import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
+import { CHECKOUT_ENTITY_IDS } from '../../lib/constants'
 import { handleCheckoutRouteError, requireAdminContext, userHasCheckoutFeature } from '../helpers'
 import { checkoutTag } from '../openapi'
 import { serializeTransaction } from '../../lib/utils'
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export const metadata = {
   path: '/checkout/transactions',
@@ -27,12 +31,32 @@ export async function GET(req: Request) {
     }
     if (linkId) where.linkId = linkId
     if (status) where.status = status
-    if (search) where.$or = [
-      { email: { $ilike: `%${escapeLikePattern(search)}%` } },
-      { firstName: { $ilike: `%${escapeLikePattern(search)}%` } },
-      { lastName: { $ilike: `%${escapeLikePattern(search)}%` } },
-      { id: { $ilike: `%${escapeLikePattern(search)}%` } },
-    ]
+    if (search) {
+      const pattern = `%${escapeLikePattern(search)}%`
+      // email/first_name/last_name are covered by the checkout encryption map,
+      // so an ILIKE alone compares the pattern against ciphertext and matches
+      // nothing once encryption is on. Union it with the token index, which
+      // stores hashes of the plaintext. Issue #2990.
+      const searchOr: Record<string, unknown>[] = [
+        { email: { $ilike: pattern } },
+        { firstName: { $ilike: pattern } },
+        { lastName: { $ilike: pattern } },
+      ]
+      // `id` is a uuid column: ILIKE against it has no Postgres operator and
+      // raises 42883, so only an exact id lookup is meaningful here.
+      if (UUID_PATTERN.test(search)) searchOr.push({ id: search })
+      const tokenMatch = await findEntityIdsBySearchTokens({
+        db: em.getKysely<any>(),
+        entityType: CHECKOUT_ENTITY_IDS.transaction,
+        query: search,
+        fields: ['email', 'first_name', 'last_name'],
+        scope: { tenantId: auth.tenantId, organizationId: auth.orgId },
+      })
+      if (tokenMatch.matched && tokenMatch.ids.length) {
+        searchOr.push({ id: { $in: tokenMatch.ids } })
+      }
+      where.$or = searchOr
+    }
     const [items, total] = await findAndCountWithDecryption(
       em,
       CheckoutTransaction,
