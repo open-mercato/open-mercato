@@ -17,7 +17,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-const ROOT = path.resolve(import.meta.dirname, '..')
+/* --root lets the script test itself: scripts/__tests__/check-token-parity.test.mjs
+ * points it at synthetic fixtures to prove each check still fails when it should. */
+const rootFlagIndex = process.argv.indexOf('--root')
+const ROOT = rootFlagIndex >= 0 && process.argv[rootFlagIndex + 1]
+  ? path.resolve(process.argv[rootFlagIndex + 1])
+  : path.resolve(import.meta.dirname, '..')
 const APP_CSS = path.join(ROOT, 'apps/mercato/src/app/globals.css')
 const TEMPLATE_CSS = path.join(ROOT, 'packages/create-app/template/src/app/globals.css')
 
