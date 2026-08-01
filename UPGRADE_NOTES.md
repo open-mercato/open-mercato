@@ -40,7 +40,59 @@ Scope limits worth knowing:
 
 ---
 
+### Query index reindex now fails when a batch loses records
+
+`upsertIndexBatch` used to swallow every write error: the bulk `INSERT … ON CONFLICT` had a bare `catch`, and the per-row fallback ran inside a transaction whose per-row `catch` could not actually recover — in Postgres a failed statement aborts the transaction, and `COMMIT` on an aborted transaction returns a `ROLLBACK` tag without raising. A single bad record therefore discarded its entire batch (up to 500 rows) while the reindex job still credited the coverage counters and finished green, and the subsequent orphan purge then deleted the pre-existing index rows for those records.
+
+Three behavior changes follow:
+
+- `upsertIndexBatch` returns `UpsertIndexBatchResult` (`{ attempted, written, failedRecordIds, searchTokenFailures }`) instead of `void`, and the per-row fallback no longer runs in a transaction, so one bad row can no longer discard its siblings. It still never throws on a partial write — callers reconcile via the result (`assertIndexBatchWritesLanded`).
+- A reindex that loses records now **throws** `QueryIndexBatchWriteError` after finishing its batches and refreshing the coverage snapshot. The queue job fails, `indexer_error_logs` gets a row per failed record (capped at 50 per batch), and the CLI exits non-zero.
+- A failed document encryption is treated as a failed row rather than being indexed in plaintext, and the orphan purge excludes records the run failed to write so their existing index rows survive.
+
+`isUniqueViolation` now lives at `@open-mercato/shared/lib/db/pg-errors`. The previous `@open-mercato/core/modules/communication_channels/lib/pg-errors` import remains available as a deprecated re-export for this release; downstream modules should move to the shared path.
+
+**Action for downstream:** none required for callers that ignore the return value — `Promise<void>` → `Promise<UpsertIndexBatchResult>` is assignment-compatible. Expect previously-green reindex jobs to start failing where they were silently dropping records; the failures are pre-existing data loss becoming visible, not new breakage. Custom `encryptDoc`/`decryptDoc` callbacks passed to `upsertIndexBatch` should no longer swallow their own errors, or the new accounting cannot see them.
+
+### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
+
+The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:
+
+```ts
+{ ...targetPayload, tenantId, organizationId, _idempotencyKey }
+```
+
+Scheduler-owned `tenantId`/`organizationId`/`_idempotencyKey` are applied after the spread, so they always win over conflicting `targetPayload` fields. Scheduler execution metadata (`scheduleId`, `scheduleName`, `scopeType`, `triggeredAt`) is no longer injected into the application payload. The async worker's idempotency key is now derived from the retry-stable execute-schedule job id instead of `Date.now()`, so BullMQ retries of one logical firing reuse the same `_idempotencyKey`.
+
+**Action for downstream:** workers written to the documented flat contract need no change and now also work under the local scheduler. A worker that relied on the undocumented local envelope (reading `job.payload.payload.*` or `scheduleId`/`scheduleName`/`triggeredAt` from the payload) must switch to the flat fields; include any identifiers it needs in `targetPayload` when registering the schedule.
+
 ## 0.6.5 → 0.6.6 (unreleased)
+
+### Payment-session amounts are reconciled against the order total (#4488)
+
+Follow-up to the #4486 capture hardening, which left session creation on the caller-supplied amount. `POST /api/payment_gateways/sessions` (and `paymentGatewayService.createPaymentSession`) now reconcile the request against the authoritative order total **whenever `orderId` is supplied**: `amount` and `currencyCode` must match the amount still due on that order, resolved inside the caller's own tenant and organization. Mismatches, unknown orders, and out-of-scope orders all fail with `409` before any provider call — the unknown and out-of-scope cases share one response body so a caller cannot probe for other tenants' orders.
+
+The lookup goes through the new optional `PaymentOrderTotalResolver` contract (`@open-mercato/shared/modules/payment_gateways/types`), resolved from the DI name `paymentOrderTotalResolver`; the `sales` module registers the default implementation. Requests without `orderId`, and installations where no module registers a resolver, are not reconciled and behave exactly as before.
+
+*Action for downstream:* if you called this endpoint with `orderId` as a free-form external reference rather than a sales order id, drop the field (or map it into `metadata`) — an id that does not resolve to an order in the caller's scope is now rejected. If your own module owns orders instead of `sales`, register your own `paymentOrderTotalResolver` to keep session amounts reconciled. See [`.ai/specs/implemented/SPEC-044-2026-02-24-payment-gateway-integrations.md`](.ai/specs/implemented/SPEC-044-2026-02-24-payment-gateway-integrations.md) §16.5.
+### Standalone apps: optimistic-lock guard restored; `src/di.ts` now requires explicit bootstrap wiring (#4201)
+
+Two related DI defects affected standalone (npm) apps:
+
+1. **The default OSS optimistic-lock guard was silently disabled.** The request container is built in Awilix CLASSIC injection mode, and the guard's factory destructured a renamed parameter (`({ em: scopedEm })`), which CLASSIC cannot resolve. The resolution error was swallowed, so every `makeCrudRoute` PUT/DELETE ignored the `x-om-ext-optimistic-lock-expected-updated-at` header and stale writes returned `200` instead of `409`. *Action for downstream:* none — upgrading `@open-mercato/shared` restores the guard. A failed guard resolution now logs a warning (once per process) instead of failing silently.
+
+2. **`src/di.ts` `register()` never ran in standalone apps.** The `@/di` dynamic import inside the published package does not resolve to the app's `src/di.ts`, so the documented app-level DI override hook was dead. Apps now wire it explicitly from `src/bootstrap.ts`. *Action for downstream:* apps scaffolded before 0.6.6 that want `src/di.ts` to work must add the wiring to their `src/bootstrap.ts` (new scaffolds include it):
+
+```ts
+import { register as registerAppDi } from '@/di'
+
+export const bootstrap = createBootstrap(
+  { /* existing generated data */ },
+  { appDiRegistrar: registerAppDi },
+)
+```
+
+Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
 
 ### Opt-in per-entity ACL for custom-entity records (#3857)
 
