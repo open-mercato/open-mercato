@@ -48,7 +48,7 @@ yarn workspace @open-mercato/shared build
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
 | `logger/` | When emitting diagnostics — `createLogger(namespace)` instead of raw `console.*` (migrate incrementally, Boy Scout rule). Message-first with structured fields (`logger.warn('Payload too large', { event, maxBytes })`), errors under `err`, `child(bindings)` for context, `getLogLevel()`/`isLevelEnabled()` to gate expensive fields; level via `OM_LOG_LEVEL`. Never log credentials, PII, or payload bodies | `@open-mercato/shared/lib/logger` |
-| `modules/` | When registering or listing modules | `@open-mercato/shared/lib/modules/registry` |
+| `modules/` | When registering or listing modules; `surfaceFingerprint` gives a deploy-time hash of the enabled modules, their declared ACL features, and the backend route manifest — mix it into any cache key whose payload is derived from those (no DB write exists to tag-invalidate on, so an omitted fingerprint serves the pre-deploy payload forever). It cannot see React-element fields such as a route `icon`, so callers MUST still pass a `ttl` | `@open-mercato/shared/lib/modules/registry`, `@open-mercato/shared/lib/modules/surfaceFingerprint` |
 | `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |

@@ -1,6 +1,6 @@
 # Standalone Harness Locale Catalog Completeness
 
-- **Status:** Draft
+- **Status:** Implementation complete on PR #4757 — full release certification pending
 - **Date:** 2026-07-31
 - **Scope:** OSS standalone-app agent harness and generated-code evaluation
 - **Related:** merged PR #4529, issue #4670, `.ai/specs/2026-07-24-standalone-ai-development-harness.md`, sibling spec `2026-07-31-standalone-harness-canonical-list-ui-enforcement.md`
@@ -264,11 +264,12 @@ No runtime migration. No public import, i18n runtime signature, route, event, AC
 | BACKWARD_COMPATIBILITY.md | Compliant | No stable runtime/generated registry surface changes. |
 | Scope cohesion | Compliant | This spec owns only locale-catalog completeness; list UI enforcement was split out. |
 
-**Verdict:** Fully compliant and ready for implementation after spec review. No assumption requires human confirmation.
+**Verdict:** Implementation is complete and repository CI is green. Merge readiness remains blocked until the fresh OMH-185 writable/generated-review evidence and the full Claude/Sonnet release suite required by this spec pass.
 
 ## Changelog
 
 - 2026-07-31: Split from the combined UI/i18n draft after mandatory fresh-context scope review; defined OMH-185 locale-catalog completeness.
+- 2026-07-31: Implemented the bounded `module.locale-catalog` oracle, focused failure-first and safety coverage, and generated-review guidance on PR #4757. Full fresh-controller release certification remains pending.
 
 ### Review — 2026-07-31
 
