@@ -45,7 +45,7 @@ Make release changelog preparation finalize matching upgrade-note windows and gu
 
 ### Phase 1: Define the release contract
 
-- [ ] 1.1 Release specification and changelog override
+- [x] 1.1 Release specification and changelog override — d08e8afb5
 - [ ] 1.2 Release invariant tests
 
 ### Phase 2: Ship the current release companion
