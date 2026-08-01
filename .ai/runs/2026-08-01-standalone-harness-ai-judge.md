@@ -65,5 +65,5 @@ Add a reusable LLM-as-judge workflow for standalone generative evaluations and u
 
 ### Phase 3: Generative judge integration
 
-- [ ] 3.1 Integrate the session/artifact judge into every writable release evaluation, preserving the existing review CLI as a compatibility alias and emitting structured guard, code, design-system, and harness-owner findings.
-- [ ] 3.2 Synchronize harness schemas, release matrix, docs, catalog checks, emitted assets, and evaluator/release tests.
+- [x] 3.1 Integrate the session/artifact judge into every writable release evaluation, preserving the existing review CLI as a compatibility alias and emitting structured guard, code, design-system, and harness-owner findings. — 651bbcc31
+- [x] 3.2 Synchronize harness schemas, release matrix, docs, catalog checks, emitted assets, and evaluator/release tests. — 651bbcc31
