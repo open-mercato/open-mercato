@@ -91,6 +91,82 @@ test('Jest ships the environment required by jsdom-annotated template tests', ()
   )
 })
 
+test('Jest loads shared DOM matchers and transforms framework ESM dependencies', () => {
+  const jestConfig = createRequire(import.meta.url)(
+    fileURLToPath(new URL('jest.config.cjs', TEMPLATE_DIR)),
+  ) as { setupFilesAfterEnv?: string[]; transformIgnorePatterns?: string[] }
+  const setup = fs.readFileSync(new URL('jest.setup.ts', TEMPLATE_DIR), 'utf8')
+  const ignoredPatterns = (jestConfig.transformIgnorePatterns ?? []).map(
+    (pattern) => new RegExp(pattern),
+  )
+
+  assert.deepEqual(jestConfig.setupFilesAfterEnv, ['<rootDir>/jest.setup.ts'])
+  assert.match(setup, /@testing-library\/jest-dom\/jest-globals/)
+  assert.match(setup, /ResizeObserver/)
+  assert.match(setup, /scrollIntoView/)
+
+  for (const modulePath of [
+    '/node_modules/@open-mercato/ui/dist/index.js',
+    '/node_modules/@mikro-orm/decorators/legacy/index.js',
+  ]) {
+    assert.equal(
+      ignoredPatterns.some((pattern) => pattern.test(modulePath)),
+      false,
+      `${modulePath} must be transformed by Jest`,
+    )
+  }
+})
+
+test('the template ignores raw agent session exports', () => {
+  const gitignore = fs.readFileSync(new URL('gitignore', TEMPLATE_DIR), 'utf8')
+
+  assert.match(gitignore, /^\.ai\/sessions\*\.json$/m)
+  assert.match(gitignore, /^\.ai\/session-exports\/$/m)
+})
+
+test('the template predeclares Next type outputs under the configured build directory', () => {
+  const tsconfig = JSON.parse(
+    fs.readFileSync(new URL('tsconfig.json', TEMPLATE_DIR), 'utf8'),
+  ) as { include?: string[] }
+
+  assert.ok(tsconfig.include?.includes('.mercato/next/types/**/*.ts'))
+  assert.ok(tsconfig.include?.includes('.mercato/next/dev/types/**/*.ts'))
+})
+
+test('the standalone smoke test installs the scaffold before invoking its Yarn scripts', () => {
+  const smokeTest = fs.readFileSync(
+    new URL('../../../../scripts/test-create-app.ts', import.meta.url),
+    'utf8',
+  )
+  const installIndex = smokeTest.indexOf("runCommand('yarn', ['install']")
+  const scriptIndex = smokeTest.indexOf("runCommand('yarn', ['verify:yarn-script-resolution']")
+
+  assert.ok(installIndex >= 0, 'the standalone smoke test must install scaffold dependencies')
+  assert.ok(scriptIndex >= 0, 'the standalone smoke test must retain its Yarn script probe')
+  assert.ok(
+    installIndex < scriptIndex,
+    'a fresh scaffold has only a bootstrap lockfile, so Yarn scripts must run after the first install',
+  )
+})
+
+test('the standalone smoke installs from the same Verdaccio registry it publishes to', () => {
+  const smokeTest = fs.readFileSync(
+    new URL('../../../../scripts/test-create-app.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(
+    smokeTest,
+    /\[CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--agents', 'all'\]/,
+    'the scaffold must not silently fall back to the fixed --verdaccio port',
+  )
+  assert.match(
+    smokeTest,
+    /yarnConfig\.includes\(`npmRegistryServer: \"\$\{VERDACCIO_URL\}\"`\)/,
+    'the smoke must verify the generated Yarn registry before installing packages',
+  )
+})
+
 test('`yarn test` succeeds on a scaffold that ships no test files', () => {
   const scaffoldedTestFiles = listScaffoldedTestFiles(fileURLToPath(new URL('src/', TEMPLATE_DIR)))
   const jestConfig = createRequire(import.meta.url)(

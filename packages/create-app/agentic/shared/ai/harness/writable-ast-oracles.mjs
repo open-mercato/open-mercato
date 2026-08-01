@@ -19,6 +19,27 @@ const MAX_TOTAL_LOCALE_BYTES = 1024 * 1024
 const DANGEROUS_LOCALE_KEY_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
 const LOCALIZED_METADATA_KEYS = new Set(['pageTitleKey', 'pageGroupKey', 'labelKey'])
 
+const COMPLETE_MODULE_CASE = Object.freeze({
+  family: 'complete-module',
+  sources: ['src/modules/library', 'src/modules.ts'],
+  artifacts: [
+    'src/modules/library/index.ts',
+    'src/modules/library/acl.ts',
+    'src/modules/library/setup.ts',
+    'src/modules/library/encryption.ts',
+    'src/modules/library/search.ts',
+    'src/modules/library/data/entities.ts',
+    'src/modules/library/data/validators.ts',
+    'src/modules/library/migrations/**',
+    'src/modules/library/commands/**',
+    'src/modules/library/commands/__tests__/**',
+    'src/modules/library/api/books/route.ts',
+    'src/modules/library/backend/books/**',
+    'src/modules/library/i18n/en.json',
+    'src/modules.ts',
+  ],
+})
+
 const WRITABLE_CASES = Object.freeze({
   'OMH-009': {
     sources: ['src/modules/library'],
@@ -361,26 +382,8 @@ const WRITABLE_CASES = Object.freeze({
     testSource: 'src/modules/library/commands/__tests__/crm-loans.test.ts',
     artifacts: ['src/modules/library/commands/crm-loans.ts', 'src/modules/library/api/schemas.ts', 'src/modules/library/commands/__tests__/crm-loans.test.ts'],
   },
-  'OMH-185': {
-    family: 'complete-module',
-    sources: ['src/modules/library', 'src/modules.ts'],
-    artifacts: [
-      'src/modules/library/index.ts',
-      'src/modules/library/acl.ts',
-      'src/modules/library/setup.ts',
-      'src/modules/library/encryption.ts',
-      'src/modules/library/search.ts',
-      'src/modules/library/data/entities.ts',
-      'src/modules/library/data/validators.ts',
-      'src/modules/library/migrations/**',
-      'src/modules/library/commands/**',
-      'src/modules/library/commands/__tests__/**',
-      'src/modules/library/api/books/route.ts',
-      'src/modules/library/backend/books/**',
-      'src/modules/library/i18n/en.json',
-      'src/modules.ts',
-    ],
-  },
+  'OMH-185': COMPLETE_MODULE_CASE,
+  'OMH-193': COMPLETE_MODULE_CASE,
 })
 
 export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES).sort())
