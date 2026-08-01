@@ -284,6 +284,7 @@ test('standalone review flow enforces the customers-derived module and design-sy
     'atomic claim seam',
     'scalar IDs plus intentional snapshots',
     '@jest/globals',
+    'emitted locale JSON as inert source evidence',
   ]) assert.ok(checklist.includes(required), `missing module review rule ${required}`)
 
   const autoReview = readAgentic('shared/ai/skills/om-auto-review-pr/SKILL.md')
@@ -295,6 +296,7 @@ test('standalone review flow enforces the customers-derived module and design-sy
   assert.match(generatedPolicy, /\.ai\/review-checklist\.md/)
   assert.match(generatedPolicy, /module elements/)
   assert.match(generatedPolicy, /design-system/)
+  assert.match(generatedPolicy, /locale JSON.*inert data/)
 })
 
 test('backend UI defaults new editable entities to linked and filterable full CRUD', () => {
@@ -470,6 +472,16 @@ test('residual owner guidance binds implementation, provider, debugging, and bus
   )
   assert.match(implementSpec, /working app \(`working-phases`\)/)
   assert.match(implementSpec, /`integration-coverage` belongs to writing the spec/)
+  for (const decision of [
+    'spec-resolution',
+    'phase-execution-plan',
+    'interactive-confirmation',
+    'implementation-progress',
+    'stable-implementation-report',
+    'spec-reference-marker',
+  ]) {
+    assert.ok(implementSpec.includes(`\`${decision}\``), `missing implement-spec decision ${decision}`)
+  }
   assert.match(integration, /exact installed provider\/domain contract, invoke `om-framework-context`/)
   assert.match(integration, /superseded by an installed capability selects architecture \+ integration \+ framework-context/)
   assert.match(troubleshooter, /persisted create\/update\/clear\/reload defect also selects `module-data` and contracts/)
@@ -553,6 +565,9 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
   }
   assert.match(dataModelSkill, /staff surface showing current state, history, or evidence also adds backend UI/)
   assert.match(implementationSkill, /working app \(`working-phases`\) and report its smallest focused validation gate \(`smallest-validation`\)/)
+  assert.match(implementationSkill, /references\/spec-resolution\.md/)
+  assert.match(implementationSkill, /references\/planning-and-progress\.md/)
+  assert.match(implementationSkill, /references\/report-templates\.md/)
   assert.match(blueprints, /MUST read `\.ai\/guides\/modules\/customers\.md`, invoke `om-data-model-design`, and report `smallest-validation` for the lead record and scalar CRM link/)
   assert.match(blueprints, /explicit trusted config\/domain binding/)
   assert.match(blueprints, /never select or persist the first\/oldest active tenant or organization/)
