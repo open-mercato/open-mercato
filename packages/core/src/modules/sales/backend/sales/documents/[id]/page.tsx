@@ -2377,7 +2377,7 @@ export default function SalesDocumentDetailPage({
       const items = Array.isArray(response.result?.items) ? response.result.items : []
       setHasExistingInvoice(items.some((item) => item && typeof (item as { id?: unknown }).id === 'string'))
     } catch (err) {
-      console.error('sales.documents.invoicesPresence', err)
+      logger.error('sales.documents.invoicesPresence', { err })
     }
   }, [kind, record?.id])
 
@@ -3868,7 +3868,7 @@ export default function SalesDocumentDetailPage({
         }
       }, { orderId: record.id })
     } catch (err) {
-      console.error('sales.invoices.createFromOrder', err)
+      logger.error('sales.invoices.createFromOrder', { err })
       const code = (err as { code?: unknown } | null)?.code
       if (code === 'sales.invoices.duplicate_for_order') {
         setHasExistingInvoice(true)
