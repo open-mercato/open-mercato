@@ -1,6 +1,8 @@
 /**
  * Parse simple interval strings like '15m', '2h', '1d' into milliseconds
  */
+export const MIN_SCHEDULE_INTERVAL_MS = 60 * 1000
+
 export function parseInterval(interval: string): number {
   const regex = /^(\d+)(s|m|h|d)$/
   const match = interval.match(regex)
@@ -22,6 +24,10 @@ export function parseInterval(interval: string): number {
   return value * multipliers[unit]
 }
 
+export function resolveScheduleIntervalMs(interval: string): number {
+  return Math.max(parseInterval(interval), MIN_SCHEDULE_INTERVAL_MS)
+}
+
 /**
  * Calculate next run time based on interval
  */
@@ -29,7 +35,7 @@ export function calculateNextRunFromInterval(
   interval: string,
   fromDate: Date = new Date()
 ): Date {
-  const ms = parseInterval(interval)
+  const ms = resolveScheduleIntervalMs(interval)
   return new Date(fromDate.getTime() + ms)
 }
 
@@ -38,8 +44,7 @@ export function calculateNextRunFromInterval(
  */
 export function validateInterval(interval: string): boolean {
   try {
-    parseInterval(interval)
-    return true
+    return parseInterval(interval) >= MIN_SCHEDULE_INTERVAL_MS
   } catch {
     return false
   }
