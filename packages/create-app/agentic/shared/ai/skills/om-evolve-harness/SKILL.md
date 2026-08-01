@@ -16,7 +16,7 @@ Turn a real failure into one versioned case and the smallest durable knowledge c
 5. Run the new case before editing and retain the sanitized failure summary.
 6. Update only the selected owner; replace duplicates with references.
 7. Rerun the case, related tags, mandatory safety cases, budget/consistency gates, and scaffold smoke. For writable output, run target `generate`, `typecheck`, `lint`, and `build`, plus the smallest generated unit/integration tests when applicable.
-8. Run mandatory code review: review the harness diff with `om-code-review`, and use the isolated generated-code review lane for every eligible implementation result. Resolve blocking findings before continuing.
+8. Run mandatory review: review the harness diff with `om-code-review`, and use the isolated `om-judge-agent-session` lane for every eligible implementation result. Resolve artifact findings and improve the named smallest harness owners before continuing.
 9. From a fresh controller scaffold, finish with `yarn harness:release --runner <codex|claude> --prepare-targets <absolute-empty-dir> --acknowledge-writes`; require its sanitized release report to pass. One selected primary owns every blocking lane. Optionally add the different authenticated runner with `--portability-runner <runner>` for the representative read-only portability lane. Report before/after evidence and exact tool/model versions.
 
 ## Rules

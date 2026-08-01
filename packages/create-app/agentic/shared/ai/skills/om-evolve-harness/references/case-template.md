@@ -50,7 +50,7 @@ yarn harness:validate --family <family>
 yarn harness:validate --all
 ```
 
-The last command is the deterministic catalog gate only. It does not execute the release matrix's live, writable, target-build, or generated-code-review lanes.
+The last command is the deterministic catalog gate only. It does not execute the release matrix's live, writable, target-build, or generative-judge lanes.
 
 For a writable case, prepare one fresh disposable app per run before invoking the live oracle:
 
@@ -71,10 +71,10 @@ yarn build
 
 When the generated result adds or changes tests, also run the smallest focused command that executes those exact unit or integration tests (`yarn test ...`, `yarn test:integration ...`, or the repository's narrower existing script). Record the command and result; typecheck/build are not test execution.
 
-Review is mandatory before release. Run `om-code-review` on the harness diff. For every eligible one-shot implementation result, run the isolated generated-code review from the controller app using the passing writable result and unchanged disposable target:
+Review is mandatory before release. Run `om-code-review` on the harness diff. For every eligible one-shot implementation result, run the isolated generative judge from the controller app using the passing writable result and unchanged disposable target:
 
 ```text
-yarn harness:validate --runner codex --review-writable-result /absolute/controller/.ai/harness/results/<writable-result>.json --writable-root /absolute/disposable/app
+yarn harness:validate --runner codex --judge-writable-result /absolute/controller/.ai/harness/results/<writable-result>.json --writable-root /absolute/disposable/app
 ```
 
 Resolve blocking findings, then use a fresh controller scaffold and a new or empty target directory for the complete per-release suite:

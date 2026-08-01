@@ -107,6 +107,7 @@ function releaseInputs() {
     deterministic: { caseIds: 'all' },
     releaseSuite: {
       supportedRunners: ['codex', 'claude'],
+      requireGenerativeJudge: true,
       requireGeneratedCodeReview: true,
       validationCommands: ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'],
     },
@@ -122,6 +123,13 @@ function releaseInputs() {
     generatedCodeReview: {
       required: true,
       skill: 'om-code-review',
+      caseIds: ['OMH-002', 'OMH-003'],
+      runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
+    },
+    generativeJudge: {
+      required: true,
+      skill: 'om-judge-agent-session',
+      reviewSkill: 'om-code-review',
       caseIds: ['OMH-002', 'OMH-003'],
       runners: { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } },
     },
@@ -195,7 +203,7 @@ test('release preflight rejects weakened runner, review, command, and model cont
   assert.ok(release.buildReleasePlan(duplicateDeterministic).violations.some((entry: string) => entry.includes('exact all-cases selector')))
 
   const duplicateReview = releaseInputs()
-  duplicateReview.releaseMatrix.generatedCodeReview.caseIds.push('OMH-002')
+  duplicateReview.releaseMatrix.generativeJudge.caseIds.push('OMH-002')
   const duplicateReviewViolations = release.buildReleasePlan(duplicateReview).violations
   assert.ok(duplicateReviewViolations.some((entry: string) => entry.includes('review matrix contains duplicate cases')))
   assert.ok(duplicateReviewViolations.some((entry: string) => entry.includes('exactly once in catalog order')))
@@ -208,7 +216,7 @@ test('release preflight rejects weakened runner, review, command, and model cont
 
   for (const mutate of [
     (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.routing.runners.codex.modelSelector = '' },
-    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.generatedCodeReview.runners.codex.modelSelector = '' },
+    (input: ReturnType<typeof releaseInputs>) => { input.releaseMatrix.generativeJudge.runners.codex.modelSelector = '' },
   ]) {
     const emptySelector = releaseInputs()
     mutate(emptySelector)
@@ -1288,11 +1296,11 @@ test('release preflight names newly writable business coverage instead of assumi
     || entry.includes('exactly once in catalog order') || entry.includes('exact writable case set')))
 })
 
-test('release preflight requires the explicit om-code-review gate', () => {
+test('release preflight requires the reusable judge and explicit om-code-review gate', () => {
   const input = releaseInputs()
-  input.releaseMatrix.generatedCodeReview.skill = 'generic-review'
+  input.releaseMatrix.generativeJudge.reviewSkill = 'generic-review'
   const plan = release.buildReleasePlan(input)
-  assert.ok(plan.violations.includes('generated-code review must explicitly use om-code-review'))
+  assert.ok(plan.violations.includes('generative judge must explicitly compose om-code-review'))
 })
 
 test('quality metrics expose first-pass, correction, context, review, and categorized misuse rates', () => {
@@ -1378,6 +1386,12 @@ test('persisted foundation process diagnostics use a minimal environment and red
   fs.writeFileSync(path.join(harness, 'fixtures', 'index.json'), JSON.stringify(input.fixtures))
   fs.writeFileSync(path.join(harness, 'fixtures', 'seeds.json'), JSON.stringify(input.seeds))
   const reviewFiles = [
+    '.ai/skills/om-judge-agent-session/SKILL.md',
+    '.ai/skills/om-judge-agent-session/references/agentic-setup.md',
+    '.ai/skills/om-judge-agent-session/references/input-normalization.md',
+    '.ai/skills/om-judge-agent-session/references/judge-workflow.md',
+    '.ai/skills/om-judge-agent-session/references/report-template.md',
+    '.ai/skills/om-judge-agent-session/references/rules.md',
     '.agents/skills/om-code-review/SKILL.md',
     '.agents/skills/om-code-review/references/agentic-setup.md',
     '.agents/skills/om-code-review/references/output-format.md',

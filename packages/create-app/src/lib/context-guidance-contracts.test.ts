@@ -280,6 +280,8 @@ test('standalone review flow enforces the customers-derived module and design-sy
   assert.match(autoReview, /design-system/)
 
   const generatedPolicy = readAgentic('shared/ai/harness/generated-code-review-policy.md')
+  assert.match(generatedPolicy, /om-judge-agent-session/)
+  assert.match(generatedPolicy, /smallest harness owner/)
   assert.match(generatedPolicy, /\.ai\/review-checklist\.md/)
   assert.match(generatedPolicy, /module elements/)
   assert.match(generatedPolicy, /design-system/)
