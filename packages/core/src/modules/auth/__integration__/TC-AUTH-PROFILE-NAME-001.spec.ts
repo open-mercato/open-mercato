@@ -87,7 +87,10 @@ test.describe('profile self-read display name', () => {
       const profile = await readOwnProfile(request, userToken);
 
       expect(profile.email).toBe(email);
-      expect(profile.name ?? null, 'an unset display name should read as null, not undefined-as-empty').toBeNull();
+      expect(
+        profile,
+        'an unset display name should be present as null, not omitted from the current response',
+      ).toHaveProperty('name', null);
     } finally {
       await deleteUserIfExists(request, adminToken, userId);
     }
@@ -111,10 +114,10 @@ test.describe('profile self-read display name', () => {
       const userToken = await getAuthToken(request, email, PASSWORD);
       const profile = await readOwnProfile(request, userToken);
 
-      expect(
-        profile.name ?? null,
-        'a blank name must not surface as an empty label in the chrome',
-      ).toBeNull();
+      expect(profile, 'a blank name must not surface as an empty label in the chrome').toHaveProperty(
+        'name',
+        null,
+      );
     } finally {
       await deleteUserIfExists(request, adminToken, userId);
     }

@@ -18,8 +18,6 @@ const logger = createLogger('auth').child({ component: 'profile' })
 
 const profileResponseSchema = z.object({
   email: z.string().email(),
-  // Optional so the contract stays additive: a client generated from this schema must not reject a
-  // response from a server that predates the field. Every current response includes it.
   name: z.string().nullable().optional(),
   roles: z.array(z.string()),
 })
