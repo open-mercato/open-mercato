@@ -45,9 +45,9 @@ describe('exchangeRateCreateSchema', () => {
 
     const result = exchangeRateCreateSchema.parse(input)
     
-    expect(result.date.getSeconds()).toBe(0)
-    expect(result.date.getMilliseconds()).toBe(0)
-    expect(result.date.getMinutes()).toBe(30)
+    expect(result.date.getUTCSeconds()).toBe(0)
+    expect(result.date.getUTCMilliseconds()).toBe(0)
+    expect(result.date.getUTCMinutes()).toBe(30)
   })
 
   it('should make dates with different seconds map to same minute', () => {
@@ -83,8 +83,8 @@ describe('exchangeRateUpdateSchema', () => {
 
     const result = exchangeRateUpdateSchema.parse(input)
     
-    expect(result.date?.getSeconds()).toBe(0)
-    expect(result.date?.getMilliseconds()).toBe(0)
+    expect(result.date?.getUTCSeconds()).toBe(0)
+    expect(result.date?.getUTCMilliseconds()).toBe(0)
   })
 
   it('should handle undefined date', () => {

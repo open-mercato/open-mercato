@@ -3293,7 +3293,7 @@ const customerImportSchema = z.object({
     websiteUrl: z.string().nullable().optional(),
     industry: z.string().nullable().optional(),
     sizeBucket: z.string().nullable().optional(),
-    annualRevenue: z.coerce.string().nullable().optional(),
+    annualRevenue: z.coerce.number().nullable().optional(),
   }).nullable().optional(),
   personProfile: z.object({
     id: z.string().uuid(),
