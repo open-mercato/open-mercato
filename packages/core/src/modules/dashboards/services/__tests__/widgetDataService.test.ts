@@ -379,6 +379,30 @@ describe('WidgetDataService encrypted group sources', () => {
     expect(response.data).toEqual([{ groupKey: 'Pomorskie', value: 0.15 }])
   })
 
+  test.each(['sum', 'avg'] as const)(
+    'reports %s over an all-null bucket as 0, mirroring COALESCE in the SQL path',
+    async (aggregate) => {
+      // buildAggregateExpression wraps SUM/AVG in COALESCE(..., 0), so a bucket whose metric column
+      // is null for every row must not read as "no value" only because the group source is
+      // encrypted — the same data would chart 0 for a plaintext tenant.
+      const execute = jest.fn(async (): Promise<ExecuteResult> => [
+        { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: null },
+        { group_source: encryptSnapshot({ region: 'Mazowieckie' }), metric_value: '5' },
+      ])
+
+      const service = createEncryptedService(execute)
+      const response = await service.fetchWidgetData({
+        ...regionRequest,
+        metric: { field: 'grandTotalGrossAmount', aggregate },
+      })
+
+      expect(response.data).toEqual([
+        { groupKey: 'Mazowieckie', value: 5 },
+        { groupKey: 'Pomorskie', value: 0 },
+      ])
+    },
+  )
+
   test('orders buckets without a value last, mirroring ORDER BY value DESC NULLS LAST', async () => {
     const execute = jest.fn(async (): Promise<ExecuteResult> => [
       { group_source: encryptSnapshot({ region: 'Pomorskie' }), metric_value: null },

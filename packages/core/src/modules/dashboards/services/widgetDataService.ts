@@ -133,17 +133,19 @@ function foldMetricValue(bucket: GroupBucket, value: ExactDecimal): void {
 }
 
 /**
- * Mirrors the SQL semantics of `buildAggregateExpression` for application-side aggregation,
- * including PostgreSQL's `NULL` result for `SUM`/`AVG`/`MIN`/`MAX` over an empty value set.
+ * Mirrors the SQL semantics of `buildAggregateExpression` for application-side aggregation. That
+ * expression wraps `SUM`/`AVG` in `COALESCE(..., 0)`, so an empty value set aggregates to `0` on
+ * both paths, while the uncoalesced `MIN`/`MAX` keep PostgreSQL's `NULL`. An encrypted group source
+ * must not report a different value than the same data would report in plaintext (#4622).
  */
 function aggregateBucket(aggregate: AggregateFunction, bucket: GroupBucket): number | null {
   switch (aggregate) {
     case 'count':
       return bucket.count
     case 'sum':
-      return bucket.numericCount === 0 ? null : exactDecimalToNumber(bucket.sum)
+      return bucket.numericCount === 0 ? 0 : exactDecimalToNumber(bucket.sum)
     case 'avg':
-      return bucket.numericCount === 0 ? null : exactDecimalToNumber(bucket.sum) / bucket.numericCount
+      return bucket.numericCount === 0 ? 0 : exactDecimalToNumber(bucket.sum) / bucket.numericCount
     case 'min':
       return bucket.min === null ? null : exactDecimalToNumber(bucket.min)
     case 'max':
