@@ -24,6 +24,22 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### CLI bundling: local `*.client` dynamic imports are replaced by an inert stub (#4623)
+
+The CLI loads its module registry by bundling app-module sources with esbuild. Because esbuild inlines dynamic imports into the single output file and hoists the imported file's static imports to the top, a dashboard widget doing `lazyDashboardWidget(() => import('./widget.client'))` pulled its browser-only dependencies into every CLI start — and a wrapper such as `@open-mercato/ui/backend/charts` then failed on `next/dynamic`, a bare specifier Node's ESM resolver cannot resolve outside a bundler. The symptom was that every CLI entry point, `yarn dev` included, died with `Cannot find module '.../node_modules/next/dynamic'`.
+
+The CLI bundler now resolves **dynamic** imports of local (`./`, `../`, `@/`) `*.client` modules to an inert stub whose default export throws if it is ever called. The owning `widget.ts` stays importable in Node, so `loadAllWidgets()` can keep reading widget metadata when seeding dashboards, while the browser-only subgraph never enters the bundle.
+
+Scope limits worth knowing:
+
+- **Only dynamic imports are rewritten.** A static `import X from './widget.client'` is left to the bundler exactly as before. This is deliberate: a static import may request named bindings the stub cannot provide, and esbuild rejects those with `No matching export`, which would fail the whole CLI bundle — the same breakage class this change removes.
+- **Only local specifiers are rewritten.** Package-provided client modules (`@open-mercato/...`) are already marked external by the CLI bundler and are untouched.
+- Server-side helpers that merely follow a `*.client.ts` naming convention are unaffected as long as they are imported statically.
+
+**Action for downstream:** none for modules that already follow the documented dashboard-widget convention. If one of your dashboard widgets reaches its browser component through a *static* import in `widget.ts`, switch it to `lazyDashboardWidget(() => import('./widget.client'))` — that is what makes the CLI bundle safe. If you dynamically `import()` a server-side module whose name ends in `.client`, rename it or import it statically; a dynamic import of such a path now resolves to the stub and throws `[internal] Client-only module … is not available in the CLI runtime` when called.
+
+---
+
 ### Query index reindex now fails when a batch loses records
 
 `upsertIndexBatch` used to swallow every write error: the bulk `INSERT … ON CONFLICT` had a bare `catch`, and the per-row fallback ran inside a transaction whose per-row `catch` could not actually recover — in Postgres a failed statement aborts the transaction, and `COMMIT` on an aborted transaction returns a `ROLLBACK` tag without raising. A single bad record therefore discarded its entire batch (up to 500 rows) while the reindex job still credited the coverage counters and finished green, and the subsequent orphan purge then deleted the pre-existing index rows for those records.
