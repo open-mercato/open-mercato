@@ -44,4 +44,19 @@ Migrate the `tar` dependency update from PR #4520 onto the configured `develop` 
 
 ### Phase 2: Tracker handoff
 
-- [ ] 2.1 Finalize and review the replacement PR against `develop`, then close PR #4520 with a link to its replacement.
+- [x] 2.1 Finalize and review the replacement PR against `develop`, then close PR #4520 with a link to its replacement. — PR #4522; #4520 closed 2026-07-26T07:36:42Z; unblocked by merging `develop` (which carries #4608) in a71ea7bde
+
+## Validation
+
+**Source:** local run on merged head `a71ea7bde` (current `develop` merged in), plus GitHub Actions checks on the same head. **Runner:** local for the gate below; GitHub Actions for the full CI suite.
+
+The `blocked` state this plan previously carried was caused by two phone custom-field translation keys missing from the `develop` base, not by this PR's diff. That fix landed upstream in #4608 (merged into `develop` 2026-07-30T14:45:15Z) and is now present on this branch.
+
+| Gate command | Result |
+|--------------|--------|
+| `yarn generate` | ✅ pass |
+| `yarn build:packages` | ✅ pass |
+| `yarn i18n:check-sync` | ✅ pass — all translation files in sync |
+| `yarn i18n:check-usage` | ✅ **exit 0, zero missing keys** (previously exit 1 on the two phone keys) |
+
+Dependency integrity after merging 445 commits of `develop`: `package.json` still pins `"tar": "7.5.21"`, `packages/create-app/package.json` requests `^7.5.21`, and the lockfile contains exactly one `tar` descriptor — `tar@npm:7.5.21` → `7.5.21`. No downlevel `tar` remains reachable.
