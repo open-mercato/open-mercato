@@ -2,9 +2,16 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { FEATURE_FLAG_STALE_TIME_MS } from './staleTime'
 
-export type UseFeatureFlagJsonOptions = {
+export type UseFeatureFlagJsonOptions<T = unknown> = {
     id: string
+    /**
+     * Value used while the check is in flight and whenever the toggle cannot be
+     * resolved (undefined toggle, type mismatch, network or permission failure).
+     * Defaults to `null`.
+     */
+    defaultValue?: T | null
 }
 
 export type UseFeatureFlagJsonResult<T = unknown> = {
@@ -20,7 +27,8 @@ type Result<T> = {
     error: unknown
 }
 
-export function useFeatureFlagJson<T = unknown>(options: UseFeatureFlagJsonOptions): UseFeatureFlagJsonResult<T> {
+export function useFeatureFlagJson<T = unknown>(options: UseFeatureFlagJsonOptions<T>): UseFeatureFlagJsonResult<T> {
+    const defaultValue = options.defaultValue ?? null
     const query = useQuery({
         queryKey: ['featureToggles', 'check', 'json', options?.id],
         queryFn: async () => {
@@ -37,9 +45,10 @@ export function useFeatureFlagJson<T = unknown>(options: UseFeatureFlagJsonOptio
             return result
         },
         enabled: !!options.id,
+        staleTime: FEATURE_FLAG_STALE_TIME_MS,
     })
 
-    const value = query.data?.ok ? query.data.value : null
+    const value = query.data?.ok ? query.data.value : defaultValue
     const isLoading = query.isLoading
 
     return {
