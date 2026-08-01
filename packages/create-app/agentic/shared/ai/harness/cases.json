@@ -13483,5 +13483,175 @@
     "maxInitialContextBytes": 81920,
     "maxTotalContextBytes": 229376,
     "relatedCases": ["OMH-083", "OMH-093", "OMH-122", "OMH-163", "OMH-185"]
+  },
+  {
+    "id": "OMH-193",
+    "title": "Build a complete staff-ready library from a business brief",
+    "family": "module",
+    "mode": "one-shot",
+    "evaluationKind": "implementation",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, build a production-ready library management area for staff. Use every standard platform procedure that applies to a complete staff feature, complete those procedures before writing, and finish by checking the generated app rather than stopping at a plausible sketch. They must be able to open Books from the main navigation, search and filter the catalog, add books, correct them, remove them, and recover from mistakes through familiar consistent screens. Each book should carry title, author, ISBN, publication details, description, internal acquisition notes, and any extra fields administrators add later; those extra values must survive create, edit, clear, and reload. Protect organization data and sensitive notes, enforce staff permissions, prevent one editor from silently overwriting another, keep a useful audit trail, and make multi-step changes all-or-nothing. Changes should update search and other downstream views only after success, and retries or undo must leave them consistent. Other app modules must be able to add book fields, list columns, actions, and response data later without copying this module. Make navigation and visible text translation-ready. Deliver the working feature, not a plan, including its records, staff screens, service behavior, setup, and focused automated proof. Review data changes but do not apply them, do not modify installed framework code, and refresh anything the app needs to discover the feature.",
+    "tags": [
+      "module",
+      "complete-vertical-slice",
+      "book-library",
+      "backend-ui",
+      "umes",
+      "writable",
+      "business-language"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-03",
+        "BC-05",
+        "BC-06",
+        "BC-07",
+        "BC-08",
+        "BC-09",
+        "BC-10"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "module-data",
+        "backend-ui",
+        "umes"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "testing",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-module-scaffold",
+      "om-data-model-design",
+      "om-backend-ui-design",
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+        ".ai/skills/om-data-model-design/references/sensitive-data.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+        ".ai/skills/om-module-scaffold/references/verification.md",
+        ".ai/skills/om-system-extension/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        "node_modules/**",
+        ".mercato/generated/**"
+      ]
+    },
+    "requiredDecisions": [
+      "app-module-registration",
+      "main-sidebar-navigation",
+      "crudform-datatable-add-book",
+      "custom-field-roundtrip",
+      "tenant-organization-scope",
+      "acl-default-grants",
+      "command-atomic-undo-locking",
+      "post-commit-side-effects",
+      "encryption-scoped-decryption",
+      "search-index-convergence",
+      "localized-visible-copy",
+      "umes-api-host",
+      "stable-ui-host-ids",
+      "migration-snapshot-no-apply",
+      "generate-and-test"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "requireRoles",
+      "@mikro-orm/core.{0,20}(?:Entity|Property)",
+      "raw (?:form|fetch)",
+      "hard-coded user-facing",
+      "(?:apply|run).{0,20}(?:migration|db:migrate)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.module.complete"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:module-complete-library"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.module.complete"
+      ],
+      "expectedArtifacts": [
+        "src/modules/library/index.ts",
+        "src/modules/library/acl.ts",
+        "src/modules/library/setup.ts",
+        "src/modules/library/encryption.ts",
+        "src/modules/library/search.ts",
+        "src/modules/library/data/entities.ts",
+        "src/modules/library/data/validators.ts",
+        "src/modules/library/migrations/**",
+        "src/modules/library/commands/**",
+        "src/modules/library/commands/__tests__/**",
+        "src/modules/library/api/books/route.ts",
+        "src/modules/library/backend/books/**",
+        "src/modules/library/i18n/en.json",
+        "src/modules.ts"
+      ]
+    },
+    "allowedWrites": [
+      "src/modules/library/**",
+      "src/modules.ts"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 245760,
+    "relatedCases": [
+      "OMH-004",
+      "OMH-009",
+      "OMH-011",
+      "OMH-012",
+      "OMH-014",
+      "OMH-017",
+      "OMH-026",
+      "OMH-185"
+    ]
   }
 ]
