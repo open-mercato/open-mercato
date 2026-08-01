@@ -96,18 +96,18 @@ describe('isValidCheckoutStatusTransition', () => {
     expect(isValidCheckoutStatusTransition('expired', 'completed')).toBe(false)
   })
 
-  // --- Same-state transitions are always rejected ---
+  // --- Same-state transitions are allowed (idempotency support) ---
 
-  it('pending → pending is INVALID (same state)', () => {
-    expect(isValidCheckoutStatusTransition('pending', 'pending')).toBe(false)
+  it('pending → pending is valid', () => {
+    expect(isValidCheckoutStatusTransition('pending', 'pending')).toBe(true)
   })
 
-  it('processing → processing is INVALID (same state)', () => {
-    expect(isValidCheckoutStatusTransition('processing', 'processing')).toBe(false)
+  it('processing → processing is valid', () => {
+    expect(isValidCheckoutStatusTransition('processing', 'processing')).toBe(true)
   })
 
-  it('completed → completed is INVALID (same state)', () => {
-    expect(isValidCheckoutStatusTransition('completed', 'completed')).toBe(false)
+  it('completed → completed is valid', () => {
+    expect(isValidCheckoutStatusTransition('completed', 'completed')).toBe(true)
   })
 })
 
@@ -144,14 +144,7 @@ describe('assertValidCheckoutStatusTransition', () => {
     }
   })
 
-  it('throws a 409 CrudHttpError for same-state (processing → processing)', () => {
-    expect.assertions(2)
-    try {
-      assertValidCheckoutStatusTransition('processing', 'processing')
-    } catch (err) {
-      const error = err as { status?: number; body?: Record<string, unknown> }
-      expect(error.status).toBe(409)
-      expect(error.body?.code).toBe('invalid_status_transition')
-    }
+  it('does not throw for same-state transition (processing → processing)', () => {
+    expect(() => assertValidCheckoutStatusTransition('processing', 'processing')).not.toThrow()
   })
 })

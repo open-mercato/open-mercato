@@ -34,14 +34,14 @@ export const VALID_CHECKOUT_TRANSITIONS: Record<CheckoutTransaction['status'], C
 
 /**
  * Returns `true` when transitioning from `from` to `to` is allowed by the
- * state machine.  Same-state transitions are rejected (idempotent callers
- * should check before calling).
+ * state machine. Same-state transitions are allowed as safe no-ops to support
+ * idempotency.
  */
 export function isValidCheckoutStatusTransition(
   from: CheckoutTransaction['status'],
   to: CheckoutTransaction['status'],
 ): boolean {
-  if (from === to) return false
+  if (from === to) return true
   const allowed = VALID_CHECKOUT_TRANSITIONS[from]
   if (!allowed) return false
   return allowed.includes(to)

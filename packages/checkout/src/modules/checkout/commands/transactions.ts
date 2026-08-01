@@ -201,22 +201,22 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
 
       if (affected === 0) {
         // A concurrent writer (webhook or poller) already advanced the status.
-        // Treat this as a no-op conflict: throw 409 so callers that already
-        // swallow errors (subscriber `.catch(() => null)`, error-path in
-        // submit route) handle it gracefully, while direct callers surface it.
+        // Re-read the actual status from the database to report it accurately.
+        const actualTx = await tx.findOne(CheckoutTransaction, { id: parsed.id }, { fields: ['status'] })
         throw new CrudHttpError(409, {
-          error: `Transaction status was already updated by a concurrent process (expected status "${previousStatus}")`,
+          error: `Transaction status was already updated by a concurrent process (expected status "${previousStatus}", actual "${actualTx?.status ?? 'unknown'}")`,
           code: 'concurrent_status_update',
-          currentStatus: previousStatus,
+          expectedStatus: previousStatus,
+          currentStatus: actualTx?.status ?? 'unknown',
           requestedStatus: nextStatus,
         })
       }
 
-      // Sync the in-memory entity so the terminal-event builder below sees the
-      // correct values without an extra round-trip.
-      transaction.status = nextStatus
-      transaction.paymentStatus = newPaymentStatus
-      transaction.gatewayTransactionId = newGatewayTransactionId
+      // Sync the entity state in the unit of work by refreshing it.
+      // This loads the updated values (status, paymentStatus, gatewayTransactionId)
+      // from the DB and marks the entity as clean, avoiding a redundant second write
+      // during the subsequent tx.flush().
+      await tx.refresh(transaction)
 
       if (!previousTerminal && nextTerminal) {
         const { usageLimitReached } = applyTerminalTransactionState(link, nextStatus)

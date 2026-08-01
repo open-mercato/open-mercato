@@ -30,7 +30,7 @@ Prevent `CheckoutTransaction.status` from regressing from a terminal state (e.g.
 
 ### Phase 1: State machine helper
 
-- [ ] 1.1 Create `packages/checkout/src/modules/checkout/lib/transaction-status-machine.ts` with `VALID_CHECKOUT_TRANSITIONS`, `assertValidCheckoutStatusTransition`, and `isTerminalCheckoutStatus` re-export
+- [ ] 1.1 Create `packages/checkout/src/modules/checkout/lib/transaction-status-machine.ts` with `VALID_CHECKOUT_TRANSITIONS` and `assertValidCheckoutStatusTransition`
 
 ### Phase 2: Atomic guard in the command
 

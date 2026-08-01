@@ -17,6 +17,7 @@
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+import { CheckoutTransaction } from '../../data/entities'
 
 // Register the transaction commands
 import '../transactions'
@@ -34,7 +35,7 @@ const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const LINK_ID = '123e4567-e89b-12d3-a456-426614174010'
 const TX_ID = '123e4567-e89b-12d3-a456-426614174020'
 
-function makeTransaction(status: string) {
+function makeTransaction(status: CheckoutTransaction['status']) {
   return {
     id: TX_ID,
     linkId: LINK_ID,
@@ -70,6 +71,7 @@ type MockEm = {
   findOne: jest.Mock
   nativeUpdate: jest.Mock
   flush: jest.Mock
+  refresh: jest.Mock
   transactional: (fn: (tx: MockEm) => Promise<unknown>) => Promise<unknown>
 }
 
@@ -82,6 +84,7 @@ function makeMockEm(transaction: ReturnType<typeof makeTransaction>, nativeUpdat
     }),
     nativeUpdate: jest.fn(async () => nativeUpdateResult),
     flush: jest.fn(async () => undefined),
+    refresh: jest.fn(async () => undefined),
     transactional: (fn) => fn(mockTx),
   }
   return mockTx
@@ -246,7 +249,7 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
 
   describe('TOCTOU guard — nativeUpdate returns 0 (concurrent write wins)', () => {
     it('nativeUpdate=0 throws 409 with code concurrent_status_update', async () => {
-      expect.assertions(3)
+      expect.assertions(5)
       // Transaction is still processing from our read, but another writer won the race
       const transaction = makeTransaction('processing')
       const em = makeMockEm(transaction, 0)
@@ -257,6 +260,8 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
         const error = err as { status?: number; body?: Record<string, unknown> }
         expect(error.status).toBe(409)
         expect(error.body?.code).toBe('concurrent_status_update')
+        expect(error.body?.expectedStatus).toBe('processing')
+        expect(error.body?.currentStatus).toBe('processing')
         // The terminal event must NOT be emitted when the update was a no-op
         expect(emitCheckoutEvent).not.toHaveBeenCalledWith(
           'checkout.transaction.completed',
@@ -278,4 +283,33 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
       }
     })
   })
+
+  describe('same-state transitions (idempotency support)', () => {
+    it('processing → processing: succeeds and calls nativeUpdate', async () => {
+      const transaction = makeTransaction('processing')
+      const em = makeMockEm(transaction, 1)
+
+      await runUpdateStatus(em, 'processing')
+
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ status: 'processing' }),
+        expect.objectContaining({ status: 'processing' }),
+      )
+    })
+
+    it('completed → completed: succeeds and calls nativeUpdate', async () => {
+      const transaction = makeTransaction('completed')
+      const em = makeMockEm(transaction, 1)
+
+      await runUpdateStatus(em, 'completed')
+
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ status: 'completed' }),
+        expect.objectContaining({ status: 'completed' }),
+      )
+    })
+  })
 })
+
