@@ -1,17 +1,15 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
+  createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
+  deleteOrganizationIfExists,
   deleteRoleIfExists,
   deleteUserIfExists,
   apiRequestWithSelectedOrg,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import {
-  createOrganizationInDb,
-  deleteOrganizationInDb,
-} from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   deleteGeneralEntityIfExists,
   expectId,
@@ -28,16 +26,18 @@ async function createNotificationInScope(
   request: APIRequestContext,
   token: string,
   selectedOrgId: string,
+  roleId: string,
   data: Record<string, unknown>,
 ): Promise<string> {
-  const response = await apiRequestWithSelectedOrg(request, 'POST', '/api/notifications', {
+  const response = await apiRequestWithSelectedOrg(request, 'POST', '/api/notifications/role', {
     token,
     selectedOrgId,
-    data,
+    data: { ...data, roleId },
   })
-  expect(response.status(), 'POST /api/notifications should return 201').toBe(201)
-  const body = await readJsonSafe<{ id?: string }>(response)
-  return expectId(body?.id, 'notification create response should include id')
+  expect(response.status(), 'POST /api/notifications/role should return 201').toBe(201)
+  const body = await readJsonSafe<{ ids?: string[] }>(response)
+  expect(body?.ids, 'notification create response should include one id').toHaveLength(1)
+  return expectId(body?.ids?.[0], 'notification create response should include id')
 }
 
 async function getNotificationsInScope(
@@ -235,7 +235,7 @@ test.describe('TC-NOTIF-007: Notification list is scoped by tenant and user', ()
     let tenantWideNotificationId: string | null = null
 
     try {
-      siblingOrgId = await createOrganizationInDb({
+      siblingOrgId = await createOrganizationFixture(request, superadminToken, {
         name: `QA Notifications Sibling Org ${stamp}`,
         tenantId: scope.tenantId,
       })
@@ -261,20 +261,17 @@ test.describe('TC-NOTIF-007: Notification list is scoped by tenant and user', ()
       const siblingUnreadBaseline = await getUnreadListCountInScope(request, userToken, siblingOrgId)
       const allUnreadBaseline = await getUnreadListCountInScope(request, userToken, '__all__')
 
-      homeNotificationId = await createNotificationInScope(request, userToken, homeOrgId, {
+      homeNotificationId = await createNotificationInScope(request, userToken, homeOrgId, roleId, {
         type,
         title: `Home organization notification ${stamp}`,
-        recipientUserId: userId,
       })
-      siblingNotificationId = await createNotificationInScope(request, userToken, siblingOrgId, {
+      siblingNotificationId = await createNotificationInScope(request, userToken, siblingOrgId, roleId, {
         type,
         title: `Sibling organization notification ${stamp}`,
-        recipientUserId: userId,
       })
-      tenantWideNotificationId = await createNotificationInScope(request, userToken, '__all__', {
+      tenantWideNotificationId = await createNotificationInScope(request, userToken, '__all__', roleId, {
         type,
         title: `Tenant-wide notification ${stamp}`,
-        recipientUserId: userId,
       })
 
       const homeItems = await getNotificationsInScope(request, userToken, homeOrgId, type)
@@ -306,7 +303,7 @@ test.describe('TC-NOTIF-007: Notification list is scoped by tenant and user', ()
       await dismissNotificationInScope(request, userToken, '__all__', tenantWideNotificationId)
       await deleteUserIfExists(request, superadminToken, userId)
       await deleteRoleIfExists(request, superadminToken, roleId)
-      await deleteOrganizationInDb(siblingOrgId)
+      await deleteOrganizationIfExists(request, superadminToken, siblingOrgId)
     }
   })
 })
