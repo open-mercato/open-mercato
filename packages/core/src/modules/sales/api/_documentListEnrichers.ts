@@ -1,9 +1,31 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption, type DecryptionScope } from '@open-mercato/shared/lib/encryption/find'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SalesOrder, SalesInvoiceLine, SalesCreditMemoLine } from '../data/entities'
 import { CustomerEntity } from '../../customers/data/entities'
 
 type AnyRecord = Record<string, unknown>
+
+/**
+ * An encrypted jsonb column comes back from `findWithDecryption` as the raw
+ * decrypted *string*, not a parsed object — `parseDecryptedFieldValue` is what
+ * turns it back into a record (the same normalization `documents/factory.ts`
+ * applies to orders and quotes). Without it every consumer sees a string:
+ * `hasCustomerDisplayName` never matched, so invoices and credit memos silently
+ * re-hydrated the *live* customer instead of the order's frozen snapshot, and
+ * the detail routes emitted a string where their openApi schema promises an
+ * object (QA findings F1/F2 on PR #1977, issue #4143).
+ */
+export function normalizeJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  if (typeof value !== 'string') return null
+  const parsed = parseDecryptedFieldValue(value)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null
+}
 
 function toAmountString(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
@@ -165,7 +187,7 @@ export async function attachOrderContext(payload: { items?: unknown }, ctx: Enri
     item.orderId = orderId
     item.order = order ? { id: order.id, orderNumber: order.orderNumber } : null
     item.customerEntityId = order?.customerEntityId ?? null
-    item.customerSnapshot = order?.customerSnapshot ?? null
+    item.customerSnapshot = normalizeJsonRecord(order?.customerSnapshot ?? null)
   }
 
   const customerIdsToHydrate = Array.from(

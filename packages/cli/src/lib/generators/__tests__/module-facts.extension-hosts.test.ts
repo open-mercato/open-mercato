@@ -102,7 +102,15 @@ describe('module-facts extension host extraction', () => {
       'catalog.products.list',
     ])
 
+    // The invoice and credit-memo lists are hosted by the same
+    // SalesDocumentsTable, so its `tableId` conditional must stay statically
+    // resolvable — rewriting it as a switch/IIFE drops all four ids.
     const sales = extractModuleFacts({ moduleId: 'sales', coreSrcRoot })
-    expect(sales.hostTokens.tableIds).toEqual(['sales.orders', 'sales.quotes'])
+    expect(sales.hostTokens.tableIds).toEqual([
+      'sales.credit_memos',
+      'sales.invoices',
+      'sales.orders',
+      'sales.quotes',
+    ])
   })
 })

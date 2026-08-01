@@ -5,10 +5,15 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesInvoice, SalesInvoiceLine, SalesOrder } from '../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { normalizeJsonRecord } from '../../_documentListEnrichers'
+
+const logger = createLogger('sales')
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
@@ -76,29 +81,29 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     }
 
     const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = orgScope?.selectedId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, {
-        error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
-      })
-    }
-    const scope = { tenantId: auth.tenantId, organizationId }
+    // Scope by the caller's visible organizations (mirrors `returns/[id]`).
+    // Under "All organizations" (super-admin) `where` is empty and
+    // `rbacOrganizationId` is null, so the invoice is fetched by its
+    // tenant-unique id instead of 400-ing; restricted callers keep their
+    // `filterIds` `$in` guard (#4367).
+    const orgFilter = resolveOrganizationScopeFilter(orgScope, auth)
+    const scope = { tenantId: auth.tenantId, organizationId: orgFilter.rbacOrganizationId ?? undefined }
 
     const em = (container.resolve('em') as EntityManager).fork()
     const invoice = await findOneWithDecryption(em, SalesInvoice, {
       id,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
+      tenantId: auth.tenantId,
       deletedAt: null,
+      ...orgFilter.where,
     }, {}, scope)
     if (!invoice) {
-      throw new CrudHttpError(404, { error: translate('sales.invoices.errors.notFound', 'Invoice not found') })
+      throw notFound(translate('sales.invoices.errors.notFound', 'Invoice not found'))
     }
 
     const lineRecords = await findWithDecryption(
       em,
       SalesInvoiceLine,
-      { invoice, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      { invoice, tenantId: auth.tenantId, ...orgFilter.where },
       { orderBy: { lineNumber: 'asc' } },
       scope,
     )
@@ -107,9 +112,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     const order = orderId
       ? await findOneWithDecryption(em, SalesOrder, {
           id: orderId,
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
+          tenantId: auth.tenantId,
           deletedAt: null,
+          ...orgFilter.where,
         }, {}, scope)
       : null
 
@@ -132,8 +137,8 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       orderId,
       order: order ? { id: order.id, orderNumber: order.orderNumber ?? null } : null,
       customerEntityId: order?.customerEntityId ?? null,
-      customerSnapshot: order?.customerSnapshot ?? null,
-      metadata: invoice.metadata ?? null,
+      customerSnapshot: normalizeJsonRecord(order?.customerSnapshot ?? null),
+      metadata: normalizeJsonRecord(invoice.metadata ?? null),
       customFieldSetId: invoice.customFieldSetId ?? null,
       organizationId: invoice.organizationId,
       tenantId: invoice.tenantId,
@@ -164,7 +169,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('sales.invoices.get failed', err)
+    logger.error('sales.invoices.get failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('sales.invoices.errors.loadFailed', 'Failed to load invoice') },

@@ -52,7 +52,19 @@ test.describe('TC-SALES-024: Create Invoice from Order', () => {
     // Create order via API
     const orderResponse = await apiRequest(page.request, 'POST', '/api/sales/orders', {
       token: authToken,
-      data: { currencyCode: 'USD' },
+      // A sales order must contain at least one line (issue #4021), so seed a
+      // zero-priced placeholder: it satisfies the invariant without perturbing
+      // the totals this spec asserts on.
+      data: {
+        currencyCode: 'USD',
+        lines: [{
+          currencyCode: 'USD',
+          quantity: 1,
+          name: `QA seed line ${Date.now()}`,
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        }],
+      },
     });
     expect(orderResponse.ok()).toBeTruthy();
     const orderBody = await orderResponse.json() as Record<string, unknown>;
@@ -156,7 +168,19 @@ test.describe('TC-SALES-024: Create Invoice from Order', () => {
     // Create order with one line via API
     const orderResponse = await apiRequest(page.request, 'POST', '/api/sales/orders', {
       token: authToken,
-      data: { currencyCode: 'USD' },
+      // A sales order must contain at least one line (issue #4021), so seed a
+      // zero-priced placeholder: it satisfies the invariant without perturbing
+      // the totals this spec asserts on.
+      data: {
+        currencyCode: 'USD',
+        lines: [{
+          currencyCode: 'USD',
+          quantity: 1,
+          name: `QA seed line ${Date.now()}`,
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        }],
+      },
     });
     expect(orderResponse.ok()).toBeTruthy();
     const orderBody = await orderResponse.json() as Record<string, unknown>;
@@ -275,7 +299,19 @@ test.describe('TC-SALES-024: Create Invoice from Order', () => {
     // Create an order to reference
     const orderResponse = await apiRequest(page.request, 'POST', '/api/sales/orders', {
       token: authToken,
-      data: { currencyCode: 'USD' },
+      // A sales order must contain at least one line (issue #4021), so seed a
+      // zero-priced placeholder: it satisfies the invariant without perturbing
+      // the totals this spec asserts on.
+      data: {
+        currencyCode: 'USD',
+        lines: [{
+          currencyCode: 'USD',
+          quantity: 1,
+          name: `QA seed line ${Date.now()}`,
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        }],
+      },
     });
     expect(orderResponse.ok()).toBeTruthy();
     const orderBody = await orderResponse.json() as Record<string, unknown>;
@@ -342,7 +378,19 @@ test.describe('TC-SALES-024: Create Invoice from Order', () => {
 
     const orderResponse = await apiRequest(page.request, 'POST', '/api/sales/orders', {
       token: authToken,
-      data: { currencyCode: 'USD' },
+      // A sales order must contain at least one line (issue #4021), so seed a
+      // zero-priced placeholder: it satisfies the invariant without perturbing
+      // the totals this spec asserts on.
+      data: {
+        currencyCode: 'USD',
+        lines: [{
+          currencyCode: 'USD',
+          quantity: 1,
+          name: `QA seed line ${Date.now()}`,
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        }],
+      },
     });
     expect(orderResponse.ok()).toBeTruthy();
     const orderBody = await orderResponse.json() as Record<string, unknown>;

@@ -884,14 +884,17 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
               ]}
             />
           )}
-          perspective={{ tableId: (() => {
-            switch (kind) {
-              case 'order': return 'sales.orders'
-              case 'quote': return 'sales.quotes'
-              case 'invoice': return 'sales.invoices'
-              case 'credit-memo': return 'sales.credit_memos'
-            }
-          })() }}
+          // Kept as a nested conditional rather than a switch/IIFE on purpose:
+          // the module fact-sheet generator resolves `tableId` statically and
+          // only understands string literals and conditional expressions, so an
+          // IIFE silently drops every sales table host from the generated facts
+          // (guarded by module-facts.extension-hosts.test.ts).
+          perspective={{ tableId:
+            kind === 'order' ? 'sales.orders'
+            : kind === 'quote' ? 'sales.quotes'
+            : kind === 'invoice' ? 'sales.invoices'
+            : 'sales.credit_memos'
+          }}
           onRowClick={handleRowClick}
           emptyState={
             <div className="py-10 text-center text-sm text-muted-foreground">

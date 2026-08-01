@@ -5,10 +5,15 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesCreditMemo, SalesCreditMemoLine, SalesOrder } from '../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { normalizeJsonRecord } from '../../_documentListEnrichers'
+
+const logger = createLogger('sales')
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
@@ -71,29 +76,29 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     }
 
     const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = orgScope?.selectedId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, {
-        error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
-      })
-    }
-    const scope = { tenantId: auth.tenantId, organizationId }
+    // Scope by the caller's visible organizations (mirrors `returns/[id]`).
+    // Under "All organizations" (super-admin) `where` is empty and
+    // `rbacOrganizationId` is null, so the credit memo is fetched by its
+    // tenant-unique id instead of 400-ing; restricted callers keep their
+    // `filterIds` `$in` guard (#4367).
+    const orgFilter = resolveOrganizationScopeFilter(orgScope, auth)
+    const scope = { tenantId: auth.tenantId, organizationId: orgFilter.rbacOrganizationId ?? undefined }
 
     const em = (container.resolve('em') as EntityManager).fork()
     const creditMemo = await findOneWithDecryption(em, SalesCreditMemo, {
       id,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
+      tenantId: auth.tenantId,
       deletedAt: null,
+      ...orgFilter.where,
     }, {}, scope)
     if (!creditMemo) {
-      throw new CrudHttpError(404, { error: translate('sales.credit_memos.errors.notFound', 'Credit memo not found') })
+      throw notFound(translate('sales.credit_memos.errors.notFound', 'Credit memo not found'))
     }
 
     const lineRecords = await findWithDecryption(
       em,
       SalesCreditMemoLine,
-      { creditMemo, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      { creditMemo, tenantId: auth.tenantId, ...orgFilter.where },
       { orderBy: { lineNumber: 'asc' } },
       scope,
     )
@@ -102,9 +107,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     const order = orderId
       ? await findOneWithDecryption(em, SalesOrder, {
           id: orderId,
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
+          tenantId: auth.tenantId,
           deletedAt: null,
+          ...orgFilter.where,
         }, {}, scope)
       : null
 
@@ -124,9 +129,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       orderId,
       order: order ? { id: order.id, orderNumber: order.orderNumber ?? null } : null,
       customerEntityId: order?.customerEntityId ?? null,
-      customerSnapshot: order?.customerSnapshot ?? null,
+      customerSnapshot: normalizeJsonRecord(order?.customerSnapshot ?? null),
       invoiceId: creditMemo.invoice?.id ?? null,
-      metadata: creditMemo.metadata ?? null,
+      metadata: normalizeJsonRecord(creditMemo.metadata ?? null),
       customFieldSetId: creditMemo.customFieldSetId ?? null,
       organizationId: creditMemo.organizationId,
       tenantId: creditMemo.tenantId,
@@ -154,7 +159,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('sales.credit_memos.get failed', err)
+    logger.error('sales.credit_memos.get failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('sales.credit_memos.errors.loadFailed', 'Failed to load credit memo') },
