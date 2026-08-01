@@ -19,6 +19,9 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { ensureSalesDictionary } from '../../../lib/dictionaries'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },
@@ -108,7 +111,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.settings.order-editing.get failed', err)
+    logger.error('sales.settings.order-editing.get failed', { err })
     return NextResponse.json(
       { error: translate('sales.settings.errors.load_failed', 'Failed to load sales settings') },
       { status: 400 }
@@ -177,7 +180,7 @@ export async function PUT(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.settings.order-editing.put failed', err)
+    logger.error('sales.settings.order-editing.put failed', { err })
     return NextResponse.json(
       { error: translate('sales.settings.errors.save_failed', 'Failed to save sales settings') },
       { status: 400 }

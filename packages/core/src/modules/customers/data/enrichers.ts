@@ -2,6 +2,7 @@ import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib
 import type { CustomerKysely } from '../lib/kysely'
 import { resolveKyselyClient } from '../lib/kysely'
 import { fetchStuckThresholdDays } from '../lib/stuckDeals'
+import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
 
 type DealRecord = Record<string, unknown> & {
   id: string
@@ -19,12 +20,6 @@ type PipelineState = {
 
 const ENRICHER_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
-// Mirror the canonical statuses defined in validators.ts (`interactionStatusValues`). The
-// canonical spelling is `canceled` (US, single L), not `cancelled` (UK). Misspelling this
-// here let canceled interactions slip into the open-activities count badge on the card.
-// We accept `completed` defensively too, even though `done` is the canonical "completed"
-// value in the validator, in case any legacy rows exist with the longer spelling.
-const TERMINAL_INTERACTION_STATUSES = ['done', 'canceled', 'completed'] as const
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null
@@ -63,7 +58,7 @@ async function fetchOpenInteractionCounts(
     .where('organization_id', '=', organizationId)
     .where('tenant_id', '=', tenantId)
     .where('deleted_at', 'is', null)
-    .where('status', 'not in', [...TERMINAL_INTERACTION_STATUSES])
+    .where('status', 'not in', [...TERMINAL_INTERACTION_STATUS_LIST])
     .groupBy('deal_id')
     .execute()
   for (const row of rows) {

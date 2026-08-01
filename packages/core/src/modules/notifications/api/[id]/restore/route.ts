@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { restoreNotificationSchema } from '../../../data/validators'
 import {
   NOTIFICATION_RESOURCE_KIND,
+  notificationValidationErrorResponse,
   resolveNotificationContext,
   runGuardedNotificationWrite,
 } from '../../../lib/routeHelpers'
@@ -15,7 +16,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { service, scope, ctx } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
-  const input = restoreNotificationSchema.parse(body)
+  const parsed = restoreNotificationSchema.safeParse(body)
+  if (!parsed.success) {
+    return notificationValidationErrorResponse(parsed.error)
+  }
+  const input = parsed.data
 
   const guarded = await runGuardedNotificationWrite(
     ctx.container,

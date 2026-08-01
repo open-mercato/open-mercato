@@ -1,0 +1,10 @@
+# Sensitive Data
+
+Load this reference when records contain PII, credentials, addresses, contact information, personal notes, or regulated data.
+
+1. Classify data sensitivity, lookup needs, retention/deletion, logs/search/export exposure, and access features.
+2. In module `encryption.ts`, import `ModuleEncryptionMap` from `@open-mercato/shared/modules/encryption`, declare `defaultEncryptionMaps: ModuleEncryptionMap[] = [{ entityId: '<module>:<entity>', fields: [{ field: '<database_field>' }] }]`, then `export default defaultEncryptionMaps` for generated registry compatibility. The entries are field-rule objects, not string names. Use a sibling `hashField` only for deterministic equality lookup.
+3. Import `findWithDecryption`, `findOneWithDecryption`, or `findAndCountWithDecryption` from `@open-mercato/shared/lib/encryption/find` and make a concrete call in every implemented direct sensitive-record read path; an unused import or encryption map alone is not a decrypted read. For `makeCrudRoute`, its `entityId` + `fields` factory QueryEngine owns list decryption and `list` has no `findAndCount` override key—do not insert a decryption helper as an unsupported option. Put trusted tenant/organization constraints in each direct helper query `where` **and** pass `{ tenantId, organizationId }` as the fifth-argument decryption scope. The scope selects keys; it does not authorize or scope the ORM query. Use a null/global scope only when the installed contract explicitly permits it. Audit detail/export/search/worker/CLI and other direct ORM paths.
+4. Keep secrets out of responses, logs, errors, events, snapshots, cache keys, search documents, vector sources, and test artifacts. Exclude encrypted source values from `search.ts` field policies and indexes; index only an explicitly approved hash-only sibling for exact equality. Never sort or fuzzy-filter ciphertext.
+5. Seed/update encryption configuration through the supported command when required; never hand-roll KMS/AES.
+6. Test authorized decryption, cross-scope denial, redaction, missing keys, export/search behavior, and cleanup/retention.

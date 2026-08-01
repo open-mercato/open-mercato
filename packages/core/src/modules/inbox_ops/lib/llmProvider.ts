@@ -7,6 +7,7 @@ import {
   resolveOpenCodeModel,
   requireOpenCodeProviderApiKey,
   resolveOpenCodeProviderId,
+  isOpenCodeProviderId,
   type OpenCodeProviderId,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import {
@@ -14,6 +15,7 @@ import {
   createModelFactory,
   type AiModelFactory,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
+import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import { extractionOutputSchema } from '../data/validators'
 
 // Vercel AI SDK provider factories return LanguageModelV1 but generateObject()
@@ -47,7 +49,24 @@ export function resolveExtractionProviderId(): OpenCodeProviderId {
   // first configured provider from `OPEN_CODE_PROVIDER_IDS`, then the unified
   // default (currently `openai`). Mirrors the precedence applied by the
   // shared model factory so the BC fallback path stays consistent.
-  const explicit = (process.env.OM_AI_PROVIDER ?? process.env.OPENCODE_PROVIDER ?? '').trim()
+  // This resolver only runs on the legacy fallback path (the unified factory
+  // already threw `no_provider_configured`). If the operator explicitly set the
+  // canonical OM_AI_PROVIDER to a provider the native-only switch cannot serve
+  // (e.g. a gateway like `openrouter`), fail loudly with a descriptive error
+  // instead of silently coercing to `openai` via resolveAiProviderIdFromEnv —
+  // reaching here means that provider is also not configured for the factory.
+  const canonicalProvider = (process.env.OM_AI_PROVIDER ?? '').trim()
+  if (canonicalProvider.length > 0 && !isOpenCodeProviderId(canonicalProvider.toLowerCase())) {
+    throw new Error(
+      `[internal] OM_AI_PROVIDER="${canonicalProvider}" is set but that provider is not configured ` +
+        `(no API key found), and the legacy inbox_ops extraction fallback only supports ` +
+        `anthropic, openai, or google. Set the provider's API key (e.g. OPENROUTER_API_KEY for ` +
+        `openrouter) so the unified model factory can serve it, or switch OM_AI_PROVIDER to a ` +
+        `configured native provider.`,
+    )
+  }
+
+  const explicit = (canonicalProvider || (process.env.OPENCODE_PROVIDER ?? '').trim())
   if (explicit.length > 0) {
     return resolveAiProviderIdFromEnv(process.env)
   }
@@ -115,8 +134,9 @@ export const __inboxOpsLlmProviderInternal = {
 }
 
 function tryFactoryResolution(input: {
+  moduleId?: string
   modelOverride?: string | null
-}): { modelId: string; providerId: OpenCodeProviderId; model: AiModel } | null {
+}): { model: AiModel; modelWithProvider: string } | null {
   let factory: AiModelFactory
   try {
     const container = __inboxOpsLlmProviderInternal.createContainer()
@@ -126,14 +146,15 @@ function tryFactoryResolution(input: {
   }
   try {
     const resolution = factory.resolveModel({
-      moduleId: 'inbox_ops',
+      moduleId: input.moduleId ?? 'inbox_ops',
       callerOverride: input.modelOverride ?? undefined,
     })
-    const providerId = resolveOpenCodeProviderId(resolution.providerId)
+    // Use the factory's real provider id (e.g. `openrouter`) for the label so a
+    // gateway resolution reads `openrouter/anthropic/claude-…` (single prefix),
+    // not a native-coerced `anthropic/…`.
     return {
-      modelId: resolution.modelId,
-      providerId,
       model: asAiModel(resolution.model),
+      modelWithProvider: joinProviderModel(resolution.providerId, resolution.modelId),
     }
   } catch (err) {
     if (err instanceof AiModelFactoryError) {
@@ -143,6 +164,35 @@ function tryFactoryResolution(input: {
     }
     throw err
   }
+}
+
+/**
+ * Resolves a concrete structured-output AI SDK model for inbox_ops, factory-first.
+ *
+ * The unified {@link createModelFactory} is consulted first — so every inbox_ops
+ * LLM call site (extraction, categorize, translation) shares one resolution order
+ * and gains gateway support (OpenRouter, Requesty, LiteLLM). The native-only
+ * {@link createStructuredModel} switch is used only as the true no-provider BC
+ * fallback, when the factory throws `AiModelFactoryError('no_provider_configured')`.
+ */
+export async function resolveConfiguredStructuredModel(input: {
+  moduleId?: string
+  modelOverride?: string | null
+} = {}): Promise<{ model: AiModel; modelWithProvider: string }> {
+  const fromFactory = tryFactoryResolution(input)
+  if (fromFactory) return fromFactory
+
+  // BC: Legacy OPENCODE_PROVIDER / OPENCODE_MODEL path. Only runs when the
+  // factory reported no configured provider, meaning none of the new-style
+  // provider env vars is set. The OPENCODE_* envs stay BC fallbacks scoped to
+  // the OpenCode Code Mode stack (spec 2026-04-27-…, R1 mitigation).
+  const providerId = resolveExtractionProviderId()
+  const apiKey = requireOpenCodeProviderApiKey(providerId)
+  const modelConfig = resolveOpenCodeModel(providerId, {
+    overrideModel: input.modelOverride,
+  })
+  const model = await createStructuredModel(providerId, apiKey, modelConfig.modelId)
+  return { model, modelWithProvider: modelConfig.modelWithProvider }
 }
 
 export async function runExtractionWithConfiguredProvider(input: {
@@ -155,32 +205,10 @@ export async function runExtractionWithConfiguredProvider(input: {
   totalTokens: number
   modelWithProvider: string
 }> {
-  const factoryResolution = tryFactoryResolution({ modelOverride: input.modelOverride })
-
-  let model: AiModel
-  let modelWithProvider: string
-  if (factoryResolution) {
-    model = factoryResolution.model
-    modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
-  } else {
-    // BC: Legacy OPENCODE_PROVIDER / OPENCODE_MODEL path. This branch only
-    // runs when createModelFactory throws AiModelFactoryError('no_provider_configured'),
-    // meaning none of the new-style provider env vars (ANTHROPIC_API_KEY,
-    // OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, OM_AI_PROVIDER, ...) is
-    // set. The OPENCODE_* envs are deliberately kept as BC fallbacks instead
-    // of being treated as canonical OM_AI_* values because they are scoped to
-    // the OpenCode Code Mode stack (spec
-    // 2026-04-27-ai-agents-provider-model-baseurl-overrides, R1 mitigation).
-    // Keeping this fallback alive preserves backward compatibility for existing
-    // inbox_ops deployments that have not yet migrated to the new env vars.
-    const providerId = resolveExtractionProviderId()
-    const apiKey = requireOpenCodeProviderApiKey(providerId)
-    const modelConfig = resolveOpenCodeModel(providerId, {
-      overrideModel: input.modelOverride,
-    })
-    model = await createStructuredModel(providerId, apiKey, modelConfig.modelId)
-    modelWithProvider = modelConfig.modelWithProvider
-  }
+  const { model, modelWithProvider } = await resolveConfiguredStructuredModel({
+    moduleId: 'inbox_ops',
+    modelOverride: input.modelOverride,
+  })
 
   const result = await withTimeout(
     generateObject({

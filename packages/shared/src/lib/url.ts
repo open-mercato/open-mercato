@@ -1,3 +1,7 @@
+import { createLogger } from './logger'
+
+const logger = createLogger('shared').child({ component: 'origin-check' })
+
 const DEFAULT_DEV_APP_URL = 'http://localhost:3000'
 
 type EnvLike = Record<string, string | undefined> & {
@@ -125,10 +129,11 @@ function logOriginDebugContext(
   nodeEnv?: string,
 ): void {
   if (level === 'warn' && nodeEnv === 'test') return
-  const log = level === 'warn' ? console.warn : console.error
+  const log = (msg: string, fields: Record<string, unknown>) =>
+    level === 'warn' ? logger.warn(msg, fields) : logger.error(msg, fields)
 
   if (typeof input === 'string') {
-    log('[origin-check] rejected string input', {
+    log('Origin check rejected string input', {
       requestUrl: input,
       rejectedOrigin: rejectedOrigin ?? null,
       allowedOrigins: Array.from(allowedOrigins),
@@ -137,14 +142,14 @@ function logOriginDebugContext(
   }
 
   if (!input) {
-    log('[origin-check] rejected empty input', {
+    log('Origin check rejected empty input', {
       rejectedOrigin: rejectedOrigin ?? null,
       allowedOrigins: Array.from(allowedOrigins),
     })
     return
   }
 
-  log('[origin-check] rejected request', {
+  log('Origin check rejected request', {
     requestUrl: input.url,
     host: input.headers.get('host'),
     forwardedHost: input.headers.get('x-forwarded-host'),
@@ -270,7 +275,7 @@ export function mapSecurityEmailUrlError(
     return { status: 400, body: { error: 'Invalid request origin' } }
   }
   if (error instanceof AppOriginConfigurationError) {
-    console.error(`[${mapping.scope}] APP_URL is required in production`)
+    logger.error('APP_URL is required in production', { scope: mapping.scope })
     return { status: 500, body: { error: mapping.configMessage } }
   }
   return null

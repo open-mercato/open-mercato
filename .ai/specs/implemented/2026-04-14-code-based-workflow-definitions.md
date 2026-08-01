@@ -307,6 +307,8 @@ The `source` concept is derived at query time, not stored:
 
 No changes needed. The instance stores `definitionId`, `workflowId`, and `version` as before. The executor continues to fetch the latest definition on every step/resume — code-based definitions are resolved from the in-memory registry using the same live-read pattern.
 
+**Runtime resolution for started instances.** An instance started from an unpersisted code definition stores the deterministic `codeWorkflowUuid(workflowId)` as its `definitionId`. Runtime handlers (executor loop, step, transition, task, signal, timer) resolve the backing definition via `findDefinitionForInstance()` in `lib/find-definition.ts`: database row by id first, then a code-registry fallback gated on `codeWorkflowUuid(instance.workflowId) === instance.definitionId`. The UUID-equality gate guarantees the fallback never substitutes the code payload for a hard-deleted *persisted* row (those have their own random UUIDs), and a disabled code definition still resolves so in-flight instances can finish — matching persisted-definition semantics, where disabling blocks new starts but not running instances. Without this fallback, a virtual code workflow could start but never advance (`DEFINITION_NOT_FOUND` on the first transition).
+
 ### CodeWorkflowDefinition (new shared type, not a DB entity)
 
 ```typescript
@@ -429,12 +431,37 @@ A follow-up migration (`Migration20260428102318`) renames legacy `seedExampleWor
   - Update `workflow_instances.workflow_id` for instances pointing at definitions that match.
 - The `down()` reverses both updates and is conflict-aware: it skips rows where reverting would collide with an existing row in the same tenant. The two `down()` statements are ordered so that `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, preventing dangling references mid-migration.
 
+### Legacy Checkout Seed Repair Migration
+
+`Migration20260715120000` repairs upgraded tenants where the renamed legacy checkout seed still shadows the current `workflows.checkout-demo` code definition. The old seed contains a `reserve_inventory` `CALL_WEBHOOK` activity whose URL depends on `INVENTORY_SERVICE_URL`; after workflow environment interpolation was restricted to an explicit non-secret allowlist, that URL becomes relative and fails the outbound URL guard with `reason=invalid_url`.
+
+This migration only covers *upgraded* tenants — fresh installs never had the legacy row. Fresh installs are fixed by the runtime code-registry fallback (`findDefinitionForInstance`, see § WorkflowInstance), which makes unpersisted virtual code definitions executable end-to-end. The migration is the data-hygiene half of #4179; the fallback is the root-cause half.
+
+The migration narrowly matches the original seed by workflow ID, name, version, activity ID/type, and exact webhook URL (verified against the original `checkout_simple_v1` seed payload: `workflowName: "Checkout with Payment Webhook"`, `version: 1`). It keeps the persisted definition active because historical workflow instances reference it by `definition_id`. It removes the activity arrays from `cart_to_customer_info`, `customer_info_to_payment`, and `confirmation_to_order`, matching the side-effect-free transitions in the maintained code definition. This:
+
+- preserves the persisted definition required by new and historical workflow instances;
+- removes the obsolete inventory/payment webhooks and dependent event payloads;
+- keeps the checkout demo self-contained without weakening the shared outbound URL guard;
+- leaves user-created definitions and already-customized code overrides untouched.
+
+`confirmation_to_end` is intentionally left as-is. Unlike the three stripped transitions it still carries activities in the maintained code definition (`create_order`, `send_confirmation_email`), and its only legacy-vs-code divergence is an extra internal `emit_order_completed` (`EMIT_EVENT`) that issues no external request and cannot trip the outbound URL guard. Removing whole `activities` arrays is safe; per-activity surgery to prune one harmless internal event would add fragility for no runtime benefit, so it is out of scope.
+
+The narrow match is a deliberate safety-over-coverage trade-off: a tenant whose persisted row diverges from the fingerprint (renamed, re-versioned, or a different webhook URL) is left untouched rather than risk mutating a row that is not the known-broken seed.
+
+The data repair is forward-only: the obsolete external activity payloads cannot be reconstructed safely, and restoring them would re-open the checkout failure.
+
+**Known residual divergence.** The repaired row keeps `code_workflow_id = NULL`, so it is *not* an override of the code definition and will never track future changes to the maintained code payload. It stays permanently divergent until a user explicitly resets it to code (delete the row / "reset to code"), which is acceptable for a demo definition but should not be mistaken for override semantics.
+
+**Sibling legacy seeds.** `workflows.simple-approval` and `sales.order-approval` were renamed by the same `Migration20260428102318` and shadow their code definitions in exactly the same way — they just carry no failing webhook, so the shadowing is currently harmless. The latent shadow-precedence class remains; if either code definition ever diverges materially from its legacy seed, the same repair pattern applies.
+
+**Coverage.** The SQL is the whole risk surface, so it is exported (`buildLegacyCheckoutRepairSql`) and exercised directly: `Migration20260715120000.test.ts` asserts the rendered SQL and that `up()` emits exactly the exported builder; `__integration__/TC-WF-031` seeds a legacy-shaped row plus four control rows (code override, different URL, wrong version, soft-deleted), runs the exported SQL against Postgres, asserts the transformed `definition` (three transitions stripped, order and `preConditions` preserved, `confirmation_to_end` intact, no webhook URL surviving) while every control row stays untouched, then replays the repair and asserts the second run is a no-op (the predicate stops matching once `reserve_inventory` is gone). `TC-WF-030` covers the checkout demo end-to-end on whatever state the tenant is in — it deliberately does not materialize a DB row first, so on a fresh tenant it exercises the virtual-code-definition cold-start path through the runtime fallback.
+
 ### Backward Compatibility
 
 - **Existing definitions:** Continue working unchanged. `source='user'` is the default.
 - **Existing instances:** No changes to `WorkflowInstance`. Executor continues live-reading definitions as before.
 - **Existing API consumers:** New fields (`source`, `codeModuleId`, `isCodeBased`) are additive. No fields removed.
-- **Existing seeds:** The current `seedExampleWorkflows()` mechanism in `setup.ts` can be gradually migrated to `workflows.ts`. Both can coexist — seeded definitions remain `source='user'` in the DB.
+- **Existing seeds:** Seeded definitions remain `source='user'` in the DB. `Migration20260715120000` is a narrow payload repair for the exact legacy checkout seed; it preserves the row while aligning its side-effecting transitions with the maintained demo definition.
 - **Auto-discovery:** `workflows.ts` is a new optional convention. Modules without it are unaffected.
 - **Contract surface classification:** `workflows.ts` export convention is STABLE (new, additive). `defineWorkflow()` function signature is STABLE.
 
@@ -532,8 +559,8 @@ Deferred to a separate spec. Covers:
 - **Registry population failure:** If `workflows.generated.ts` has an import error (e.g., module removed but generated file stale), bootstrap fails.
   - Mitigation: Same risk as `events.generated.ts`. Fixed by running `yarn generate`. No new risk introduced.
 
-- **Event triggers on code definitions:** Code definitions can declare `triggers`. The event trigger service currently reads triggers from DB definitions only.
-  - Mitigation: Phase 2 must extend the trigger service to also read from code registry. Until then, triggers on code-based definitions are not active (documented limitation).
+- **Event triggers on code definitions:** Code definitions can declare `triggers`. ~~The event trigger service currently reads triggers from DB definitions only.~~ **Closed 2026-07-24 (#4425 / PR #4463):** `loadTriggersForTenant()` now merges a third `source: 'code'` projection from the registry, so code-declared triggers are live without materializing the definition.
+  - Mitigation: Any non-deleted `workflow_definitions` row for the same `workflowId` suppresses the code projection, preserving `customize` override semantics.
 
 ### Tenant & Data Isolation Risks
 
@@ -587,12 +614,19 @@ Deferred to a separate spec. Covers:
 - **Mitigation**: Both write paths look up any existing override (including soft-deleted) before insert; if found, they revive the row by clearing `deletedAt` and applying updates. `reset-to-code` itself uses hard-delete so the common path inserts cleanly, but the revival branch protects against any historical soft-deleted rows still in the database.
 - **Residual risk**: None. Cross-organization conflicts within the same tenant are not blocked — any organization in the tenant can revive the soft-deleted row, matching the tenant-scoped unique constraint semantics.
 
-#### Event triggers not active for code definitions (Phase 2 gap)
+#### Event triggers not active for code definitions (closed 2026-07-24)
 - **Scenario**: Code definition declares triggers, but trigger service only reads from DB.
 - **Severity**: Medium
 - **Affected area**: Workflow event triggering
-- **Mitigation**: Phase 2 extends trigger service to read from code registry. Documented as known limitation until Phase 2 is complete.
-- **Residual risk**: None after Phase 2.
+- **Mitigation**: Closed by #4425 / PR #4463 — `loadTriggersForTenant()` merges `loadCodeTriggers()` as a third `source: 'code'` projection, with any non-deleted `workflow_definitions` row for the same `workflowId` (including a disabled one, or a customization that dropped its triggers) suppressing the code projection so `customize` override semantics hold.
+- **Residual risk**: None. Trigger ownership now moves between sources, so `customize` and `reset-to-code` must invalidate the trigger cache — see the risk below.
+
+#### Stale trigger cache after customize / reset-to-code
+- **Scenario**: `customize` materializes a code workflow into a DB row (code projection → embedded), or `reset-to-code` deletes it (embedded → code projection). `loadTriggersForTenant()` caches per tenant/organization for `TRIGGER_CACHE_TTL` (5 min), so the wildcard subscriber keeps evaluating the pre-write snapshot: after `customize` it still matches the code trigger, and after `reset-to-code` it still matches the embedded trigger of a row that no longer exists.
+- **Severity**: Low — the window is bounded by the TTL, and `findWorkflowDefinition()` resolves the current definition when a stale trigger fires, so the wrong *definition* is never executed; only the set of matching triggers can lag.
+- **Affected area**: `POST .../[id]/customize`, `POST .../[id]/reset-to-code`, wildcard event-trigger subscriber
+- **Mitigation**: Both routes call `invalidateTriggerCache(...)` after their flush, matching what the definition create/update/delete routes already do, scoped to the written row's own tenant/organization rather than the caller's — `customize` resolves an existing override by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization whose cache is the one that actually went stale. Covered by `api/definitions/[id]/__tests__/trigger-cache-invalidation.test.ts`.
+- **Residual risk**: None for these routes. Any future write path that changes trigger ownership must invalidate as well — documented in `packages/core/src/modules/workflows/AGENTS.md` § Event Triggers → Trigger Sources And Precedence.
 
 ## Final Compliance Report — 2026-04-28
 
@@ -677,3 +711,23 @@ None.
 - Removed the cross-organization customize block: any organization within the tenant can now revive a soft-deleted override row, matching the tenant-scoped unique constraint semantics. The previous 409 response (and corresponding OpenAPI entry) was dropped from `/customize` and the `code:*` PUT path.
 - Corrected the `Migration20260428102318` `down()` ordering so `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, eliminating a transient mismatch during rollback.
 - Switched override insert/delete paths from `persistAndFlush`/`removeAndFlush` to explicit `persist`+`flush` / `remove`+`flush` for consistency with surrounding code.
+
+### 2026-07-15
+
+- Fixed issue #4179 for upgraded tenants by adding `Migration20260715120000`, which sanitizes only the exact legacy checkout seed containing the obsolete `reserve_inventory` webhook. The migration preserves the persisted row required by historical instance references and removes the three legacy activity arrays that no longer exist in the maintained, self-contained demo flow.
+- Exported the repair as `buildLegacyCheckoutRepairSql()` and added `__integration__/TC-WF-031`, a DB-level regression that runs the exact SQL against Postgres over a seeded legacy row plus code-override / different-URL / wrong-version / soft-deleted control rows, asserting the jsonb transformation, that every guard holds, and that replaying the repair is a no-op. Documented `confirmation_to_end` being left intact (only an internal `emit_order_completed` diverges) and the narrow-match safety trade-off.
+- Fixed issue #4179 for fresh installs at the root: added `findDefinitionForInstance()` / `resolveCodeDefinitionForInstance()` to `lib/find-definition.ts` and switched every runtime `definition_id` lookup (executor loop, step, transition, task, signal, and timer handlers) to it. Instances started from an unpersisted virtual code definition — whose `definitionId` is the deterministic `codeWorkflowUuid` — can now advance past START instead of failing with `DEFINITION_NOT_FOUND`. The fallback is gated on UUID equality so it never substitutes the code payload for a hard-deleted persisted row. `TC-WF-030` now exercises this cold-start path directly (the interim `/customize` materialization step was removed).
+- Documented residual divergence of the repaired row (`code_workflow_id` stays `NULL`, so it never tracks future code-definition changes) and the sibling legacy seeds (`workflows.simple-approval`, `sales.order-approval`) that shadow their code definitions harmlessly.
+
+### 2026-07-16
+
+- Fixed issue #4202: once the #4179 repairs let the checkout demo reach `confirmation_to_end`, its `create_order` `CALL_API` activity failed with `401 Unauthorized`. `executeCallApi` minted the one-time API key on the container EM, but the activity runs inside `workflowExecutor.executeWorkflow()`'s `em.transactional(...)`; with `useContext: true` the request EM's writes are redirected into the still-open transaction, so the outbound self-authenticated `fetch` (a separate pooled connection) could not see the uncommitted key. The key is now created on a context-detached fork (`em.fork({ clear: true, freshEventManager: true, useContext: false })`, matching the `query_index`/`webhooks` isolated-EM convention) so it auto-commits on its own connection and is visible to the internal request. Distinct from #4179 (a legacy `CALL_WEBHOOK`); this is the internal `CALL_API` auth path. Covered by a `call-api.test.ts` regression asserting the key EM is forked with `useContext: false`.
+
+### 2026-07-24
+
+- Fixed issue #4425 (PR #4463): triggers declared on code-defined workflows never reached the trigger engine. `loadTriggersForTenant()` merged only the two DB-backed sources (`workflow_event_triggers` rows and `triggers[]` embedded in `workflow_definitions`), so a code workflow's `triggers` array was inert until an operator ran `POST .../code:<id>/customize` to materialize the definition into a DB row. `loadCodeTriggers()` now projects the in-memory registry's triggers as `source: 'code'` `UnifiedTrigger`s, keyed on the deterministic `codeWorkflowUuid` so `maxConcurrentInstances` counts against the same `definitionId` `startWorkflow()` persists. Any non-deleted `workflow_definitions` row for the same `workflowId` — including a disabled one, or a customization that dropped its triggers — suppresses the code projection, preserving `customize` override semantics.
+
+### 2026-07-25
+
+- Follow-up to #4425: `POST .../[id]/customize` and `POST .../[id]/reset-to-code` now call `invalidateTriggerCache(...)` after their flush, scoped to the written row's own tenant/organization. Both endpoints move trigger ownership between sources (code projection ↔ embedded DB row), but neither invalidated the per-tenant/organization cache, so the wildcard subscriber kept the pre-write snapshot for up to `TRIGGER_CACHE_TTL` (5 min) — after `reset-to-code` it kept matching the embedded triggers of a row that no longer exists. Covered by `api/definitions/[id]/__tests__/trigger-cache-invalidation.test.ts` (invalidates on override create, override refresh, sibling-organization revive, and reset; leaves the cache alone on the 409 active-instances rejection).
+- Documented the three-source trigger model in `packages/core/src/modules/workflows/AGENTS.md` § Event Triggers: the `legacy` / `embedded` / `code` sources, the "DB row wins" precedence, and the invalidation requirement for any write that changes trigger ownership.

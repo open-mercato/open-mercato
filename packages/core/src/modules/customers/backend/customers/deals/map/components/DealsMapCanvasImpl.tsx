@@ -19,6 +19,9 @@ import type {
   DealsMapCanvasProps,
   DealsMapPreview,
 } from './DealsMapCanvas'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const leafletRuntime = ((L as { default?: typeof L }).default ?? L) as typeof L
 
@@ -48,9 +51,8 @@ let publicOsmTileWarningEmitted = false
 function warnOnPublicOsmTilesOnce(): void {
   if (publicOsmTileWarningEmitted || !USING_PUBLIC_OSM_TILES) return
   publicOsmTileWarningEmitted = true
-  // eslint-disable-next-line no-console
-  console.warn(
-    '[open-mercato] Deals map is using the public OpenStreetMap tile server. ' +
+  logger.warn(
+    'Deals map is using the public OpenStreetMap tile server. ' +
       "OSM's tile usage policy prohibits production/commercial traffic — point " +
       'NEXT_PUBLIC_OM_DEALS_MAP_TILE_URL at a self-hosted or commercial tile service before deploying.',
   )

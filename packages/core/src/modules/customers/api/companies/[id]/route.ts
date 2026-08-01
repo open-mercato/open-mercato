@@ -28,6 +28,7 @@ import {
   resolveCompanyCustomFieldRouting,
   mergeCompanyCustomFieldValues,
 } from '../../../lib/customFieldRouting'
+import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -57,6 +58,9 @@ import {
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -414,7 +418,7 @@ async function resolveTodoDetails(
         })
       }
     } catch (err) {
-      console.warn(`customers.companies.detail: failed to resolve todos for source ${source}`, err)
+      logger.warn('customers.companies.detail: failed to resolve todos', { source, err })
     }
   }
 
@@ -621,7 +625,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const plannedPreviewRows =
     canonicalActiveInteractions.length > 0
       ? canonicalActiveInteractions
-          .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+          .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
           .sort((left, right) => {
             const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
             const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
@@ -637,7 +641,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             organizationId: company.organizationId,
             tenantId: company.tenantId,
             deletedAt: null,
-            status: 'planned',
+            status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
             interactionType: { $ne: 'task' },
             ...emailVisibilityFilter,
           },
@@ -693,7 +697,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         [company.organizationId ?? null, ...(scope?.filterIds ?? [])],
       )
     } catch (err) {
-      console.warn('customers.companies.detail: failed to enrich todo links', err)
+      logger.warn('customers.companies.detail: failed to enrich todo links', { err })
     }
   }
 
@@ -1273,7 +1277,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         }),
       )
     } catch (err) {
-      console.warn('[customers:companies] Failed to set company detail cache', err)
+      logger.warn('Failed to set company detail cache', { component: 'companies', err })
     }
   }
 

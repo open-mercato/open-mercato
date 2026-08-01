@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { selectModuleFactSheets } from '../setup/tools/shared.js'
 
 const D5_MODULES = [
   'auth',
@@ -19,11 +20,14 @@ const D5_MODULES = [
 
 const pkgRoot = fileURLToPath(new URL('../../', import.meta.url))
 const guidesDir = join(pkgRoot, 'dist', 'agentic', 'guides')
+const templateRoot = join(pkgRoot, 'template')
+const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui']
+let buildComplete = false
 
 function ensureBuilt() {
-  if (!fs.existsSync(join(guidesDir, 'modules'))) {
-    execSync('node build.mjs', { cwd: pkgRoot, stdio: 'ignore' })
-  }
+  if (buildComplete) return
+  execSync('node build.mjs', { cwd: pkgRoot, stdio: 'ignore' })
+  buildComplete = true
 }
 
 test('build emits the customers fact-sheet and the combined module-facts.json (T5)', () => {
@@ -44,12 +48,46 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
   }
 })
 
-test('build keeps the 9 legacy core.<module>.md names bundled (BC bridge, T5)', () => {
+test('every default-controller module fact is exercised by the evaluation catalog', () => {
+  ensureBuilt()
+  const moduleGuidesDir = join(guidesDir, 'modules')
+  const selectedModuleIds = selectModuleFactSheets(templateRoot, moduleGuidesDir)
+  const cases = JSON.parse(fs.readFileSync(
+    join(pkgRoot, 'dist', 'agentic', 'shared', 'ai', 'harness', 'cases.json'),
+    'utf8',
+  )) as Array<{
+    owner: { path: string }
+    context: { required: string[]; allowedExtra?: string[] }
+  }>
+  const catalogReferences = new Set(cases.flatMap((caseRecord) => [
+    caseRecord.owner.path,
+    ...caseRecord.context.required,
+    ...(caseRecord.context.allowedExtra ?? []),
+  ]))
+  const uncovered = selectedModuleIds
+    .map((moduleId) => `.ai/guides/modules/${moduleId}.md`)
+    .filter((guide) => !catalogReferences.has(guide))
+    .sort()
+
+  assert.deepEqual(uncovered, [], `module facts without an evaluation case:\n${uncovered.join('\n')}`)
+})
+
+test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () => {
   ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
-      fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
-      `core.${moduleId}.md should be present (full guide before cleanup, redirect stub after)`,
+      !fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
+      `core.${moduleId}.md redirect stub should not be emitted`,
+    )
+  }
+})
+
+test('build does not emit unreachable package-level standalone guides', () => {
+  ensureBuilt()
+  for (const guide of LEGACY_PACKAGE_GUIDES) {
+    assert.ok(
+      !fs.existsSync(join(guidesDir, `${guide}.md`)),
+      `${guide}.md should not compete with routed conceptual guides`,
     )
   }
 })

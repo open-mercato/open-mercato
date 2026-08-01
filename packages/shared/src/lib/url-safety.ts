@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
-import { Agent, type Dispatcher } from 'undici'
+import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici'
 import { isBlockedHostname, isPrivateIpAddress } from './network'
 
 export type UrlSafetyReason =
@@ -102,6 +102,8 @@ export function assertStaticallySafeOutboundUrl(
 
 export type AssertSafeOutboundUrlOptions = AssertStaticUrlOptions & {
   lookupHost?: HostLookup
+  /** Resolve and return DNS answers even when private addresses are explicitly allowed. */
+  pinAllowedPrivate?: boolean
 }
 
 export async function assertSafeOutboundUrl(
@@ -118,7 +120,8 @@ export type ResolveSafeOutboundUrlResult = {
   hostname: string
   /**
    * The validated DNS records, in lookup order. `null` when the hostname is an IP literal
-   * (no DNS lookup performed) or when `allowPrivate` short-circuited validation.
+   * (no DNS lookup performed) or when `allowPrivate` short-circuited validation without
+   * `pinAllowedPrivate`.
    */
   addresses: ReadonlyArray<ResolvedHostAddress> | null
 }
@@ -136,14 +139,16 @@ export async function resolveSafeOutboundUrl(
   const subject = options.subject ?? 'URL'
   const factory = options.errorFactory ?? defaultErrorFactory
   const { url, hostname } = parseOutboundUrl(rawUrl, options)
-  if (options.allowPrivate) return { url, hostname, addresses: null }
+  if (options.allowPrivate && !options.pinAllowedPrivate) {
+    return { url, hostname, addresses: null }
+  }
 
-  if (isBlockedHostname(hostname)) {
+  if (!options.allowPrivate && isBlockedHostname(hostname)) {
     throw factory('blocked_hostname', `${subject} host "${hostname}" is not allowed`)
   }
 
   if (isIP(hostname)) {
-    if (isPrivateIpAddress(hostname)) {
+    if (!options.allowPrivate && isPrivateIpAddress(hostname)) {
       throw factory(
         'private_ip_literal',
         `${subject} host "${hostname}" resolves to a private or reserved IP range`,
@@ -179,7 +184,7 @@ export async function resolveSafeOutboundUrl(
   }
 
   for (const record of addresses) {
-    if (isPrivateIpAddress(record.address)) {
+    if (!options.allowPrivate && isPrivateIpAddress(record.address)) {
       throw factory(
         'private_ip_resolved',
         `${subject} host "${hostname}" resolves to a private or reserved IP address (${record.address})`,
@@ -197,7 +202,14 @@ export type SafeOutboundFetchOptions = AssertSafeOutboundUrlOptions & {
    * not actually open sockets, so DNS pinning is unnecessary and would just complicate mocking.
    */
   fetchImpl?: typeof fetch
+  /** Test seam for the dispatcher-compatible fetch used by DNS-pinned requests. */
+  pinnedFetchImpl?: PinnedFetch
 }
+
+export type PinnedFetch = (
+  rawUrl: string,
+  init: RequestInit & { dispatcher: Dispatcher },
+) => Promise<Response>
 
 /**
  * Validates an outbound URL and performs `fetch()` with the connection pinned to a
@@ -205,8 +217,8 @@ export type SafeOutboundFetchOptions = AssertSafeOutboundUrlOptions & {
  * (DNS rebinding). Always defaults to `redirect: 'manual'` — callers MUST decide what to
  * do with 3xx responses (re-validate the redirect target before following).
  *
- * For IP literal hosts and `allowPrivate=true`, no DNS pinning is performed because there
- * is no DNS lookup to defeat.
+ * For IP literal hosts no DNS pinning is performed because there is no DNS lookup to defeat.
+ * Callers that allow private hostnames can set `pinAllowedPrivate` to retain DNS pinning.
  */
 export async function safeOutboundFetch(
   rawUrl: string,
@@ -237,9 +249,8 @@ export async function safeOutboundFetch(
   })
 
   try {
-    return await globalThis.fetch(rawUrl, { ...mergedInit, dispatcher } as RequestInit & {
-      dispatcher: Dispatcher
-    })
+    const pinnedFetch = options.pinnedFetchImpl ?? (undiciFetch as unknown as PinnedFetch)
+    return await pinnedFetch(rawUrl, { ...mergedInit, dispatcher })
   } finally {
     dispatcher.close().catch(() => {})
   }
@@ -247,8 +258,12 @@ export async function safeOutboundFetch(
 
 export type PinnedDnsLookup = (
   host: string,
-  opts: unknown,
-  cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+  opts: { all?: boolean },
+  cb: (
+    err: NodeJS.ErrnoException | null,
+    address: string | ResolvedHostAddress[],
+    family?: number,
+  ) => void,
 ) => void
 
 /**
@@ -261,13 +276,17 @@ export function createPinnedDnsLookup(
   expectedHostname: string,
   pinned: ResolvedHostAddress,
 ): PinnedDnsLookup {
-  return (host, _opts, cb) => {
+  return (host, opts, cb) => {
     if (host !== expectedHostname) {
       const err: NodeJS.ErrnoException = new Error(
         `Refusing DNS lookup for unexpected host "${host}" (expected "${expectedHostname}")`,
       )
       err.code = 'EREFUSED'
       cb(err, '', 0)
+      return
+    }
+    if (opts.all) {
+      cb(null, [pinned])
       return
     }
     cb(null, pinned.address, pinned.family)

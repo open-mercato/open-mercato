@@ -1,7 +1,22 @@
 import { registerCliModules, getCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import handle, { metadata, EVENTS_QUEUE_NAME, clearListenerCache } from '../events.worker'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const workerLoggerError = createLogger('events').error as jest.Mock
 
 // Clear modules and listener cache before each test
 function clearModules() {
@@ -14,6 +29,7 @@ function clearModules() {
 describe('Events Worker', () => {
   beforeEach(() => {
     clearModules()
+    workerLoggerError.mockClear()
   })
 
   afterEach(() => {
@@ -339,8 +355,6 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-
       await expect(handle(job, ctx)).rejects.toThrow(
         '1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
       )
@@ -349,7 +363,12 @@ describe('Events Worker', () => {
       expect(subscriber2Calls.length).toBe(1)
       expect(subscriber2Calls[0]).toEqual({ data: 'test' })
 
-      errorSpy.mockRestore()
+      expect(workerLoggerError).toHaveBeenCalledTimes(1)
+      expect(workerLoggerError).toHaveBeenCalledWith('Subscriber failed for event', {
+        event: 'test.event',
+        subscriberId: 'a:failing-subscriber',
+        err: expect.any(Error),
+      })
     })
 
     it('should dispatch subscribers in parallel, not sequentially', async () => {
@@ -435,13 +454,11 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-
       await expect(handle(job, ctx)).rejects.toThrow(
         '2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
       )
 
-      errorSpy.mockRestore()
+      expect(workerLoggerError).toHaveBeenCalledTimes(2)
     })
   })
 

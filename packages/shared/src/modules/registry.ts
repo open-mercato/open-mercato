@@ -4,6 +4,7 @@ import type { SyncCrudEventResult } from '../lib/crud/sync-event-types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 import type { IntegrationBundle, IntegrationDefinition } from './integrations/types'
+import { createLogger } from '../lib/logger'
 import {
   applyApiOverridesToManifests,
   applyModuleOverridesToModules,
@@ -11,6 +12,8 @@ import {
   composeApiRouteOverrides,
   composePageRouteOverrides,
 } from './overrides'
+
+const logger = createLogger('shared').child({ component: 'cli-registry' })
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -481,7 +484,7 @@ let _cliModules: Module[] | null = null
 
 export function registerCliModules(modules: Module[]) {
   if (_cliModules !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] CLI modules re-registered (this may occur during HMR)')
+    logger.debug('CLI modules re-registered (this may occur during HMR)')
   }
   _cliModules = applyModuleOverridesToModules(modules)
 }

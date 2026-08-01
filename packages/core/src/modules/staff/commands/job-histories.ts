@@ -12,10 +12,18 @@ import {
 } from '../data/validators'
 import { staffTeamMemberJobHistoryCrudEvents } from '../lib/crud'
 import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
   ensureOrganizationScope,
   ensureTenantScope,
+  explicitStaffCommandScope,
   extractUndoPayload,
   requireTeamMember,
+  scopedStaffSnapshotWhere,
+  staffSnapshotScopeFromContext,
+  staffSnapshotScopeFromSnapshot,
+  type StaffSnapshotScope,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
@@ -51,8 +59,12 @@ type JobHistoryUndoPayload = {
   after?: JobHistorySnapshot | null
 }
 
-async function loadJobHistorySnapshot(em: EntityManager, id: string): Promise<JobHistorySnapshot | null> {
-  const record = await em.findOne(StaffTeamMemberJobHistory, { id })
+async function loadJobHistorySnapshot(
+  em: EntityManager,
+  id: string,
+  scope?: StaffSnapshotScope | null,
+): Promise<JobHistorySnapshot | null> {
+  const record = await em.findOne(StaffTeamMemberJobHistory, scopedStaffSnapshotWhere(id, scope))
   if (!record) return null
   return {
     id: record.id,
@@ -74,9 +86,15 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
     const parsed = staffTeamMemberJobHistoryCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
+    const member = await requireTeamMember(
+      em,
+      parsed.entityId,
+      scope,
+      'Team member not found',
+    )
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -113,7 +131,7 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadJobHistorySnapshot(em, result.jobHistoryId)
+    return await loadJobHistorySnapshot(em, result.jobHistoryId, staffSnapshotScopeFromContext(ctx))
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -135,10 +153,15 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const jobHistoryId = logEntry?.resourceId ?? null
+    const payload = extractUndoPayload<JobHistoryUndoPayload>(logEntry)
+    const after = payload?.after ?? null
+    const jobHistoryId = after?.id ?? logEntry?.resourceId ?? null
     if (!jobHistoryId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(StaffTeamMemberJobHistory, { id: jobHistoryId })
+    const record = await em.findOne(
+      StaffTeamMemberJobHistory,
+      scopedStaffSnapshotWhere(jobHistoryId, staffSnapshotScopeFromSnapshot(after)),
+    )
     if (record) {
       em.remove(record)
       await em.flush()
@@ -150,8 +173,14 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for job history create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(em, after.memberId, 'Team member not found')
-    let record = await em.findOne(StaffTeamMemberJobHistory, { id: after.id })
+    const snapshotScope = staffSnapshotScopeFromSnapshot(after)
+    const member = await requireTeamMember(
+      em,
+      after.memberId,
+      explicitStaffCommandScope(after.tenantId, after.organizationId),
+      'Team member not found',
+    )
+    let record = await em.findOne(StaffTeamMemberJobHistory, scopedStaffSnapshotWhere(after.id, snapshotScope))
     if (!record) {
       record = em.create(StaffTeamMemberJobHistory, {
         id: after.id,
@@ -200,13 +229,17 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
   async prepare(rawInput, ctx) {
     const parsed = staffTeamMemberJobHistoryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadJobHistorySnapshot(em, parsed.id)
+    const snapshot = await loadJobHistorySnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberJobHistoryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(StaffTeamMemberJobHistory, { id: parsed.id })
+    const scope = commandActorScope(ctx)
+    const record = await em.findOne(
+      StaffTeamMemberJobHistory,
+      applyScopeToWhere<StaffTeamMemberJobHistory>({ id: parsed.id }, scope),
+    )
     if (!record) {
       enforceRecordGoneIsConflict({
         resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
@@ -227,7 +260,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     })
 
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       record.member = member
@@ -258,7 +291,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadJobHistorySnapshot(em, result.jobHistoryId)
+    return await loadJobHistorySnapshot(em, result.jobHistoryId, staffSnapshotScopeFromContext(ctx))
   },
   buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -297,8 +330,14 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(StaffTeamMemberJobHistory, { id: before.id })
-    const member = await requireTeamMember(em, before.memberId, 'Team member not found')
+    const snapshotScope = staffSnapshotScopeFromSnapshot(before)
+    let record = await em.findOne(StaffTeamMemberJobHistory, scopedStaffSnapshotWhere(before.id, snapshotScope))
+    const member = await requireTeamMember(
+      em,
+      before.memberId,
+      explicitStaffCommandScope(before.tenantId, before.organizationId),
+      'Team member not found',
+    )
 
     if (!record) {
       record = em.create(StaffTeamMemberJobHistory, {
@@ -347,14 +386,18 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
     async prepare(input, ctx) {
       const id = requireId(input, 'Job history id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadJobHistorySnapshot(em, id)
+      const snapshot = await loadJobHistorySnapshot(em, id, staffSnapshotScopeFromContext(ctx))
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Job history id required')
       const expectedUpdatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : undefined
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const record = await em.findOne(StaffTeamMemberJobHistory, { id })
+      const scope = commandActorScope(ctx)
+      const record = await em.findOne(
+        StaffTeamMemberJobHistory,
+        applyScopeToWhere<StaffTeamMemberJobHistory>({ id }, scope),
+      )
       if (!record) {
         enforceRecordGoneIsConflict({
           resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
@@ -416,8 +459,14 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const member = await requireTeamMember(em, before.memberId, 'Team member not found')
-      let record = await em.findOne(StaffTeamMemberJobHistory, { id: before.id })
+      const snapshotScope = staffSnapshotScopeFromSnapshot(before)
+      const member = await requireTeamMember(
+        em,
+        before.memberId,
+        explicitStaffCommandScope(before.tenantId, before.organizationId),
+        'Team member not found',
+      )
+      let record = await em.findOne(StaffTeamMemberJobHistory, scopedStaffSnapshotWhere(before.id, snapshotScope))
       if (!record) {
         record = em.create(StaffTeamMemberJobHistory, {
           id: before.id,

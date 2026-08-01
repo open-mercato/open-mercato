@@ -8,6 +8,9 @@ import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 export type TagOption = {
   id: string
@@ -135,7 +138,7 @@ function TagsSectionImpl({
         syncFetchedOptions(fetched)
         return fetched.map((tag) => tag.label)
       } catch (err) {
-        console.error('tags.section.loadSuggestions', err)
+        logger.error('Failed to load tag suggestions', { err })
         return []
       }
     },

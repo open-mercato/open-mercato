@@ -72,7 +72,7 @@
 
 ### T.3 Version Strategy
 
-**Semver for DS: NO.** DS is part of the monorepo — versioned together with `@open-mercato/ui`. A separate DS version is overhead with no benefit in a monorepo. Changes to tokens/components go into the standard `RELEASE_NOTES.md` with a `[DS]` tag.
+**Semver for DS: NO.** DS is part of the monorepo — versioned together with `@open-mercato/ui`. A separate DS version is overhead with no benefit in a monorepo. Changes to tokens/components go into the standard `CHANGELOG.md` with a `[DS]` tag (deprecations and migrations belong in `UPGRADE_NOTES.md`).
 
 **Deprecation policy:** >=1 minor version between deprecated and removed. Consistent with `BACKWARD_COMPATIBILITY.md`. Specifically:
 - Deprecated component (e.g. Notice): add `@deprecated` JSDoc + runtime `console.warn` in dev mode
@@ -81,7 +81,7 @@
 
 Same policy as Notice -> Alert (section 1.14 of the audit): deprecation announced -> bridge period -> removal.
 
-**Changelog:** Every DS change goes into `RELEASE_NOTES.md` with a `[DS]` prefix:
+**Changelog:** Every DS change goes into `CHANGELOG.md` with a `[DS]` prefix:
 ```
 ## [DS] Semantic status tokens added
 - 20 new CSS custom properties (--status-{error|success|warning|info|neutral}-{bg|text|border|icon})

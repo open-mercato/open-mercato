@@ -4,6 +4,9 @@ import {
   getSecurityEmailBaseUrl,
   resolveRequestOrigin,
 } from '@open-mercato/shared/lib/url'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('onboarding').child({ component: 'verify' })
 
 type EnvLike = Record<string, string | undefined>
 
@@ -61,7 +64,7 @@ export function resolveVerifyRedirectBaseUrl(
     const configuredOrigin = normalizeOrigin(baseUrl)
     const requestOrigin = normalizeOrigin(resolveRequestOrigin(req)) ?? normalizeOrigin(req.url)
     if (configuredOrigin && requestOrigin && !originsMatchForRedirect(configuredOrigin, requestOrigin)) {
-      console.error('[onboarding.verify] APP_URL does not match verification request origin', {
+      logger.error('APP_URL does not match verification request origin', {
         requestUrl: req.url,
         configuredOrigin,
         requestOrigin,
@@ -77,7 +80,7 @@ export function resolveVerifyRedirectBaseUrl(
     return { ok: true, baseUrl }
   } catch (error) {
     if (error instanceof AppOriginRejectedError) {
-      console.error('[onboarding.verify] rejected request origin for redirect base', {
+      logger.error('Rejected request origin for redirect base', {
         requestUrl: req.url,
         reason: error.message,
       })
@@ -90,7 +93,7 @@ export function resolveVerifyRedirectBaseUrl(
       }
     }
     if (error instanceof AppOriginConfigurationError) {
-      console.error('[onboarding.verify] APP_URL is required for onboarding verification redirects', {
+      logger.error('APP_URL is required for onboarding verification redirects', {
         requestUrl: req.url,
         reason: error.message,
       })

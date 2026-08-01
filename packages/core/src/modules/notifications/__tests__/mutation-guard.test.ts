@@ -161,6 +161,20 @@ describe('notification write routes run the mutation guard registry', () => {
     expect(runAfterSuccessMock).toHaveBeenCalled()
   })
 
+  it('returns 400 for an invalid restore status', async () => {
+    const response = await restoreNotification(
+      jsonRequest(`http://localhost/api/notifications/${notificationId}/restore`, 'PUT', { status: 'dismissed' }),
+      { params: Promise.resolve({ id: notificationId }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: expect.stringContaining('Invalid request body'),
+    })
+    expect(serviceMock.restoreDismissed).not.toHaveBeenCalled()
+    expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
+  })
+
   it('guards execute action (POST /api/notifications/[id]/action)', async () => {
     const response = await executeNotificationAction(
       jsonRequest(`http://localhost/api/notifications/${notificationId}/action`, 'POST', { actionId: 'do' }),

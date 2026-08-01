@@ -9,6 +9,9 @@ import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
 import { getDataSyncAdapter } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('data_sync').child({ component: 'sync-engine' })
 
 type SyncScope = {
   organizationId: string
@@ -143,6 +146,31 @@ export function createSyncEngine(deps: EngineDeps) {
           level: 'error',
           message,
           payload: item.data,
+        },
+        scope,
+      )
+    }
+  }
+
+  async function logExportItemFailures(
+    runId: string,
+    integrationId: string,
+    results: ExportBatch['results'],
+    scope: SyncScope,
+  ): Promise<void> {
+    const failedResults = results.filter((result) => result.status === 'error' && result.error)
+    for (const result of failedResults) {
+      const label = result.externalId ? `${result.externalId} (id: ${result.localId})` : result.localId
+      const errorMessage = result.error!.split('\n')[0]
+      const message = `Failed to export item ${label}: ${errorMessage}`
+
+      await integrationLogService.write(
+        {
+          integrationId,
+          runId,
+          level: 'error',
+          message,
+          payload: { kind: 'export-item-failure', summary: result.error },
         },
         scope,
       )
@@ -354,7 +382,7 @@ export function createSyncEngine(deps: EngineDeps) {
     async runImport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
       const run = await syncRunService.getRun(runId, scope)
       if (!run) {
-        console.warn(`[data-sync] Skipping stale import job for missing run ${runId}`)
+        logger.warn('Skipping stale import job for missing run', { runId })
         return
       }
       if (run.status === 'cancelled') {
@@ -499,7 +527,7 @@ export function createSyncEngine(deps: EngineDeps) {
     async runExport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
       const run = await syncRunService.getRun(runId, scope)
       if (!run) {
-        console.warn(`[data-sync] Skipping stale export job for missing run ${runId}`)
+        logger.warn('Skipping stale export job for missing run', { runId })
         return
       }
       if (run.status === 'cancelled') {
@@ -600,6 +628,7 @@ export function createSyncEngine(deps: EngineDeps) {
             scope,
           )
           await updateProgress(run.progressJobId, processedCount, null, scope)
+          await logExportItemFailures(run.id, run.integrationId, batch.results, scope)
 
           await writeOperationalLog({
             integrationId: run.integrationId,

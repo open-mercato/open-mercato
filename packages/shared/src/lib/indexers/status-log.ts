@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import type { IndexerErrorSource } from './error-log'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'indexers' })
 
 export type IndexerLogLevel = 'info' | 'warn'
 
@@ -96,7 +99,7 @@ export async function recordIndexerLog(
 ): Promise<void> {
   const db = pickDb(deps)
   if (!db) {
-    console.warn('[indexers] Unable to record indexer log (missing db connection)', {
+    logger.warn('Unable to record indexer log (missing db connection)', {
       source: input.source,
       handler: input.handler,
     })
@@ -128,7 +131,7 @@ export async function recordIndexerLog(
     // A committed/rolled-back caller transaction is an expected, harmless
     // condition for best-effort logging — skip quietly instead of surfacing it.
     if (!isInactiveTransactionError(error)) {
-      console.error('[indexers] Failed to persist indexer log', error)
+      logger.error('Failed to persist indexer log', { err: error })
     }
     return
   }
@@ -137,7 +140,7 @@ export async function recordIndexerLog(
     await pruneExcessLogs(db, input.source)
   } catch (pruneError) {
     if (!isInactiveTransactionError(pruneError)) {
-      console.warn('[indexers] Failed to prune indexer logs', pruneError)
+      logger.warn('Failed to prune indexer logs', { err: pruneError })
     }
   }
 }

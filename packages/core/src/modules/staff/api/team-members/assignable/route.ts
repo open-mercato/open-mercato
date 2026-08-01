@@ -13,6 +13,9 @@ import {
   resolveCustomersRequestContext,
 } from '@open-mercato/core/modules/customers/lib/interactionRequestContext'
 import { StaffTeam, StaffTeamMember } from '../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const querySchema = z
   .object({
@@ -222,7 +225,7 @@ export async function GET(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed') }, { status: 400 })
     }
-    console.error('staff.assignable-team-members.get failed', error)
+    logger.error('staff.assignable-team-members.get failed', { err: error })
     return NextResponse.json({ error: translate('customers.errors.assignable_staff_load_failed', 'Failed to load assignable staff') }, { status: 500 })
   }
 }

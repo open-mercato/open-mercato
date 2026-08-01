@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'coverage' })
 
 export type CoverageScope = {
   entityType: string
@@ -423,7 +426,7 @@ export async function refreshCoverageSnapshot(
       const vectorRow = await vectorQuery.executeTakeFirst() as { count: unknown } | undefined
       return toCount(vectorRow?.count)
     } catch (err) {
-      console.warn('[query_index] Failed to resolve vector count for coverage snapshot', {
+      logger.warn('Failed to resolve vector count for coverage snapshot', {
         entityType,
         tenantId,
         organizationId,

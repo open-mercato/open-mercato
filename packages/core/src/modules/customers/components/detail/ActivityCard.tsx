@@ -10,8 +10,12 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
+import { isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { ActivityAiActions } from './ActivityAiActions'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -148,7 +152,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       onChanged?.()
     } catch (err) {
-      console.warn('[customers.activityCard] mark done failed', activity.id, err)
+      logger.warn('Mark done failed', { component: 'ActivityCard', activityId: activity.id, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
     } finally {
       setMarkingDone(false)
@@ -197,7 +201,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
           </div>
 
           <div className="flex items-center gap-1.5">
-            {activity.status === 'planned' ? (
+            {isOpenInteractionStatus(activity.status) ? (
               <Button
                 type="button"
                 variant="default"

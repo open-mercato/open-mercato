@@ -31,6 +31,9 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'CustomDataSection' })
 
 const isTestEnv =
   typeof process !== 'undefined' &&
@@ -536,7 +539,7 @@ function CustomDataSectionImpl({
                   displays[option.value] = { label: option.label, href }
                 })
               } catch (error) {
-                console.debug('[CustomDataSection] Failed to load remote options for field', field.id, error)
+                logger.debug('Failed to load remote options for field', { fieldId: field.id, err: error })
               }
             }
 
@@ -552,7 +555,7 @@ function CustomDataSectionImpl({
                 const fetchedDisplays = await fetchRelationRecordDisplays(definition.optionsUrl!, relation, unresolvedIds, abortController.signal)
                 Object.assign(displays, fetchedDisplays)
               } catch (error) {
-                console.debug('[CustomDataSection] Failed to fetch relation record displays for field', field.id, error)
+                logger.debug('Failed to fetch relation record displays for field', { fieldId: field.id, err: error })
                 unresolvedIds.forEach((relationId) => {
                   if (!displays[relationId]) {
                     displays[relationId] = {

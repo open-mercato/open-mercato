@@ -17,7 +17,20 @@ import {
   type StaffTeamRoleUpdateInput,
 } from '../data/validators'
 import { staffTeamRoleCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
+  ensureOrganizationScope,
+  ensureTenantScope,
+  extractUndoPayload,
+  scopeForDecryption,
+  scopedStaffSnapshotWhere,
+  staffSnapshotDecryptionScope,
+  staffSnapshotScopeFromContext,
+  staffSnapshotScopeFromSnapshot,
+  type StaffSnapshotScope,
+} from './shared'
 import { E } from '#generated/entities.ids.generated'
 
 const teamRoleCrudIndexer: CrudIndexerConfig<StaffTeamRole> = {
@@ -43,8 +56,14 @@ type TeamRoleUndoPayload = {
   customAfter?: CustomFieldSnapshot | null
 }
 
-async function loadTeamRoleSnapshot(em: EntityManager, id: string): Promise<TeamRoleSnapshot | null> {
-  const role = await findOneWithDecryption(em, StaffTeamRole, { id }, undefined, { tenantId: null, organizationId: null })
+async function loadTeamRoleSnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<TeamRoleSnapshot | null> {
+  const role = await findOneWithDecryption(
+    em,
+    StaffTeamRole,
+    scopedStaffSnapshotWhere(id, scope),
+    undefined,
+    staffSnapshotDecryptionScope(scope),
+  )
   if (!role) return null
   return {
     id: role.id,
@@ -100,6 +119,7 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
     const { parsed, custom } = parseWithCustomFields(staffTeamRoleCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     if (parsed.teamId) {
@@ -148,14 +168,14 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTeamRoleSnapshot(em, result.roleId)
+    const snapshot = await loadTeamRoleSnapshot(em, result.roleId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const custom = await loadTeamRoleCustomSnapshot(em, snapshot)
     return { snapshot, custom }
   },
   buildLog: async ({ result, ctx }) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTeamRoleSnapshot(em, result.roleId)
+    const snapshot = await loadTeamRoleSnapshot(em, result.roleId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const custom = await loadTeamRoleCustomSnapshot(em, snapshot)
     const { translate } = await resolveTranslations()
@@ -179,7 +199,7 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const role = await em.findOne(StaffTeamRole, { id: after.id })
+    const role = await em.findOne(StaffTeamRole, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (role) {
       role.deletedAt = new Date()
       await em.flush()
@@ -222,7 +242,7 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(staffTeamRoleUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTeamRoleSnapshot(em, parsed.id)
+    const snapshot = await loadTeamRoleSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     const custom = await loadTeamRoleCustomSnapshot(em, snapshot)
     return { before: snapshot, customBefore: custom }
@@ -230,12 +250,13 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(staffTeamRoleUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const role = await findOneWithDecryption(
       em,
       StaffTeamRole,
-      { id: parsed.id, deletedAt: null },
+      applyScopeToWhere<StaffTeamRole>({ id: parsed.id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!role) throw new CrudHttpError(404, { error: 'Team role not found.' })
     ensureTenantScope(ctx, role.tenantId)
@@ -283,7 +304,7 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
     const before = snapshots.before as TeamRoleSnapshot | undefined
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadTeamRoleSnapshot(em, before.id)
+    const after = await loadTeamRoleSnapshot(em, before.id, staffSnapshotScopeFromSnapshot(before))
     if (!after) return null
     const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const customAfter = await loadTeamRoleCustomSnapshot(em, after)
@@ -324,7 +345,7 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const role = await em.findOne(StaffTeamRole, { id: before.id })
+    const role = await em.findOne(StaffTeamRole, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!role) return
     role.teamId = before.teamId ?? null
     role.name = before.name
@@ -369,7 +390,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Role id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTeamRoleSnapshot(em, id)
+    const snapshot = await loadTeamRoleSnapshot(em, id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     const custom = await loadTeamRoleCustomSnapshot(em, snapshot)
     return { before: snapshot, customBefore: custom }
@@ -378,12 +399,13 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Role id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const role = await findOneWithDecryption(
       em,
       StaffTeamRole,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTeamRole>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!role) throw new CrudHttpError(404, { error: 'Team role not found.' })
     ensureTenantScope(ctx, role.tenantId)
@@ -453,7 +475,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let role = await em.findOne(StaffTeamRole, { id: before.id })
+    let role = await em.findOne(StaffTeamRole, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!role) {
       role = em.create(StaffTeamRole, {
         id: before.id,

@@ -19,6 +19,9 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import { emitInboxOpsEvent } from '../events'
 import { createMessageRecordForEmail } from '../lib/messagesIntegration'
 import { resolveCache, invalidateCountsCache } from '../lib/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'extraction-worker' })
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 
@@ -62,7 +65,7 @@ function tryResolve<T>(ctx: ResolverContext, name: string): T | undefined {
   try {
     return ctx.resolve<T>(name)
   } catch {
-    console.debug(`[inbox_ops:extraction] optional dependency "${name}" not available`)
+    logger.debug('Optional dependency not available', { name })
     return undefined
   }
 }
@@ -122,7 +125,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     { tenantId: payload.tenantId, organizationId: payload.organizationId },
   )
   if (!email) {
-    console.error(`[inbox_ops:extraction-worker] Email not found: ${payload.emailId}`)
+    logger.error('Email not found', { emailId: payload.emailId })
     return
   }
 
@@ -197,7 +200,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
           error: email.processingError,
         })
       } catch (eventError) {
-        console.error('[inbox_ops:extraction-worker] Failed to emit email.failed event:', eventError)
+        logger.error('Failed to emit email.failed event', { err: eventError })
       }
 
       return
@@ -540,7 +543,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       const cache = resolveCache(ctx)
       await runWithCacheTenant(email.tenantId, () => invalidateCountsCache(cache, email.tenantId))
     } catch (cacheErr) {
-      console.warn('[inbox_ops:extraction-worker] Cache invalidation failed (non-fatal):', cacheErr)
+      logger.warn('Cache invalidation failed (non-fatal)', { err: cacheErr })
     }
 
     // Step 8c: Register email as a message record (graceful degradation)
@@ -565,7 +568,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         },
       )
     } catch (msgErr) {
-      console.error('[inbox_ops:extraction-worker] Messages integration failed (non-fatal):', msgErr)
+      logger.error('Messages integration failed (non-fatal)', { err: msgErr })
     }
 
     // Step 9: Emit events
@@ -587,7 +590,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         summary: proposal.summary,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:extraction-worker] Failed to emit events:', eventError)
+      logger.error('Failed to emit events', { err: eventError })
     }
   } catch (err) {
     email.status = 'failed'
@@ -602,10 +605,10 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         error: email.processingError,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:extraction-worker] Failed to emit email.failed event:', eventError)
+      logger.error('Failed to emit email.failed event', { err: eventError })
     }
 
-    console.error('[inbox_ops:extraction-worker] Extraction failed:', err)
+    logger.error('Extraction failed', { err })
   }
 }
 

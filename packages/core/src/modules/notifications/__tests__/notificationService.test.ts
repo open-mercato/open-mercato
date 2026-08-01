@@ -7,6 +7,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
   getRecipientUserIdsForFeature: jest.fn(),
+  getScopedNotificationRecipientUserIds: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -64,6 +65,12 @@ const buildEm = () => {
 describe('notification service', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    const recipients = jest.requireMock('../lib/notificationRecipients') as {
+      getScopedNotificationRecipientUserIds: jest.Mock
+    }
+    recipients.getScopedNotificationRecipientUserIds.mockImplementation(
+      async (_db: unknown, _tenantId: string, _organizationId: string | null, recipientUserIds: string[]) => recipientUserIds,
+    )
   })
 
   it('creates a notification and emits event', async () => {
@@ -89,6 +96,23 @@ describe('notification service', () => {
         tenantId: baseCtx.tenantId,
       })
     )
+  })
+
+  it('rejects a notification whose recipient is outside the caller scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const recipients = jest.requireMock('../lib/notificationRecipients') as {
+      getScopedNotificationRecipientUserIds: jest.Mock
+    }
+
+    recipients.getScopedNotificationRecipientUserIds.mockResolvedValue([])
+    em.create.mockImplementation((_entity, data: Notification) => ({ id: 'note-invalid', ...data }))
+
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.create(baseNotificationInput, baseCtx)).rejects.toMatchObject({ status: 404 })
+    expect(em.create).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
   it('reuses grouped notification instead of creating duplicates', async () => {
@@ -160,6 +184,36 @@ describe('notification service', () => {
         count: 2,
       }),
     )
+  })
+
+  it('rejects an entire batch when any recipient is outside the caller scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const recipients = jest.requireMock('../lib/notificationRecipients') as {
+      getScopedNotificationRecipientUserIds: jest.Mock
+    }
+
+    recipients.getScopedNotificationRecipientUserIds.mockResolvedValue([
+      'e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0',
+    ])
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: `note-${data.recipientUserId}`,
+      ...data,
+    }))
+
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.createBatch(
+      {
+        type: 'system',
+        title: 'Hello',
+        recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
+      },
+      baseCtx,
+    )).rejects.toMatchObject({ status: 404 })
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
   it('returns empty list when no recipients match feature', async () => {

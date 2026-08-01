@@ -119,6 +119,14 @@ const ACTIVITY_TYPE_DEFAULTS: DictionaryDefault[] = [
   { value: 'task', label: 'Task', color: '#ef4444', icon: 'lucide:check-square' },
 ]
 
+export const INTERACTION_STATUS_DEFAULTS: DictionaryDefault[] = [
+  { value: 'planned', label: 'Planned', color: '#2563eb', icon: 'lucide:circle' },
+  { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
+  { value: 'waiting', label: 'Waiting / blocked', color: '#a855f7', icon: 'lucide:pause-circle' },
+  { value: 'done', label: 'Done', color: '#22c55e', icon: 'lucide:check-circle' },
+  { value: 'canceled', label: 'Canceled', color: '#6b7280', icon: 'lucide:x-circle' },
+]
+
 const JOB_TITLE_DEFAULTS: DictionaryDefault[] = [
   { value: 'Director of Operations', label: 'Director of Operations', color: '#f97316', icon: 'lucide:settings' },
   { value: 'VP of Partnerships', label: 'VP of Partnerships', color: '#6366f1', icon: 'lucide:users' },
@@ -1149,6 +1157,17 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       tenantId,
       organizationId,
       kind: 'activity_type',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of INTERACTION_STATUS_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'interaction_status',
       value: entry.value,
       label: entry.label,
       color: entry.color,

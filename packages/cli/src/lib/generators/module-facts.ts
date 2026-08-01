@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import { toSnake } from '../utils'
 
 export interface ModuleEntityFact {
@@ -40,6 +40,8 @@ export interface ModuleFacts {
   title: string | null
   description: string | null
   coreVersion: string | null
+  sourcePackage: string | null
+  sourceVersion: string | null
   entities: ModuleEntityFact[]
   events: ModuleEventFact[]
   aclFeatures: string[]
@@ -54,25 +56,29 @@ export interface ModuleFacts {
 
 export interface ExtractModuleFactsOptions {
   moduleId: string
-  coreSrcRoot: string
+  /**
+   * Parent modules directory joined with `moduleId` to locate the module source.
+   * Legacy input; prefer the explicit per-module `moduleRoot` for modules that do
+   * not live under a single shared root (auto-discovery). One of `moduleRoot` /
+   * `coreSrcRoot` must be provided.
+   */
+  coreSrcRoot?: string
+  /** Explicit module source directory. When set it overrides `coreSrcRoot + moduleId`. */
+  moduleRoot?: string
   coreVersion?: string | null
+  sourcePackage?: string | null
+  sourceVersion?: string | null
   registryPath?: string | null
   registrySource?: string | null
 }
 
-export const MODULE_FACTS_ALLOWLIST = [
-  'auth',
-  'catalog',
-  'currencies',
-  'customer_accounts',
-  'customers',
-  'data_sync',
-  'integrations',
-  'sales',
-  'workflows',
-] as const
-
-export type ModuleFactsModuleId = (typeof MODULE_FACTS_ALLOWLIST)[number]
+/** A discovered module and the source directory its facts are extracted from. */
+export interface ModuleFactSource {
+  moduleId: string
+  moduleRoot: string
+  from?: string
+  packageVersion?: string | null
+}
 
 function readSourceFile(filePath: string): ts.SourceFile | null {
   if (!fs.existsSync(filePath)) return null
@@ -158,10 +164,41 @@ function collectCustomFieldEntityIds(ceFilePath: string | null): Set<string> {
   const sourceFile = readSourceFile(ceFilePath)
   if (!sourceFile) return result
 
+  const readEntityId = (expression: ts.Expression): string | undefined => {
+    const current = unwrapExpression(expression)
+    if (ts.isStringLiteralLike(current)) {
+      return current.text.includes(':') ? current.text : undefined
+    }
+
+    const readAccessPath = (candidate: ts.Expression): string[] | null => {
+      const access = unwrapExpression(candidate)
+      if (ts.isIdentifier(access)) return [access.text]
+      if (ts.isPropertyAccessExpression(access)) {
+        const parent = readAccessPath(access.expression)
+        return parent ? [...parent, access.name.text] : null
+      }
+      if (ts.isElementAccessExpression(access) && access.argumentExpression) {
+        const parent = readAccessPath(access.expression)
+        const key = unwrapExpression(access.argumentExpression)
+        return parent && ts.isStringLiteralLike(key) ? [...parent, key.text] : null
+      }
+      return null
+    }
+
+    const accessPath = readAccessPath(current)
+    if (accessPath?.length === 3 && accessPath[0] === 'E') {
+      return `${accessPath[1]}:${accessPath[2]}`
+    }
+    return undefined
+  }
+
   const visit = (node: ts.Node): void => {
     if (ts.isObjectLiteralExpression(node)) {
-      const id = readStringPropertyInitializer(node, 'id')
-      if (id && id.includes(':')) result.add(id)
+      const initializer = getObjectPropertyInitializer(node, 'id')
+      if (initializer) {
+        const id = readEntityId(initializer)
+        if (id) result.add(id)
+      }
     }
     node.forEachChild(visit)
   }
@@ -665,36 +702,50 @@ function extractCli(cliFilePath: string | null, warnings: string[]): string[] {
 function listSourceFilesRecursive(directory: string): string[] {
   const files: string[] = []
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (entry.name === '__tests__' || entry.name === 'node_modules') continue
+    if (entry.name === '__tests__' || entry.name === '__mocks__' || entry.name === 'node_modules') continue
     const fullPath = path.join(directory, entry.name)
     if (entry.isDirectory()) {
       files.push(...listSourceFilesRecursive(fullPath))
-    } else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+    } else if (
+      /\.tsx?$/.test(entry.name)
+      && !entry.name.endsWith('.d.ts')
+      && !/\.(?:test|spec)\.tsx?$/.test(entry.name)
+    ) {
       files.push(fullPath)
     }
   }
   return files
 }
 
-function extractTableIds(backendDir: string): string[] {
-  if (!fs.existsSync(backendDir)) return []
+function extractTableIds(moduleRoot: string): string[] {
+  if (!fs.existsSync(moduleRoot)) return []
 
   const tableIds: string[] = []
   const seen = new Set<string>()
-  for (const filePath of listSourceFilesRecursive(backendDir)) {
+  const collectLiteralValues = (expression: ts.Expression): string[] => {
+    const current = unwrapExpression(expression)
+    if (ts.isStringLiteralLike(current)) return [current.text]
+    if (ts.isConditionalExpression(current)) {
+      return [
+        ...collectLiteralValues(current.whenTrue),
+        ...collectLiteralValues(current.whenFalse),
+      ]
+    }
+    return []
+  }
+
+  for (const filePath of listSourceFilesRecursive(moduleRoot)) {
     const sourceFile = readSourceFile(filePath)
     if (!sourceFile) continue
     const visit = (node: ts.Node): void => {
       if (ts.isPropertyAssignment(node)) {
         const propertyName = getPropertyName(node)
-        if (
-          (propertyName === 'tableId' || propertyName === 'extensionTableId') &&
-          ts.isStringLiteralLike(node.initializer)
-        ) {
-          const value = node.initializer.text
-          if (value && !seen.has(value)) {
-            seen.add(value)
-            tableIds.push(value)
+        if (propertyName === 'tableId' || propertyName === 'extensionTableId') {
+          for (const value of collectLiteralValues(node.initializer)) {
+            if (value && !seen.has(value)) {
+              seen.add(value)
+              tableIds.push(value)
+            }
           }
         }
       }
@@ -723,8 +774,12 @@ function extractModuleMeta(indexFilePath: string | null): { title: string | null
 }
 
 export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFacts {
-  const { moduleId, coreSrcRoot, coreVersion = null } = options
-  const moduleRoot = path.join(coreSrcRoot, moduleId)
+  const { moduleId, coreVersion = null, sourcePackage = null, sourceVersion = null } = options
+  const moduleRoot = options.moduleRoot
+    ?? (options.coreSrcRoot ? path.join(options.coreSrcRoot, moduleId) : null)
+  if (!moduleRoot) {
+    throw new Error(`[internal] extractModuleFacts requires moduleRoot or coreSrcRoot for module "${moduleId}"`)
+  }
 
   const entitiesFilePath =
     resolveConventionFile(path.join(moduleRoot, 'data'), 'entities') ??
@@ -738,7 +793,6 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   const notificationsFilePath = resolveConventionFile(moduleRoot, 'notifications')
   const cliFilePath = resolveConventionFile(moduleRoot, 'cli')
   const indexFilePath = resolveConventionFile(moduleRoot, 'index')
-  const backendDir = path.join(moduleRoot, 'backend')
 
   const warnings: string[] = []
   const { title, description } = extractModuleMeta(indexFilePath)
@@ -755,7 +809,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   const cli = extractCli(cliFilePath, warnings)
   const hostTokens: ModuleHostTokens = {
     entityIds: extractHostEntityIds(entities),
-    tableIds: extractTableIds(backendDir),
+    tableIds: extractTableIds(moduleRoot),
   }
 
   return {
@@ -763,6 +817,8 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     title,
     description,
     coreVersion,
+    sourcePackage,
+    sourceVersion,
     entities,
     events,
     aclFeatures,
@@ -786,6 +842,8 @@ export interface ModuleFactsJsonEntry {
   title: string | null
   description: string | null
   coreVersion: string | null
+  sourcePackage: string | null
+  sourceVersion: string | null
   entities: ModuleEntityFact[]
   events: ModuleFactsJsonEvent[]
   aclFeatures: string[]
@@ -799,7 +857,14 @@ export interface ModuleFactsJsonEntry {
 
 const EMPTY_SECTION_MARKER = '_none_'
 
-function renderVersionStamp(coreVersion: string | null): string {
+function renderVersionStamp(
+  coreVersion: string | null,
+  sourcePackage: string | null,
+  sourceVersion: string | null,
+): string {
+  if (sourcePackage) {
+    return `<!-- generated from ${sourcePackage} ${sourceVersion || '<unknown>'}; core ${coreVersion || '<unknown>'} — R1 staleness stamp -->`
+  }
   const version = coreVersion && coreVersion.length > 0 ? coreVersion : '<unknown>'
   return `<!-- generated from @open-mercato/core ${version} — R1 staleness stamp -->`
 }
@@ -868,7 +933,7 @@ function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
   const sections = [
     `# ${facts.module} — module facts (generated, do not edit)`,
-    renderVersionStamp(facts.coreVersion),
+    renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
     '',
     renderEntitiesSection(facts.entities),
     '',
@@ -897,6 +962,8 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     title: facts.title,
     description: facts.description,
     coreVersion: facts.coreVersion,
+    sourcePackage: facts.sourcePackage,
+    sourceVersion: facts.sourceVersion,
     entities: facts.entities,
     events: facts.events.map((event) => ({ id: event.id, category: event.category, entity: event.entity })),
     aclFeatures: facts.aclFeatures,
@@ -924,10 +991,17 @@ export function renderModuleFactsJson(factsByModule: Record<string, ModuleFacts>
 }
 
 export interface ExtractAllModuleFactsOptions {
-  coreSrcRoot: string
+  /**
+   * Discovered module sources (auto-discovery path). When provided, each entry's
+   * explicit `moduleRoot` is used and `coreSrcRoot`/`moduleIds` are ignored.
+   */
+  sources?: readonly ModuleFactSource[]
+  /** Legacy shared-root path. Used only when `sources` is not provided. */
+  coreSrcRoot?: string
   registryPath?: string | null
   registrySource?: string | null
   coreVersion?: string | null
+  /** @deprecated Legacy explicit module-id list; only consulted when `sources` is absent. */
   moduleIds?: readonly string[]
 }
 
@@ -938,20 +1012,30 @@ export interface ExtractAllModuleFactsResult {
 }
 
 export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
-  const moduleIds = options.moduleIds ?? MODULE_FACTS_ALLOWLIST
+  const sources: ModuleFactSource[] = options.sources
+    ? [...options.sources]
+    : (options.coreSrcRoot
+        ? (options.moduleIds ?? []).map((moduleId) => ({
+            moduleId,
+            moduleRoot: path.join(options.coreSrcRoot as string, moduleId),
+          }))
+        : [])
+
   const factsByModule: Record<string, ModuleFacts> = {}
   const markdownByModule: Record<string, string> = {}
   const warnings: string[] = []
-  for (const moduleId of moduleIds) {
+  for (const source of sources) {
     const facts = extractModuleFacts({
-      moduleId,
-      coreSrcRoot: options.coreSrcRoot,
+      moduleId: source.moduleId,
+      moduleRoot: source.moduleRoot,
       coreVersion: options.coreVersion ?? null,
+      sourcePackage: source.from ?? null,
+      sourceVersion: source.packageVersion ?? null,
       registryPath: options.registryPath ?? null,
       registrySource: options.registrySource ?? null,
     })
-    factsByModule[moduleId] = facts
-    markdownByModule[moduleId] = renderModuleFactsMarkdown(facts)
+    factsByModule[source.moduleId] = facts
+    markdownByModule[source.moduleId] = renderModuleFactsMarkdown(facts)
     warnings.push(...facts.warnings)
   }
   return { factsByModule, markdownByModule, warnings }

@@ -34,6 +34,9 @@ import {
   selectVisibleDefinitionWinner,
 } from '../lib/definition-scope'
 import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'definitions' })
 
 /**
  * Validate defaultValue against the field kind. Returns an error message string
@@ -82,7 +85,7 @@ async function validateDefaultValueByKind(
           if (!entry) return `defaultValue "${value}" does not match any entry in the configured dictionary`
         } catch (err) {
           // If the dictionaries module is not available, skip entry validation
-          console.debug('[entities.definitions] dictionary validation skipped — module not available', err)
+          logger.debug('Dictionary validation skipped — module not available', { err })
         }
       }
       return null
@@ -99,7 +102,7 @@ async function validateDefaultValueByKind(
         if (!currency) return `defaultValue "${value}" does not match any available currency`
       } catch (err) {
         // If the currencies module is not available, skip currency validation
-        console.debug('[entities.definitions] currency validation skipped — module not available', err)
+        logger.debug('Currency validation skipped — module not available', { err })
       }
       return null
     }
@@ -265,7 +268,7 @@ export async function GET(req: Request) {
         createOnly: true,
       })
     } catch (err) {
-      console.warn('[entities.definitions] Failed to synchronize module-backed definitions', {
+      logger.warn('Failed to synchronize module-backed definitions', {
         tenantId,
         entityIds,
         err,
@@ -286,7 +289,7 @@ export async function GET(req: Request) {
         return NextResponse.json(cached)
       }
     } catch (err) {
-      console.warn('[entities.definitions.cache] Failed to read cache', err)
+      logger.warn('Failed to read cache', { err })
     }
   }
 
@@ -418,6 +421,8 @@ export async function GET(req: Request) {
         // attachments config passthrough
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
+        // phone config passthrough
+        defaultCountryIso2: typeof d.configJson?.defaultCountryIso2 === 'string' ? d.configJson.defaultCountryIso2 : undefined,
         entityId,
         fieldset: normalizedFieldset ?? effectiveFieldsets[0],
         fieldsets: effectiveFieldsets.length > 0 ? effectiveFieldsets : undefined,
@@ -471,7 +476,7 @@ export async function GET(req: Request) {
         tags,
       })
     } catch (err) {
-      console.warn('[entities.definitions.cache] Failed to store cache entry', err)
+      logger.warn('Failed to store cache entry', { err })
     }
   }
 

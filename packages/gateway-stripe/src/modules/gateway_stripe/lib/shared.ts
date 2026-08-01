@@ -1,4 +1,5 @@
 import type { PaymentGatewayPresentationRequest } from '@open-mercato/shared/modules/payment_gateways/types'
+import type Stripe from 'stripe'
 
 const ZERO_DECIMAL_CURRENCIES = new Set([
   'BIF',
@@ -33,6 +34,26 @@ export function fromCents(amount: number, currencyCode: string): number {
   return isZeroDecimalCurrency(currencyCode)
     ? amount
     : amount / 100
+}
+
+export function stripeIdempotencyOptions(idempotencyKey?: string): { idempotencyKey: string } | undefined {
+  return idempotencyKey ? { idempotencyKey } : undefined
+}
+
+export async function resolveStripeRefundStatus(
+  stripe: Pick<Stripe, 'charges'>,
+  refund: Stripe.Refund,
+  capturedAmount?: number,
+): Promise<'pending' | 'partially_refunded' | 'refunded'> {
+  if (refund.status !== 'succeeded') return 'pending'
+  const chargeId = typeof refund.charge === 'string' ? refund.charge : refund.charge?.id
+  if (chargeId) {
+    const charge = await stripe.charges.retrieve(chargeId)
+    return charge.amount_refunded < charge.amount ? 'partially_refunded' : 'refunded'
+  }
+  return capturedAmount !== undefined && refund.amount < capturedAmount
+    ? 'partially_refunded'
+    : 'refunded'
 }
 
 export function buildStripeMetadata(input: {

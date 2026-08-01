@@ -5,10 +5,11 @@ import { Play, Square } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ProjectColorDot } from './ProjectColorDot'
+import { useActiveTimesheetTimer } from './useActiveTimesheetTimer'
 import { startTimerEntry } from './startTimer'
 import { resolveTimerActionError } from './timerErrors'
 
@@ -58,8 +59,6 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  const [activeEntryId, setActiveEntryId] = useState<string | null>(null)
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [description, setDescription] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
@@ -70,10 +69,15 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeTimer = useActiveTimesheetTimer({ staffMemberId })
 
-  const isRunning = activeEntryId !== null
+  const activeEntryId = activeTimer.entryId
+  const activeProjectId = activeTimer.projectId
+  const isRunning = activeTimer.running
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
+  const activeProjectName = activeProject?.name ?? activeTimer.projectName
+  const activeProjectColor = activeProject?.color ?? activeTimer.projectColor
   const selectedProject = projects.find((p) => p.id === selectedProjectId)
 
   const filteredProjects = projects.filter((p) =>
@@ -100,32 +104,13 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
   }, [])
 
   useEffect(() => {
-    if (!staffMemberId) return
-
-    const checkActiveTimer = async () => {
-      const response = await apiCall(
-        `/api/staff/timesheets/time-entries?staffMemberId=${staffMemberId}&running=true&pageSize=50`,
-      )
-      if (!response.ok) return
-
-      const data = response.result as Record<string, unknown> | null
-      const items = (data?.items ?? data?.data ?? []) as Array<Record<string, unknown>>
-
-      const activeEntry = items.find(
-        (entry: Record<string, unknown>) =>
-          entry.started_at && !entry.ended_at,
-      )
-
-      if (activeEntry) {
-        setActiveEntryId(String(activeEntry.id ?? ''))
-        setActiveProjectId(String(activeEntry.time_project_id ?? ''))
-        setDescription(String(activeEntry.notes ?? ''))
-        startElapsedCounter(String(activeEntry.started_at ?? ''))
-      }
+    if (activeTimer.running && activeTimer.startedAt) {
+      startElapsedCounter(activeTimer.startedAt)
+      if (activeTimer.notes != null) setDescription(activeTimer.notes)
+      return
     }
-
-    checkActiveTimer()
-  }, [staffMemberId, startElapsedCounter])
+    stopElapsedCounter()
+  }, [activeTimer.running, activeTimer.startedAt, activeTimer.notes, startElapsedCounter, stopElapsedCounter])
 
   useEffect(() => {
     return () => {
@@ -162,7 +147,7 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
         date: today,
         notes: description || null,
       }
-      const { id: entryId } = await runMutation({
+      await runMutation({
         operation: () => startTimerEntry(startPayload),
         context: {
           formId: TIMER_MUTATION_CONTEXT_ID,
@@ -175,9 +160,7 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
         mutationPayload: startPayload,
       })
 
-      setActiveEntryId(entryId)
-      setActiveProjectId(selectedProjectId)
-      startElapsedCounter(new Date().toISOString())
+      await activeTimer.refresh()
     } catch (err) {
       flash(
         resolveTimerActionError(err, t('staff.timesheets.my.timer.startError', 'Failed to start timer')),
@@ -215,10 +198,8 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
         mutationPayload: stopPayload,
       })
 
-      setActiveEntryId(null)
-      setActiveProjectId(null)
       setDescription('')
-      stopElapsedCounter()
+      await activeTimer.refresh()
       onTimerStopped()
     } catch (err) {
       flash(
@@ -246,10 +227,10 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
       <div className="relative" ref={dropdownRef}>
         {isRunning ? (
-          activeProject ? (
+          activeProjectName ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded border bg-muted">
-              <ProjectColorDot colorKey={activeProject.color} projectName={activeProject.name} size="xs" />
-              {activeProject.name}
+              <ProjectColorDot colorKey={activeProjectColor} projectName={activeProjectName} size="xs" />
+              {activeProjectName}
             </span>
           ) : null
         ) : (

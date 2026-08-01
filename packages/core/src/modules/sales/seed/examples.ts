@@ -36,6 +36,9 @@ import {
   CustomerPersonProfile,
 } from '@open-mercato/core/modules/customers/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ExampleAddress = {
   role: 'billing' | 'shipping'
@@ -1074,7 +1077,7 @@ async function loadCustomerLookups(
 
   for (const lookup of lookups) {
     if (!map.has(lookup.key)) {
-      console.warn(`[sales.examples] Customer "${lookup.displayName}" not found; skipping seeded linkage.`)
+      logger.warn('sales.examples customer not found; skipping seeded linkage', { displayName: lookup.displayName })
     }
   }
 
@@ -1278,7 +1281,7 @@ export async function seedSalesExamples(
     const quoteId = randomUUID()
     const customer = seed.customerKey ? customerLookups.get(seed.customerKey) ?? null : null
     if (seed.customerKey && !customer) {
-      console.warn(`[sales.examples] Skipping quote ${seed.quoteNumber} because customer "${seed.customerKey}" is missing.`)
+      logger.warn('sales.examples skipping quote because customer is missing', { quoteNumber: seed.quoteNumber, customerKey: seed.customerKey })
       continue
     }
     const shippingMethod = seed.shippingMethodCode
@@ -1292,9 +1295,7 @@ export async function seedSalesExamples(
     const lineSnapshots = seed.lines.map((line) => {
       const catalogRef = resolveCatalogLine(line, catalogLookups)
       if ((line.kind ?? 'product') === 'product' && !catalogRef.productId) {
-        console.warn(
-          `[sales.examples] Missing catalog match for quote line "${line.name ?? line.variantSku ?? line.productHandle ?? 'unknown'}".`
-        )
+        logger.warn('sales.examples missing catalog match for quote line', { line: line.name ?? line.variantSku ?? line.productHandle ?? 'unknown' })
       }
       const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
       const unitPriceGross = line.unitPriceGross ?? catalogRef.unitPriceGross ?? unitPriceNet
@@ -1498,7 +1499,7 @@ export async function seedSalesExamples(
     const orderId = randomUUID()
     const customer = seed.customerKey ? customerLookups.get(seed.customerKey) ?? null : null
     if (seed.customerKey && !customer) {
-      console.warn(`[sales.examples] Skipping order ${seed.orderNumber} because customer "${seed.customerKey}" is missing.`)
+      logger.warn('sales.examples skipping order because customer is missing', { orderNumber: seed.orderNumber, customerKey: seed.customerKey })
       continue
     }
     const shippingMethod = seed.shippingMethodCode
@@ -1512,9 +1513,7 @@ export async function seedSalesExamples(
     const lineSnapshots = seed.lines.map((line) => {
       const catalogRef = resolveCatalogLine(line, catalogLookups)
       if ((line.kind ?? 'product') === 'product' && !catalogRef.productId) {
-        console.warn(
-          `[sales.examples] Missing catalog match for order line "${line.name ?? line.variantSku ?? line.productHandle ?? 'unknown'}".`
-        )
+        logger.warn('sales.examples missing catalog match for order line', { line: line.name ?? line.variantSku ?? line.productHandle ?? 'unknown' })
       }
       const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
       const unitPriceGross = line.unitPriceGross ?? catalogRef.unitPriceGross ?? unitPriceNet

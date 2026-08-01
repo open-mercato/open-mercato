@@ -35,13 +35,16 @@ jest.mock('../../lib/reindex-lock', () => ({
 const mockEnsureReindexProgressJob = jest.fn().mockResolvedValue('progress-1')
 const mockCompleteReindexProgress = jest.fn().mockResolvedValue(undefined)
 const mockFailReindexProgress = jest.fn().mockResolvedValue(undefined)
+const mockCancelReindexProgress = jest.fn().mockResolvedValue(undefined)
 jest.mock('../../lib/reindex-progress', () => ({
   ensureReindexProgressJob: (...args: unknown[]) => mockEnsureReindexProgressJob(...args),
   completeReindexProgress: (...args: unknown[]) => mockCompleteReindexProgress(...args),
   failReindexProgress: (...args: unknown[]) => mockFailReindexProgress(...args),
+  cancelReindexProgress: (...args: unknown[]) => mockCancelReindexProgress(...args),
 }))
 
 import { POST as vectorReindexPost } from '../embeddings/reindex/route'
+import { POST as vectorReindexCancelPost } from '../embeddings/reindex/cancel/route'
 
 describe('POST /api/search/embeddings/reindex', () => {
   beforeEach(() => {
@@ -125,6 +128,110 @@ describe('POST /api/search/embeddings/reindex', () => {
     )
     expect(mockFailReindexProgress).not.toHaveBeenCalled()
     expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
+  test('cancel removes only current tenant and organization vector queue jobs', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      tenantId: 'tenant-123',
+      orgId: 'org-456',
+      sub: 'user-789',
+    })
+
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockProgressService = { progress: true }
+    const mockQueue = {
+      getJobCounts: jest.fn().mockResolvedValue({ waiting: 3, active: 1, completed: 0, failed: 0 }),
+      clear: jest.fn().mockResolvedValue({ removed: 4 }),
+      removeQueuedJobsByScope: jest.fn().mockResolvedValue({ removed: 2 }),
+    }
+    const mockContainer = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'progressService') return mockProgressService
+        if (name === 'vectorIndexQueue') return mockQueue
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await vectorReindexCancelPost(new Request(
+      'http://localhost/api/search/embeddings/reindex/cancel',
+      { method: 'POST' },
+    ))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, jobsRemoved: 2 })
+    expect(mockQueue.removeQueuedJobsByScope).toHaveBeenCalledWith({
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      jobTypes: ['batch-index'],
+    })
+    expect(mockQueue.clear).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
+    expect(mockCancelReindexProgress).toHaveBeenCalledWith(expect.objectContaining({
+      em: mockEm,
+      progressService: mockProgressService,
+      type: 'vector',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      userId: 'user-789',
+    }))
+    expect(mockRecordIndexerLog).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({
+        source: 'vector',
+        details: { jobsRemoved: 2 },
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+    expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
+  test('cancel fails closed when scoped vector queue removal fails', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      tenantId: 'tenant-123',
+      orgId: 'org-456',
+      sub: 'user-789',
+    })
+
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const mockQueue = {
+      clear: jest.fn().mockResolvedValue({ removed: 4 }),
+      removeQueuedJobsByScope: jest.fn().mockRejectedValue(new Error('redis unavailable')),
+    }
+    const mockContainer = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'progressService') return { progress: true }
+        if (name === 'vectorIndexQueue') return mockQueue
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await vectorReindexCancelPost(new Request(
+      'http://localhost/api/search/embeddings/reindex/cancel',
+      { method: 'POST' },
+    ))
+    const body = await res.json()
+
+    expect(res.status).toBe(503)
+    expect(body.error).toBe('Failed to cancel queued reindex jobs.')
+    expect(mockQueue.removeQueuedJobsByScope).toHaveBeenCalledWith({
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      jobTypes: ['batch-index'],
+    })
+    expect(mockQueue.clear).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).not.toHaveBeenCalled()
+    expect(mockCancelReindexProgress).not.toHaveBeenCalled()
     expect(mockContainer.dispose).toHaveBeenCalled()
   })
 })

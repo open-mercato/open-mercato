@@ -13,6 +13,9 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type PipelineSummarySettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'pipeline-summary' })
 
 async function fetchPipelineData(settings: PipelineSummarySettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -73,7 +76,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
         }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load pipeline data', err)
+      logger.error('Failed to load pipeline data', { err })
       setError(t('dashboards.analytics.widgets.pipelineSummary.error', 'Failed to load data'))
     } finally {
       setLoading(false)

@@ -10,6 +10,8 @@ const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise
 const mockRetryLastMutation = jest.fn(async () => true)
 const mockTranslate = (_key: string, fallback?: string) => fallback ?? ''
 
+const mockStartIso = '2026-07-02T10:00:00.000Z'
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
 }))
@@ -30,6 +32,25 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
 }))
 
+// The active timer is now owned by the shared useActiveTimesheetTimer hook
+// (issue #3307). This test isolates TimerBar's own elapsed-counter logic, so it
+// stubs the hook with a running timer instead of exercising its data fetching.
+jest.mock('../useActiveTimesheetTimer', () => ({
+  useActiveTimesheetTimer: () => ({
+    staffMemberId: 'staff-1',
+    entryId: 'entry-1',
+    running: true,
+    startedAt: mockStartIso,
+    projectId: 'project-1',
+    projectName: 'Build',
+    projectColor: null,
+    notes: '',
+    isLoading: false,
+    error: null,
+    refresh: jest.fn(async () => undefined),
+  }),
+}))
+
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
 const mockApiCallOrThrow = apiCallOrThrow as jest.MockedFunction<typeof apiCallOrThrow>
 
@@ -37,8 +58,7 @@ const projects = [
   { id: 'project-1', name: 'Build', code: 'BLD', color: null },
 ]
 
-const START_ISO = '2026-07-02T10:00:00.000Z'
-const START_MS = Date.parse(START_ISO)
+const START_MS = Date.parse(mockStartIso)
 
 async function flushMicrotasks() {
   await act(async () => {
@@ -52,18 +72,7 @@ describe('TimerBar elapsed counter drift', () => {
     jest.clearAllMocks()
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
     mockApiCallOrThrow.mockResolvedValue({ result: { id: 'entry-1' } } as any)
-    mockApiCall.mockResolvedValue({
-      ok: true,
-      result: {
-        items: [{
-          id: 'entry-1',
-          time_project_id: 'project-1',
-          notes: '',
-          started_at: START_ISO,
-          ended_at: null,
-        }],
-      },
-    } as any)
+    mockApiCall.mockResolvedValue({ ok: true, result: { items: [] } } as any)
   })
 
   afterEach(() => {

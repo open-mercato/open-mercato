@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -10,6 +11,8 @@ import { hasRequiredFeatures } from '../../../../../lib/auth'
 import { AiAgentPromptOverrideRepository } from '../../../../../data/repositories/AiAgentPromptOverrideRepository'
 import type { AiAgentPromptOverride } from '../../../../../data/entities'
 import { findReservedKeys } from '../../../../../lib/prompt-override-merge'
+
+const logger = createLogger('ai_assistant')
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -214,7 +217,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
       versions: versions.map(serializeOverride),
     })
   } catch (error) {
-    console.error('[AI Prompt Override GET] Failure:', error)
+    logger.error('AI Prompt Override GET — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to load prompt override.',
@@ -297,7 +300,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       updatedAt: saved.updatedAt?.toISOString?.() ?? new Date().toISOString(),
     })
   } catch (error) {
-    console.error('[AI Prompt Override POST] Failure:', error)
+    logger.error('AI Prompt Override POST — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to save prompt override.',

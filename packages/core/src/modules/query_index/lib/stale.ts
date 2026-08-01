@@ -7,6 +7,13 @@ type PurgeOrphansOptions = {
   partitionIndex: number | null
   partitionCount: number | null
   startedAt: Date
+  /**
+   * Records whose index rows must be preserved even though this run did not refresh
+   * them. A row that failed to be written still looks untouched to the `updated_at`
+   * predicate below, so without this the purge would delete the very entries the run
+   * failed to rebuild.
+   */
+  excludeRecordIds?: string[]
 }
 
 export async function purgeOrphans(
@@ -25,5 +32,8 @@ export async function purgeOrphans(
     q = q.where(sql<boolean>`mod(abs(hashtext(entity_id::text)), ${partitionCount}) = ${partitionIndex}`)
   }
   q = q.where('updated_at' as any, '<', startedAt as any)
+  if (options.excludeRecordIds?.length) {
+    q = q.where('entity_id' as any, 'not in', options.excludeRecordIds)
+  }
   await q.execute()
 }

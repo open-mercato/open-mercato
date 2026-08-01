@@ -2,6 +2,9 @@
 import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { PORTAL_EVENT_DOM_NAME } from './usePortalAppEvent'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'PortalEventBridge' })
 
 const PORTAL_SSE_ENDPOINT = '/api/customer_accounts/portal/events/stream'
 const HEARTBEAT_TIMEOUT = 45_000
@@ -58,7 +61,7 @@ export function usePortalEventBridge(): void {
     function resetHeartbeatTimer() {
       if (heartbeatTimer.current) clearTimeout(heartbeatTimer.current)
       heartbeatTimer.current = setTimeout(() => {
-        console.warn('[PortalEventBridge] Heartbeat timeout — reconnecting')
+        logger.warn('Heartbeat timeout — reconnecting')
         disconnect()
         scheduleReconnect()
       }, HEARTBEAT_TIMEOUT)

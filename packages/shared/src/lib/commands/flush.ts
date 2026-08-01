@@ -1,5 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { IsolationLevel } from '@mikro-orm/core'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
 
 /**
  * Options controlling how {@link withAtomicFlush} executes its phases.
@@ -72,11 +75,7 @@ async function flushPendingChangesGuard(
   if (pendingCount > 0) {
     await em.flush()
     if (process.env.NODE_ENV !== 'production') {
-      const where = label ? ` (${label})` : ''
-      console.warn(
-        `[withAtomicFlush]${where}: ${pendingCount} pending change-set(s) remained at the commit boundary and were flushed defensively. ` +
-          'A phase mutated a managed entity after its flush boundary — split the mutation and any dependent read/sync into separate phases so the change is never at risk of being dropped.',
-      )
+      logger.warn('withAtomicFlush: pending change-sets remained at the commit boundary and were flushed defensively — a phase mutated a managed entity after its flush boundary; split the mutation and any dependent read/sync into separate phases', { label: label ?? null, pendingCount })
     }
   }
 }

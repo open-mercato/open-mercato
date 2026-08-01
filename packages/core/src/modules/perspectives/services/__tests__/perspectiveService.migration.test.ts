@@ -13,6 +13,26 @@
 import { describe, it, expect, jest } from '@jest/globals'
 import { maybeMigrateLegacyFilterValues } from '../perspectiveService'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 describe('maybeMigrateLegacyFilterValues', () => {
   it('passes through tree-shaped filters with v:2 unchanged', () => {
     const s: any = {
@@ -29,7 +49,8 @@ describe('maybeMigrateLegacyFilterValues', () => {
   })
 
   it('drops legacy filterValues-shaped records and emits a warning', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
     const s: any = {
       filters: { status: 'active', source: 'web' },
       columnVisibility: { name: true },

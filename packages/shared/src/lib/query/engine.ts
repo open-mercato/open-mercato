@@ -22,6 +22,9 @@ import {
 } from '../crud/custom-field-definition-index'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { mapWithConcurrency } from './bounded-decrypt'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'query' })
 
 const DECRYPT_CONCURRENCY = 8
 
@@ -138,11 +141,7 @@ export function resolveEntityTableName(em: EntityManager | undefined, entity: En
   }
 
   const fallback = pluralizeBaseName(rawName || '')
-  console.warn(
-    `[QueryEngine] Could not resolve entity "${entity}" via ORM metadata. ` +
-    `Falling back to table name "${fallback}". ` +
-    `Ensure the entity ID segment matches the class name convention.`
-  )
+  logger.warn('Could not resolve entity via ORM metadata; falling back to table name — ensure the entity ID segment matches the class name convention', { entity, fallback })
   entityTableCache.set(entity, fallback)
   return fallback
 }
@@ -294,7 +293,11 @@ export class BasicQueryEngine implements QueryEngine {
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
     const searchConfig = resolveSearchConfig()
-    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
+    // Callers that opt out of automatic tenant/org scoping own the full
+    // visibility predicate. Search-token filtering has its own tenant/org
+    // guards, so it must be disabled on this direct-query path as documented
+    // by QueryOptions.omitAutomaticTenantOrgScope.
+    const searchEnabled = !skipAutoScope && searchConfig.enabled && await this.tableExists('search_tokens')
     const hasSearchTokens = searchEnabled
       ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
@@ -945,7 +948,7 @@ export class BasicQueryEngine implements QueryEngine {
         )
         return { ...item, ...decrypted }
       } catch (err) {
-        console.error('QueryEngine: error decrypting entity payload', err)
+        logger.error('Error decrypting entity payload', { err })
         return item
       }
     }
@@ -1409,10 +1412,8 @@ export class BasicQueryEngine implements QueryEngine {
 
   private logSearchDebug(event: string, payload: Record<string, unknown>) {
     try {
-      console.info('[query:search]', event, JSON.stringify(payload))
-    } catch {
-      console.info('[query:search]', event, payload)
-    }
+      logger.debug(event, payload)
+    } catch {}
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {

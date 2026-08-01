@@ -20,6 +20,9 @@ import {
   okResponseSchema,
   updateDraftSchema as updateDraftOpenApiSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'api' })
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -89,10 +92,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
           organizationId: scope.organizationId,
         })
       } catch (error) {
-        console.error(
-          `[messages] Failed to load preview for ${item.entityModule}:${item.entityType}:${item.entityId}`,
-          error,
-        )
+        logger.error('Failed to load preview', { entityModule: item.entityModule, entityType: item.entityType, entityId: item.entityId, err: error })
         return null
       }
     }),

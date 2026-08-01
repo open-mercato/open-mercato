@@ -24,6 +24,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const PIPELINE_STAGE_RESOURCE_KIND = 'customers.pipelineStage'
 
@@ -103,7 +106,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages GET failed', err)
+    logger.error('customers.pipeline-stages GET failed', { err })
     return NextResponse.json({ error: 'Failed to load pipeline stages' }, { status: 500 })
   }
 }
@@ -171,7 +174,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages POST failed', err)
+    logger.error('customers.pipeline-stages POST failed', { err })
     return NextResponse.json({ error: 'Failed to create pipeline stage' }, { status: 400 })
   }
 }
@@ -239,7 +242,7 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages PUT failed', err)
+    logger.error('customers.pipeline-stages PUT failed', { err })
     return NextResponse.json({ error: 'Failed to update pipeline stage' }, { status: 400 })
   }
 }
@@ -292,7 +295,7 @@ export async function DELETE(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages DELETE failed', err)
+    logger.error('customers.pipeline-stages DELETE failed', { err })
     return NextResponse.json({ error: 'Failed to delete pipeline stage' }, { status: 400 })
   }
 }

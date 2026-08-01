@@ -23,6 +23,9 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { fetchStuckDealIds } from '../../lib/stuckDeals'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -653,7 +656,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
         // people/companies labels (cards just lose their company pill). Tag every item with
         // `_associations: { ok: false }` so a future surface can render a degraded-state hint
         // instead of silently showing cards without company badges.
-        console.warn('[customers.deals] failed to decorate items with person/company links', err)
+        logger.warn('failed to decorate items with person/company links', { component: 'deals', err })
         payload.items = items.map((item: unknown) => {
           if (!item || typeof item !== 'object') return item
           return {

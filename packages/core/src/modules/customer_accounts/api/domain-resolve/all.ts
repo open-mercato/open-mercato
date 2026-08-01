@@ -9,9 +9,11 @@ import {
   checkAuthRateLimit,
   domainResolveAllIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'domain-resolve-all' })
 
 const ORIGIN_HEADER_NAME = process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin'
-const LOG_PREFIX = '[domain-resolve/all]'
 const ENDPOINT_PATH = '/api/customer_accounts/domain-resolve/all'
 
 export const metadata = {
@@ -39,7 +41,7 @@ export async function GET(req: Request) {
   const expected = process.env.DOMAIN_RESOLVE_SECRET
   if (!expected) {
     // Fail closed when the gating secret is not configured on the server.
-    console.warn(`${LOG_PREFIX} rejected request — secret not configured`, {
+    logger.warn('Rejected request — secret not configured', {
       endpoint: ENDPOINT_PATH,
       ip: callerIp,
       outcome: 'misconfigured',
@@ -60,7 +62,7 @@ export async function GET(req: Request) {
     ipConfig: domainResolveAllIpRateLimitConfig,
   })
   if (rateLimitError) {
-    console.warn(`${LOG_PREFIX} rate-limited`, {
+    logger.warn('Rate-limited', {
       endpoint: ENDPOINT_PATH,
       ip: callerIp,
       outcome: 'rate_limited',
@@ -70,7 +72,7 @@ export async function GET(req: Request) {
 
   const supplied = req.headers.get('x-domain-resolve-secret')
   if (!secretEqual(supplied, expected)) {
-    console.warn(`${LOG_PREFIX} rejected request — invalid secret`, {
+    logger.warn('Rejected request — invalid secret', {
       endpoint: ENDPOINT_PATH,
       ip: callerIp,
       outcome: 'forbidden',
@@ -81,7 +83,7 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const service = container.resolve('domainMappingService') as DomainMappingService
   const records = await service.resolveAll()
-  console.info(`${LOG_PREFIX} authorized`, {
+  logger.info('Authorized', {
     endpoint: ENDPOINT_PATH,
     ip: callerIp,
     outcome: 'ok',

@@ -3,6 +3,9 @@ import { ScheduledJob } from '../data/entities.js'
 import { calculateNextRun } from '../lib/nextRunCalculator.js'
 import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler')
 
 export interface ScheduleRegistration {
   id: string
@@ -120,7 +123,7 @@ export class SchedulerService {
           await this.bullmqService.unregister(schedule.id)
         }
       } catch (error: unknown) {
-        console.error(`[scheduler] Failed to sync with BullMQ:`, error)
+        logger.error('Failed to sync with BullMQ', { scheduleId: schedule.id, err: error })
         // Don't throw - DB is source of truth, BullMQ sync is best-effort
       }
     }
@@ -141,7 +144,7 @@ export class SchedulerService {
         try {
           await this.bullmqService.unregister(scheduleId)
         } catch (error: unknown) {
-          console.error(`[scheduler] Failed to unregister from BullMQ:`, error)
+          logger.error('Failed to unregister from BullMQ', { scheduleId, err: error })
         }
       }
     }
@@ -233,7 +236,7 @@ export class SchedulerService {
           await this.bullmqService.unregister(scheduleId)
         }
       } catch (error: unknown) {
-        console.error(`[scheduler] Failed to sync update with BullMQ:`, error)
+        logger.error('Failed to sync update with BullMQ', { scheduleId, err: error })
       }
     }
   }

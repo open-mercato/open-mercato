@@ -8,6 +8,9 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('api_keys').child({ component: 'api-key-service' })
 
 const BCRYPT_COST = 10
 
@@ -136,7 +139,10 @@ export async function findApiKeyBySecret(em: EntityManager, secret: string): Pro
   if (!secret) return null
   // Extract prefix from the secret for fast candidate lookup
   const prefix = secret.slice(0, 12)
-  // Find candidates by prefix (fast index lookup)
+  // Find candidates by prefix (fast index lookup). Invariant: the unique keyPrefix
+  // constraint plus the deletedAt: null filter keep this to at most one live row, so
+  // the bcrypt loop below stays bounded. Do not widen the prefix space or relax either
+  // filter without re-evaluating that cost (see #3812).
   const candidates = await em.find(ApiKey, { keyPrefix: prefix, deletedAt: null })
   // Verify each candidate with bcrypt until we find a match
   for (const candidate of candidates) {
@@ -308,14 +314,14 @@ export async function findSessionApiKeyWithSecret(
 
   // If no encrypted secret stored, cannot recover
   if (!record.sessionSecretEncrypted) {
-    console.warn('[ApiKeyService] Session key has no encrypted secret:', sessionToken.slice(0, 12))
+    logger.warn('Session key has no encrypted secret', { apiKeyId: record.id })
     return null
   }
 
   // Decrypt the secret
   const secret = await decryptSessionSecret(record.sessionSecretEncrypted, record.tenantId ?? null)
   if (!secret) {
-    console.warn('[ApiKeyService] Failed to decrypt session secret:', sessionToken.slice(0, 12))
+    logger.warn('Failed to decrypt session secret', { apiKeyId: record.id })
     return null
   }
 
@@ -377,7 +383,7 @@ export async function withOnetimeApiKey<T>(
       await em.persist(record).flush()
       getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
     } catch (error) {
-      console.error('[withOnetimeApiKey] Failed to soft-delete one-time API key:', error)
+      logger.error('Failed to soft-delete one-time API key', { err: error })
     }
   }
 }
