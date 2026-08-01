@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
  * TC-AUTH-SIDEBAR-GROUP-001: hiding a whole sidebar group from the customization page.
@@ -73,7 +72,7 @@ async function visibleGroupHrefs(page: Page, groupName: string): Promise<string[
   );
   await page.evaluate(() => window.dispatchEvent(new Event('om:refresh-sidebar')));
   const response = await responsePromise;
-  const payload = (await readJsonSafe<NavPayload>(response)) ?? {};
+  const payload = (await response.json()) as NavPayload;
   const group = (payload.groups ?? []).find(
     (candidate) => candidate.name === groupName || candidate.defaultName === groupName,
   );
