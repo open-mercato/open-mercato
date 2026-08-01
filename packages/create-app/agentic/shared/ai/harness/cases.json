@@ -1970,7 +1970,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject an editable core CrudForm field across read, display, and save paths. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject an editable installed CrudForm field across read, display, and save paths. Resolve the exact bound form host and its correlated read/write/UI round trip from the named module facts before using source context; reject helper-only or unbound IDs. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2022,6 +2022,9 @@
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "bound-crud-form-host",
+      "correlated-roundtrip",
       "widget-read-write-roundtrip",
       "stable-spot-id"
     ],
@@ -2078,7 +2081,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject a DataTable column, filter, row action, bulk action, or toolbar item. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject a DataTable column, filter, row action, bulk action, or toolbar item. Resolve the exact bound deep table host from the named module facts before using source context, distinguish it from the non-mountable base prefix and helper-only IDs, and preserve its correlated execution guard. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2119,6 +2122,9 @@
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "bound-data-table-host",
+      "base-prefix-not-mountable",
       "stable-table-host",
       "bulk-mutation-safety"
     ],
@@ -2173,7 +2179,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add or reorder main, settings, profile, topbar, and profile-dropdown menus. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add or reorder main, settings, profile, topbar, and profile-dropdown menus. Resolve exact framework-owned menu surface and item IDs, label keys, feature gates, and relative placement from the framework extension catalog before using source context; do not attribute them to a business module or derive IDs from memory. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2214,7 +2220,8 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/framework-extension-points.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
@@ -2225,6 +2232,8 @@
       ]
     },
     "requiredDecisions": [
+      "framework-facts-first",
+      "exact-framework-menu-host",
       "menu-injection",
       "stable-ordering"
     ],
@@ -2428,7 +2437,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, intercept an installed API request or response while preserving contracts. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, intercept an installed API request or response while preserving contracts. Resolve the exact route, methods, before/after phases, host activation bridge, timeout, and failure posture from the named module facts before using source context. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "interceptor-contract"
@@ -2465,6 +2474,9 @@
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "interceptor-activation",
+      "interceptor-phases-and-failure-posture",
       "interceptor-contract",
       "scope-preservation"
     ],
@@ -2518,7 +2530,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a mutation guard with safe payload rewrite and post-success callbacks. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a mutation guard with safe payload rewrite and post-success callbacks. Resolve the exact entity, operations, block/rewrite/after-success capabilities, and locking-preservation contract from the named module facts before using source context. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "mutation-guard"
@@ -2555,6 +2567,9 @@
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "guard-operations-and-capabilities",
+      "locking-preserved",
       "mutation-guard",
       "safe-after-success"
     ],
@@ -2728,7 +2743,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add DOM Event Bridge progress UI to a long-running operation supplied by an installed module. Extend it through supported UMES surfaces, keep framework packages read-only, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add DOM Event Bridge progress UI to a long-running operation supplied by an installed module. Resolve the event's client or portal broadcast fact, audience/scoping contract, and exact browser hook from the named module facts before using source context; a transport flag alone is not delivery. Extend through supported UMES surfaces, keep framework packages read-only, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2762,7 +2777,8 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/progress.md"
+        ".ai/guides/modules/progress.md",
+        ".ai/guides/modules/events.md"
       ],
       "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
@@ -2770,6 +2786,9 @@
       ]
     },
     "requiredDecisions": [
+      "facts-first-event",
+      "broadcast-audience-scope",
+      "exact-browser-hook",
       "dom-event-bridge",
       "operation-progress"
     ],
@@ -6177,7 +6196,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Cover response and query-engine enrichers; API interceptors, mutation guards, and the additive commands/interceptors.ts branch with stable id/targetCommand plus before/after execute and undo hooks; CrudForm and DataTable/menu/rendered widget injection including client operation filters; entity extensions; async, sync, and query-lifecycle subscribers; reactive notification handlers and DOM Event Bridge hooks; integration wizard/status/detail widgets; vector config; embedded AiChat; typed payment/shipping/currency/workflow registrations; and component props/wrappers. For each, name the smallest mechanism and specialist route, exact host-token evidence, wildcard-aware authorization and trusted scope boundary, optional-host behavior, safe block/rewrite posture, read/write/UI round trip where applicable, and verification; no interceptor may bypass the command, locking, audit, or undo, and unified replacement is wrong when additive composition works.",
+    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Choose the mechanism first, then resolve each exact or pattern target from one named module fact sheet, the framework extension catalog for framework-owned hosts, or a contribution's fact-ref/specialistRoute; installed source is only a bounded fallback for one named unresolved version gap. Cover response and caller-opt-in query enrichers; API interceptors, mutation guards, and additive command interceptors with execute/undo phases; every actually bound CrudForm and DataTable render, headless, lifecycle, operation-filter, and component-handle family while rejecting base-prefix/helper-only IDs; framework menus; entity extensions; async, sync, and querying/queried lifecycle subscribers; reactive notification handlers plus client/portal browser bridges and audience scope; integration UI; specialized vector, AI, payment, shipping, currency, and workflow registries; and component wrappers. For each, preserve activation, phases/operations, features, scope, placement, timeout/fallback/cache or execution-guard details, target-resolution provenance, optional-external behavior, and correlated read/write/UI roundTripId legs. Treat unresolved first-party targets as blockers, never bypass command/locking/audit/undo, and prefer additive composition over unified replacement.",
     "tags": ["umes", "extension-points", "additive", "audit"],
     "owner": {
       "kind": "skill",
@@ -6190,7 +6209,7 @@
       "required": [
         "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md", ".ai/skills/om-system-extension/references/extension-branches.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md", ".ai/guides/framework-extension-points.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md",
@@ -6202,17 +6221,24 @@
         ".ai/guides/modules/ai_assistant.md",
         ".ai/guides/modules/search.md",
         ".ai/guides/modules/events.md",
-        ".ai/guides/modules/query_index.md"
+        ".ai/guides/modules/query_index.md",
+        ".ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md"
       ],
       "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
-    "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "command-interceptor-execute-undo", "command-interceptor-acl-scope", "safe-command-block-rewrite", "query-enricher-and-subscriber", "headless-and-rendered-widgets", "client-operation-filter", "entity-extension", "event-and-notification-reaction", "dom-event-bridge", "integration-ui-specialization", "vector-ai-provider-registration", "component-wrapper", "optional-host", "roundtrip-verification"],
+    "requiredDecisions": ["additive-before-replacement", "facts-first-target-resolution", "framework-catalog-routing", "exact-pattern-fact-ref-resolution", "unresolved-first-party-blocker", "response-query-enricher-activation", "interceptor-guard-phases", "command-interceptor-execute-undo", "command-interceptor-acl-scope", "safe-command-block-rewrite", "querying-queried-caller-opt-in", "all-bound-crud-form-families", "all-bound-data-table-families", "reject-helper-only-hosts", "framework-menu-targets", "entity-extension-fact-ref", "subscriber-sync-persistent-priority", "dom-portal-audience-scope", "specialist-registry-routing", "component-wrapper-handle", "optional-external-provenance", "correlated-roundtrip-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:guess|invent).{0,30}(?:spot|handle|route|entity)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 15,
-    "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-025", "OMH-026", "OMH-038", "OMH-089"]
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 262144,
+    "relatedCases": ["OMH-025", "OMH-026", "OMH-038", "OMH-089"],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-07-24-standalone-ai-development-harness.md",
+        ".ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md"
+      ]
+    }
   },
   {
     "id": "OMH-089",
@@ -6221,7 +6247,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app and verify its stable IDs and replacement seams against the backward-compatibility policy. Account for all wired domains: AI agents/tools plus additive AI extensions; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; entry-scoped setup; ACL; DI; and encryption maps. State exact resolved keys (including registry entry keys and worker metadata fallback), which maps support null-disable/typed replacement, the special AI-extension and setup shapes, where global override maps may live, bootstrap/generation implications, stale-key diagnostics, security preservation, and rollback verification.",
+    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app and verify its stable IDs and replacement seams against the backward-compatibility policy. Resolve every wired domain, exact key, and disable-replace/replace/additive mode from the named module facts and their fact-ref provenance before using bounded installed context; an unresolved or stale first-party correlation is a blocker. Account for AI agents/tools plus additive AI extensions; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; entry-scoped setup; ACL; DI; and encryption maps. Preserve registry entry keys, worker metadata fallback, null-disable/typed replacement semantics, special AI-extension/setup shapes, global-map ownership, bootstrap/generation ordering, security, stale-key diagnostics, and rollback.",
     "tags": ["umes", "unified-overrides", "all-domains", "audit"],
     "owner": {
       "kind": "skill",
@@ -6240,17 +6266,25 @@
         ".ai/guides/modules/ai_assistant.md",
         ".ai/guides/modules/dashboards.md",
         ".ai/guides/modules/events.md",
-        ".ai/guides/modules/notifications.md"
+        ".ai/guides/modules/notifications.md",
+        ".ai/guides/framework-extension-points.md",
+        ".ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md"
       ],
       "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
-    "requiredDecisions": ["all-eighteen-domains", "additive-ai-extensions", "stable-override-key", "resolved-widget-worker-keys", "entry-scoped-setup-shape", "null-disable", "typed-replacement", "security-preservation", "stale-key-diagnostic", "bootstrap-before-registry", "rollback-verification"],
+    "requiredDecisions": ["all-eighteen-domains", "facts-first-override-resolution", "override-fact-ref-provenance", "override-mode-from-facts", "unresolved-first-party-blocker", "additive-ai-extensions", "stable-override-key", "resolved-widget-worker-keys", "entry-scoped-setup-shape", "null-disable", "typed-replacement", "security-preservation", "stale-key-diagnostic", "bootstrap-before-registry", "rollback-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "load order.{0,30}(?:hope|accident)", "(?:weaken|remove).{0,30}(?:auth|scope|guard|lock)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 131072,
-    "relatedCases": ["OMH-029", "OMH-030", "OMH-056", "OMH-088"]
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": ["OMH-029", "OMH-030", "OMH-056", "OMH-088"],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-07-24-standalone-ai-development-harness.md",
+        ".ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md"
+      ]
+    }
   },
   {
     "id": "OMH-090",
@@ -6290,7 +6324,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Add an app-owned customer support cases page to the installed portal. Use frontend/[orgSlug]/portal/**/page.tsx with sibling metadata, customer auth/features for guarded pages while preserving public-page semantics, principal-derived scope, optional nav only for the list destination, frozen portal hooks/spots/handles, portal menu injection only for links without a backing page, DataTable for the list, shared responsive and accessible components, loading/empty/not-found/denial/error/conflict/success states, wildcard-aware authorization, direct-route protection, and portal integration tests.",
+    "prompt": "Add an app-owned customer support cases page to the installed portal. Resolve exact or pattern portal hosts from the portal/customer_accounts module facts and framework-owned portal menu/chrome targets from the framework extension catalog before source context; preserve portalBroadcast audience scope and select the exact portal hook. Use frontend/[orgSlug]/portal/**/page.tsx with sibling metadata, customer auth/features for guarded pages while preserving public-page semantics, principal-derived scope, optional nav only for the list destination, frozen portal hooks/spots/handles, portal menu injection only for links without a backing page, DataTable for the list, shared responsive and accessible components, loading/empty/not-found/denial/error/conflict/success states, wildcard-aware authorization, direct-route protection, and portal integration tests.",
     "tags": [
       "frontend",
       "portal",
@@ -6333,7 +6367,8 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/guides/modules/customer_accounts.md",
-        ".ai/guides/modules/portal.md"
+        ".ai/guides/modules/portal.md",
+        ".ai/guides/framework-extension-points.md"
       ],
       "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
@@ -6341,6 +6376,10 @@
       ]
     },
     "requiredDecisions": [
+      "facts-first-portal-host",
+      "framework-portal-menu-host",
+      "portal-broadcast-audience-scope",
+      "exact-portal-hook",
       "portal-route-convention",
       "portal-page-metadata",
       "public-versus-guarded-portal-auth",
@@ -12404,27 +12443,27 @@
   },
   {
     "id":"OMH-179","title":"Show loyalty points in customer responses without copying customer records","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"medium",
-    "prompt":"Show each customer's current loyalty-points balance in customer API results while keeping the existing customer data as the source of truth and avoiding a duplicate balance that could go stale.",
+    "prompt":"Show each customer's current loyalty-points balance in customer list and detail API results while keeping the existing customer data as the source of truth. Resolve the dotted target entity, host-route opt-in, list/detail surfaces, timeout/fallback/cache posture, and correlation provenance from the customers module facts before source context; do not duplicate customer records or invent a target.",
     "tags":["business-language","response-enrichment","loyalty"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-04"]},
     "expectedRouter":{"required":["umes"],"allowedExtra":["module-data","framework-context"]},
     "requiredSkills":["om-system-extension"],
     "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/guides/contracts.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
-    "requiredDecisions":["scoped-enricher","batched-enrichment","exact-host-token","no-host-record-mutation"],
+    "requiredDecisions":["facts-first-target","enricher-host-opt-in","enricher-list-detail-posture","scoped-enricher","batched-enrichment","exact-host-token","no-host-record-mutation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:copy|duplicate).{0,20}customer (?:entity|record|table)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-025","OMH-088"]
   },
   {
     "id":"OMH-180","title":"Add preferred contact time to the existing customer form with full round trip","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Add preferred contact time to the existing customer form and make entering, displaying, changing, clearing, and reloading the value work correctly.",
+    "prompt":"Add preferred contact time to the existing customer form and make entering, displaying, changing, clearing, and reloading the value work correctly. Resolve the exact bound CrudForm base/header/fields or lifecycle host and shared roundTripId from the customers module facts before source context; reject helper-only or unbound field builders.",
     "tags":["business-language","form-extension","customer"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-06","BC-07","BC-08"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes"],"allowedExtra":["testing","framework-context"]},
     "requiredSkills":["om-data-model-design","om-backend-ui-design","om-system-extension"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
     "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/guides/backend-ui.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/skills/om-framework-context/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
-    "requiredDecisions":["widget-read-write-roundtrip","stable-spot-id","clear-null","optimistic-lock","translation-keys"],
+    "requiredDecisions":["facts-first-target","bound-crud-form-host","correlated-roundtrip","reject-helper-only-host","widget-read-write-roundtrip","stable-spot-id","clear-null","optimistic-lock","translation-keys"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","raw (?:form|fetch)","hard-coded user-facing","direct ORM relationship"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":131072,"relatedCases":["OMH-024","OMH-026","OMH-061"]
@@ -12436,7 +12475,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Add an order-risk filter and a bulk review action to the existing orders table, enforcing permission and version checks for every selected row.",
+    "prompt": "Add an order-risk filter and a bulk review action to the existing orders table, enforcing permission and version checks for every selected row. Resolve the exact bound DataTable filter and bulk-action targets, deep table ID, execution guard, and correlation provenance from the sales module facts before source context; do not use the base prefix or helper-only IDs as mounts.",
     "tags": [
       "business-language",
       "table-extension",
@@ -12493,6 +12532,10 @@
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "bound-data-table-host",
+      "base-prefix-not-mountable",
+      "correlated-execution-guard",
       "stable-table-host",
       "bulk-mutation-safety",
       "wildcard-acl",
@@ -12549,27 +12592,27 @@
   },
   {
     "id":"OMH-182","title":"Block order cancellation after dispatch across every entry point","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing route, method, request, response, and error schemas.",
+    "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing route, method, request, response, and error schemas. Resolve the sales guard host entity, update operation, block capability, optimistic-lock preservation, and fact-ref provenance from the sales module facts before source context.",
     "tags":["business-language","mutation-guard","orders"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-05","BC-08"]},
     "expectedRouter":{"required":["umes"],"allowedExtra":["module-data","backend-ui","debugging","framework-context"]},
     "requiredSkills":["om-system-extension"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
     "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"allowedExtra":[".ai/skills/om-framework-context/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
-    "requiredDecisions":["mutation-guard","backend-consistency","status-invariant"],
+    "requiredDecisions":["facts-first-target","guard-operations-and-capabilities","locking-preserved","mutation-guard","backend-consistency","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","UI only","(?:skip|bypass).{0,30}(?:guard|permission|lock)","rewrite.{0,30}(?:all|entire).{0,20}(?:body|query)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":8,"maxInitialContextBytes":65536,"maxTotalContextBytes":114688,"relatedCases":["OMH-031","OMH-032","OMH-038"]
   },
   {
     "id":"OMH-183","title":"Award loyalty points after payment while tolerating an absent sales feature","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Award loyalty points after a payment completes, avoid awarding the same points twice, and keep the application working when sales is not installed.",
+    "prompt":"Award loyalty points after a payment completes, avoid awarding the same points twice, and keep the application working when sales is not installed. Resolve the event/subscriber fact reference, sync/persistent/priority posture, and optional-external target provenance from the named payment and sales module facts before source context.",
     "tags":["business-language","event-reaction","optional-feature"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-04","BC-05","BC-09"]},
     "expectedRouter":{"required":["module-data","umes"],"allowedExtra":["integration","ai-workflow"]},
     "requiredSkills":["om-module-scaffold","om-system-extension"],
     "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/modules/payment_gateways.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
-    "requiredDecisions":["typed-events","subscriber-idempotency","optional-host","safe-degradation","cross-module-id-link"],
+    "requiredDecisions":["facts-first-event","subscriber-delivery-posture","optional-external-provenance","typed-events","subscriber-idempotency","optional-host","safe-degradation","cross-module-id-link"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","direct ORM relationship","(?:require|assume).{0,20}sales.{0,20}(?:installed|enabled)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":7,"maxInitialContextBytes":49152,"maxTotalContextBytes":131072,"relatedCases":["OMH-018","OMH-034"]
