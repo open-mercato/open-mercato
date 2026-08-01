@@ -52,6 +52,12 @@ function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessE
   return { ...result, parsed: JSON.parse(result.stdout) as OracleResult }
 }
 
+function writeModuleFacts(root: string, facts: Record<string, unknown>): void {
+  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+  fs.mkdirSync(path.dirname(factsFile), { recursive: true })
+  fs.writeFileSync(factsFile, `${JSON.stringify(facts, null, 2)}\n`)
+}
+
 function installFakeYarn(root: string): string {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
@@ -602,6 +608,30 @@ test('the trusted oracle rejects duplicate normalized API route methods', () => 
   }
 })
 
+test('the trusted oracle rejects API routes that shadow installed module facts', () => {
+  const root = stageTarget('src/modules/library/api/books/[bookId]/route.ts', 'export function GET() {}\n')
+  writeModuleFacts(root, {
+    catalog: {
+      sourceRoot: 'node_modules/@open-mercato/core/src/modules/catalog',
+      apiRoutes: [{
+        path: '/library/books/[id]',
+        methods: ['GET'],
+        sourcePath: 'node_modules/@open-mercato/core/src/modules/catalog/api/books/[id]/route.ts',
+      }],
+      backendPages: [],
+      frontendPages: [],
+    },
+  })
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /api:\/library\/books\/\[\]/)
+    assert.match(result.parsed.failures.join('\n'), /node_modules\/@open-mercato\/core\/src\/modules\/catalog/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the trusted oracle permits distinct methods on one legacy API URL', () => {
   const root = stageTarget('src/modules/library/api/get/books.ts', 'export default function GET() {}\n')
   const post = path.join(root, 'src/modules/library/api/post/books.ts')
@@ -629,6 +659,41 @@ test('the trusted oracle rejects duplicate normalized backend and frontend pages
     assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
     assert.match(result.parsed.failures.join('\n'), /backend:\/backend\/\[\]/)
     assert.match(result.parsed.failures.join('\n'), /frontend:\/orders\/\[\]/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle derives page URLs from files and rejects installed page collisions', () => {
+  const root = stageTarget(
+    'src/modules/library/backend/books/[bookId]/page.tsx',
+    'export default function Page() { return null }\n',
+  )
+  const frontendPage = path.join(root, 'src/modules/library/frontend/orders/[orderId]/page.tsx')
+  const frontendMetadata = path.join(root, 'src/modules/library/frontend/orders/[orderId]/page.meta.ts')
+  fs.mkdirSync(path.dirname(frontendPage), { recursive: true })
+  fs.writeFileSync(frontendPage, 'export default function Page() { return null }\n')
+  fs.writeFileSync(frontendMetadata, "export const metadata = { path: '/not-the-generated-route' }\n")
+  writeModuleFacts(root, {
+    catalog: {
+      sourceRoot: 'node_modules/@open-mercato/core/src/modules/catalog',
+      apiRoutes: [],
+      backendPages: [{
+        path: '/backend/books/[id]',
+        sourcePath: 'node_modules/@open-mercato/core/src/modules/catalog/backend/books/[id]/page.tsx',
+      }],
+      frontendPages: [{
+        path: '/orders/[id]',
+        sourcePath: 'node_modules/@open-mercato/core/src/modules/catalog/frontend/orders/[id]/page.tsx',
+      }],
+    },
+  })
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /backend:\/backend\/books\/\[\]/)
+    assert.match(result.parsed.failures.join('\n'), /frontend:\/orders\/\[\]/)
+    assert.doesNotMatch(result.parsed.failures.join('\n'), /not-the-generated-route/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

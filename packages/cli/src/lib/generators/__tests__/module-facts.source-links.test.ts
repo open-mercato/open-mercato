@@ -30,6 +30,11 @@ describe('module-facts source-linked extension surfaces', () => {
     )
     writeFixture(
       moduleRoot,
+      'frontend/facts/portal/[id]/page.tsx',
+      'export default function FactPortalPage() { return null }\n',
+    )
+    writeFixture(
+      moduleRoot,
       'cli.ts',
       "const commands = [{ command: 'facts:sync' }, { command: 'facts:check' }]\nexport default commands\n",
     )
@@ -90,6 +95,12 @@ describe('module-facts source-linked extension surfaces', () => {
         sourcePath: 'node_modules/@open-mercato/example/src/modules/facts/backend/facts/items/[id]/page.tsx',
       },
     ])
+    expect(facts.frontendPages).toEqual([
+      {
+        path: '/facts/portal/[id]',
+        sourcePath: 'node_modules/@open-mercato/example/src/modules/facts/frontend/facts/portal/[id]/page.tsx',
+      },
+    ])
     expect(facts.cli).toEqual(['facts:sync', 'facts:check'])
     expect(facts.cliCommands.map((command) => command.command)).toEqual(['facts:sync', 'facts:check'])
     expect(facts.aiTools.map((tool) => tool.name)).toEqual(['facts.inspect', 'facts.list'])
@@ -97,6 +108,7 @@ describe('module-facts source-linked extension surfaces', () => {
 
     const markdown = renderModuleFactsMarkdown(facts)
     expect(markdown).toContain('## Backend pages')
+    expect(markdown).toContain('## Frontend pages')
     expect(markdown).toContain('## CLI commands')
     expect(markdown).toContain('## AI tools / MCP capabilities')
     expect(markdown).toContain('## AI agents')

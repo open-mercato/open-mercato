@@ -45,10 +45,12 @@ test('build emits the customers fact-sheet and the combined module-facts.json (T
     facts.customers.cli,
   )
   assert.ok(facts.customers.backendPages.length > 0, 'customers facts should expose backend pages')
+  assert.ok(Array.isArray(facts.customers.frontendPages), 'customers facts should expose frontend pages')
   assert.ok(facts.customers.aiTools.length > 0, 'customers facts should expose AI/MCP tools')
   assert.ok(facts.customers.aiAgents.length > 0, 'customers facts should expose AI agents')
   const sourceLinkedFacts = [
     ...facts.customers.backendPages,
+    ...facts.customers.frontendPages,
     ...facts.customers.cliCommands,
     ...facts.customers.aiTools,
     ...facts.customers.aiAgents,
@@ -60,6 +62,7 @@ test('build emits the customers fact-sheet and the combined module-facts.json (T
 
   const markdown = fs.readFileSync(join(guidesDir, 'modules', 'customers.md'), 'utf8')
   assert.match(markdown, /## Backend pages/)
+  assert.match(markdown, /## Frontend pages/)
   assert.match(markdown, /## CLI commands/)
   assert.match(markdown, /## AI tools \/ MCP capabilities/)
   assert.match(markdown, /## AI agents/)

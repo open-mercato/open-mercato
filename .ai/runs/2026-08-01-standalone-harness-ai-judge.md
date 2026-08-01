@@ -46,7 +46,7 @@ Add a reusable LLM-as-judge workflow for standalone generative evaluations and u
 - Allowing installed-source reads could expose an overly broad dependency tree. Mitigation: accept only case/fact-declared `node_modules/@open-mercato/<package>/src/...` files, enforce exact-path/bounded-size reads, and keep all writes and discovery blocked.
 - A second semantic judge can add latency and model variance. Mitigation: retain fixed oracles as authoritative prerequisites, pin the judge profile and schema, use one pass, and record model/tool versions.
 - Source-path derivation can drift from generator routing. Mitigation: share normalization rules where practical and lock modern plus legacy route shapes with tests.
-- Strong route normalization can flag intentional aliases. Mitigation: reject only duplicate concrete/structurally equivalent generated URLs; metadata-only route overrides remain outside the file-derived collision set.
+- Strong route normalization can flag intentional aliases. Mitigation: reject only duplicate concrete/structurally equivalent generated URLs, derive page URLs exactly as the generator does, and compare app-owned output with the installed module-facts baseline.
 
 ## Progress
 

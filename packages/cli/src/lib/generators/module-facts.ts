@@ -74,6 +74,7 @@ export interface ModuleFacts {
   notifications: string[]
   cli: string[]
   backendPages: ModulePageFact[]
+  frontendPages: ModulePageFact[]
   cliCommands: ModuleCliCommandFact[]
   aiTools: ModuleAiToolFact[]
   aiAgents: ModuleAiAgentFact[]
@@ -797,15 +798,20 @@ function extractApiRouteSourcePaths(
   return sources
 }
 
-function extractBackendPages(moduleId: string, moduleRoot: string, sourceRoot: string): ModulePageFact[] {
-  const backendRoot = path.join(moduleRoot, 'backend')
-  if (!fs.existsSync(backendRoot)) return []
+function extractModulePages(
+  moduleId: string,
+  moduleRoot: string,
+  sourceRoot: string,
+  surface: 'backend' | 'frontend',
+): ModulePageFact[] {
+  const pageRoot = path.join(moduleRoot, surface)
+  if (!fs.existsSync(pageRoot)) return []
   const pages: ModulePageFact[] = []
   const seen = new Set<string>()
 
-  for (const filePath of listSourceFilesRecursive(backendRoot)) {
+  for (const filePath of listSourceFilesRecursive(pageRoot)) {
     if (!filePath.endsWith('.tsx')) continue
-    const relativePath = path.relative(backendRoot, filePath).split(path.sep).join('/')
+    const relativePath = path.relative(pageRoot, filePath).split(path.sep).join('/')
     const segments = relativePath.split('/')
     const fileName = segments.pop() as string
     const fileStem = fileName.replace(/\.tsx$/, '')
@@ -813,11 +819,14 @@ function extractBackendPages(moduleId: string, moduleRoot: string, sourceRoot: s
     if (!isModernPage && (fileStem.endsWith('.meta') || /^[A-Z]/.test(fileStem))) continue
     const sourceFile = readSourceFile(filePath)
     if (!sourceFile || !sourceHasDefaultExport(sourceFile)) continue
-    const routePath = isModernPage
-      ? `/backend/${segments.join('/') || moduleId}`
-      : `/backend/${segments[0] === moduleId
-          ? [...segments, fileStem].filter(Boolean).join('/')
-          : [moduleId, ...segments, fileStem].filter(Boolean).join('/')}`
+    const routeSegments = isModernPage ? segments : [...segments, fileStem]
+    const routePath = surface === 'frontend'
+      ? `/${routeSegments.filter(Boolean).join('/')}`
+      : isModernPage
+        ? `/backend/${routeSegments.join('/') || moduleId}`
+        : `/backend/${routeSegments[0] === moduleId
+            ? routeSegments.filter(Boolean).join('/')
+            : [moduleId, ...routeSegments].filter(Boolean).join('/')}`
     if (seen.has(routePath)) continue
     seen.add(routePath)
     pages.push({
@@ -1018,7 +1027,8 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
         sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, cliFilePath),
       }))
     : []
-  const backendPages = extractBackendPages(moduleId, moduleRoot, sourceRoot)
+  const backendPages = extractModulePages(moduleId, moduleRoot, sourceRoot, 'backend')
+  const frontendPages = extractModulePages(moduleId, moduleRoot, sourceRoot, 'frontend')
   const aiTools = extractAiTools(moduleRoot, sourceRoot)
   const aiAgents = extractAiAgents(moduleRoot, sourceRoot)
   const hostTokens: ModuleHostTokens = {
@@ -1044,6 +1054,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     notifications,
     cli,
     backendPages,
+    frontendPages,
     cliCommands,
     aiTools,
     aiAgents,
@@ -1074,6 +1085,7 @@ export interface ModuleFactsJsonEntry {
   notifications: string[]
   cli: string[]
   backendPages: ModulePageFact[]
+  frontendPages: ModulePageFact[]
   cliCommands: ModuleCliCommandFact[]
   aiTools: ModuleAiToolFact[]
   aiAgents: ModuleAiAgentFact[]
@@ -1183,6 +1195,8 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderLinkedFactsSection('## Backend pages', facts.backendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
     '',
+    renderLinkedFactsSection('## Frontend pages', facts.frontendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
+    '',
     renderInlineListSection('## DI service tokens', facts.diTokens),
     '',
     renderInlineListSection('## Search entities', facts.searchEntities),
@@ -1219,6 +1233,7 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     notifications: facts.notifications,
     cli: facts.cli,
     backendPages: facts.backendPages,
+    frontendPages: facts.frontendPages,
     cliCommands: facts.cliCommands,
     aiTools: facts.aiTools,
     aiAgents: facts.aiAgents,

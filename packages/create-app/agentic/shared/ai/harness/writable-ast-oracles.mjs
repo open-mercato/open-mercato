@@ -1285,32 +1285,68 @@ function sourceHttpMethods(ts, sourceFile) {
   return methods
 }
 
-function pageRoutePath(ts, moduleId, surface, pageFile) {
+function pageRoutePath(moduleId, surface, pageFile) {
   const surfaceRoot = path.join('src', 'modules', moduleId, surface)
   const relative = path.relative(surfaceRoot, pageFile).replaceAll(path.sep, '/')
   const segments = relative.split('/')
   const file = segments.pop()
   const modern = file === 'page.ts' || file === 'page.tsx'
   const routeSegments = modern ? segments : [...segments, file.replace(/\.(?:ts|tsx)$/, '')]
-  const metadataCandidates = modern
-    ? [path.join(path.dirname(pageFile), 'page.meta.ts'), path.join(path.dirname(pageFile), 'page.meta.tsx'), pageFile]
-    : [
-        path.join(path.dirname(pageFile), `${file.replace(/\.(?:ts|tsx)$/, '')}.meta.ts`),
-        path.join(path.dirname(pageFile), `${file.replace(/\.(?:ts|tsx)$/, '')}.meta.tsx`),
-        path.join(path.dirname(pageFile), 'meta.ts'),
-        path.join(path.dirname(pageFile), 'meta.tsx'),
-        pageFile,
-      ]
-  for (const candidate of metadataCandidates) {
-    if (!fs.existsSync(candidate)) continue
-    const metadataPath = routeMetadataPath(ts, candidate)
-    if (metadataPath) return normalizeRoutePath(metadataPath)
-  }
   if (surface === 'frontend') return normalizeRoutePath(`/${routeSegments.join('/')}`)
   const backendSegments = modern
     ? routeSegments
     : routeSegments[0] === moduleId ? routeSegments : [moduleId, ...routeSegments]
   return normalizeRoutePath(`/backend/${backendSegments.length ? backendSegments.join('/') : moduleId}`)
+}
+
+function installedFactRoutes(root) {
+  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+  const factsStat = safeTargetEntry(root, factsFile)
+  if (!factsStat) return []
+  if (!factsStat.isFile()) throw new Error('installed module facts must be a regular file')
+  const facts = JSON.parse(fs.readFileSync(factsFile, 'utf8'))
+  if (!facts || typeof facts !== 'object' || Array.isArray(facts)) {
+    throw new Error('installed module facts must contain a module object')
+  }
+
+  const routes = []
+  for (const [moduleId, moduleFacts] of Object.entries(facts)) {
+    if (!moduleFacts || typeof moduleFacts !== 'object' || Array.isArray(moduleFacts)) continue
+    const sourceRoot = typeof moduleFacts.sourceRoot === 'string'
+      ? moduleFacts.sourceRoot
+      : `.ai/guides/module-facts.json#${moduleId}`
+    for (const apiRoute of Array.isArray(moduleFacts.apiRoutes) ? moduleFacts.apiRoutes : []) {
+      if (!apiRoute || typeof apiRoute !== 'object' || typeof apiRoute.path !== 'string') continue
+      const methods = new Set(
+        (Array.isArray(apiRoute.methods) ? apiRoute.methods : [])
+          .filter((method) => typeof method === 'string')
+          .map((method) => method.toUpperCase()),
+      )
+      if (!methods.size) continue
+      routes.push({
+        surface: 'api',
+        routePath: normalizeRoutePath(apiRoute.path),
+        sourceFile: undefined,
+        displayPath: typeof apiRoute.sourcePath === 'string' ? apiRoute.sourcePath : `${sourceRoot}#api:${apiRoute.path}`,
+        methods,
+        origin: 'installed',
+      })
+    }
+    for (const [surface, factKey] of [['backend', 'backendPages'], ['frontend', 'frontendPages']]) {
+      for (const page of Array.isArray(moduleFacts[factKey]) ? moduleFacts[factKey] : []) {
+        if (!page || typeof page !== 'object' || typeof page.path !== 'string') continue
+        routes.push({
+          surface,
+          routePath: normalizeRoutePath(page.path),
+          sourceFile: undefined,
+          displayPath: typeof page.sourcePath === 'string' ? page.sourcePath : `${sourceRoot}#${surface}:${page.path}`,
+          methods: new Set(),
+          origin: 'installed',
+        })
+      }
+    }
+  }
+  return routes
 }
 
 function duplicateRouteChecks(ts, root) {
@@ -1335,14 +1371,29 @@ function duplicateRouteChecks(ts, root) {
           const metadataPath = routeMetadataPath(ts, sourceFile)
           const routePath = normalizeRoutePath(metadataPath ?? `/${[moduleEntry.name, ...routeSegments].join('/')}`)
           const methods = legacyMethod ? new Set([legacyMethod]) : sourceHttpMethods(ts, sourceFile)
-          if (methods.size) routes.push({ surface, routePath, sourceFile, methods })
+          if (methods.size) routes.push({
+            surface,
+            routePath,
+            sourceFile,
+            displayPath: path.relative(root, sourceFile).replaceAll(path.sep, '/'),
+            methods,
+            origin: 'app',
+          })
           continue
         }
         if (!/(?:^|\/)page\.(?:ts|tsx)$/.test(relative) && !/^[^/]+\.(?:ts|tsx)$/.test(relative)) continue
-        routes.push({ surface, routePath: pageRoutePath(ts, moduleEntry.name, surface, sourceFile), sourceFile, methods: new Set() })
+        routes.push({
+          surface,
+          routePath: pageRoutePath(moduleEntry.name, surface, sourceFile),
+          sourceFile,
+          displayPath: path.relative(root, sourceFile).replaceAll(path.sep, '/'),
+          methods: new Set(),
+          origin: 'app',
+        })
       }
     }
   }
+  routes.push(...installedFactRoutes(root))
 
   const duplicateGroups = new Map()
   for (const route of routes) {
@@ -1353,13 +1404,14 @@ function duplicateRouteChecks(ts, root) {
   }
   return [...duplicateGroups.entries()].flatMap(([key, entries]) => {
     if (entries.length < 2) return []
+    if (!entries.some((entry) => entry.origin === 'app')) return []
     const conflicts = entries.filter((entry, index) => entries.some((peer, peerIndex) => {
       if (peerIndex === index) return false
       if (entry.surface !== 'api') return true
       return [...entry.methods].some((method) => peer.methods.has(method))
     }))
     if (conflicts.length < 2) return []
-    const sources = conflicts.map((entry) => path.relative(root, entry.sourceFile).replaceAll(path.sep, '/')).join(', ')
+    const sources = conflicts.map((entry) => entry.displayPath).join(', ')
     return [`${key} (${sources})`]
   })
 }
