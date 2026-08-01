@@ -4,9 +4,11 @@ import { Handle, Position, NodeProps } from '@xyflow/react'
 import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
 import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { toWorkflowStatus } from '../../lib/status-colors'
+import { STATUS_COLORS, toWorkflowStatus } from '../../lib/status-colors'
+import { NODE_TYPE_COLORS, NODE_TYPE_ICONS } from '../../lib/node-type-icons'
 import { TriggerCap } from './TriggerCap'
 import type { TriggerNodeModel } from '../../lib/trigger-node'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export interface StartNodeData {
   label: string
@@ -28,24 +30,60 @@ export interface StartNodeData {
 }
 
 /**
- * StartNode - Starting point of a workflow
- * Uses WorkflowNodeCard for consistent styling
+ * StartNode — the workflow's entry point.
+ *
+ * Without triggers it is a terminal pill (`WorkflowNodeCard`). WITH triggers it
+ * becomes ONE unified card: the trigger cap as an attached header row above the
+ * Start row (mockup #9), rather than two detached pills. The source handle is
+ * nested in the Start row so it stays centred on "Start" even though the card is
+ * taller — and the card is not `overflow-hidden`, so the handle can overhang.
  */
 export function StartNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as StartNodeData
-
+  const t = useT()
   const workflowStatus = toWorkflowStatus(nodeData.status)
+
+  if (nodeData.trigger) {
+    const colors = STATUS_COLORS[workflowStatus]
+    const isEditMode = workflowStatus === 'not_started'
+    const StartIcon = NODE_TYPE_ICONS.start
+    const statusLabel = t(`workflows.nodeStatus.${workflowStatus}`, workflowStatus)
+    const bodyBackground = isEditMode ? 'bg-card' : colors.bg
+    const borderClass = selected ? 'border-primary' : isEditMode ? 'border-border' : colors.border
+    const elevationClass = selected ? 'ring-2 ring-primary' : 'shadow-sm hover:shadow-md'
+
+    return (
+      <div
+        role="group"
+        aria-label={`${nodeData.label || 'Start'} — ${statusLabel}`}
+        data-node-status={workflowStatus}
+        data-node-variant="start-card"
+        title={nodeData.tooltip}
+        className={`start-node w-fit rounded-lg border ${borderClass} ${bodyBackground} transition-all duration-200 ${elevationClass}`}
+      >
+        <TriggerCap model={nodeData.trigger} onOpen={nodeData.onOpenTriggers} variant="header" />
+        <div className="relative flex items-center gap-2 px-4 py-2">
+          <span className="sr-only">{statusLabel}</span>
+          <StartIcon className={`h-4 w-4 shrink-0 ${NODE_TYPE_COLORS.start}`} aria-hidden="true" />
+          <span className={`truncate text-sm font-semibold leading-snug ${colors.text}`}>
+            {nodeData.label || 'Start'}
+          </span>
+          {/* Nested in the Start row so React Flow centres it on "Start", not on
+              the taller cap+row card. */}
+          <Handle
+            type="source"
+            position={Position.Right}
+            id={DEFAULT_SOURCE_HANDLE_ID}
+            isConnectable={isConnectable}
+            className={`${NODE_HANDLE_CLASS} !bg-primary`}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="start-node relative" title={nodeData.tooltip}>
-      {/* The trigger cap floats above the pill, out of the node's measured box,
-          so it adds no height to the terminal and never enters layout. */}
-      {nodeData.trigger ? (
-        <div className="absolute bottom-full left-0 mb-1 w-max">
-          <TriggerCap model={nodeData.trigger} onOpen={nodeData.onOpenTriggers} />
-        </div>
-      ) : null}
-
       <WorkflowNodeCard
         title={nodeData.label || 'Start'}
         description={nodeData.description}
