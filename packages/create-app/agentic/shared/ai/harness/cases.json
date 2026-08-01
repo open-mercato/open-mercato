@@ -10040,7 +10040,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Publish a demo request form that validates consent and spam signals, derives the business scope on the server, and creates or updates one matching lead. Repeated submissions must not create duplicates, personal data must be protected, attribution must be sanitized, and the form must still fail clearly when the customer system is unavailable.",
+    "prompt": "Publish a public request-a-demo page that asks prospects for their contact details and consent, filters spam, and records each genuine request once in the CRM. The page must work safely when the app serves multiple businesses, keep personal information secure, preserve useful campaign attribution, and show a clear fallback if the customer system is unavailable.",
     "tags": [
       "business-language",
       "customers",
@@ -10103,8 +10103,11 @@
     },
     "requiredDecisions": [
       "public-scope-derived-server-side",
+      "explicit-public-target-binding",
       "idempotent-submission",
+      "scoped-idempotency-key",
       "deterministic-deduplication",
+      "guard-modified-payload",
       "optional-crm"
     ],
     "forbiddenPatterns": [
