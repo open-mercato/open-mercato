@@ -86,6 +86,12 @@ POST /api/webhooks
 
 The response includes a `whsec_`-prefixed signing secret. **This is the only time the secret is returned in plaintext** — store it securely.
 
+:::caution
+The `rateLimitPerMinute` field is accepted and stored for outbound endpoints, but the delivery worker
+does not enforce it yet. Configure throttling on the receiving service until outbound rate limiting
+is implemented.
+:::
+
 ### Event Subscriptions
 
 Webhooks support pattern-based event subscriptions:
@@ -171,8 +177,9 @@ Failed deliveries are retried with exponential backoff. The delay before attempt
 :::warning
 Size your alerting against this window, not against a multi-hour assumption. A receiver that is down
 for more than ~9 minutes will exhaust every attempt for events emitted during the outage. If you need
-longer durability, raise `maxRetries` on the webhook or consume from the dead-letter path rather than
-relying on the default.
+longer durability, raise `maxRetries` on the webhook and monitor the delivery log. After the receiver
+recovers, use the delivery's **Retry** action or `POST /api/webhooks/deliveries/:id/retry` to re-enqueue
+an expired delivery.
 :::
 
 **Non-retryable responses**: HTTP 4xx (except 408 and 429) are not retried.
@@ -228,7 +235,7 @@ interface WebhookEndpointAdapter {
 ```
 
 Inbound webhooks are:
-- **Rate limit per endpoint** is configurable and persisted, but is **not enforced yet** — the delivery worker ignores `rateLimitPerMinute`. Throttle at the receiver until it is wired up.
+- **Rate limited** to 60 requests per minute per endpoint and client IP when the rate-limiter service is available
 - **Deduplicated** by message ID
 - Processed via **fire-and-forget** (return 200 immediately, emit event for async processing)
 
