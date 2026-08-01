@@ -47,7 +47,7 @@ Remove the React development-console error caused by rendering the theme initial
 
 ### Phase 2: Minimal repair
 
-- [ ] 2.1 Migrate the mirrored root layouts from a raw script element to `next/script` without changing the initializer body.
+- [x] 2.1 Migrate the mirrored root layouts from a raw script element to `next/script` without changing the initializer body. — b676c7a7c
 
 ### Phase 3: Verification and delivery
 
