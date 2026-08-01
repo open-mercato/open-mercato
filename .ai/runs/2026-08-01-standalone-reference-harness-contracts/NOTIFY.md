@@ -9,6 +9,13 @@
 - Decision: User explicitly overrides the issue's older split-PR packaging; the run retains the companion ownership boundaries but ships atomically.
 - Delegation: Two analysis subagents are reviewing the harness-policy and routing/reference workstreams before implementation dispatch begins.
 
+## 2026-08-01T18:18:18Z — checkpoint 1
+
+- Steps: 1.1..1.4 (`16bdbdfec..bad3b8bd2`).
+- Result: 33/33 focused tests, create-app typecheck, script/schema checks, diff check, and the contiguous 202-case catalog contract passed.
+- UI: skipped because the checkpoint touched harness contracts and documentation only.
+- Environment: Yarn wrappers and the host OS `/tmp` return write error `-122`; direct Node/tsx checks and a repository-local `TMPDIR` completed successfully.
+
 ## 2026-08-01T17:51:40Z — Step 1.1 complete
 
 - Delegation: `analyze_harness_policies` added the pure knowledge-change manifest/classification contract, authored schema, and focused fail-closed tests; direct Node test passed 4/4.

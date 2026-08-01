@@ -1,19 +1,19 @@
 # Handoff — 2026-08-01-standalone-reference-harness-contracts
 
-**Last updated:** 2026-08-01T17:38:41Z
+**Last updated:** 2026-08-01T18:18:18Z
 **Branch:** feat/standalone-reference-harness-contracts
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** origin/develop — run branch created
+**PR:** https://github.com/open-mercato/open-mercato/pull/4811
+**Current phase/step:** Phase 2 Step 2.1
+**Last commit:** bad3b8bd2 — test(create-app): enforce harness knowledge sync
 
 ## What just happened
 
-- Resolved merged spec PR #4728 to four related specifications and confirmed no implementation branch or PR already owns the slot.
-- Drafted a single 20-Step dependency-ordered plan per the user's explicit one-PR packaging override.
+- Completed the four-Step knowledge-governance foundation and verified the machine classifier, controller-owned evidence, owning workflows, synchronization fixtures, and recursive emission.
+- Checkpoint 1 passed 33 focused tests, create-app typecheck, script/schema checks, and the unchanged contiguous 202-case catalog contract.
 
 ## Next concrete action
 
-- Commit and push the run folder, open and claim the draft PR, then start Step 1.1.
+- Start Step 2.1 by adding failing example-root schema, path-security, and compatibility fixtures.
 
 ## Blockers / open questions
 
@@ -21,12 +21,11 @@
 
 ## Environment caveats
 
-- Dev runtime runnable: unknown
-- Browser / UI checks: enabled when the reference UI lands
+- Dev runtime runnable: not needed for Phase 1
+- Browser / UI checks: skipped because Phase 1 changed no UI
 - Database/migration state: clean; migrations will be generated but not applied locally
 
 ## Worktree
 
 - Path: /home/pkarw/Projects/mercato-development/.ai/cezar/worktrees/9232a06d-b0ec-4890-a86c-7c4b95919ba5
 - Created this run: no; reused the existing linked task worktree
-
