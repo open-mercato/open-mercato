@@ -50,6 +50,16 @@ Scheduler-owned `tenantId`/`organizationId`/`_idempotencyKey` are applied after 
 
 **Action for downstream:** workers written to the documented flat contract need no change and now also work under the local scheduler. A worker that relied on the undocumented local envelope (reading `job.payload.payload.*` or `scheduleId`/`scheduleName`/`triggeredAt` from the payload) must switch to the flat fields; include any identifiers it needs in `targetPayload` when registering the schedule.
 
+### Order payment-total inputs are deprecated with an explicit compatibility warning (#4695)
+
+`orderCreateSchema` declared `paidTotalAmount`, `refundedTotalAmount` and `outstandingAmount`, so `sales.orders.create` (and `POST /api/sales/orders`) validated them — and then built the order with the ledger hardcoded to `"0"` and recomputed the totals from those zeros. A caller creating a 100.00 order with `paidTotalAmount: 100` got `paid_total_amount 0` and `outstanding_amount 100` back, with no error, warning or log.
+
+These three columns are a projection of the order's payments: `recomputeOrderPaymentTotals` rebuilds them from the `SalesPayment` / `SalesPaymentAllocation` rows on every payment create, update, delete and refund. A value seeded on the document has no payment rows behind it, so honouring the input would create a second, unreconciled source of truth that silently loses to the first payment.
+
+For the 0.6.7 compatibility window, `sales.orders.create` and `POST /api/sales/orders` still accept these released input fields and ignore their values, preserving the existing order result. When any key is supplied, the command and HTTP response add `warnings: [{ code: "sales.order.payment_ledger_input_deprecated", fields: [...] }]`; the process also emits one bounded operator warning without logging values or customer data. OpenAPI keeps the fields visible, marks the behavior in the create operation description, and documents the optional warning response. The fields remain deprecated for at least one minor release before removal. See [`.ai/specs/2026-08-01-sales-order-payment-ledger-input-deprecation.md`](.ai/specs/2026-08-01-sales-order-payment-ledger-input-deprecation.md).
+
+**Action for downstream:** stop sending `paidTotalAmount`, `refundedTotalAmount`, and `outstandingAmount` when creating orders. Callers that never sent them are unaffected and continue receiving the historical `{ id }` create response. To create an already-settled order, create the order and then record its payment with `sales.payments.create` / `POST /api/sales/payments`, which recomputes the ledger from payment rows.
+
 ## 0.6.5 → 0.6.6 (unreleased)
 
 ### Payment-session amounts are reconciled against the order total (#4488)

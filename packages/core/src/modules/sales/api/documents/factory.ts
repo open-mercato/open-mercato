@@ -7,8 +7,11 @@ import { E } from '#generated/entities.ids.generated'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
 import { SalesDocumentTagAssignment } from '../../data/entities'
 import {
+  ORDER_PAYMENT_LEDGER_FIELDS,
+  ORDER_PAYMENT_LEDGER_WARNING_CODE,
   orderCreateSchema,
   quoteCreateSchema,
+  type OrderPaymentLedgerWarning,
 } from '../../data/validators'
 import {
   createPagedListResponseSchema,
@@ -35,6 +38,13 @@ type DocumentBinding = {
   deleteCommandId: string
   manageFeature: string
   viewFeature: string
+}
+
+type DocumentCreateResult = {
+  orderId?: string
+  quoteId?: string
+  id?: string
+  warnings?: OrderPaymentLedgerWarning[]
 }
 
 const rawBodySchema = z.object({}).passthrough()
@@ -472,7 +482,12 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           )
           return parsed
         },
-        response: ({ result }: { result: any }) => ({ id: result?.orderId ?? result?.quoteId ?? result?.id ?? null }),
+        response: ({ result }: { result?: DocumentCreateResult | null }) => ({
+          id: result?.orderId ?? result?.quoteId ?? result?.id ?? null,
+          ...(binding.kind === 'order' && Array.isArray(result?.warnings)
+            ? { warnings: result.warnings }
+            : {}),
+        }),
         status: 201,
       },
       update: {
@@ -616,8 +631,18 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     listResponseSchema,
     create: {
       schema: createSchema,
-      responseSchema: z.object({ id: z.string().uuid().nullable() }),
-      description: `Creates a new sales ${binding.kind}.`,
+      responseSchema: binding.kind === 'order'
+        ? z.object({
+            id: z.string().uuid().nullable(),
+            warnings: z.array(z.object({
+              code: z.literal(ORDER_PAYMENT_LEDGER_WARNING_CODE),
+              fields: z.array(z.enum(ORDER_PAYMENT_LEDGER_FIELDS)),
+            })).optional(),
+          })
+        : z.object({ id: z.string().uuid().nullable() }),
+      description: binding.kind === 'order'
+        ? 'Creates a new sales order. paidTotalAmount, refundedTotalAmount, and outstandingAmount are deprecated compatibility inputs: supplied values are ignored and reported in warnings. Record payments through sales.payments.create or POST /api/sales/payments.'
+        : 'Creates a new sales quote.',
     },
     del: {
       schema: defaultDeleteRequestSchema,
