@@ -16,3 +16,7 @@
 ## 2026-08-01T18:24:00Z — Step 1.2 complete
 
 - Delegation: `analyze_harness_policies` implemented the fail-closed Git-derived knowledge-change controller, package/template commands, emission expectations, and focused isolated-worktree coverage; the direct controller suite passed 7/7. The shared emission suite passed 2/3, with its existing OS `/tmp` write failing under the host filesystem (`Unknown system error -122`).
+
+## 2026-08-01T18:25:00Z — Step 1.3 complete
+
+- Delegation: `analyze_harness_policies` centralized the seven-step knowledge-change governance contract in the emitted evolution skill and routed both owning entrypoints plus their direct workflow references to it; overlay contracts passed 17/17 and recursive shared emission passed 3/3 with `TMPDIR` redirected to the repository-local temporary root.

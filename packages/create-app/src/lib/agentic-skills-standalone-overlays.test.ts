@@ -7,6 +7,7 @@ const scaffolderSource = fs.readFileSync(
   new URL('../setup/tools/shared.ts', import.meta.url),
   'utf8',
 )
+const knowledgeGovernanceOwner = 'packages/create-app/agentic/shared/ai/skills/om-evolve-harness/references/knowledge-change-governance.md'
 
 // The auto-* PR family + the single autofix skill now live in the external
 // open-mercato/skills collection (installed via `yarn install-skills`). The
@@ -207,6 +208,71 @@ test('the scaffolder copies each auto-* override SKILL.md into scaffolded apps',
     scaffolderSource.includes("copyTree(join(AGENTIC_DIR, 'ai'), join(targetDir, '.ai'), config)"),
     'generateShared() must recursively copy the shared ai tree so skill references cannot be omitted by a stale file list',
   )
+})
+
+test('both harness evolution workflows route through one emitted seven-step knowledge governance contract', () => {
+  const evolveSkill = readOverrideSkill('om-evolve-harness')
+  const evolveWorkflow = fs.readFileSync(
+    new URL('om-evolve-harness/references/case-workflow.md', skillsDir),
+    'utf8',
+  )
+  const refreshSkill = fs.readFileSync(
+    new URL('../../../../.ai/skills/om-refresh-standalone-harness/SKILL.md', import.meta.url),
+    'utf8',
+  )
+  const refreshWorkflow = fs.readFileSync(
+    new URL('../../../../.ai/skills/om-refresh-standalone-harness/references/catalog-refresh.md', import.meta.url),
+    'utf8',
+  )
+  const governanceUrl = new URL(
+    'om-evolve-harness/references/knowledge-change-governance.md',
+    skillsDir,
+  )
+  const governance = fs.readFileSync(governanceUrl, 'utf8')
+
+  for (const source of [evolveSkill, evolveWorkflow]) {
+    assert.ok(
+      source.includes('references/knowledge-change-governance.md'),
+      'the emitted evolve workflow must route to its progressive-disclosure governance owner',
+    )
+  }
+  for (const source of [refreshSkill, refreshWorkflow]) {
+    assert.ok(
+      source.includes(knowledgeGovernanceOwner),
+      'the repository refresh workflow must route to the same authoritative governance owner',
+    )
+  }
+
+  const sevenSteps = [
+    /Name the changed knowledge contract.*affected case IDs.*affected ranges/i,
+    /Add a focused evaluator.*oracle.*read-policy test.*fails.*base.*test patch.*sanitized fail-before evidence/i,
+    /Update the authoritative case.*context policy.*evaluator implementation together/i,
+    /Synchronize every mode-dependent surface.*cases\.json.*validators.*writable AST\/runtime oracles.*release matrix.*focused tests.*catalog counts.*README.*RELEASE.*spec.*emitted.*generated copies/i,
+    /Prove the focused test passes.*affected certified lane/i,
+    /Reject manual edits.*derived copies.*stale.*authoritative.*generated.*hash.*count/i,
+    /Generate.*pass.*machine manifest.*attach.*sanitized result.*affected-lane evidence/i,
+  ]
+  assert.equal((governance.match(/^\d+\. /gm) ?? []).length, 7, 'the authoritative governance workflow must have exactly seven steps')
+  for (const semanticStep of sevenSteps) assert.match(governance, semanticStep)
+  for (const router of [evolveSkill, evolveWorkflow, refreshSkill, refreshWorkflow]) {
+    for (const semanticStep of sevenSteps) {
+      assert.doesNotMatch(router, semanticStep, 'entrypoints and workflow routers must not duplicate governance implementation prose')
+    }
+  }
+
+  assert.ok(
+    governance.includes('yarn harness:validate-knowledge-change --manifest <path> --base <ref>'),
+    'the emitted standalone workflow must call the generated-app package command',
+  )
+  assert.ok(
+    governance.includes('yarn workspace create-mercato-app harness:validate-knowledge-change --manifest <path> --base <ref>'),
+    'the repository refresh workflow must call the workspace package command',
+  )
+  assert.ok(
+    scaffolderSource.includes("copyTree(join(AGENTIC_DIR, 'ai'), join(targetDir, '.ai'), config)"),
+    'recursive shared emission must include the governance reference without a hand-maintained copy list',
+  )
+  assert.equal(fs.existsSync(governanceUrl), true, 'the emitted source tree must contain the governance reference')
 })
 
 test('the scaffolder installs the skills-mixin manifest, tracker, and external installer', () => {

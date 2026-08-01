@@ -13,6 +13,10 @@ Choose exactly one disposition:
 
 Do not merge distinct safety invariants merely to keep counts low. Do merge wording-only or entity/provider-only duplicates into parameterized coverage when the oracle and owner are identical.
 
+## Govern knowledge changes
+
+When the range changes knowledge, routing, discovery, context-read, evaluator, oracle, or derived harness assets, load the single authoritative `packages/create-app/agentic/shared/ai/skills/om-evolve-harness/references/knowledge-change-governance.md` checklist. Complete its Git-derived `knowledge-contract` or `asset-sync` branch before this procedure can finish; do not maintain a parallel checklist here.
+
 ## Failure first and one owner
 
 For every **expand** or **add** disposition, follow the checked-in bundled procedure at:
