@@ -1039,3 +1039,19 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 - 2026-07-09 · documents/sidecar ephemeral restart: the collab sidecar (`documents-collab-server.ts`) does NOT load `apps/mercato/.env` and bootstraps DI from a discovered app root. To point it at a freshly-restarted ephemeral env it needs, explicitly: `DOCUMENTS_COLLAB_APP_ROOT=<abs apps/mercato>` (else `Could not find app root with .mercato/generated`), `DATABASE_URL=<new ephemeral DB port>` (testcontainers picks a NEW random port each start — read `.ai/qa/ephemeral-env.json`), and the mint/verify secret from `.env` (`set -a; . ./apps/mercato/.env; set +a` — the collab JWT secret falls back to `AUTH_JWT_SECRET`/`AUTH_SECRET`/`JWT_SECRET`, so app and sidecar must share the same env). Rebuild the documents **dist** before restarting so the sidecar (dist import) and the ephemeral prod build both pick up source changes.
 - 2026-07-09 · documents/share-dialog labels: `GET /api/documents/[id]/shares` stores only `principalId` (a raw UUID), so the dialog rendered GUIDs. Resolve names server-side in the GET route (it already imports `User`/`Role` from auth): batch `findWithDecryption(em, User, {id:{$in},tenantId,$or:[{organizationId:null},{organizationId}]})` (email is encrypted → must decrypt) + `em.find(Role, {id:{$in},tenantId})`, and return `principalLabel`/`principalSecondary` (the client `normalizeShare` already prefers `principalLabel`). Never surface a bare UUID as a person's identity in UI. Long values: wrap flex children in `min-w-0 flex-1` + `truncate` and `shrink-0` the trailing controls — an `Input` next to a clear button overflows its grid cell without a `min-w-0 flex-1` wrapper.
 - 2026-07-09 · documents/collab origins: the sidecar authenticates on `Origin`, so `DOCUMENTS_COLLAB_ALLOWED_ORIGINS` must list every host the app is actually browsed from — including a preview/port-forwarder origin, which is a different origin than the app's own base URL. Otherwise the upgrade is rejected with `[onAuthenticate] origin not allowed`, logged **server-side only**, and the editor sits on "Connecting…" showing `0 words` with nothing in the browser console.
+
+## Standalone agent context must follow the installed package, not the checkout layout
+
+**Context**: Generated apps ignore `node_modules`, while coding agents still need the exact root, package, and module `AGENTS.md` contracts plus implementation source for the installed Open Mercato version.
+
+**Rule**: Publish source and instruction files in package tarballs, resolve them through the app's declared module package and exact installed version, and materialize only the requested read-only context outside `node_modules`. Keep a versioned root/BC snapshot for offline fallback, report version skew, and never teach agents to edit or broadly ingest installed dependencies.
+
+**Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
+
+## Keep fallible document preparation outside encryption guards
+
+**Context**: Query-index aggregation and encryption shared an empty catch, so a configuration failure could skip encryption and let a plaintext document continue to persistence.
+
+**Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
+
+**Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
