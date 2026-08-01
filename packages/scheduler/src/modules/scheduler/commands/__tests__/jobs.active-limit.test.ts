@@ -1,4 +1,5 @@
-export {}
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { ScheduleCreateInput, ScheduleUpdateInput } from '../../data/validators.js'
 
 const registerCommand = jest.fn()
 
@@ -13,13 +14,14 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 function loadCommands() {
-  let create: any
-  let update: any
+  let create: CommandHandler<ScheduleCreateInput, { id: string }> | undefined
+  let update: CommandHandler<ScheduleUpdateInput, { ok: boolean }> | undefined
   jest.isolateModules(() => {
     require('../jobs')
-    create = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'scheduler.jobs.create')?.[0]
-    update = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'scheduler.jobs.update')?.[0]
+    create = registerCommand.mock.calls.find(([command]) => command.id === 'scheduler.jobs.create')?.[0]
+    update = registerCommand.mock.calls.find(([command]) => command.id === 'scheduler.jobs.update')?.[0]
   })
+  if (!create || !update) throw new Error('[internal] Scheduler commands were not registered')
   return { create, update }
 }
 
@@ -34,11 +36,11 @@ function makeEm(schedule: Record<string, unknown> | null) {
   }
 }
 
-function makeCtx(em: any) {
+function makeCtx(em: ReturnType<typeof makeEm>): CommandRuntimeContext {
   return {
     auth: { isSuperAdmin: false, tenantId: 'tenant-a', orgId: 'org-a' },
     container: { resolve: jest.fn(() => em) },
-  } as any
+  } as unknown as CommandRuntimeContext
 }
 
 function createInput(overrides: Record<string, unknown> = {}) {
@@ -81,6 +83,19 @@ describe('scheduler.jobs active schedule tenant limit', () => {
       isEnabled: true,
       deletedAt: null,
     })
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects direct command creates below the interval floor', async () => {
+    const { create } = loadCommands()
+    const em = makeEm(null)
+    em.count.mockResolvedValue(0)
+
+    await expect(create.execute(createInput({ scheduleValue: '1s' }), makeCtx(em))).rejects.toThrow(
+      'Failed to calculate next run time',
+    )
+
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
   })

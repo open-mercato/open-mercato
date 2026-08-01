@@ -311,10 +311,15 @@ describe('nextRunCalculator', () => {
         expect(result).toBeNull()
       })
 
-      it('should reject interval values below one minute', () => {
-        expect(recalculateNextRun('interval', '0s')).toBeNull()
-        expect(recalculateNextRun('interval', '1s')).toBeNull()
-        expect(recalculateNextRun('interval', '59s')).toBeNull()
+      it('should clamp legacy interval values below one minute', () => {
+        const before = Date.now()
+
+        for (const scheduleValue of ['0s', '1s', '59s']) {
+          const result = recalculateNextRun('interval', scheduleValue)
+          const intervalMs = result!.getTime() - before
+          expect(intervalMs).toBeGreaterThanOrEqual(60 * 1000 - 500)
+          expect(intervalMs).toBeLessThanOrEqual(60 * 1000 + 500)
+        }
       })
     })
   })

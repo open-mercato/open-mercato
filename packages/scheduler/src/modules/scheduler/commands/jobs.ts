@@ -6,7 +6,7 @@ import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRun } from '../lib/nextRunCalculator.js'
+import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
 import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type {
   ScheduleCreateInput,
@@ -194,7 +194,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
     }
 
     // Calculate next run time
-    const nextRunAt = calculateNextRun(
+    const nextRunAt = calculateNextRunForWrite(
       input.scheduleType,
       input.scheduleValue,
       input.timezone || 'UTC'
@@ -308,7 +308,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
 
     const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined
     const nextRunAt = scheduleChanged
-      ? calculateNextRun(
+      ? calculateNextRunForWrite(
         input.scheduleType ?? schedule.scheduleType,
         input.scheduleValue ?? schedule.scheduleValue,
         input.timezone ?? schedule.timezone,

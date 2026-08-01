@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRun } from '../lib/nextRunCalculator.js'
+import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
 import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -46,7 +46,7 @@ export class SchedulerService {
     this.validateTarget(registration)
     
     // Calculate next run time
-    const nextRunAt = calculateNextRun(
+    const nextRunAt = calculateNextRunForWrite(
       registration.scheduleType,
       registration.scheduleValue,
       registration.timezone || 'UTC'
@@ -179,7 +179,7 @@ export class SchedulerService {
 
     const scheduleChanged = changes.scheduleType !== undefined || changes.scheduleValue !== undefined || changes.timezone !== undefined
     const nextRunAt = scheduleChanged
-      ? calculateNextRun(
+      ? calculateNextRunForWrite(
         changes.scheduleType ?? schedule.scheduleType,
         changes.scheduleValue ?? schedule.scheduleValue,
         changes.timezone ?? schedule.timezone,

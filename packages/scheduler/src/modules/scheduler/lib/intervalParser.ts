@@ -2,7 +2,6 @@
  * Parse simple interval strings like '15m', '2h', '1d' into milliseconds
  */
 export const MIN_SCHEDULE_INTERVAL_MS = 60 * 1000
-const MIN_SCHEDULE_INTERVAL_SECONDS = MIN_SCHEDULE_INTERVAL_MS / 1000
 
 export function parseInterval(interval: string): number {
   const regex = /^(\d+)(s|m|h|d)$/
@@ -22,12 +21,11 @@ export function parseInterval(interval: string): number {
     d: 24 * 60 * 60 * 1000, // days
   }
   
-  const milliseconds = value * multipliers[unit]
-  if (milliseconds < MIN_SCHEDULE_INTERVAL_MS) {
-    throw new Error(`Interval must be at least ${MIN_SCHEDULE_INTERVAL_SECONDS} seconds`)
-  }
+  return value * multipliers[unit]
+}
 
-  return milliseconds
+export function resolveScheduleIntervalMs(interval: string): number {
+  return Math.max(parseInterval(interval), MIN_SCHEDULE_INTERVAL_MS)
 }
 
 /**
@@ -37,7 +35,7 @@ export function calculateNextRunFromInterval(
   interval: string,
   fromDate: Date = new Date()
 ): Date {
-  const ms = parseInterval(interval)
+  const ms = resolveScheduleIntervalMs(interval)
   return new Date(fromDate.getTime() + ms)
 }
 
@@ -46,8 +44,7 @@ export function calculateNextRunFromInterval(
  */
 export function validateInterval(interval: string): boolean {
   try {
-    parseInterval(interval)
-    return true
+    return parseInterval(interval) >= MIN_SCHEDULE_INTERVAL_MS
   } catch {
     return false
   }
