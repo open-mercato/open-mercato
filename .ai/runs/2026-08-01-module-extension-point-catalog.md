@@ -66,20 +66,20 @@ Generate a complete, deterministic, bidirectional catalog of every package-provi
 
 - [x] 1.1 Add shared serializable types, declaration helpers, and bound-family descriptors. — e96969f29
 - [x] 1.2 Add canonical host declarations and bind audited UI call sites. — e96969f29
-- [ ] 1.3 Project existing-fact host capabilities.
-- [ ] 1.4 Add bound/unbound parity guards.
+- [x] 1.3 Project existing-fact host capabilities. — a2ff3136f
+- [x] 1.4 Add bound/unbound parity guards. — a2ff3136f
 
 ### Phase 2: Contribution extraction and correlation
 
-- [ ] 2.1 Factor reusable convention and registry readers.
-- [ ] 2.2 Normalize complete outgoing contribution details.
-- [ ] 2.3 Correlate targets and reject unresolved first-party contracts.
+- [x] 2.1 Factor reusable convention and registry readers. — a2ff3136f
+- [x] 2.2 Normalize complete outgoing contribution details. — a2ff3136f
+- [x] 2.3 Correlate targets and reject unresolved first-party contracts. — a2ff3136f
 
 ### Phase 3: Generated facts and compatibility
 
-- [ ] 3.1 Extend deterministic ModuleFacts Markdown/JSON output.
+- [x] 3.1 Extend deterministic ModuleFacts Markdown/JSON output. — a2ff3136f
 - [ ] 3.2 Preserve legacy facts and add framework catalogs.
-- [ ] 3.3 Add compatibility, determinism, size, and timing evidence.
+- [x] 3.3 Add compatibility, determinism, size, and timing evidence. — a2ff3136f
 
 ### Phase 4: Standalone routing and harness
 
