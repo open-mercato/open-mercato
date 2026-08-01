@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
  * TC-AUTH-SIDEBAR-GROUP-001: hiding a whole sidebar group from the customization page.
@@ -23,6 +24,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const BACKEND_PATH = '/backend';
 const CUSTOMIZATION_PATH = '/backend/sidebar-customization';
+const NAV_PATH = '/api/auth/admin/nav';
 // Matches "Show Customers" but not the per-item "Show item".
 const GROUP_SWITCH_NAME = /^Show (?!item$).+/;
 // "Create variant" before a preference exists for this user, "Save" once one does.
@@ -43,33 +45,58 @@ async function login(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/backend(?:\/.*)?$/);
 }
 
-/** Hrefs of every link currently rendered in the backend sidebar. */
 async function sidebarHrefs(page: Page): Promise<string[]> {
-  const links = page.getByRole('navigation').getByRole('link');
-  await expect(links.first()).toBeVisible({ timeout: 30_000 });
+  const sidebar = page.getByTestId('sidebar');
+  await expect(sidebar).toBeVisible({ timeout: 30_000 });
+  const links = sidebar.getByRole('link');
   return (await links.evaluateAll((nodes) =>
     nodes.map((node) => node.getAttribute('href') ?? ''),
   )).filter(Boolean);
 }
 
-/**
- * The sidebar hydrates from the backend-chrome payload after first paint, so a single read can catch it
- * part-built. Polls until two consecutive reads agree before returning.
- */
-async function settledSidebarHrefs(page: Page): Promise<string[]> {
-  let previous: string[] = [];
+type NavPayload = {
+  groups?: Array<{
+    name?: string;
+    defaultName?: string;
+    items?: Array<{
+      href?: string;
+      hidden?: boolean;
+      pageContext?: string;
+    }>;
+  }>;
+};
+
+async function visibleGroupHrefs(page: Page, groupName: string): Promise<string[]> {
+  const responsePromise = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === NAV_PATH && response.ok(),
+    { timeout: 30_000 },
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('om:refresh-sidebar')));
+  const response = await responsePromise;
+  const payload = (await readJsonSafe<NavPayload>(response)) ?? {};
+  const group = (payload.groups ?? []).find(
+    (candidate) => candidate.name === groupName || candidate.defaultName === groupName,
+  );
+  return (group?.items ?? [])
+    .filter((item) => item.hidden !== true && (!item.pageContext || item.pageContext === 'main'))
+    .map((item) => item.href ?? '')
+    .filter(Boolean);
+}
+
+async function expectGroupLinks(
+  page: Page,
+  groupHrefs: string[],
+  visible: boolean,
+): Promise<void> {
   await expect
     .poll(
       async () => {
-        const current = await sidebarHrefs(page);
-        const settled = current.length > 1 && current.length === previous.length;
-        previous = current;
-        return settled;
+        const renderedHrefs = await sidebarHrefs(page);
+        return groupHrefs.every((href) => renderedHrefs.includes(href) === visible);
       },
-      { message: 'the sidebar nav should finish hydrating before it is measured', timeout: 30_000 },
+      { timeout: 30_000 },
     )
     .toBe(true);
-  return previous;
 }
 
 async function saveAndSettle(page: Page): Promise<void> {
@@ -85,12 +112,6 @@ test.describe('sidebar group visibility toggle', () => {
     test.slow();
     await login(page);
 
-    // Measure the main sidebar on /backend. Settings pages such as the customization page render a
-    // different, larger nav, so every measurement below returns to /backend to stay comparable.
-    await page.goto(BACKEND_PATH);
-    const hrefsBefore = await settledSidebarHrefs(page);
-    expect(hrefsBefore.length, 'the sidebar should render some entries to begin with').toBeGreaterThan(1);
-
     await page.goto(CUSTOMIZATION_PATH);
 
     const groupSwitch = page.getByRole('switch', { name: GROUP_SWITCH_NAME }).first();
@@ -102,12 +123,18 @@ test.describe('sidebar group visibility toggle', () => {
     const groupName = accessibleName.replace(/^Show\s+/, '').trim();
     expect(groupName.length, 'the switch should name the group it controls').toBeGreaterThan(0);
     await expect(groupSwitch, 'the group should start visible').toHaveAttribute('aria-checked', 'true');
+    const groupHrefs = await visibleGroupHrefs(page, groupName);
+    expect(groupHrefs.length, `"${groupName}" should expose at least one main-nav entry`).toBeGreaterThan(0);
 
     const namedSwitch = () => page.getByRole('switch', { name: `Show ${groupName}` }).first();
 
+    await page.goto(BACKEND_PATH);
+    await expectGroupLinks(page, groupHrefs, true);
+    await page.goto(CUSTOMIZATION_PATH);
+
     try {
-      await groupSwitch.click();
-      await expect(groupSwitch, 'one click should switch the whole group off').toHaveAttribute(
+      await namedSwitch().click();
+      await expect(namedSwitch(), 'one click should switch the whole group off').toHaveAttribute(
         'aria-checked',
         'false',
       );
@@ -122,21 +149,21 @@ test.describe('sidebar group visibility toggle', () => {
         { timeout: 30_000 },
       );
 
-      // And the group's entries must really be gone from the main sidebar.
-      await page.goto(BACKEND_PATH);
-      const hrefsAfter = await settledSidebarHrefs(page);
-      expect(
-        hrefsAfter.length,
-        `hiding "${groupName}" should remove its entries from the sidebar`,
-      ).toBeLessThan(hrefsBefore.length);
+      await expect
+        .poll(() => visibleGroupHrefs(page, groupName), {
+          message: `the nav payload should hide every entry in "${groupName}"`,
+          timeout: 30_000,
+        })
+        .toEqual([]);
 
-      const removed = hrefsBefore.filter((href) => !hrefsAfter.includes(href));
-      expect(removed.length, 'at least one nav entry should have been removed').toBeGreaterThan(0);
+      await page.goto(BACKEND_PATH);
+      await expectGroupLinks(page, groupHrefs, false);
     } finally {
-      // Restore, so the shared environment is left as found for other specs.
       await page.goto(CUSTOMIZATION_PATH).catch(() => undefined);
-      await namedSwitch().click().catch(() => undefined);
-      await saveAndSettle(page).catch(() => undefined);
+      if ((await namedSwitch().getAttribute('aria-checked').catch(() => null)) === 'false') {
+        await namedSwitch().click().catch(() => undefined);
+        await saveAndSettle(page).catch(() => undefined);
+      }
     }
 
     await expect(namedSwitch(), 'toggling back on should restore the group').toHaveAttribute(
@@ -144,10 +171,13 @@ test.describe('sidebar group visibility toggle', () => {
       'true',
       { timeout: 30_000 },
     );
+    await expect
+      .poll(() => visibleGroupHrefs(page, groupName), {
+        message: `restoring "${groupName}" should restore every nav entry`,
+        timeout: 30_000,
+      })
+      .toEqual(groupHrefs);
     await page.goto(BACKEND_PATH);
-    const hrefsRestored = await settledSidebarHrefs(page);
-    expect(hrefsRestored.length, 'restoring the group should bring its entries back').toBe(
-      hrefsBefore.length,
-    );
+    await expectGroupLinks(page, groupHrefs, true);
   });
 });

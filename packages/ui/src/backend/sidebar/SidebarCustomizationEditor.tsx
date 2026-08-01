@@ -14,6 +14,7 @@ import { Switch } from '../../primitives/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '../../primitives/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../primitives/dialog'
 import { Tag } from '../../primitives/tag'
+import { Badge } from '../../primitives/badge'
 import {
   Select,
   SelectContent,
@@ -1247,9 +1248,9 @@ export function SidebarCustomizationEditor({
                             return (
                               <>
                                 {visibility === 'hidden' ? (
-                                  <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  <Badge variant="muted" size="sm" className="uppercase tracking-wide">
                                     {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
-                                  </span>
+                                  </Badge>
                                 ) : null}
                                 <Switch
                                   checked={visibility !== 'hidden'}
@@ -1387,9 +1388,9 @@ function ItemRow({ item, draft, saving, onLabelChange, onHiddenChange, t, depth,
       </div>
       <div className="flex shrink-0 items-center gap-2 pt-1.5">
         {hidden ? (
-          <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Badge variant="muted" size="sm" className="uppercase tracking-wide">
             {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
-          </span>
+          </Badge>
         ) : null}
         <Switch
           checked={!hidden}
