@@ -88,7 +88,7 @@ describe('the drawer opens at the section it was asked for', () => {
     jest.useRealTimers()
   })
 
-  it('focuses "Inputs and triggers", which is where triggers live', async () => {
+  it('focuses "Inputs", which is where the context inputs live', async () => {
     renderDrawer('inputs')
     await flushFrame()
 
@@ -96,8 +96,9 @@ describe('the drawer opens at the section it was asked for', () => {
     expect(section).not.toBeNull()
     expect(document.activeElement).toBe(section)
     expect(section?.scrollIntoView).toBeDefined()
-    // The triggers editor really is the section that took focus.
-    expect(section?.contains(screen.getByTestId('triggers-editor'))).toBe(true)
+    // Triggers moved to the START-node cap's own modal (Direction A); the inputs
+    // section now hosts the context-schema editor, which took focus.
+    expect(section?.contains(screen.getByTestId('context-schema'))).toBe(true)
   })
 
   it('leaves focus alone when no section is requested — every other way in wants the top', async () => {

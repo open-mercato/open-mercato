@@ -50,6 +50,7 @@ import { WORKFLOW_GROUP_TOGGLE_EVENT } from '../../../lib/annotation-events'
 import { AnnotationEditDialog } from '../../../components/AnnotationEditDialog'
 import { WorkflowCodeView } from '../../../components/WorkflowCodeView'
 import { DefinitionMetadataDrawer, type DefinitionMetadataSection } from '../../../components/DefinitionMetadataDrawer'
+import { TriggersDialog } from '../../../components/TriggersDialog'
 import { describeCodeViewDraft, evaluateCodeViewDraft } from '../../../lib/code-view-apply'
 import {
   WorkflowAiDraftDialog,
@@ -304,12 +305,12 @@ export default function VisualEditorPage() {
   // (fidelity gap #5) — every other way in wants the top of the form — so it is
   // cleared whenever the drawer is opened by anything else.
   const [metadataFocusSection, setMetadataFocusSection] = useState<DefinitionMetadataSection | null>(null)
-  // The canvas trigger pill's action. It opens the drawer AT "Inputs and
-  // triggers" rather than at the top of the form: the node states how the
-  // workflow starts, so the affordance has to land on the editor for it.
+  const [triggersDialogOpen, setTriggersDialogOpen] = useState(false)
+  // The START node's trigger cap opens a focused Triggers modal (Direction A),
+  // NOT the five-section definition drawer — the author clicked "what starts
+  // this", so the affordance opens exactly that.
   const handleOpenTriggers = useCallback(() => {
-    setMetadataFocusSection('inputs')
-    setMetadataOpen(true)
+    setTriggersDialogOpen(true)
   }, [])
   // The focus target is one-shot: every other way into the drawer wants the top
   // of the form, so closing it clears the request.
@@ -2888,6 +2889,12 @@ export default function VisualEditorPage() {
         errorHandlerStepOptions={errorHandlerStepOptions}
         onSave={() => { void handleSave() }}
         isSaving={isSaving}
+      />
+      <TriggersDialog
+        open={triggersDialogOpen}
+        onOpenChange={setTriggersDialogOpen}
+        triggers={triggers}
+        onSave={setTriggers}
       />
       <WorkflowCodeView
         isOpen={showCodeView}

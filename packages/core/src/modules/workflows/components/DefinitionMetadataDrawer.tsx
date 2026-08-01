@@ -28,7 +28,6 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Lock } from 'lucide-react'
 import { ContextSchemaEditor } from './ContextSchemaEditor'
 import { DefinitionErrorHandlerField } from './DefinitionErrorHandlerField'
-import { DefinitionTriggersEditor } from './DefinitionTriggersEditor'
 import { WorkflowIconPicker } from './WorkflowIconPicker'
 import type { WorkflowMetadataHandlers, WorkflowMetadataState } from '../data/types'
 import type { WorkflowInterpolationMode } from '../lib/interpolation-pipeline'
@@ -170,14 +169,14 @@ export function DefinitionMetadataDrawer({
   const {
     workflowId, workflowName, description, version,
     enabled, category, tags, icon,
-    effectiveFrom, effectiveTo, triggers,
+    effectiveFrom, effectiveTo,
     contextSchema, interpolation, errorHandler,
   } = metadata
 
   const {
     setWorkflowId, setWorkflowName, setDescription, setVersion,
     setEnabled, setCategory, setTags, setIcon,
-    setEffectiveFrom, setEffectiveTo, setTriggers,
+    setEffectiveFrom, setEffectiveTo,
     setContextSchema, setInterpolation, setErrorHandler,
   } = handlers
 
@@ -367,7 +366,6 @@ export function DefinitionMetadataDrawer({
                 {setContextSchema ? (
                   <ContextSchemaEditor value={contextSchema} onChange={setContextSchema} />
                 ) : null}
-                <DefinitionTriggersEditor value={triggers} onChange={setTriggers} />
               </div>
             </MetadataSection>
 

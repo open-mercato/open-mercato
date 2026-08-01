@@ -240,24 +240,6 @@ describe('workflow definition metadata drawer', () => {
     expect(definition.errorHandler).toEqual(LOADED_DEFINITION.definition.errorHandler)
   })
 
-  test('Cmd+Enter inside the nested trigger dialog does not save the workflow', async () => {
-    await renderLoaded()
-    await openDrawer()
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Add Trigger/i }))
-    })
-
-    const triggerDialog = screen.getByRole('dialog', { name: /Create Event Trigger/i })
-    await act(async () => {
-      fireEvent.keyDown(triggerDialog, { key: 'Enter', metaKey: true })
-    })
-
-    // Radix portals the dialog outside the drawer's DOM subtree but inside its
-    // React tree, so without the guard this keystroke saved a workflow from a
-    // half-filled trigger form.
-    expect(apiCalls.some(([, init]) => init?.method === 'PUT')).toBe(false)
-  })
-
   test('Cmd+Enter in the drawer saves, matching the project-wide dialog rule', async () => {
     await renderLoaded()
     await openDrawer()
