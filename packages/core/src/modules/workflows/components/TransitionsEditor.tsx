@@ -227,7 +227,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.transitions')}
           </p>
-          {error && <p className="text-sm text-destructive mt-1">{error}</p>}
+          {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addTransition} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />

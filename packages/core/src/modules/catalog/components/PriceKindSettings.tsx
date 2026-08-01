@@ -375,7 +375,7 @@ export function PriceKindSettings() {
       header: tableLabels.promotion,
       cell: ({ row }) =>
         row.original.isPromotion ? (
-          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-100">
+          <span className="inline-flex items-center rounded-full border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning-text">
             {tableLabels.promotionYes}
           </span>
         ) : (
@@ -389,7 +389,7 @@ export function PriceKindSettings() {
       header: tableLabels.active,
       cell: ({ row }) =>
         row.original.isActive ? (
-          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-100">
+          <span className="inline-flex items-center rounded-full border border-status-success-border bg-status-success-bg px-2 py-0.5 text-xs font-medium text-status-success-text">
             {tableLabels.activeYes}
           </span>
         ) : (
@@ -555,7 +555,7 @@ export function PriceKindSettings() {
                   {t('catalog.priceKinds.form.activeLabel', 'Active')}
                 </label>
               </div>
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
             </form>
             <DialogFooter>
               <Button variant="ghost" onClick={closeDialog}>

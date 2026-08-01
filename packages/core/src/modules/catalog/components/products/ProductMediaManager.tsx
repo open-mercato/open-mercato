@@ -186,7 +186,7 @@ export function ProductMediaManager({
           onChange={(event) => void acceptFiles(event.target.files)}
         />
       </div>
-      {error ? <p className="text-xs font-medium text-destructive">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-status-error-text">{error}</p> : null}
       {items.length ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {items.map((item) => {

@@ -56,11 +56,11 @@ export default function ResetPage() {
             </div>
           ) : (
             <form className="grid gap-3" onSubmit={onSubmit} noValidate>
-              {error && <div className="text-sm text-destructive">{error}</div>}
+              {error && <div className="text-sm text-status-error-text">{error}</div>}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
                 <EmailInput id="email" name="email" required aria-invalid={!!fieldError} aria-describedby={fieldError ? 'email-error' : undefined} />
-                {fieldError && <p id="email-error" className="text-sm text-destructive">{fieldError}</p>}
+                {fieldError && <p id="email-error" className="text-sm text-status-error-text">{fieldError}</p>}
               </div>
               <Button type="submit" className="mt-2 w-full" disabled={submitting}>
                 {submitting ? '...' : t('auth.sendResetLink')}

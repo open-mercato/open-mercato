@@ -162,7 +162,7 @@ export const AttachmentInput = ({
           />
         </div>
       )}
-      {error ? <div className="text-xs text-destructive">{error}</div> : null}
+      {error ? <div className="text-xs text-status-error-text">{error}</div> : null}
       <div className="space-y-1">
         {loading ? <div className="text-xs text-muted-foreground">{t('attachments.library.loading', 'Loading attachments…')}</div> : null}
         {items.map(it => (

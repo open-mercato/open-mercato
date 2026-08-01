@@ -65,7 +65,7 @@ export function UserConsentsPanel({ userId }: UserConsentsPanelProps) {
   }
 
   if (error) {
-    return <p className="text-sm text-destructive">{error}</p>
+    return <p className="text-sm text-status-error-text">{error}</p>
   }
 
   if (consents.length === 0) {
@@ -86,15 +86,15 @@ export function UserConsentsPanel({ userId }: UserConsentsPanelProps) {
             <span className="flex items-center gap-1.5">
               {consent.isGranted ? (
                 <>
-                  <ShieldCheck className="size-4 text-emerald-600" />
-                  <span className="text-emerald-700 font-medium">
+                  <ShieldCheck className="size-4 text-status-success-icon" />
+                  <span className="text-status-success-text font-medium">
                     {t('auth.users.consents.granted', 'Granted')}
                   </span>
                 </>
               ) : (
                 <>
-                  <ShieldX className="size-4 text-red-500" />
-                  <span className="text-destructive font-medium">
+                  <ShieldX className="size-4 text-status-error-icon" />
+                  <span className="text-status-error-text font-medium">
                     {t('auth.users.consents.withdrawn', 'Withdrawn')}
                   </span>
                 </>
@@ -118,13 +118,13 @@ export function UserConsentsPanel({ userId }: UserConsentsPanelProps) {
             <dd className="flex items-center gap-1">
               {consent.integrityValid ? (
                 <>
-                  <ShieldCheck className="size-3 text-emerald-600" />
-                  <span className="text-emerald-700">{t('auth.users.consents.integrityValid', 'Valid')}</span>
+                  <ShieldCheck className="size-3 text-status-success-icon" />
+                  <span className="text-status-success-text">{t('auth.users.consents.integrityValid', 'Valid')}</span>
                 </>
               ) : (
                 <>
-                  <ShieldAlert className="size-3 text-amber-500" />
-                  <span className="text-amber-600">{t('auth.users.consents.integrityInvalid', 'Tampered or missing')}</span>
+                  <ShieldAlert className="size-3 text-status-warning-icon" />
+                  <span className="text-status-warning-text">{t('auth.users.consents.integrityInvalid', 'Tampered or missing')}</span>
                 </>
               )}
             </dd>

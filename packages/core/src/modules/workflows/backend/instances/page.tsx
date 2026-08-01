@@ -148,19 +148,19 @@ export default function WorkflowInstancesListPage() {
   const getStatusBadgeClass = (status: WorkflowInstance['status']) => {
     switch (status) {
       case 'RUNNING':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-status-info-bg text-status-info-text'
       case 'PAUSED':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'bg-status-warning-bg text-status-warning-text'
       case 'COMPLETED':
-        return 'bg-green-100 text-green-800'
+        return 'bg-status-success-bg text-status-success-text'
       case 'FAILED':
-        return 'bg-red-100 text-red-800'
+        return 'bg-status-error-bg text-status-error-text'
       case 'CANCELLED':
         return 'bg-muted text-foreground'
       case 'COMPENSATING':
-        return 'bg-orange-100 text-orange-800'
+        return 'bg-status-warning-bg text-status-warning-text'
       case 'COMPENSATED':
-        return 'bg-purple-100 text-purple-800'
+        return 'bg-status-neutral-bg text-status-neutral-text'
       default:
         return 'bg-muted text-muted-foreground'
     }
@@ -268,7 +268,7 @@ export default function WorkflowInstancesListPage() {
       header: t('workflows.instances.fields.retryCount'),
       accessorKey: 'retryCount',
       cell: ({ row }) => (
-        <span className={`text-sm ${row.original.retryCount > 0 ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>
+        <span className={`text-sm ${row.original.retryCount > 0 ? 'text-status-warning-text font-medium' : 'text-muted-foreground'}`}>
           {row.original.retryCount}
         </span>
       ),
@@ -311,7 +311,7 @@ export default function WorkflowInstancesListPage() {
       <Page>
         <PageBody>
           <div className="p-8 text-center">
-            <p className="text-destructive">{t('workflows.instances.messages.loadFailed')}</p>
+            <p className="text-status-error-text">{t('workflows.instances.messages.loadFailed')}</p>
             <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['workflow-instances'] })} className="mt-4">
               {t('common.retry')}
             </Button>
