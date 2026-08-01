@@ -63,7 +63,15 @@
           "required": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
           "allowedExtra": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
           "warn": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
-          "forbidden": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } }
+          "forbidden": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+          "exampleRoots": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/exampleRoot" }
+          },
+          "installedVersionFallback": { "$ref": "#/$defs/installedVersionFallback" }
         }
       },
       "decisionVocabulary": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
@@ -128,6 +136,36 @@
   },
   "$defs": {
     "router": { "enum": ["architecture", "module-data", "backend-ui", "umes", "integration", "ai-workflow", "testing", "debugging", "spec-pr", "framework-context"] },
-    "relativePath": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" }
+    "relativePath": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+    "examplePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!\\\\\\\\)(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*[\\r\\n%*?\\[\\]{}!])[A-Za-z0-9._/\\\\-]+$"
+    },
+    "capabilityId": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
+    "exampleRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "entrypoints", "allowedCapabilityIds", "maxFiles", "maxBytes"],
+      "properties": {
+        "root": { "$ref": "#/$defs/examplePath" },
+        "entrypoints": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/examplePath" } },
+        "allowedCapabilityIds": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/capabilityId" } },
+        "maxFiles": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "maxBytes": { "type": "integer", "minimum": 1, "maximum": 262144 }
+      }
+    },
+    "installedVersionFallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "reasonCodes", "maxFiles", "maxBytes"],
+      "properties": {
+        "allowed": { "const": true },
+        "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["LOCAL_EXAMPLE_MISSING_VERSIONED_CONTRACT"] } },
+        "maxFiles": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "maxBytes": { "type": "integer", "minimum": 1, "maximum": 65536 }
+      }
+    }
   }
 }

@@ -21,7 +21,7 @@ Issue: #4729
 | 1 | 1.2 | Implement the knowledge-change schema and controller validator | dispatch:capable | done | fd16be15e |
 | 1 | 1.3 | Strengthen both harness-evolution workflows with the shared governance contract | dispatch:standard | done | b2d426aef |
 | 1 | 1.4 | Add synchronization fixtures and machine-enforced asset/count/hash checks | dispatch:capable | done | bad3b8bd2 |
-| 2 | 2.1 | Add failing example-root schema, path-security, and compatibility fixtures | dispatch:capable | todo | — |
+| 2 | 2.1 | Add failing example-root schema, path-security, and compatibility fixtures | dispatch:capable | done | self:step-2.1 |
 | 2 | 2.2 | Implement capability-scoped example-root matching and cumulative budgets | dispatch:capable | todo | — |
 | 2 | 2.3 | Add and implement ordered installed-version fallback with redacted traces | dispatch:capable | todo | — |
 | 3 | 3.1 | Add failure-first spec-first routing, emission, link, and budget tests | dispatch:standard | todo | — |

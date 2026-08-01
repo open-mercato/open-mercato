@@ -31,3 +31,7 @@
 ## 2026-08-01T18:26:00Z — Step 1.4 complete
 
 - Delegation: `analyze_harness_policies` added controller-derived finite range/lane requirements, generated-source ownership checks, and grouped fail-closed temporary-Git fixtures while preserving the 202-case catalog; the focused controller suite passed 13/13 and recursive emission/documentation assertions passed 3/3 with repository-local `TMPDIR`.
+
+## 2026-08-01T18:27:00Z — Step 2.1 complete
+
+- Delegation: `analyze_harness_policies` added the optional finite example-root/fallback schema, emitted pure path/policy helper, and schema/security/budget/compatibility fixtures without widening live reads or changing the 202-case catalog; focused policy tests passed 5/5, deterministic compatibility tests passed 2/2, and recursive emission passed 3/3 with repository-local `TMPDIR`.
