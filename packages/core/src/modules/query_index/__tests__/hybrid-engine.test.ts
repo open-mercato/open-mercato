@@ -1,4 +1,6 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
+import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
 
@@ -1159,17 +1161,16 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
   })
 
   describe('search_tokens coverage probe (#4723)', () => {
-    const countProbes = (db: ReturnType<typeof createFakeKysely>): number =>
-      (db._chains as ChainLog[]).filter((chain) => chain.table === 'search_tokens').length
+    type ChainRecordingDb = { _chains: ChainLog[] }
 
-    const buildFallback = (): ConstructorParameters<typeof HybridQueryEngine>[1] =>
-      ({ query: jest.fn() }) as unknown as ConstructorParameters<typeof HybridQueryEngine>[1]
+    const countProbes = (db: ChainRecordingDb): number =>
+      db._chains.filter((chain) => chain.table === 'search_tokens').length
 
-    const buildDb = () => createFakeKysely({
+    const buildDb = (): ChainRecordingDb => createFakeKysely({
       baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
     })
 
-    const buildCustomEntityDb = () => createFakeKysely({
+    const buildCustomEntityDb = (): ChainRecordingDb => createFakeKysely({
       baseTable: 'unused',
       hasIndexAny: false,
       baseCount: 0,
@@ -1178,9 +1179,12 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
       rows: { custom_entities_storage: [{ entity_id: 'record-1' }] },
     })
 
+    const buildHybridEngine = (em: EntityManager): HybridQueryEngine =>
+      new HybridQueryEngine(em, new BasicQueryEngine(em))
+
     test('is skipped when the query carries no like/ilike filter', async () => {
       const db = buildDb()
-      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
+      const engine = buildHybridEngine(buildEm(db))
 
       await engine.query('example:todo', {
         fields: ['id'],
@@ -1194,7 +1198,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('still runs when the query actually searches', async () => {
       const db = buildDb()
-      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
+      const engine = buildHybridEngine(buildEm(db))
 
       await engine.query('example:todo', {
         fields: ['id'],
@@ -1208,7 +1212,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('is skipped on the custom-entity storage path without a like/ilike filter', async () => {
       const db = buildCustomEntityDb()
-      const engine = new HybridQueryEngine(buildEmWithOrmMetadata(db, {}), buildFallback())
+      const engine = buildHybridEngine(buildEmWithOrmMetadata(db, {}))
 
       await engine.query('example:calendar_entity', {
         fields: ['id'],
@@ -1222,7 +1226,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('still runs on the custom-entity storage path when the query searches', async () => {
       const db = buildCustomEntityDb()
-      const engine = new HybridQueryEngine(buildEmWithOrmMetadata(db, {}), buildFallback())
+      const engine = buildHybridEngine(buildEmWithOrmMetadata(db, {}))
 
       await engine.query('example:calendar_entity', {
         fields: ['id'],
@@ -1236,7 +1240,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
 
     test('probes each joined-source entity once even when several filters hit the same source', async () => {
       const db = buildDb()
-      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
+      const engine = buildHybridEngine(buildEm(db))
 
       await engine.query('example:todo', {
         fields: ['id'],
@@ -1260,7 +1264,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
         customFieldKeys: {},
         columns: [{ table_name: 'users', column_name: 'display_name' }],
       })
-      const engine = new HybridQueryEngine(buildEm(db), buildFallback())
+      const engine = buildHybridEngine(buildEm(db))
 
       await engine.query('example:todo', {
         fields: ['id'],

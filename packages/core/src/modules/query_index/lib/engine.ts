@@ -1665,7 +1665,6 @@ export class HybridQueryEngine implements QueryEngine {
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 
     const normalizedFilters = normalizeFilters(opts.filters)
-
     const searchConfig = resolveSearchConfig()
     const searchEnabled = await this.searchAvailability().staticEnabled()
     // Same gate as `query()` (#4723): without a like/ilike filter the probe's answer is never read.
