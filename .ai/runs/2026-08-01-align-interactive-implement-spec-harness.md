@@ -39,13 +39,18 @@ Align the standalone app's interactive `om-implement-spec` workflow with the sha
 - A stronger live routing case may expose model variance. Required decisions remain semantic and the owner text will use exact stable labels to keep evaluation reproducible.
 - The full live release suite depends on provider capacity and Linux/Bubblewrap containment; any unavailable required lane will be reported as a blocker rather than treated as a pass.
 
+## Failure-first evidence
+
+- With the strengthened cases/tests committed and the skill owner unchanged, the focused Node test gate failed three semantic contracts: the three progressive reference files did not exist, and the skill exposed neither their routes nor the six new resolution/planning/report decisions.
+- OMH-006 remained schema-valid and its generic live routing assertion passed on Codex CLI 0.145.0. That result only proves route/decision selection; the focused static owner assertions are the retained failure evidence for the missing artifact/template contract.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Failure-first contract
 
-- [ ] 1.1 Strengthen OMH-006/OMH-168 and focused guidance tests with the missing resolution, planning, progress, interaction, reporting, and `Spec:` marker expectations; run them against the unchanged owner and retain a sanitized semantic failure.
+- [x] 1.1 Strengthen OMH-006/OMH-168 and focused guidance tests with the missing resolution, planning, progress, interaction, reporting, and `Spec:` marker expectations; run them against the unchanged owner and retain a sanitized semantic failure. — a8429857b
 
 ### Phase 2: Smallest knowledge owner
 
