@@ -98,6 +98,6 @@ Keep running the structural purge for the rest of the chrome (generated fingerpr
 - `stats` and `purge --segment` operate on the same CRUD/widget segment model exposed by the admin cache page.
 - `purge --tag` reports deleted counts, but it cannot list matched keys first because the cache interface does not expose a reverse tag index.
 - `purge --id` is intentionally fuzzy. It is useful for navigation keys such as `nav:sidebar:...:<userId>:...`, but it can match multiple keys if the token appears in several names.
-- Sidebar keys are `nav:sidebar:v4:<moduleSurfaceFingerprint>:<locale>:<userId>:<tenantId>:<orgId>`. The fingerprint is a build-derived hash, so `--key` is impractical here — reach for `--tag nav:sidebar:user:<userId>`, `--id <userId>`, or `--pattern 'nav:*'` instead.
+- Sidebar keys are `nav:sidebar:v6:<moduleSurfaceFingerprint>:<locale>:<userId>:<tenantId>:<orgId>:<organizationSelection>`. The fingerprint is a build-derived hash, so `--key` is impractical here — reach for `--tag nav:sidebar:user:<userId>`, `--id <userId>`, or `--pattern 'nav:*'` instead.
 
 For internals, see the [cache CLI architecture page](../architecture/cache-cli).
