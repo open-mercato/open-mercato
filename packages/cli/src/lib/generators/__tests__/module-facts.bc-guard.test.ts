@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractAllModuleFacts } from '../module-facts'
+import { extractAllModuleFacts, renderModuleFactsJson } from '../module-facts'
 import { discoverPackageModuleSources } from '../module-facts-discovery'
 import { createResolver } from '../../resolver'
 
@@ -20,7 +20,34 @@ function isUnique(values: string[]): boolean {
 describe('module-facts BC resolve guard (T2)', () => {
   const repoRoot = findRepoRoot()
   const sources = discoverPackageModuleSources(createResolver(repoRoot))
-  const { factsByModule } = extractAllModuleFacts({ sources })
+  const extractionStartedAt = performance.now()
+  const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
+  const extractionDurationMs = performance.now() - extractionStartedAt
+
+  it('emits complete, deterministic extension catalogs for every resolved module', () => {
+    const repeated = extractAllModuleFacts({ sources })
+    expect(renderModuleFactsJson(repeated.factsByModule)).toBe(renderModuleFactsJson(factsByModule))
+    expect(repeated.markdownByModule).toEqual(markdownByModule)
+    expect(repeated.frameworkMarkdown).toBe(frameworkMarkdown)
+    for (const facts of Object.values(factsByModule)) {
+      expect(facts.extensionSurfaces).toBeDefined()
+      expect(facts.extensionSurfaces?.unresolved).toEqual([])
+    }
+  })
+
+  it('keeps generated extension facts within bounded build-time and context budgets', () => {
+    const completeJson = renderModuleFactsJson(factsByModule)
+    const legacyJson = renderModuleFactsJson(Object.fromEntries(
+      Object.entries(factsByModule).map(([moduleId, facts]) => [moduleId, { ...facts, extensionSurfaces: undefined }]),
+    ))
+    const markdownBytes = Object.values(markdownByModule)
+      .reduce((total, markdown) => total + Buffer.byteLength(markdown), Buffer.byteLength(frameworkMarkdown))
+
+    expect(extractionDurationMs).toBeLessThan(30_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(2_000_000)
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_500_000)
+    expect(markdownBytes).toBeLessThan(1_000_000)
+  })
 
   it('discovers a superset of the historical core modules', () => {
     const discovered = new Set(Object.keys(factsByModule))
