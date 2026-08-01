@@ -142,6 +142,21 @@ export function resolveGroupExpression(
   return { expression: groupMapping.dbColumn, dbColumn: groupMapping.dbColumn, jsonPath: null }
 }
 
+/**
+ * Normalizes the value of a set filter (`in` / `not_in`) into the list of members it selects.
+ *
+ * The list is rendered as one placeholder per member rather than as a single array parameter:
+ * MikroORM does not bind parameters at the driver level — `AbstractSqlConnection.execute` calls
+ * `platform.formatQuery`, which interpolates each value through `BasePostgreSqlPlatform.escape`,
+ * and that renders a JavaScript array as a bare comma-separated list. The previous
+ * `= ANY(?)` / `!= ALL(?)` form therefore produced `= ANY('a', 'b')`, which PostgreSQL rejects
+ * for every shape of value (#4669).
+ */
+function normalizeSetFilterValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  return value === undefined ? [] : [value]
+}
+
 function buildWhereClause(
   options: Pick<BuildAggregationQueryOptions, 'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'>,
 ): { clause: string; params: unknown[] } {
@@ -200,13 +215,18 @@ function buildWhereClause(
           params.push(filter.value)
           break
         case 'in':
-          whereClauses.push(`${filterMapping.dbColumn} = ANY(?)`)
-          params.push(filter.value)
+        case 'not_in': {
+          const values = normalizeSetFilterValues(filter.value)
+          if (values.length === 0) {
+            whereClauses.push(filter.operator === 'in' ? 'FALSE' : 'TRUE')
+            break
+          }
+          const keyword = filter.operator === 'in' ? 'IN' : 'NOT IN'
+          const placeholders = values.map(() => '?').join(', ')
+          whereClauses.push(`${filterMapping.dbColumn} ${keyword} (${placeholders})`)
+          params.push(...values)
           break
-        case 'not_in':
-          whereClauses.push(`${filterMapping.dbColumn} != ALL(?)`)
-          params.push(filter.value)
-          break
+        }
         case 'is_null':
           whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
           break
