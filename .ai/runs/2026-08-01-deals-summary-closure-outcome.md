@@ -87,7 +87,7 @@ tenant and period.
 
 ## Progress
 
-PR: (pending — filled in when the PR is opened)
+PR: #4819
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -104,5 +104,6 @@ PR: (pending — filled in when the PR is opened)
 
 ### Phase 3: Ship
 
-- [ ] 3.1 Run the full validation gate
-- [ ] 3.2 Open the PR, raise the allowlist question, review and report labels
+- [x] 3.1 Run the full validation gate — 82deeaf81 (green except three pre-existing/environmental
+      `yarn test` clusters, each reproduced independently of this change; detailed in the PR body)
+- [x] 3.2 Open the PR, raise the allowlist question, review and report labels — #4819
