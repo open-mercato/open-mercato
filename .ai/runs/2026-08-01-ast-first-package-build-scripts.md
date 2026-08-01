@@ -69,9 +69,9 @@ Plus `yarn lint`, which the spec's own gate names.
 
 ### Phase 1: Extract the hand-written helpers out of the generated artifact
 
-- [ ] 1.1 Add `lucideRegistryRuntime.tsx` with the three helpers moved verbatim
-- [ ] 1.2 Stop emitting them from `build.mjs`, drop the now-unused `React` type import, repoint the barrel
-- [ ] 1.3 Rebuild `@open-mercato/ui` and confirm `lucideRegistry.test.tsx` passes unmodified
+- [x] 1.1 Add `lucideRegistryRuntime.tsx` with the three helpers moved verbatim — dc7e07b58
+- [x] 1.2 Stop emitting them from `build.mjs`, drop the now-unused `React` type import, repoint the barrel — dc7e07b58
+- [x] 1.3 Rebuild `@open-mercato/ui` and confirm `lucideRegistry.test.tsx` passes unmodified — dc7e07b58 (15/15 passed, file unmodified)
 
 ### Phase 2: Pin the current generator behavior with tests
 
