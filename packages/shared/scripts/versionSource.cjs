@@ -1,14 +1,7 @@
 // Pure source emitter for the build-time replacement of src/lib/version.ts.
 // Kept side-effect free, and CommonJS so both build.mjs and the Jest suite can load it.
 
-const {
-  IndentationText,
-  Project,
-  QuoteKind,
-  ScriptKind,
-  StructureKind,
-  VariableDeclarationKind,
-} = require('ts-morph')
+const { Project, QuoteKind, ScriptKind, StructureKind, VariableDeclarationKind } = require('ts-morph')
 
 const VIRTUAL_FILE_NAME = 'version.ts'
 const BANNER = '// Build-time generated version\n'
@@ -19,11 +12,7 @@ function getProject() {
   if (!sharedProject) {
     sharedProject = new Project({
       useInMemoryFileSystem: true,
-      manipulationSettings: {
-        indentationText: IndentationText.TwoSpaces,
-        quoteKind: QuoteKind.Single,
-        useTrailingCommas: true,
-      },
+      manipulationSettings: { quoteKind: QuoteKind.Single },
     })
   }
 
