@@ -91,5 +91,42 @@ describe('ConfirmDialog', () => {
 
     expect(firstOpenChange).not.toHaveBeenCalled()
     expect(secondOpenChange).toHaveBeenCalledWith(false)
+
+  // The dialog confirm button is the point of no return, so it takes the
+  // filled `destructive-solid` treatment even though the trigger that opened
+  // it renders the quiet `destructive` variant.
+  it('renders the destructive confirmation as the solid variant', () => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        variant="destructive"
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Delete customer?"
+        confirmText="Delete"
+        cancelText="Cancel"
+      />,
+    )
+
+    const classNames = screen.getByRole('button', { name: 'Delete' }).className.split(/\s+/)
+    expect(classNames).toContain('bg-destructive')
+    expect(classNames).toContain('text-white')
+  })
+
+  it('keeps the default confirmation on the primary variant', () => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Publish article?"
+        confirmText="Publish"
+        cancelText="Cancel"
+      />,
+    )
+
+    const classNames = screen.getByRole('button', { name: 'Publish' }).className.split(/\s+/)
+    expect(classNames).toContain('bg-primary')
+    expect(classNames).not.toContain('bg-destructive')
   })
 })
