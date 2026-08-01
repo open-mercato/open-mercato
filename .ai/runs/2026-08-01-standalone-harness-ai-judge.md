@@ -52,6 +52,8 @@ Add a reusable LLM-as-judge workflow for standalone generative evaluations and u
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
+Review fix: compare app-generated URLs with installed module facts and derive page URLs exactly as the generator does. — 765fa2151
+
 ### Phase 1: Contracts and reusable skill
 
 - [x] 1.1 Define the judge, bounded installed-source, route-uniqueness, and module-fact contracts in the existing standalone harness specification. — 406e9e0967d3
