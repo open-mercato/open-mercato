@@ -90,6 +90,9 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     '.ai/harness/release-result.schema.json',
     '.ai/harness/target-validation-result.schema.json',
     '.ai/skills/om-evolve-harness/SKILL.md',
+    '.ai/skills/om-share-this-session/SKILL.md',
+    '.ai/skills/om-share-this-session/references/consent-and-review.md',
+    '.ai/skills/om-share-this-session/scripts/prepare-share-bundle.mjs',
     'scripts/evaluate-agent-harness.mjs',
     'scripts/framework-context.mjs',
     'scripts/install-skills.sh',
@@ -120,6 +123,10 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
   )
   assert.equal(
     manifest.files.find((entry) => entry.path === '.ai/skills/om-module-scaffold/SKILL.md')?.source,
+    'local-skill',
+  )
+  assert.equal(
+    manifest.files.find((entry) => entry.path === '.ai/skills/om-share-this-session/SKILL.md')?.source,
     'local-skill',
   )
   assert.doesNotMatch(readFileSync(join(targetDir, 'AGENTS.md'), 'utf8'), /\{\{PROJECT_NAME\}\}/)

@@ -99,6 +99,10 @@ Follow-up: #4603
 - [x] 6.6 Report to #4529 the stale portability count its own head publishes: `39-case` in
       `run-agent-harness-release.mjs`, `case-template.md` and `case-workflow.md` against a 45-entry
       `release-matrix.json`. Found by the new count guard, corrected on this branch
+- [x] 6.7 Merge current `develop`, preserve #4759's independently added `OMH-193`, shift this branch's
+      nine cases and their relations to `OMH-194`…`OMH-202`, resolve the semantic conflicts, and
+      validate the resulting 202-case / 46-writable catalog; current-base measurement also widened
+      OMH-120's required initial-context budget to the next 4 KiB boundary
 
 ## Deliberately out of scope
 

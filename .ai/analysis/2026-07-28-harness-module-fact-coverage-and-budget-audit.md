@@ -19,22 +19,23 @@ Environment: macOS 26.5.2 (arm64), Node 24.14.1, `claude` 2.1.220 on the `sonnet
 
 Every measurement below was taken while this work's cases were numbered `OMH-188`…`OMH-195`. Merging
 #4529's head on 2026-07-30 showed the parent had independently claimed `OMH-188`…`OMH-192` for writable
-cases of its own, so these cases shipped as `OMH-193`…`OMH-201` instead — byte-identical apart from the ID
+cases of its own, so these cases first moved to `OMH-193`…`OMH-201`. PR #4759 then claimed `OMH-193`
+on `develop`, so the final merge result shifts this work once more to `OMH-194`…`OMH-202` — byte-identical apart from the ID
 and the `relatedCases` repointed with them. Case IDs in the sections below are the **shipped** ones, so
 they can be looked up in `cases.json` directly; where a measurement is quoted, it was produced by the same
 case under its earlier ID. The mapping is:
 
 | Measured as | Ships as | Fact-sheet |
 |---|---|---|
-| OMH-188 | **OMH-193** | `dictionaries` |
-| OMH-189 | **OMH-194** | `api_keys` |
-| OMH-190 | **OMH-195** | `configs` |
-| OMH-191 | **OMH-196** | `perspectives` |
-| OMH-192 | **OMH-197** | `resources` |
-| OMH-193 | **OMH-198** | `sync_excel` |
-| OMH-194 | **OMH-199** | `gateway_stripe` |
-| OMH-195 | **OMH-200** | `sync_akeneo` |
-| — (added later) | **OMH-201** | `wms` |
+| OMH-188 | **OMH-194** | `dictionaries` |
+| OMH-189 | **OMH-195** | `api_keys` |
+| OMH-190 | **OMH-196** | `configs` |
+| OMH-191 | **OMH-197** | `perspectives` |
+| OMH-192 | **OMH-198** | `resources` |
+| OMH-193 | **OMH-199** | `sync_excel` |
+| OMH-194 | **OMH-200** | `gateway_stripe` |
+| OMH-195 | **OMH-201** | `sync_akeneo` |
+| — (added later) | **OMH-202** | `wms` |
 
 ## 1. Module-fact coverage
 
@@ -65,9 +66,9 @@ The reviewer's original list on #4529 named ten; `api_docs`, `inbox_ops`, and `p
 ### 1.2 After this branch
 
 All 48 shipped fact-sheets are routed by at least one case. Nine cases now own a fact-sheet
-(`owner.kind: "facts"`): OMH-193 `dictionaries`, OMH-194 `api_keys`, OMH-195 `configs`,
-OMH-196 `perspectives`, OMH-197 `resources`, OMH-198 `sync_excel`, OMH-199 `gateway_stripe`,
-OMH-200 `sync_akeneo`, OMH-201 `wms`.
+(`owner.kind: "facts"`): OMH-194 `dictionaries`, OMH-195 `api_keys`, OMH-196 `configs`,
+OMH-197 `perspectives`, OMH-198 `resources`, OMH-199 `sync_excel`, OMH-200 `gateway_stripe`,
+OMH-201 `sync_akeneo`, OMH-202 `wms`.
 
 `packages/create-app/src/lib/module-facts-build.test.ts` now fails when a scaffold ships a fact-sheet no
 case routes. It uses the production `selectModuleFactSheets` intersection, so enabling a module in the
@@ -75,9 +76,9 @@ template without adding a case is a red test rather than a silent coverage hole.
 
 That guard has already paid for itself once on this branch. Merging `develop` enabled `wms` in the
 template, and both of this branch's guards fired on the merge result exactly as designed — the fact-index
-canary on the 47 → 48 sheet count, and the coverage guard on `wms` having no case. OMH-201 closed the gap
+canary on the 47 → 48 sheet count, and the coverage guard on `wms` having no case. OMH-202 closed the gap
 the same way the eight cases above closed theirs, routing `.ai/guides/modules/wms.md` through `om-help` as
-a reuse-installed architecture decision. OMH-201 was added after the live cohort in §3 had been run, so it
+a reuse-installed architecture decision. OMH-202 was added after the live cohort in §3 had been run, so it
 carries deterministic-gate and semantic-assertion coverage only; no live routing run is claimed for it
 here.
 
@@ -106,6 +107,9 @@ checked before this branch.
 | Case | Defect | Measured | Budget |
 |---|---|---|---|
 | OMH-169 | required initial context exceeds the byte budget | 57 372 B over 10 files | 57 344 B |
+
+Merging current `develop` re-ran this same measurement against the enlarged instruction tree and found
+one additional contradiction: OMH-120's required initial context is now 58 056 B against 57 344 B.
 | OMH-146 | `maxContextFiles` equals the required set, and an `allowedExtra` initial path is declared that can never be opened | 4 required + 1 extra initial file | 4 files |
 | OMH-111 | required plus all five declared extras exceed the byte budget and saturate the file budget | 57 845 B over 10 files | 57 344 B / 10 files |
 
@@ -121,6 +125,7 @@ Widened from the measured footprints, rounded to the 4 KiB grid, smallest change
 | OMH-111 | 10 → 11 | 57 344 → 65 536 |
 | OMH-146 | 4 → 6 | 32 768 → 40 960 |
 | OMH-169 | 11 (unchanged — 10 initial files fit) | 57 344 → 61 440 |
+| OMH-120 | 10 (unchanged — 9 initial files fit) | 57 344 → 61 440 |
 
 The OMH-169 row records what shipped, not what this audit first proposed. Upstream acted on the finding
 directly, adopting 61 440 B in `296c4eed` ("test(harness): fit audited routing context") on the day this
@@ -156,12 +161,15 @@ FAIL OMH-169: required context exceeds maxInitialContextBytes: 60548/57344
 Deterministic: 200/201 selected cases passed
 ```
 
-The gate reports one message per budget, not two: `validateCatalog` tests the required set first and only
+The historical 200/201 output above was captured before PR #4759 added a case on `develop`; the final
+merged catalog contains 202 cases. The gate reports one message per budget, not two: `validateCatalog`
+tests the required set first and only
 falls through to the declared set when the required set fits, so a required-context failure never prints a
 declared-context line for the same budget. OMH-169 declares no `allowedExtra`, so its required and declared
 sets are identical anyway. The 60 548 B is the required-context measurement at the head this PR ships —
 higher than the 57 372 B measured when the budget was first widened, because the routed guides this case
-requires have grown since; the counted case total is 201 because this PR adds nine cases.
+requires have grown since; the counted case total was 201 because this PR added nine cases before
+#4759's independently added case reached `develop`.
 
 ### 2.4 Budgets that are thin but not broken
 
@@ -176,7 +184,7 @@ from a simpler case" mistake the issue asks to avoid. §3 records the live outco
 Routing cases have **no** case-local duration budget. `timeoutMs` is rejected by catalog validation unless
 the case is writable, so every routing case runs under the operator default of 300 000 ms and the only
 lever is `--timeout`. Across the sampled live cohort the passing runs took 71 s to 231 s; the slowest
-passing case (OMH-195) therefore used **77%** of the ceiling, and one case (OMH-139) exhausted it entirely.
+passing case (now OMH-196) therefore used **77%** of the ceiling, and one case (OMH-139) exhausted it entirely.
 That is real but thin headroom on a contract the catalog cannot express, so it is reported rather than
 changed here: a single timeout is model variance until it reproduces, and widening the routing timeout
 contract deserves its own justification.
@@ -213,11 +221,11 @@ in every run, under the old ceiling of 4 and the new one of 6 alike.
 
 ### 3.2 The six new cases
 
-OMH-195, OMH-196, and OMH-197 passed on their first live run, reaching `.ai/guides/modules/configs.md`,
+OMH-196, OMH-197, and OMH-198 passed on their first live run, reaching `.ai/guides/modules/configs.md`,
 `perspectives.md`, and `resources.md` respectively with the `architecture` route, `om-help`, and all four
 required decisions.
 
-OMH-198, OMH-199, and OMH-200 failed their first run on exactly one assertion — `missing skill om-help` —
+OMH-199, OMH-200, and OMH-201 failed their first run on exactly one assertion — `missing skill om-help` —
 while emitting the correct route, observing the installed fact-sheet, and producing every required
 decision. The model opened `om-integration-builder` instead, which is the right skill for a spreadsheet
 feed, a named payment provider, and a named PIM connector. The assertion was over-specified, so it now
@@ -228,18 +236,18 @@ Final live state for the new cases: **6/6 pass**, each observing its installed m
 
 | Case | Fact-sheet reached | Initial files / budget | Initial bytes / budget | Duration |
 |---|---|---|---|---|
-| OMH-195 | `configs.md` | 8 / 11 | 47 455 / 57 344 | 231 s |
-| OMH-196 | `perspectives.md` | 3 / 11 | 20 759 / 57 344 | 78 s |
-| OMH-197 | `resources.md` | 3 / 11 | 20 759 / 57 344 | 113 s |
-| OMH-198 | `sync_excel.md` | 4 / 11 | 30 672 / 57 344 | 216 s |
-| OMH-199 | `gateway_stripe.md` | 5 / 11 | 32 576 / 57 344 | 107 s |
-| OMH-200 | `sync_akeneo.md` | 4 / 11 | 30 672 / 57 344 | 125 s |
+| OMH-196 | `configs.md` | 8 / 11 | 47 455 / 57 344 | 231 s |
+| OMH-197 | `perspectives.md` | 3 / 11 | 20 759 / 57 344 | 78 s |
+| OMH-198 | `resources.md` | 3 / 11 | 20 759 / 57 344 | 113 s |
+| OMH-199 | `sync_excel.md` | 4 / 11 | 30 672 / 57 344 | 216 s |
+| OMH-200 | `gateway_stripe.md` | 5 / 11 | 32 576 / 57 344 | 107 s |
+| OMH-201 | `sync_akeneo.md` | 4 / 11 | 30 672 / 57 344 | 125 s |
 
-Their budgets are inherited from the OMH-193/194 envelope and are, on this evidence, generous rather than
-tight — the widest observed use is 8 of 11 files and 83% of the byte budget on OMH-195. They are left as
+Their budgets are inherited from the OMH-194/195 envelope and are, on this evidence, generous rather than
+tight — the widest observed use is 8 of 11 files and 83% of the byte budget on OMH-196. They are left as
 they are: nothing indicates a false negative, and tightening them from six runs would be its own guess.
-OMH-193 and OMH-194 carry their own live evidence in the #4556 execution plan
-(`.ai/runs/2026-07-27-standalone-harness-module-facts-cases.md`, steps 3.2 and 4.8); OMH-201 has none, as
+OMH-194 and OMH-195 carry their own live evidence in the #4556 execution plan
+(`.ai/runs/2026-07-27-standalone-harness-module-facts-cases.md`, steps 3.2 and 4.8); OMH-202 has none, as
 §1.2 records.
 
 ### 3.3 The thin-budget cohort

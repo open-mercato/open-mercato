@@ -1,6 +1,6 @@
 # Agent harness evaluations
 
-`cases.json` is the 201-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Besides the schema, reference, and relation checks, that gate measures each case's declared context on disk and fails a case whose required or `allowedExtra` paths cannot fit its own file/byte budgets — so a grown guide or fact-sheet surfaces here, naming the exact numbers, instead of as a live routing failure. Live routing uses a fresh read-only process per case:
+`cases.json` is the 202-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 ```text
 yarn harness:validate --runner codex --all
@@ -9,16 +9,16 @@ yarn harness:validate --runner claude --case OMH-009
 
 For an explicitly requested Codex comparison outside the blocking release matrix, pin both dimensions so the sanitized result is reproducible, for example `--model gpt-5.4-mini --reasoning-effort high`. The effort override is Codex-only; supported values are `minimal`, `low`, `medium`, `high`, and `xhigh`, and omitting it preserves the existing runner default. Measured high-effort mini runs legitimately exceed ten minutes on broad context, so that exact model/effort pair uses a 15-minute per-attempt floor; measured Claude/Sonnet runs use a 10-minute floor. Passing `--timeout` remains authoritative, and other routing runs retain the five-minute default.
 
-A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 45-case representative read-only set:
+A blocking release selects one primary runner for every live lane. The optional portability runner must be different and receives only the exact 46-case representative read-only set:
 
 ```text
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 yarn harness:release --runner codex --portability-runner claude --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The primary runner owns all 201 routing cases, all 45 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+The primary runner owns all 202 routing cases, all 46 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
-Writable evaluation is intentionally opt-in. The expanded catalog has a 45-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
+Writable evaluation is intentionally opt-in. The expanded catalog has a 46-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
 ```text
 yarn harness:fixture --case OMH-009 --target /absolute/disposable/app --acknowledge-writes

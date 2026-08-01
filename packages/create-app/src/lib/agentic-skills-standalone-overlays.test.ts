@@ -272,6 +272,23 @@ test('standalone auto implementation audits readiness and falls back to the loca
   )
 })
 
+test('local spec implementation cannot report completion without green gates and invoked review', () => {
+  const implementation = readOverrideSkill('om-implement-spec')
+  const phaseReference = fs.readFileSync(
+    new URL('om-implement-spec/references/phases-and-gates.md', skillsDir),
+    'utf8',
+  )
+
+  for (const source of [implementation, phaseReference]) {
+    assert.match(source, /actually invoke the installed `om-code-review` skill/)
+    assert.match(source, /load `\.ai\/review-checklist\.md`/)
+    assert.match(source, /baseline|pre-existing/)
+    assert.match(source, /follow-up edit|later edit/)
+  }
+  assert.match(implementation, /not permission to claim the work is built, validated, or complete/)
+  assert.match(phaseReference, /Every configured command must exit zero/)
+})
+
 // Setup never creates a directory-level link. The installer owns Claude's
 // per-skill compatibility layer after the canonical collection exists.
 test('setup leaves every per-agent skills directory to install-skills.mjs', () => {

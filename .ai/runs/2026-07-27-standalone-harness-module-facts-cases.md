@@ -21,11 +21,12 @@ generated facts ship with the scaffold but are referenced by no case at all.
 Two new routing cases that assert the agent consults an installed module's generated facts instead of
 designing a new module for a capability the app already has:
 
-- `OMH-193` — editable per-organization value lists (`dictionaries`)
-- `OMH-194` — unattended, revocable partner API access (`api_keys`)
+- `OMH-194` — editable per-organization value lists (`dictionaries`)
+- `OMH-195` — unattended, revocable partner API access (`api_keys`)
 
-They shipped as `OMH-188`/`OMH-189` and were renumbered on 2026-07-30 because the stacked parent #4529
-independently claimed those two IDs for writable cases of its own — see Phase 5.
+They shipped as `OMH-188`/`OMH-189`, were renumbered on 2026-07-30 because the stacked parent #4529
+independently claimed those two IDs for writable cases of its own, and shifted once more when #4759
+claimed `OMH-193` on `develop` — see Phases 5 and 6.
 
 Both are `facts`-owner cases. They shipped with empty `requiredSkills` to keep the assertion on routing,
 observed context and decisions rather than a guessed skill chain; the #4556 review (finding 6) showed
@@ -59,9 +60,9 @@ somewhere: `OMH-087` requires `api_keys`, `configs`, `dictionaries`, `gateway_st
 `resources` and `sync_akeneo`, and `api_docs`, `inbox_ops` and `planner` are reachable through
 `allowedExtra` on `OMH-011`, `OMH-098` and `OMH-100`. The gap these two cases close is therefore narrower
 than originally stated, and it is a different one: `OMH-087` reads those facts while mapping a module brief
-onto the discovery surface, whereas `OMH-193`/`OMH-194` are the only cases in the catalog that make a
+onto the discovery surface, whereas `OMH-194`/`OMH-195` are the only cases in the catalog that make a
 module-facts file the *knowledge owner* (`owner.kind: "facts"`) and assert the installed-versus-new routing
-decision. Nothing else in the 201-case catalog owns a facts surface.
+decision. Nothing else in the 202-case catalog owns a facts surface.
 
 ## Implementation Plan
 
@@ -181,3 +182,15 @@ survives from that part.
       Their bytes are unchanged apart from the IDs, so the evidence still describes exactly these two
       cases; it is quoted rather than re-run here, and step 4.8 holds the detail.
 - [x] 5.10 Deterministic catalog gate over the merged catalog: 201/201 pass
+
+### Phase 6: Re-alignment onto current `develop` (2026-08-01)
+
+PR #4759 independently added `OMH-193` before this branch could merge. The final base merge preserves
+that case and moves this branch's contiguous nine-case block forward by one.
+
+- [x] 6.1 Merge current `develop`, preserve #4759's `OMH-193`, and re-key this branch's cases and
+      `relatedCases` as `OMH-194`…`OMH-202`
+- [x] 6.2 Re-pin the catalog, schema, validators, tests, and published documentation at 202 total cases
+      and 46 writable cases
+- [x] 6.3 Run the schema canary through `OMH-202` and the deterministic catalog gate over all 202 cases —
+      evaluator 87/87, surface coverage 13/13, module-facts build 6/6
