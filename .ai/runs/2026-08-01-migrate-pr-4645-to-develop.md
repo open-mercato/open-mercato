@@ -42,7 +42,7 @@ Recreate PR #4645's Next.js 16.2.12 dependency update on `develop`, address the 
 ### Phase 1: Migrate and correct the dependency update
 
 - [x] 1.1 Reapply PR #4645's Next.js 16.2.12 manifest and lockfile changes on top of `develop` while preserving the original commit attribution. — 2e6bd84a6
-- [ ] 1.2 Address the code-review finding by synchronizing the standalone create-app template pin and prove parity with the focused regression test.
+- [x] 1.2 Address the code-review finding by synchronizing the standalone create-app template pin and prove parity with the focused regression test. — b8a83cbff5
 
 ### Phase 2: Validate and deliver the replacement
 
