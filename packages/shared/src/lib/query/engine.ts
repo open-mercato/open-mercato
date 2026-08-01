@@ -20,6 +20,7 @@ import {
   type CustomFieldDefinitionRow,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
+import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { mapWithConcurrency } from './bounded-decrypt'
 import { createLogger } from '../logger'
@@ -293,7 +294,11 @@ export class BasicQueryEngine implements QueryEngine {
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
     const searchConfig = resolveSearchConfig()
-    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
+    // Callers that opt out of automatic tenant/org scoping own the full
+    // visibility predicate. Search-token filtering has its own tenant/org
+    // guards, so it must be disabled on this direct-query path as documented
+    // by QueryOptions.omitAutomaticTenantOrgScope.
+    const searchEnabled = !skipAutoScope && searchConfig.enabled && await this.tableExists('search_tokens')
     const hasSearchTokens = searchEnabled
       ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
@@ -329,6 +334,46 @@ export class BasicQueryEngine implements QueryEngine {
           organizationScope: orgScope,
         })
       }
+      const fallbackFields = searchFilters
+        .filter((filter) => !searchActive || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => String(filter.field))
+      if (fallbackFields.length) {
+        await warnOnCiphertextLikeFallback({
+          entity: String(entity),
+          fields: fallbackFields,
+          tenantId: opts.tenantId ?? null,
+          // `searchEnabled` also folds in the missing-table and
+          // omitAutomaticTenantOrgScope cases, which are "no usable tokens"
+          // rather than "the operator switched search off".
+          reason: searchActive
+            ? 'no-indexable-tokens'
+            : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          service: this.getEncryptionService(),
+        })
+      }
+    }
+    for (const [alias, joinedFilters] of joinFilters) {
+      const filters = joinedFilters.filter((entry) => entry.op === 'like' || entry.op === 'ilike')
+      if (!filters.length) continue
+      const join = joinMap.get(alias)
+      if (!join?.entityId) continue
+      const hasJoinedTokens = searchEnabled
+        ? await this.hasSearchTokens(join.entityId, opts.tenantId ?? null, orgScope)
+        : false
+      joinSearchAvailability.set(join.entityId, hasJoinedTokens)
+      const fallbackFields = filters
+        .filter((filter) => !hasJoinedTokens || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => filter.column)
+      if (!fallbackFields.length) continue
+      await warnOnCiphertextLikeFallback({
+        entity: join.entityId,
+        fields: fallbackFields,
+        tenantId: opts.tenantId ?? null,
+        reason: hasJoinedTokens
+          ? 'no-indexable-tokens'
+          : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+        service: this.getEncryptionService(),
+      })
     }
     const recordIdColumn = qualify('id')
 

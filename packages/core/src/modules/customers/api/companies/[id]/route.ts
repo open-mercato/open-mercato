@@ -28,6 +28,8 @@ import {
   resolveCompanyCustomFieldRouting,
   mergeCompanyCustomFieldValues,
 } from '../../../lib/customFieldRouting'
+import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
+import { isOpenDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -624,7 +626,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const plannedPreviewRows =
     canonicalActiveInteractions.length > 0
       ? canonicalActiveInteractions
-          .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+          .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
           .sort((left, right) => {
             const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
             const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
@@ -640,7 +642,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             organizationId: company.organizationId,
             tenantId: company.tenantId,
             deletedAt: null,
-            status: 'planned',
+            status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
             interactionType: { $ne: 'task' },
             ...emailVisibilityFilter,
           },
@@ -1014,10 +1016,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       .map((value) => (value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : ''))
       .filter((value) => value.length > 0),
   )
-  const activeDeals = dealLinksForMetrics.filter(
-    (deal) => deal.status !== 'won' && deal.status !== 'lost' && deal.status !== 'closed',
-  )
-  const wonDeals = dealLinksForMetrics.filter((deal) => deal.status === 'won')
+  const activeDeals = dealLinksForMetrics.filter((deal) => isOpenDealStatus(deal.status))
+  const wonDeals = dealLinksForMetrics.filter((deal) => isWonDealStatus(deal.status))
   const activeDealsValue = activeDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)
   const ltvValue = wonDeals.length
     ? wonDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)

@@ -4,6 +4,7 @@ import { loadAuditLogDisplayMaps } from '@open-mercato/core/modules/audit_logs/a
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { NextResponse } from 'next/server'
@@ -67,12 +68,12 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, {
-        error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
-      })
-    }
+    // Resolve the organization scope the same way every other scoped read does.
+    // Under "All organizations" (super-admin) `rbacOrganizationId` is null and
+    // `where` is empty, so the read scopes by tenant + resource only instead of
+    // failing — the document's `id` is a tenant-unique UUID, so no cross-org leak.
+    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+    const organizationId = orgFilter.rbacOrganizationId
 
     const requiredFeature = query.kind === 'order' ? 'sales.orders.view' : 'sales.quotes.view'
     const rbac = container.resolve('rbacService') as RbacService
@@ -92,7 +93,7 @@ export async function GET(req: Request) {
     const [actionLogList, notes] = await Promise.all([
       actionLogService.list({
         tenantId: auth.tenantId,
-        organizationId,
+        organizationId: organizationId ?? undefined,
         resourceKind,
         resourceId: query.id,
         includeRelated: true,
@@ -107,11 +108,11 @@ export async function GET(req: Request) {
           contextType: query.kind,
           contextId: query.id,
           tenantId: auth.tenantId,
-          organizationId,
+          ...orgFilter.where,
           deletedAt: null,
         },
         { orderBy: { createdAt: 'DESC' } },
-        { tenantId: auth.tenantId, organizationId },
+        { tenantId: auth.tenantId, organizationId: organizationId ?? undefined },
       ),
     ])
     const logs = actionLogList.items as ActionLog[]
