@@ -59,8 +59,13 @@ type StoredResult = {
 type StoredReviewResult = {
   status: string
   verdict: string
+  judgeVerdict?: string
+  judgeReport?: string
   report: string
   findings: Array<{ severity: string; path: string }>
+  artifactFindings?: Array<{ severity: string; path: string }>
+  harnessOwnerFindings?: unknown[]
+  designSystemReview?: { reviewer: string; status: string; findings: string[] }
   violations: string[]
   attempts: number
   corrections: number
@@ -70,6 +75,7 @@ type StoredReviewResult = {
   validationResult?: { path: string; sha256: string }
   validationEvidence: Array<{ id: string; status: string }>
   skill: { name: string; source: string; ref: string; declaredHash: string; installedHash: string; ownershipLedgerHash: string; bundleHash: string }
+  judgeSkill?: { name: string; bundleHash: string }
   actualContext: { paths: string[] }
   sourceResult: { path: string; sha256: string }
 }
@@ -266,8 +272,9 @@ test('the catalog count and release coverage are derived from the validator regi
     routing: { required: { caseIds: string }; portability: { caseIds: string[] }; runners: Record<string, { modelSelector: string }> }
     writable: Array<{ caseId: string }>
     generatedCodeReview: { required: boolean; skill: string; caseIds: string[] }
+    generativeJudge: { required: boolean; skill: string; reviewSkill: string; caseIds: string[] }
     generatedTests: { required: boolean; entries: Array<{ caseId: string; runner: string; artifact: string; network: string }> }
-    releaseSuite: { supportedRunners: string[]; requireGeneratedCodeReview: boolean; validationCommands: string[] }
+    releaseSuite: { supportedRunners: string[]; requireGenerativeJudge: boolean; requireGeneratedCodeReview: boolean; validationCommands: string[] }
   }
   assert.equal(cases.length, validators.catalog.expectedCaseCount)
   assert.equal(casesSchema.items.properties.maxInitialContextBytes.maximum, validators.catalog.maxInitialContextBytes)
@@ -298,6 +305,10 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
   assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)
+  assert.equal(matrix.generativeJudge.required, true)
+  assert.equal(matrix.generativeJudge.skill, 'om-judge-agent-session')
+  assert.equal(matrix.generativeJudge.reviewSkill, 'om-code-review')
+  assert.deepEqual(matrix.generativeJudge.caseIds, validators.catalog.writableCaseIds)
   assert.equal(matrix.generatedTests.required, true)
   assert.deepEqual(matrix.generatedTests.entries, [
     { caseId: 'OMH-163', runner: 'jest', artifact: 'src/modules/quote_approval/commands/__tests__/approve-quote.test.ts', network: 'none' },
@@ -306,6 +317,7 @@ test('the catalog count and release coverage are derived from the validator regi
     { caseId: 'OMH-192', runner: 'jest', artifact: 'src/modules/library/commands/__tests__/crm-loans.test.ts', network: 'none' },
   ])
   assert.deepEqual(matrix.releaseSuite.supportedRunners, ['codex', 'claude'])
+  assert.equal(matrix.releaseSuite.requireGenerativeJudge, true)
   assert.equal(matrix.releaseSuite.requireGeneratedCodeReview, true)
   assert.deepEqual(matrix.releaseSuite.validationCommands, ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build'])
   const portabilityCount = validators.catalog.writableCaseIds.length
@@ -2638,7 +2650,7 @@ test('writable mode remains explicit and refuses a target without acknowledgemen
   }
 })
 
-test('generated-code review uses a source-only bundle, pinned external skill evidence, and an explicit prior writable result', { skip: !targetSandboxAvailable }, () => {
+test('generative judge uses the reusable judge skill, pinned code-review evidence, design-system context, and an explicit writable result', { skip: !targetSandboxAvailable }, () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
   try {
@@ -2659,7 +2671,8 @@ const disabled = args.flatMap((arg, index) => arg === '--disable' ? [args[index 
 if (args[args.indexOf('--sandbox') + 1] !== 'workspace-write' || !args.includes('--ignore-user-config') || !disabled.includes('shell_tool') || !disabled.includes('unified_exec')) process.exit(9)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
 const allowedReads = JSON.parse(mcpArgs.at(-2))
-for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
+const judgeFiles = ['SKILL.md', 'references/agentic-setup.md', 'references/input-normalization.md', 'references/judge-workflow.md', 'references/report-template.md', 'references/rules.md'].map((file) => '.ai/skills/om-judge-agent-session/' + file)
+for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', ...judgeFiles, 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
@@ -2685,22 +2698,44 @@ const report = [
   '## 🧪 Test Coverage',
   'The trusted AST and target typecheck evidence cover the generated route shape; this supplemental review ran no target scripts.'
 ].join('\\n')
-fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', report, validationEvidence: evidence, findings: [] }))
-for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', '.agents/skills/om-code-review/references/agentic-setup.md', '.agents/skills/om-code-review/references/output-format.md', '.agents/skills/om-code-review/references/review-checklist.md', '.agents/skills/om-code-review/references/rules.md', '.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/crud-surfaces.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md', '.ai/skills/om-backend-ui-design/references/page-and-navigation.md', '.ai/skills/om-backend-ui-design/references/quality-states.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
+const judgeReport = [
+  '# Agent Session Judge Report',
+  '## Verdict',
+  'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
+  '## Evidence',
+  'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
+  '## Artifact Findings',
+  'No artifact findings.',
+  '## Design-System Review',
+  'om-backend-ui-design references were applied and no design-system finding applies to this API-only artifact.',
+  '## Harness-Owner Findings',
+  'No harness-owner finding is needed.',
+  '## Missing or Unverifiable Evidence',
+  'None.',
+  '## Recommended Next Actions',
+  'Retain the fixed gates and rerun this case when its route contract changes.'
+].join('\\n')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ schemaVersion: 1, verdict: 'approve', judgeVerdict: 'pass', report, judgeReport, fixedEvidenceStatus: 'pass', validationEvidence: evidence, findings: [], artifactFindings: [], harnessOwnerFindings: [], designSystemReview: { reviewer: 'om-backend-ui-design', status: 'pass', findings: [] } }))
+for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', ...judgeFiles, '.agents/skills/om-code-review/SKILL.md', '.agents/skills/om-code-review/references/agentic-setup.md', '.agents/skills/om-code-review/references/output-format.md', '.agents/skills/om-code-review/references/review-checklist.md', '.agents/skills/om-code-review/references/rules.md', '.ai/guides/backend-ui.md', '.ai/skills/om-backend-ui-design/SKILL.md', '.ai/skills/om-backend-ui-design/references/crud-surfaces.md', '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md', '.ai/skills/om-backend-ui-design/references/page-and-navigation.md', '.ai/skills/om-backend-ui-design/references/quality-states.md', 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
 `)
     const review = runEvaluator(controller, [
-      '--runner', 'codex', '--review-writable-result', sourceResult, '--writable-root', target,
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
     ], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(review.status, 0, `${review.stdout}\n${review.stderr}`)
-    assert.match(review.stdout, /PASS review OMH-011/)
+    assert.match(review.stdout, /PASS judge OMH-011/)
     const [stored] = storedReviewResults(controller)
     assert.equal(stored.status, 'pass')
     assert.equal(stored.attempts, 1)
     assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
+    assert.equal(stored.judgeVerdict, 'pass')
+    assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
+    assert.deepEqual(stored.artifactFindings, [])
+    assert.deepEqual(stored.harnessOwnerFindings, [])
+    assert.equal(stored.designSystemReview?.reviewer, 'om-backend-ui-design')
     assert.deepEqual(stored.reviewedPaths, ['src/modules/library/api/books/route.ts'])
     assert.ok(stored.reviewedBytes > 0)
     assert.equal(stored.skill.name, 'om-code-review')
@@ -2711,6 +2746,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.match(stored.skill.bundleHash, /^[a-f0-9]{64}$/)
     assert.match(stored.sourceResult.path, /^\.ai\/harness\/results\//)
     assert.ok(stored.actualContext.paths.includes('.agents/skills/om-code-review/references/review-checklist.md'))
+    assert.ok(stored.actualContext.paths.includes('.ai/skills/om-judge-agent-session/references/judge-workflow.md'))
     assert.ok(stored.actualContext.paths.includes('.ai/review-checklist.md'))
     assert.deepEqual(stored.reviewReferences, [
       '.ai/guides/backend-ui.md',
