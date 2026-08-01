@@ -33,6 +33,12 @@ export type WorkflowRouteChipsProps = {
   /** Canvas zoom; below the semantic-zoom threshold the caller passes `collapsed`. */
   collapsed?: boolean
   onOpenSection?: (section: RouteChipSection) => void
+  /**
+   * Open the focused single-activity modal for one activity chip. When omitted,
+   * an activity chip falls back to `onOpenSection('activities')` (the full
+   * transition inspector), preserving the pre-existing behavior.
+   */
+  onOpenActivity?: (activityId: string) => void
 }
 
 /**
@@ -51,7 +57,7 @@ const CHIP_CLASSES = 'inline-flex items-center gap-1 rounded-md border bg-card p
  * to dots so a 60-node flow stays navigable. Every chip is a button with an
  * accessible label and an icon, never colour alone.
  */
-export function WorkflowRouteChips({ model, collapsed = false, onOpenSection }: WorkflowRouteChipsProps) {
+export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, onOpenActivity }: WorkflowRouteChipsProps) {
   const t = useT()
 
   if (model.isEmpty) return null
@@ -108,7 +114,7 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection }: 
             className={`${CHIP_CLASSES} border-border text-muted-foreground hover:border-primary hover:text-foreground`}
             aria-label={t('workflows.routeChips.activityLabel', { activity: label })}
             title={label}
-            onClick={() => onOpenSection?.('activities')}
+            onClick={() => (onOpenActivity ? onOpenActivity(activity.activityId) : onOpenSection?.('activities'))}
           >
             <Icon className="size-3 shrink-0" aria-hidden="true" />
           </button>

@@ -80,7 +80,9 @@ import { isDecisionSourceHandle, type DecisionRowLike } from '../../../lib/node-
 import { STRUCTURAL_EDIT_CONFLICT_CODE } from '../../../lib/definition-edit-safety'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
 import { WORKFLOW_NODE_DELETE_EVENT } from '../../../components/WorkflowNodeCard'
-import { WORKFLOW_ROUTE_CHIP_EVENT, type RouteChipEventDetail } from '../../../lib/route-chip-events'
+import { WORKFLOW_ROUTE_CHIP_EVENT, WORKFLOW_ROUTE_ACTIVITY_EVENT, type RouteChipEventDetail, type RouteActivityEventDetail } from '../../../lib/route-chip-events'
+import { ActivityEditDialog } from '../../../components/ActivityEditDialog'
+import type { Activity } from '../../../components/fields/ActivityArrayEditor'
 import { applyRouteOrder, canNormalizeRoutePriorities, normalizeRoutePriorities, readRouteOrder, type RouteOrderEntry } from '../../../lib/route-priority'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { reattachWorkflowEdge, type EdgeReattachRejection } from '../../../lib/edge-reattachment'
@@ -306,6 +308,9 @@ export default function VisualEditorPage() {
   // cleared whenever the drawer is opened by anything else.
   const [metadataFocusSection, setMetadataFocusSection] = useState<DefinitionMetadataSection | null>(null)
   const [triggersDialogOpen, setTriggersDialogOpen] = useState(false)
+  // The route activity chip's target: which edge + activity the focused
+  // single-activity modal is editing (fidelity gap #6 follow-up).
+  const [activityEdit, setActivityEdit] = useState<{ edgeId: string; activityId: string } | null>(null)
   // The START node's trigger cap opens a focused Triggers modal (Direction A),
   // NOT the five-section definition drawer — the author clicked "what starts
   // this", so the affordance opens exactly that.
@@ -1430,6 +1435,18 @@ export default function VisualEditorPage() {
     window.addEventListener(WORKFLOW_ROUTE_CHIP_EVENT, onChipOpen)
     return () => window.removeEventListener(WORKFLOW_ROUTE_CHIP_EVENT, onChipOpen)
   }, [handleRouteChipOpen])
+
+  useEffect(() => {
+    const onActivityOpen = (event: Event) => {
+      if (isCodeOnly) return
+      const detail = (event as CustomEvent<RouteActivityEventDetail>).detail
+      if (detail?.edgeId && detail?.activityId) {
+        setActivityEdit({ edgeId: detail.edgeId, activityId: detail.activityId })
+      }
+    }
+    window.addEventListener(WORKFLOW_ROUTE_ACTIVITY_EVENT, onActivityOpen)
+    return () => window.removeEventListener(WORKFLOW_ROUTE_ACTIVITY_EVENT, onActivityOpen)
+  }, [isCodeOnly])
 
   // Handle new connections. A drop onto a sub-workflow IN port authors a field
   // mapping (written to the target step's config.inputMapping + a distinct data
@@ -2896,6 +2913,37 @@ export default function VisualEditorPage() {
         triggers={triggers}
         onSave={setTriggers}
       />
+      {(() => {
+        const edge = activityEdit ? edges.find((candidate) => candidate.id === activityEdit.edgeId) ?? null : null
+        const activities = (edge?.data?.activities as Activity[] | undefined) ?? []
+        const activity = activityEdit ? activities.find((item) => item.activityId === activityEdit.activityId) ?? null : null
+        const labelFor = (nodeId: string) =>
+          (nodes.find((node) => node.id === nodeId)?.data?.label as string | undefined) ?? nodeId
+        const routeLabel = edge ? `${labelFor(edge.source)} → ${labelFor(edge.target)}` : undefined
+        return (
+          <ActivityEditDialog
+            open={!!activity}
+            onOpenChange={(open) => { if (!open) setActivityEdit(null) }}
+            activity={activity}
+            routeLabel={routeLabel}
+            onSave={(updated) => {
+              if (!activityEdit) return
+              handleSaveEdge(activityEdit.edgeId, {
+                activities: activities.map((item) => (item.activityId === updated.activityId ? updated : item)),
+              })
+            }}
+            onRemove={() => {
+              if (!activityEdit) return
+              handleSaveEdge(activityEdit.edgeId, {
+                activities: activities.filter((item) => item.activityId !== activityEdit.activityId),
+              })
+            }}
+            onOpenFullTransition={() => {
+              if (activityEdit) handleRouteChipOpen(activityEdit.edgeId, 'activities')
+            }}
+          />
+        )
+      })()}
       <WorkflowCodeView
         isOpen={showCodeView}
         onClose={handleCloseCodeView}

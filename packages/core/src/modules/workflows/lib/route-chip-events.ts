@@ -23,3 +23,23 @@ export function requestRouteChipSection(edgeId: string, section: RouteChipSectio
     new CustomEvent<RouteChipEventDetail>(WORKFLOW_ROUTE_CHIP_EVENT, { detail: { edgeId, section } }),
   )
 }
+
+/**
+ * A single activity chip announces which activity it is, so the editor can open
+ * a focused single-activity modal instead of the whole transition inspector.
+ */
+export const WORKFLOW_ROUTE_ACTIVITY_EVENT = 'workflow-route-activity:open'
+
+export interface RouteActivityEventDetail {
+  edgeId: string
+  activityId: string
+}
+
+export function requestRouteActivityEdit(edgeId: string, activityId: string): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(
+    new CustomEvent<RouteActivityEventDetail>(WORKFLOW_ROUTE_ACTIVITY_EVENT, {
+      detail: { edgeId, activityId },
+    }),
+  )
+}

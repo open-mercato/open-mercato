@@ -5,7 +5,7 @@ import { WorkflowTransitionLabel } from './WorkflowTransitionLabel'
 import { WorkflowRouteChips } from './WorkflowRouteChips'
 import { EDGE_COLORS, EdgeState } from '../lib/status-colors'
 import { buildRouteChipModel, routeCarriesCondition, ROUTE_CHIP_ZOOM_THRESHOLD, type RouteChipSection } from '../lib/route-chips'
-import { requestRouteChipSection } from '../lib/route-chip-events'
+import { requestRouteActivityEdit, requestRouteChipSection } from '../lib/route-chip-events'
 
 export function WorkflowTransitionEdge({
   id,
@@ -65,6 +65,7 @@ export function WorkflowTransitionEdge({
   })
 
   const openSection = (section: RouteChipSection) => requestRouteChipSection(id, section)
+  const openActivity = (activityId: string) => requestRouteActivityEdit(id, activityId)
 
   // Spec section 4.6: a route is a graph element a screen reader must be able to
   // name. An error route says so, a labelled route reads its label, and an
@@ -117,7 +118,7 @@ export function WorkflowTransitionEdge({
           >
             {showLabel ? <WorkflowTransitionLabel label={label} state={state} /> : null}
             {showChips ? (
-              <WorkflowRouteChips model={chipModel} collapsed={isZoomedOut} onOpenSection={openSection} />
+              <WorkflowRouteChips model={chipModel} collapsed={isZoomedOut} onOpenSection={openSection} onOpenActivity={openActivity} />
             ) : null}
           </div>
         </EdgeLabelRenderer>
