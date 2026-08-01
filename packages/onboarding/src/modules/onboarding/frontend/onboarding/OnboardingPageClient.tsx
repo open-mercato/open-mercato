@@ -406,7 +406,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
             <p className="text-xs leading-relaxed text-muted-foreground">
               {translate(
                 'onboarding.form.legalEntity',
-                'Open Mercato sp. z o.o., with its registered office at ul. Wyspa Słodowa 7, 50-266 Wrocław, Poland, entered into the Register of Entrepreneurs of the National Court Register (KRS) maintained by the District Court for Wrocław-Fabryczna in Wrocław, 6th Commercial Division of the National Court Register, under KRS No. 0001253104, VAT No. (NIP) PL8982336029, REGON 545230330, with a share capital of PLN 5,000.00, fully paid.',
+                'Open Mercato sp. z o.o., with its registered office at ul. Wyspa Słodowa 7, 50-266 Wrocław, Poland, entered into the Register of Entrepreneurs of the National Court Register (KRS) maintained by the District Court for Wrocław-Fabryczna in Wrocław, 6th Commercial Division of the National Court Register, under KRS No. 0001253104, VAT No. (NIP) PL8982336029, REGON 545230330, with a share capital of PLN 80,000.00, fully paid.',
               )}
             </p>
             <Button
