@@ -13,6 +13,7 @@ import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import {
@@ -2004,6 +2005,7 @@ async function seedCustomerStressTest(
       updated_at: Date
       deleted_at: null
     }> = []
+    const searchConfig = resolveSearchConfig()
     for (const [entityType, bucket] of pendingIndexDocs.entries()) {
       for (const entry of bucket.values()) {
         if (!entry.baseRow || Object.keys(entry.baseRow).length === 0) continue
@@ -2012,10 +2014,15 @@ async function seedCustomerStressTest(
           entity_id: entry.recordId,
           organization_id: entry.organizationId,
           tenant_id: entry.tenantId,
-          doc: buildIndexDocument(entry.baseRow, entry.customFields, {
-            organizationId: entry.organizationId,
-            tenantId: entry.tenantId,
-          }),
+          doc: buildIndexDocument(
+            entry.baseRow,
+            entry.customFields,
+            {
+              organizationId: entry.organizationId,
+              tenantId: entry.tenantId,
+            },
+            { entityType, config: searchConfig },
+          ),
           index_version: 1,
           created_at: entry.createdAt,
           updated_at: entry.updatedAt,

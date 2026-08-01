@@ -1,6 +1,6 @@
 # Reproducible Case Template
 
-Use the next contiguous `OMH-NNN` ID. Copy an adjacent case from `.ai/harness/cases.json`, then fill this contract rather than inventing a second format:
+Use the next contiguous `OMH-NNN` ID. Take the shape of an adjacent case from `.ai/harness/cases.json`, then fill this contract rather than inventing a second format:
 
 ```json
 {
@@ -19,12 +19,23 @@ Use the next contiguous `OMH-NNN` ID. Copy an adjacent case from `.ai/harness/ca
   "requiredDecisions": ["semantic-decision-id"],
   "forbiddenPatterns": ["unsafe-regex"],
   "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-  "maxContextFiles": 5,
-  "maxInitialContextBytes": 24576,
-  "maxTotalContextBytes": 98304,
+  "maxContextFiles": "<calibrated, see below>",
+  "maxInitialContextBytes": "<calibrated, see below>",
+  "maxTotalContextBytes": "<calibrated, see below>",
   "relatedCases": ["OMH-NNN"]
 }
 ```
+
+Copy the shape from an adjacent case, never its budgets. Calibrate them from this case's own measured
+footprint in a scaffolded controller: sum the on-disk size of `context.required` plus every
+`context.allowedExtra` path, counting a path toward the *initial* budgets unless it lives under
+`/references/`, `.ai/framework-context/`, `.ai/guides/modules/`, `.ai/guides/upstream/`, or `.agents/skills/`. Round up to leave real
+slack — a budget equal to the declared set fails a correct run on one incidental read — then confirm
+against a clean passing live trace rather than a neighbouring case's envelope.
+
+`yarn harness:validate --all` measures this for you and rejects a case whose required or declared context
+cannot fit its own file/byte budgets, naming the exact numbers. A case that trips it is unpassable or
+self-contradictory, not merely tight.
 
 Omit `decisionVocabulary` when every offered label is mandatory. Include it only
 for a contrastive case; it must contain every `requiredDecisions` label plus at

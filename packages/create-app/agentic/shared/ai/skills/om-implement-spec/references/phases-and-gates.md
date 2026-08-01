@@ -17,7 +17,7 @@ If any item is absent, stop implementation and return the spec to `om-spec-writi
 
 ## Phase state machine
 
-1. Build a requirement-to-phase matrix with acceptance path, affected modules/packages, routed guides/skills, dependencies, BC surfaces, schema impact, and test oracle.
+1. Build the requirement-to-phase matrix and phase execution plan using `planning-and-progress.md`; it owns the plan fields, user confirmation, and progress format.
 2. Keep phases in `pending → in_progress → verified` order. Only one phase may be `in_progress`; a phase can start only when every declared dependency is `verified`.
 3. Order by foundations and then complete vertical slices. Do not launch one agent per later module or implement all entities/APIs first and postpone their required UI/integration to a catch-all phase.
 4. Inside the active phase, assign only independent research, implementation, integration-test, and review slices to bounded agents. Give each one owned files, routed guides/skills, closest installed reference, canonical primitives, acceptance IDs, and a validation oracle; one owner per file/slice. Invoke routed skills before delegation—especially `om-backend-ui-design` for rendered surfaces—rather than paraphrasing guessed conventions into the prompt.
