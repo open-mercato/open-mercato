@@ -74,6 +74,15 @@ type StoredReviewResult = {
   sourceResult: { path: string; sha256: string }
 }
 
+// The evaluator's own initial-context rule, mirrored so budget assertions measure what it measures.
+function isInitialContextPath(relative: string): boolean {
+  return !relative.includes('/references/')
+    && !relative.startsWith('.ai/framework-context/')
+    && !relative.startsWith('.ai/guides/modules/')
+    && !relative.startsWith('.ai/guides/upstream/')
+    && !relative.startsWith('.agents/skills/')
+}
+
 function stageApp(): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-eval-')))
   fs.cpSync(path.join(sharedRoot, 'ai'), path.join(root, '.ai'), { recursive: true })
@@ -447,6 +456,80 @@ test('deterministic evaluation passes every concrete catalog case in an emitted-
   }
 })
 
+test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4565)', () => {
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      id: string
+      context: { required: string[]; allowedExtra?: string[] }
+      maxContextFiles: number
+      maxInitialContextBytes: number
+      maxTotalContextBytes: number
+    }>
+    // Mirror the evaluator: skip what is absent (fact-sheets are generated after module
+    // discovery) and count only initial paths toward the initial budgets.
+    const measure = (paths: string[], initialOnly: boolean) => paths.reduce((total, relative) => {
+      if (initialOnly && !isInitialContextPath(relative)) return total
+      try { return total + fs.statSync(path.join(root, relative)).size } catch { return total }
+    }, 0)
+    const measured = measure(cases[0].context.required, true)
+    assert.ok(measured > 4096, 'the first case must require more than the smallest legal byte budget')
+    cases[0].maxInitialContextBytes = 4096
+    cases[1].context.allowedExtra = [...(cases[1].context.allowedExtra ?? []), '.ai/guides/testing-debugging.md']
+    cases[1].maxContextFiles = cases[1].context.required.length
+    // The total-byte arm needs a non-initial path so the initial budgets stay satisfiable and only
+    // maxTotalContextBytes can fail; a `/references/` file is non-initial and ships with the skills.
+    const nonInitial = '.ai/skills/om-evolve-harness/references/case-template.md'
+    cases[2].context.required = [...cases[2].context.required, nonInitial]
+    const declaredOfThird = [...cases[2].context.required, ...(cases[2].context.allowedExtra ?? [])]
+    const declaredInitialOfThird = measure(declaredOfThird, true)
+    const declaredTotalOfThird = measure(declaredOfThird, false)
+    assert.ok(declaredTotalOfThird > declaredInitialOfThird, 'the third case must declare a non-initial path with bytes')
+    cases[2].maxInitialContextBytes = declaredInitialOfThird
+    cases[2].maxTotalContextBytes = declaredInitialOfThird
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[0].id}:.*required context exceeds maxInitialContextBytes: ${measured}/4096`))
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[1].id}:.*declared context exceeds maxContextFiles`))
+    assert.match(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*declared context exceeds maxTotalContextBytes: ${declaredTotalOfThird}/${declaredInitialOfThird}`))
+    assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*exceeds maxInitialContextBytes`))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the evaluator, the mirrored helper, and the calibration template agree on initial-context exclusions (#4565)', () => {
+  const evaluatorSource = fs.readFileSync(sourceEvaluator, 'utf8')
+  const productionRule = /function isInitialContextPath\(relative\) \{\n([\s\S]*?)\n\}/.exec(evaluatorSource)
+  assert.ok(productionRule, 'the evaluator must still declare isInitialContextPath for this mirror to track')
+  const body = productionRule[1]
+  const prefixes = [...body.matchAll(/!relative\.startsWith\('([^']+)'\)/g)].map((match) => match[1])
+  const substrings = [...body.matchAll(/!relative\.includes\('([^']+)'\)/g)].map((match) => match[1])
+  assert.ok(prefixes.includes('.ai/framework-context/'), 'materialized framework context stays outside the initial budgets')
+  assert.equal(
+    prefixes.length + substrings.length,
+    (body.match(/!relative\./g) ?? []).length,
+    'every production exclusion must be expressed as a startsWith or includes clause this mirror can read',
+  )
+
+  const template = fs.readFileSync(
+    path.join(sharedRoot, 'ai', 'skills', 'om-evolve-harness', 'references', 'case-template.md'),
+    'utf8',
+  )
+  assert.equal(isInitialContextPath('AGENTS.md'), true, 'an ordinary root path stays initial context')
+  for (const prefix of prefixes) {
+    assert.equal(isInitialContextPath(`${prefix}sample.md`), false, `the mirrored helper must exclude ${prefix}`)
+    assert.ok(template.includes(`\`${prefix}\``), `the calibration template must list ${prefix}`)
+  }
+  for (const substring of substrings) {
+    assert.equal(isInitialContextPath(`.ai/skills/om-sample${substring}sample.md`), false, `the mirrored helper must exclude ${substring}`)
+    assert.ok(template.includes(`\`${substring}\``), `the calibration template must list ${substring}`)
+  }
+})
+
 test('deterministic evaluation rejects module-fact context absent from an emitted controller', () => {
   const root = stageApp()
   try {
@@ -477,12 +560,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-193', () => {
+test('deterministic evaluation enforces the case schema through OMH-202', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-193')
+    assert.equal(cases.at(-1)?.id, 'OMH-202')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -1878,11 +1961,22 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['spec-pr'], selectedSkills: ['om-implement-spec'],
-  selectedContext: ['AGENTS.md', '.agents/skills/om-implement-spec/SKILL.md'],
-  decisions: ['working-phases', 'smallest-validation'], violations: []
+  selectedContext: [
+    'AGENTS.md',
+    '.agents/skills/om-implement-spec/SKILL.md',
+    '.agents/skills/om-implement-spec/references/spec-resolution.md',
+    '.agents/skills/om-implement-spec/references/phases-and-gates.md',
+    '.agents/skills/om-implement-spec/references/planning-and-progress.md',
+    '.agents/skills/om-implement-spec/references/report-templates.md'
+  ],
+  decisions: [
+    'spec-resolution', 'phase-execution-plan', 'interactive-confirmation',
+    'working-phases', 'smallest-validation', 'implementation-progress',
+    'stable-implementation-report', 'spec-reference-marker'
+  ], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md'
+  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/report-templates.md'
 } }))
 `)
   try {
@@ -1891,7 +1985,14 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
-    assert.deepEqual(storedResults(root)[0].selectedContext, ['AGENTS.md', '.ai/skills/om-implement-spec/SKILL.md'])
+    assert.deepEqual(storedResults(root)[0].selectedContext, [
+      'AGENTS.md',
+      '.ai/skills/om-implement-spec/SKILL.md',
+      '.ai/skills/om-implement-spec/references/spec-resolution.md',
+      '.ai/skills/om-implement-spec/references/phases-and-gates.md',
+      '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+      '.ai/skills/om-implement-spec/references/report-templates.md',
+    ])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

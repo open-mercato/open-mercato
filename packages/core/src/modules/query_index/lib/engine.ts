@@ -22,6 +22,7 @@ import {
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
+import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -449,6 +450,47 @@ export class HybridQueryEngine implements QueryEngine {
           tenantId: opts.tenantId ?? null,
           organizationScope: orgScope,
           searchSources,
+        })
+        const baseSearchFilters = [...baseFilters, ...cfFilters]
+          .filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+        const fallbackFields = baseSearchFilters
+          .filter((filter) => !searchRuntime.enabled || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+          .map((filter) => String(filter.field))
+        if (fallbackFields.length) {
+          await warnOnCiphertextLikeFallback({
+            entity: String(entity),
+            fields: fallbackFields,
+            tenantId: opts.tenantId ?? null,
+            // `searchEnabled` also folds in the missing-table case, which is
+            // "no usable tokens" rather than "the operator switched search off".
+            reason: searchRuntime.enabled
+              ? 'no-indexable-tokens'
+              : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+            service: this.getEncryptionService(),
+          })
+        }
+      }
+      for (const [alias, joinedFilters] of joinFilters) {
+        const filters = joinedFilters.filter((entry) => entry.op === 'like' || entry.op === 'ilike')
+        if (!filters.length) continue
+        const join = joinMap.get(alias)
+        if (!join?.entityId) continue
+        const hasJoinedTokens = searchEnabled
+          ? await this.hasSearchTokens(String(join.entityId), opts.tenantId ?? null, orgScope)
+          : false
+        joinSearchAvailability.set(String(join.entityId), hasJoinedTokens)
+        const fallbackFields = filters
+          .filter((filter) => !hasJoinedTokens || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+          .map((filter) => filter.column)
+        if (!fallbackFields.length) continue
+        await warnOnCiphertextLikeFallback({
+          entity: String(join.entityId),
+          fields: fallbackFields,
+          tenantId: opts.tenantId ?? null,
+          reason: hasJoinedTokens
+            ? 'no-indexable-tokens'
+            : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          service: this.getEncryptionService(),
         })
       }
       const hasNonBaseSearchSource = searchSources.some(
