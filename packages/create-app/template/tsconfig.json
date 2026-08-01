@@ -24,7 +24,6 @@
         "name": "next"
       }
     ],
-    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"
@@ -49,7 +48,9 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".mercato/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".mercato/next/types/**/*.ts",
+    ".mercato/next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

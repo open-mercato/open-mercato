@@ -52,6 +52,7 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
       'customers.companies.list',
       'customers.deals.list',
       'customers.people.list',
+      'customers.todos.list',
     ])
     expect(facts.hostTokens.entityIds).toEqual(['customers:customer_entity'])
     expect(facts.diTokens).toEqual([])

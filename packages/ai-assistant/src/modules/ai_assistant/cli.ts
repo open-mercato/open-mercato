@@ -161,6 +161,47 @@ const mcpDev: ModuleCli = {
   },
 }
 
+const mcpEnsureApiKey: ModuleCli = {
+  command: 'mcp:ensure-api-key',
+  async run(rest) {
+    const args = parseArgs(rest)
+    // A bare `--file` (no value) parses to boolean true — treat it as missing
+    // rather than provisioning into a file literally named "true".
+    const fileArg = typeof args.file === 'string' ? args.file.trim() : ''
+    const filePath =
+      fileArg || process.env.MCP_SERVER_API_KEY_FILE?.trim() || process.env.MCP_API_KEY_FILE?.trim() || ''
+    if (!filePath) {
+      console.error('Usage: mercato ai_assistant mcp:ensure-api-key --file <path> [options]')
+      console.error('')
+      console.error('Ensures a valid MCP server API key exists in the database and that its')
+      console.error('plaintext secret is stored in <path> (the idempotency anchor). The secret')
+      console.error('is never printed; consumers such as the OpenCode container read the file.')
+      console.error('')
+      console.error('Options:')
+      console.error('  --file <path>    Secret file path (or MCP_SERVER_API_KEY_FILE env)')
+      console.error('  --name <name>    API key name (default __mcp_server__)')
+      console.error('  --email <email>  Owner user email (default OM_INIT_SUPERADMIN_EMAIL, then superadmin@acme.com)')
+      console.error('  --rotate         Force rotation even when the file secret is still valid')
+      process.exitCode = 1
+      return
+    }
+
+    const keyName = typeof args.name === 'string' && args.name.length > 0 ? args.name : undefined
+    const ownerEmail = typeof args.email === 'string' && args.email.length > 0 ? args.email : undefined
+    const rotate = args.rotate === true || args.rotate === 'true'
+
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const rbac = container.resolve('rbacService') as import('@open-mercato/core/modules/auth/services/rbacService').RbacService
+
+    const { ensureMcpApiKey } = await import('./lib/mcp-ensure-api-key')
+    const result = await ensureMcpApiKey({ em, filePath, keyName, ownerEmail, rotate, rbac })
+    const message = result.status === 'valid' ? 'Existing key is valid' : 'New key created'
+    console.log(`[mcp:ensure-api-key] ${message} (id=${result.keyId}, prefix=${result.keyPrefix})`)
+  },
+}
+
 const listTools: ModuleCli = {
   command: 'mcp:list-tools',
   async run(rest) {
@@ -377,6 +418,7 @@ export default [
   mcpServe,
   mcpServeHttp,
   mcpDev,
+  mcpEnsureApiKey,
   listTools,
   entityGraph,
   runPendingActionCleanup,

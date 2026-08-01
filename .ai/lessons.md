@@ -970,9 +970,41 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
 
+- 2026-07-11 · shared data engine: tenant-scope tests covered explicit null but not omitted scope → parameterize non-null, null, and omitted tenantId for every predicate path.
+
+## Shared security-default changes require a complete consumer audit
+
+**Context**: Hardening the shared rate-limit proxy-depth default fixed auth and metadata-driven consumers, but checkout public routes still passed a hard-coded trust depth of `1`.
+
+**Problem**: A secure shared default has no effect when a downstream consumer overrides it. Direct checkout deployments could still trust attacker-controlled forwarding headers and rotate rate-limit buckets.
+
+**Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
+
+**Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-07-10 · payment_gateways: mock-only idempotency coverage missed Stripe partial-refund terminalization and retry advancement → test production adapters, successor-state reconciliation, and rerunnable operation IDs.
+- 2026-07-09 · customer_accounts: organization-scoped RBAC queries can still trust pre-hardening ACL caches → version the cache-key namespace when authorization semantics change
+- 2026-07-10 · payment_gateways: a stale-claim lease without owner heartbeats can steal slow live provider calls; renew token-scoped leases during provider I/O and let followers wait for the shared result.
+- 2026-07-09 · api_keys: Do not confuse a superadmin's immutable actor tenant with its intentional selected-tenant CRUD scope → fail-close organization arrays without overriding effective `auth.tenantId`.
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+## Security caches must outlive request-scoped providers and cover reserved IPv6 space
+
+**Context**: OIDC discovery hardening initially cached configurations on a provider that dependency injection recreates per request, while the shared IP classifier omitted several IANA-reserved IPv6 prefixes.
+
+**Rule**: Put bounded outbound-discovery caches at process scope when providers are request-scoped, key them by every credential/config input, and verify reserved IPv4 and IPv6 ranges against public-address controls.
+
+**Applies to**: SSRF guards, OIDC/OAuth discovery, JWKS/token/user-info clients, and request-scoped outbound provider services.
+
+## DNS pinning must keep fetch and dispatcher implementations compatible
+
+**Context**: A pinned outbound request used an `undici` package `Agent` with Node's bundled global `fetch`, then returned only the legacy single-address DNS callback shape while Node 24 requested all addresses.
+
+**Rule**: Use `fetch` and `Agent` from the same `undici` implementation, and make custom lookup callbacks support both single-address and `{ all: true }` result shapes. Cover the dispatcher path with a regression test and smoke-test at least one real HTTPS endpoint.
+
+**Applies to**: SSRF-safe fetch helpers, custom `undici` dispatchers, DNS pinning, and runtimes that enable automatic address-family selection.
 
 ## Validate persisted-definition consumers before retiring legacy workflow rows
 
@@ -993,3 +1025,11 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When code must write a row that a subsequent out-of-band request (self `fetch`, worker, another connection) has to read, create/flush it on a context-detached EM: `em.fork({ clear: true, freshEventManager: true, useContext: false })`. That fork commits on its own pooled connection, matching the query_index/webhooks isolated-EM convention.
 
 **Applies to**: `activity-executor` `CALL_API`, any one-time credential minted for a self-request, and anything that persists data then reads it back over HTTP or from a second connection while a transaction is open.
+
+## Standalone agent context must follow the installed package, not the checkout layout
+
+**Context**: Generated apps ignore `node_modules`, while coding agents still need the exact root, package, and module `AGENTS.md` contracts plus implementation source for the installed Open Mercato version.
+
+**Rule**: Publish source and instruction files in package tarballs, resolve them through the app's declared module package and exact installed version, and materialize only the requested read-only context outside `node_modules`. Keep a versioned root/BC snapshot for offline fallback, report version skew, and never teach agents to edit or broadly ingest installed dependencies.
+
+**Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
