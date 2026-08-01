@@ -7,6 +7,7 @@ import {
   type WidgetDataRequest,
 } from '../widgetDataService'
 import type { AnalyticsRegistry } from '../analyticsRegistry'
+import type { BaseCurrencyResolver, BaseCurrencyResolution } from '../../lib/optionalBaseCurrency'
 
 jest.mock('../../lib/aggregations', () => ({
   ...jest.requireActual('../../lib/aggregations'),
@@ -57,22 +58,27 @@ function createCurrencyAwareRegistry(currencyField: string | null = 'currencyCod
   }
 }
 
-function isBaseCurrencyQuery(sql: string): boolean {
-  return sql.includes('FROM currencies')
-}
-
 function isRowCurrencyQuery(sql: string): boolean {
   return sql.includes('SELECT DISTINCT UPPER(NULLIF(BTRIM(currency_code)')
 }
 
 function countAggregationCalls(execute: jest.Mock): number {
-  return execute.mock.calls.filter(([sql]: [string]) => !isBaseCurrencyQuery(sql)).length
+  return execute.mock.calls.filter(([sql]: [string]) => !isRowCurrencyQuery(sql)).length
+}
+
+function createBaseCurrencyResolver(
+  result: BaseCurrencyResolution = { status: 'resolved', code: 'PLN' },
+): BaseCurrencyResolver & { resolveBaseCurrency: jest.Mock } {
+  return {
+    resolveBaseCurrency: jest.fn(async () => result),
+  }
 }
 
 function createService(
   execute: (sql: string, params: unknown[]) => Promise<ExecuteResult>,
   scope: { tenantId: string; organizationIds?: string[] } = { tenantId: 'tenant-1' },
   registry: AnalyticsRegistry = createRegistry(),
+  baseCurrencyResolver?: BaseCurrencyResolver,
 ) {
   const em = {
     getConnection: () => ({ execute }),
@@ -81,6 +87,7 @@ function createService(
     em,
     scope,
     registry,
+    baseCurrencyResolver,
   })
 }
 
@@ -95,8 +102,7 @@ describe('WidgetDataService comparison fetching', () => {
   test('runs the primary and comparison queries in parallel', async () => {
     const deferreds = [createDeferred<ExecuteResult>(), createDeferred<ExecuteResult>()]
     let started = 0
-    const execute = jest.fn(async (sql: string) => {
-      if (isBaseCurrencyQuery(sql)) return []
+    const execute = jest.fn(async () => {
       const deferred = deferreds[started]
       started += 1
       return deferred.promise
@@ -123,8 +129,7 @@ describe('WidgetDataService comparison fetching', () => {
   })
 
   test('preserves the comparison response shape and math', async () => {
-    const execute = jest.fn(async (sql: string, _params: unknown[]): Promise<ExecuteResult> => {
-      if (isBaseCurrencyQuery(sql)) return []
+    const execute = jest.fn(async (): Promise<ExecuteResult> => {
       return countAggregationCalls(execute) === 1 ? [{ value: 80 }] : [{ value: 100 }]
     })
 
@@ -143,9 +148,7 @@ describe('WidgetDataService comparison fetching', () => {
   })
 
   test('runs a single query and omits comparison when none is requested', async () => {
-    const execute = jest.fn(async (sql: string): Promise<ExecuteResult> =>
-      isBaseCurrencyQuery(sql) ? [] : [{ value: 42 }],
-    )
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [{ value: 42 }])
     const service = createService(execute)
 
     const response = await service.fetchWidgetData({
@@ -167,76 +170,58 @@ describe('WidgetDataService base currency resolution', () => {
     dateRange: { field: 'created_at', preset: 'this_month' },
   }
 
-  function createCurrencyExecute(rows: ExecuteResult) {
-    return jest.fn(async (sql: string): Promise<ExecuteResult> =>
-      isBaseCurrencyQuery(sql) ? rows : [{ value: 10 }],
-    )
-  }
+  const execute = jest.fn(async (): Promise<ExecuteResult> => [{ value: 10 }])
 
-  test('reports the scope base currency instead of a hard-coded default', async () => {
-    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
-    const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
+  test('reports the code resolved by the currencies-owned service', async () => {
+    const resolver = createBaseCurrencyResolver()
+    const service = createService(
+      execute,
+      { tenantId: 'tenant-1', organizationIds: ['org-1'] },
+      createRegistry(),
+      resolver,
+    )
 
     const response = await service.fetchWidgetData(request)
 
     expect(response.metadata.currency).toBe('PLN')
-    const currencyCall = execute.mock.calls.find(([sql]: [string]) => isBaseCurrencyQuery(sql))
-    expect(currencyCall?.[0]).toContain('is_base = true')
-    expect(currencyCall?.[1]).toEqual(['tenant-1', '{org-1}'])
+    expect(resolver.resolveBaseCurrency).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1'],
+    })
   })
 
-  test('resolves to null when the scope spans different base currencies', async () => {
-    const execute = createCurrencyExecute([
-      { organization_id: 'org-1', code: 'PLN' },
-      { organization_id: 'org-2', code: 'EUR' },
-    ])
+  test.each<BaseCurrencyResolution>([
+    { status: 'missing' },
+    { status: 'ambiguous' },
+    { status: 'unavailable' },
+  ])('leaves the amount unlabelled for a $status resolution', async (result) => {
+    const service = createService(
+      execute,
+      { tenantId: 'tenant-1', organizationIds: ['org-1'] },
+      createRegistry(),
+      createBaseCurrencyResolver(result),
+    )
+
+    await expect(service.fetchWidgetData(request)).resolves.toMatchObject({
+      metadata: { currency: null },
+    })
+  })
+
+  test('leaves an unbounded organization scope unlabelled without calling the resolver', async () => {
+    const resolver = createBaseCurrencyResolver()
+    const service = createService(execute, { tenantId: 'tenant-1' }, createRegistry(), resolver)
+
+    const response = await service.fetchWidgetData(request)
+
+    expect(response.metadata.currency).toBeNull()
+    expect(resolver.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+
+  test('degrades to null when the currencies module is disabled', async () => {
     const service = createService(execute, {
       tenantId: 'tenant-1',
-      organizationIds: ['org-1', 'org-2'],
+      organizationIds: ['org-1'],
     })
-
-    const response = await service.fetchWidgetData(request)
-
-    expect(response.metadata.currency).toBeNull()
-  })
-
-  test('resolves to null when one organization in the scope has no base currency', async () => {
-    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
-    const service = createService(execute, {
-      tenantId: 'tenant-1',
-      organizationIds: ['org-1', 'org-2'],
-    })
-
-    const response = await service.fetchWidgetData(request)
-
-    expect(response.metadata.currency).toBeNull()
-  })
-
-  test('resolves to null when no base currency is configured', async () => {
-    const execute = createCurrencyExecute([])
-    const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
-
-    const response = await service.fetchWidgetData(request)
-
-    expect(response.metadata.currency).toBeNull()
-  })
-
-  test('leaves an unbounded organization scope unlabelled without querying currencies', async () => {
-    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
-    const service = createService(execute)
-
-    const response = await service.fetchWidgetData(request)
-
-    expect(response.metadata.currency).toBeNull()
-    expect(execute.mock.calls.some(([sql]: [string]) => isBaseCurrencyQuery(sql))).toBe(false)
-  })
-
-  test('degrades to null when the currencies lookup fails', async () => {
-    const execute = jest.fn(async (sql: string): Promise<ExecuteResult> => {
-      if (isBaseCurrencyQuery(sql)) throw new Error('relation "currencies" does not exist')
-      return [{ value: 10 }]
-    })
-    const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
 
     const response = await service.fetchWidgetData(request)
 
@@ -245,14 +230,18 @@ describe('WidgetDataService base currency resolution', () => {
   })
 
   test('resolves the base currency once per service instance', async () => {
-    const execute = createCurrencyExecute([{ organization_id: 'org-1', code: 'PLN' }])
-    const service = createService(execute, { tenantId: 'tenant-1', organizationIds: ['org-1'] })
+    const resolver = createBaseCurrencyResolver()
+    const service = createService(
+      execute,
+      { tenantId: 'tenant-1', organizationIds: ['org-1'] },
+      createRegistry(),
+      resolver,
+    )
 
     await service.fetchWidgetData(request)
     await service.fetchWidgetData({ ...request, metric: { field: 'total', aggregate: 'avg' } })
 
-    const currencyCalls = execute.mock.calls.filter(([sql]: [string]) => isBaseCurrencyQuery(sql))
-    expect(currencyCalls).toHaveLength(1)
+    expect(resolver.resolveBaseCurrency).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -265,19 +254,18 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
     dateRange: { field: 'placedAt', preset: 'this_month' },
   }
 
-  function createExecute(baseRows: ExecuteResult, rowCurrencyRows: ExecuteResult) {
+  function createExecute(rowCurrencyRows: ExecuteResult) {
     return jest.fn(async (sql: string): Promise<ExecuteResult> => {
-      if (isBaseCurrencyQuery(sql)) return baseRows
       if (isRowCurrencyQuery(sql)) return rowCurrencyRows
       return [{ value: 1000 }]
     })
   }
 
-  const basePln: ExecuteResult = [{ organization_id: 'org-1', code: 'PLN' }]
+  const basePln = createBaseCurrencyResolver()
 
   test('keeps the base currency when every aggregated row carries it', async () => {
-    const execute = createExecute(basePln, [{ code: 'PLN' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: 'PLN' }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -285,8 +273,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('does not label a total whose rows span several currencies', async () => {
-    const execute = createExecute(basePln, [{ code: 'PLN' }, { code: 'EUR' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: 'PLN' }, { code: 'EUR' }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -295,8 +283,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('does not label a total whose only row currency differs from the base currency', async () => {
-    const execute = createExecute(basePln, [{ code: 'EUR' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: 'EUR' }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -304,8 +292,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('does not label a total whose rows have no recorded currency', async () => {
-    const execute = createExecute(basePln, [{ code: null }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: null }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -313,8 +301,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('does not label a total when an unset currency sits alongside the base one', async () => {
-    const execute = createExecute(basePln, [{ code: null }, { code: '' }, { code: 'PLN' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: null }, { code: '' }, { code: 'PLN' }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -322,8 +310,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('drops the label when an unset currency sits alongside a foreign one', async () => {
-    const execute = createExecute(basePln, [{ code: null }, { code: 'PLN' }, { code: 'EUR' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: null }, { code: 'PLN' }, { code: 'EUR' }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -331,8 +319,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('keeps the base currency when the range aggregates no rows at all', async () => {
-    const execute = createExecute(basePln, [])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -340,8 +328,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('scopes the row-currency lookup to the same tenant, organizations and date range', async () => {
-    const execute = createExecute(basePln, [{ code: 'PLN' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: 'PLN' }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     await service.fetchWidgetData(request)
 
@@ -358,14 +346,13 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   test('checks the comparison range as well, so a mixed comparison period is not labelled', async () => {
     let rowCurrencyCalls = 0
     const execute = jest.fn(async (sql: string): Promise<ExecuteResult> => {
-      if (isBaseCurrencyQuery(sql)) return basePln
       if (isRowCurrencyQuery(sql)) {
         rowCurrencyCalls += 1
         return rowCurrencyCalls === 1 ? [{ code: 'PLN' }] : [{ code: 'PLN' }, { code: 'EUR' }]
       }
       return [{ value: 1000 }]
     })
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData({
       ...request,
@@ -378,11 +365,10 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
 
   test('drops the label when the row-currency lookup fails', async () => {
     const execute = jest.fn(async (sql: string): Promise<ExecuteResult> => {
-      if (isBaseCurrencyQuery(sql)) return basePln
       if (isRowCurrencyQuery(sql)) throw new Error('column "currency_code" does not exist')
       return [{ value: 1000 }]
     })
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const service = createService(execute, scope, createCurrencyAwareRegistry(), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -391,8 +377,8 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('keeps the base currency for an entity that declares no per-row currency column', async () => {
-    const execute = createExecute(basePln, [{ code: 'EUR' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry(null))
+    const execute = createExecute([{ code: 'EUR' }])
+    const service = createService(execute, scope, createCurrencyAwareRegistry(null), basePln)
 
     const response = await service.fetchWidgetData(request)
 
@@ -401,8 +387,13 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 
   test('does not query row currencies when no base currency resolved in the first place', async () => {
-    const execute = createExecute([], [{ code: 'PLN' }])
-    const service = createService(execute, scope, createCurrencyAwareRegistry())
+    const execute = createExecute([{ code: 'PLN' }])
+    const service = createService(
+      execute,
+      scope,
+      createCurrencyAwareRegistry(),
+      createBaseCurrencyResolver({ status: 'missing' }),
+    )
 
     const response = await service.fetchWidgetData(request)
 

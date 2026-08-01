@@ -90,8 +90,13 @@ describe('formatters', () => {
     })
 
     it('resolves the symbol from an ISO currency code', () => {
-      expect(formatCurrencyCompact(1000000, 'USD')).toMatch(/^(\$|US\$|USD)1\.0M$/)
-      expect(formatCurrencyCompact(5000, 'pln')).toMatch(/^(zł|PLN)5\.0K$/)
+      expect(formatCurrencyCompact(1000000, { currency: 'USD', locale: 'en-US' })).toBe('$1.0M')
+      expect(formatCurrencyCompact(5000, { currency: 'PLN', locale: 'pl-PL' })).toMatch(/5,0.*tys\..*zł/)
+    })
+
+    it('uses locale-aware compact notation and currency placement', () => {
+      const result = formatCurrencyCompact(-1_500_000, { currency: 'PLN', locale: 'pl-PL' })
+      expect(result).toMatch(/-1,5.*mln.*zł/)
     })
   })
 
@@ -161,11 +166,11 @@ describe('formatters', () => {
 
   describe('createCurrencyFormatters', () => {
     it('binds the currency into single-argument formatters', () => {
-      const money = createCurrencyFormatters('PLN')
+      const money = createCurrencyFormatters('PLN', '--', 'pl-PL')
       expect(money.currency).toBe('PLN')
       expect(money.format(1234)).toMatch(/zł|PLN/)
       expect(money.formatWithDecimals(1234)).toMatch(/zł|PLN/)
-      expect(money.formatCompact(1_000_000)).toMatch(/^(zł|PLN)1\.0M$/)
+      expect(money.formatCompact(1_000_000)).toMatch(/1,0.*mln.*zł/)
       expect(money.formatSafe(1234)).toMatch(/zł|PLN/)
     })
 
@@ -176,10 +181,10 @@ describe('formatters', () => {
     })
 
     it('leaves amounts unlabelled when the currency is unknown', () => {
-      const money = createCurrencyFormatters(null)
+      const money = createCurrencyFormatters(null, '--', 'pl-PL')
       expect(money.currency).toBeNull()
       expect(money.format(1234)).not.toMatch(/\$|USD/)
-      expect(money.formatCompact(1_000_000)).toBe('1.0M')
+      expect(money.formatCompact(1_000_000)).toMatch(/1,0.*mln/)
       expect(money.formatSafe(null)).toBe('--')
     })
   })

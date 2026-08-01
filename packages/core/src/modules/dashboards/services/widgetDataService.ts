@@ -21,6 +21,7 @@ import {
 } from '../lib/aggregations'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AnalyticsRegistry } from './analyticsRegistry'
+import type { BaseCurrencyResolver } from '../lib/optionalBaseCurrency'
 
 const logger = createLogger('dashboards').child({ component: 'widget-data-service' })
 
@@ -100,6 +101,7 @@ export type WidgetDataServiceOptions = {
   scope: WidgetDataScope
   registry: AnalyticsRegistry
   cache?: CacheStrategy
+  baseCurrencyResolver?: BaseCurrencyResolver
 }
 
 export class WidgetDataService {
@@ -107,6 +109,7 @@ export class WidgetDataService {
   private scope: WidgetDataScope
   private registry: AnalyticsRegistry
   private cache?: CacheStrategy
+  private baseCurrencyResolver?: BaseCurrencyResolver
   private baseCurrencyPromise?: Promise<string | null>
 
   constructor(options: WidgetDataServiceOptions) {
@@ -114,6 +117,7 @@ export class WidgetDataService {
     this.scope = options.scope
     this.registry = options.registry
     this.cache = options.cache
+    this.baseCurrencyResolver = options.baseCurrencyResolver
   }
 
   private buildCacheKey(request: WidgetDataRequest): string {
@@ -279,42 +283,17 @@ export class WidgetDataService {
    */
   private resolveBaseCurrency(): Promise<string | null> {
     if (!this.baseCurrencyPromise) {
-      this.baseCurrencyPromise = this.queryBaseCurrency().catch(() => null)
+      const organizationIds = [...new Set(this.scope.organizationIds ?? [])]
+      if (!this.baseCurrencyResolver || organizationIds.length === 0) {
+        this.baseCurrencyPromise = Promise.resolve(null)
+      } else {
+        this.baseCurrencyPromise = this.baseCurrencyResolver
+          .resolveBaseCurrency({ tenantId: this.scope.tenantId, organizationIds })
+          .then((result) => result.status === 'resolved' ? result.code : null)
+          .catch(() => null)
+      }
     }
     return this.baseCurrencyPromise
-  }
-
-  private async queryBaseCurrency(): Promise<string | null> {
-    const organizationIds = [...new Set(this.scope.organizationIds ?? [])]
-    if (organizationIds.length === 0) return null
-
-    const clauses = ['tenant_id = ?', 'is_base = true', 'deleted_at IS NULL']
-    const params: unknown[] = [this.scope.tenantId, `{${organizationIds.join(',')}}`]
-    clauses.push('organization_id = ANY(?::uuid[])')
-
-    const sql = `SELECT organization_id, code FROM currencies WHERE ${clauses.join(' AND ')}`
-    const rows = await this.em.getConnection().execute(sql, params)
-    const resultRows = (Array.isArray(rows) ? rows : []) as Array<Record<string, unknown>>
-    const expectedOrganizationIds = new Set(organizationIds)
-    const resolvedOrganizationIds = new Set<string>()
-    const codes = new Set<string>()
-
-    for (const row of resultRows) {
-      const organizationId = typeof row.organization_id === 'string' ? row.organization_id : ''
-      const code = typeof row.code === 'string' ? row.code.trim().toUpperCase() : ''
-      if (
-        !expectedOrganizationIds.has(organizationId) ||
-        resolvedOrganizationIds.has(organizationId) ||
-        !code
-      ) {
-        return null
-      }
-      resolvedOrganizationIds.add(organizationId)
-      codes.add(code)
-    }
-
-    if (resolvedOrganizationIds.size !== expectedOrganizationIds.size || codes.size !== 1) return null
-    return codes.values().next().value ?? null
   }
 
   private validateRequest(request: WidgetDataRequest): void {
@@ -615,6 +594,7 @@ export function createWidgetDataService(
   scope: WidgetDataScope,
   registry: AnalyticsRegistry,
   cache?: CacheStrategy,
+  baseCurrencyResolver?: BaseCurrencyResolver,
 ): WidgetDataService {
-  return new WidgetDataService({ em, scope, registry, cache })
+  return new WidgetDataService({ em, scope, registry, cache, baseCurrencyResolver })
 }

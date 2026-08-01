@@ -1,10 +1,18 @@
 export type FormatCurrencyOptions = {
   currency?: string | null
+  locale?: string
   minimumFractionDigits?: number
   maximumFractionDigits?: number
 }
 
+export type FormatCurrencyCompactOptions = {
+  currency?: string | null
+  locale?: string
+}
+
 const CURRENCY_CODE_PATTERN = /^[A-Za-z]{3}$/
+const NUMBER_FORMATTER_CACHE_LIMIT = 128
+const numberFormatterCache = new Map<string, Intl.NumberFormat>()
 
 function normalizeCurrencyCode(currency?: string | null): string | null {
   if (typeof currency !== 'string') return null
@@ -13,8 +21,29 @@ function normalizeCurrencyCode(currency?: string | null): string | null {
   return trimmed.toUpperCase()
 }
 
-function formatDecimal(value: number, minimumFractionDigits: number, maximumFractionDigits: number): string {
-  return new Intl.NumberFormat(undefined, {
+function getNumberFormatter(
+  locale: string | undefined,
+  options: Intl.NumberFormatOptions,
+): Intl.NumberFormat {
+  const key = `${locale ?? ''}:${JSON.stringify(options)}`
+  const cached = numberFormatterCache.get(key)
+  if (cached) return cached
+  const formatter = new Intl.NumberFormat(locale, options)
+  if (numberFormatterCache.size >= NUMBER_FORMATTER_CACHE_LIMIT) {
+    const oldest = numberFormatterCache.keys().next().value
+    if (oldest) numberFormatterCache.delete(oldest)
+  }
+  numberFormatterCache.set(key, formatter)
+  return formatter
+}
+
+function formatDecimal(
+  value: number,
+  minimumFractionDigits: number,
+  maximumFractionDigits: number,
+  locale?: string,
+): string {
+  return getNumberFormatter(locale, {
     style: 'decimal',
     minimumFractionDigits,
     maximumFractionDigits,
@@ -27,18 +56,18 @@ function formatDecimal(value: number, minimumFractionDigits: number, maximumFrac
  * guessed one (see #4620) is worse than leaving them unlabelled.
  */
 export function formatCurrency(value: number, options: FormatCurrencyOptions = {}): string {
-  const { currency, minimumFractionDigits = 0, maximumFractionDigits = 0 } = options
+  const { currency, locale, minimumFractionDigits = 0, maximumFractionDigits = 0 } = options
   const code = normalizeCurrencyCode(currency)
-  if (!code) return formatDecimal(value, minimumFractionDigits, maximumFractionDigits)
+  if (!code) return formatDecimal(value, minimumFractionDigits, maximumFractionDigits, locale)
   try {
-    return new Intl.NumberFormat(undefined, {
+    return getNumberFormatter(locale, {
       style: 'currency',
       currency: code,
       minimumFractionDigits,
       maximumFractionDigits,
     }).format(value)
   } catch {
-    return `${formatDecimal(value, minimumFractionDigits, maximumFractionDigits)} ${code}`
+    return `${formatDecimal(value, minimumFractionDigits, maximumFractionDigits, locale)} ${code}`
   }
 }
 
@@ -46,28 +75,7 @@ export function formatCurrencyWithDecimals(value: number, options: FormatCurrenc
   return formatCurrency(value, { minimumFractionDigits: 2, maximumFractionDigits: 2, ...options })
 }
 
-function resolveCurrencySymbol(currency?: string | null): string {
-  const code = normalizeCurrencyCode(currency)
-  if (!code) return typeof currency === 'string' ? currency : ''
-  try {
-    const parts = new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency: code,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).formatToParts(0)
-    return parts.find((part) => part.type === 'currency')?.value ?? code
-  } catch {
-    return code
-  }
-}
-
-/**
- * Compact money formatting for chart axes and tooltips. Accepts either an ISO 4217
- * code (resolved to the locale's symbol) or a ready-made symbol.
- */
-export function formatCurrencyCompact(value: number, currency?: string | null): string {
-  const symbol = resolveCurrencySymbol(currency)
+function formatWithLiteralSymbol(value: number, symbol: string): string {
   if (Math.abs(value) >= 1_000_000) {
     return `${symbol}${(value / 1_000_000).toFixed(1)}M`
   }
@@ -75,6 +83,42 @@ export function formatCurrencyCompact(value: number, currency?: string | null): 
     return `${symbol}${(value / 1_000).toFixed(1)}K`
   }
   return `${symbol}${value.toFixed(0)}`
+}
+
+export function formatCurrencyCompact(
+  value: number,
+  currencyOrOptions: string | null | FormatCurrencyCompactOptions = {},
+): string {
+  if (typeof currencyOrOptions === 'string' && !normalizeCurrencyCode(currencyOrOptions)) {
+    return formatWithLiteralSymbol(value, currencyOrOptions)
+  }
+
+  const options = typeof currencyOrOptions === 'string'
+    ? { currency: currencyOrOptions }
+    : (currencyOrOptions ?? {})
+  const code = normalizeCurrencyCode(options.currency)
+  const compact = Math.abs(value) >= 1_000
+  const formatOptions: Intl.NumberFormatOptions = {
+    style: code ? 'currency' : 'decimal',
+    notation: compact ? 'compact' : 'standard',
+    compactDisplay: 'short',
+    minimumFractionDigits: compact ? 1 : 0,
+    maximumFractionDigits: compact ? 1 : 0,
+  }
+  if (code) formatOptions.currency = code
+
+  try {
+    return getNumberFormatter(options.locale, formatOptions).format(value)
+  } catch {
+    const formatted = getNumberFormatter(options.locale, {
+      style: 'decimal',
+      notation: compact ? 'compact' : 'standard',
+      compactDisplay: 'short',
+      minimumFractionDigits: compact ? 1 : 0,
+      maximumFractionDigits: compact ? 1 : 0,
+    }).format(value)
+    return code ? `${formatted} ${code}` : formatted
+  }
 }
 
 export function formatCurrencySafe(
@@ -104,13 +148,14 @@ export type CurrencyFormatters = {
 export function createCurrencyFormatters(
   currency?: string | null,
   fallback = '--',
+  locale?: string,
 ): CurrencyFormatters {
   const code = normalizeCurrencyCode(currency)
   return {
     currency: code,
-    format: (value: number) => formatCurrency(value, { currency: code }),
-    formatWithDecimals: (value: number) => formatCurrencyWithDecimals(value, { currency: code }),
-    formatCompact: (value: number) => formatCurrencyCompact(value, code),
-    formatSafe: (value: unknown) => formatCurrencySafe(value, fallback, { currency: code }),
+    format: (value: number) => formatCurrency(value, { currency: code, locale }),
+    formatWithDecimals: (value: number) => formatCurrencyWithDecimals(value, { currency: code, locale }),
+    formatCompact: (value: number) => formatCurrencyCompact(value, { currency: code, locale }),
+    formatSafe: (value: unknown) => formatCurrencySafe(value, fallback, { currency: code, locale }),
   }
 }

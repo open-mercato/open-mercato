@@ -14,31 +14,38 @@ Resolve the tenant/organization base currency server-side (the `currencies` modu
 stores `is_base`) and ship it with the widget-data response, so every analytics widget formats
 in the tenant's own currency without a second round-trip and without a per-widget setting.
 
-1. `services/widgetDataService.ts` — resolve the base currency code once per request
-   (memoized), scoped by tenant + the request's organization ids; expose it as
-   `metadata.currency`. Ambiguous scope (several organizations with different base
-   currencies) or a missing/unavailable `currencies` table resolves to `null`.
+1. `currencies/services/baseCurrencyService.ts` — own the scoped lookup beside the table,
+   represent missing/ambiguous/unavailable results explicitly, and expose it through the
+   optional `baseCurrencyService` DI registration. Dashboard and customer consumers resolve
+   it fail-soft; `WidgetDataService` memoizes only the injected resolver result.
 2. `api/widgets/data/schema.ts` — extend the response schema with the optional
    `metadata.currency` field (additive, OpenAPI-visible).
 3. `lib/formatters.ts` — drop the USD/`$` defaults. Without a currency the helpers format a
-   plain number (never a wrong label); with one they use `Intl.NumberFormat`. Add
-   `createCurrencyFormatters(currency)` so widgets pass a stable single-argument formatter.
+   plain number (never a wrong label); with one they use cached, locale-aware
+   `Intl.NumberFormat` instances. `createCurrencyFormatters(currency, fallback, locale)` binds
+   the active locale while the legacy literal-symbol compact call stays compatible.
 4. Widgets (`revenue-kpi`, `aov-kpi`, `pipeline-summary`, `revenue-trend`, `top-customers`,
    `top-products`, `sales-by-region`) — read `metadata.currency` from the response and format
    through the memoized formatters.
-5. Tests — formatter unit tests (no currency, explicit currency, compact, legacy symbol
-   argument) and widget-data service tests for base-currency resolution.
+5. `subscribers/invalidateWidgetDataCache.ts` — invalidate tenant-scoped widget data after
+   every currency mutation so a changed base label is visible on the next request.
+6. Tests — resolver, disabled-module, cache invalidation, locale formatting, service, and
+   rendered KPI/table propagation coverage.
 
 ## Progress
 
 - [x] Triage (`om-verify-in-repo`): real, unfixed, no PR in flight
 - [x] `lib/formatters.ts` rewritten (no USD default + formatter factory)
-- [x] `services/widgetDataService.ts` resolves and returns `metadata.currency`
+- [x] Currencies-owned service resolves the base currency and dashboards inject it optionally
+- [x] Customer deal analytics use the same currencies-owned lookup (#4678)
+- [x] Currency changes invalidate cached widget responses
+- [x] Every money widget binds the active application locale
 - [x] `api/widgets/data/schema.ts` extended
 - [x] 7 widgets format via the resolved currency
-- [x] Unit tests (formatters + service)
+- [x] Unit/component tests (resolver, formatters, service, cache, rendered widgets)
 - [x] Validation gate
-- [x] PR opened — https://github.com/open-mercato/open-mercato/pull/4631
+- [x] PR consolidated — https://github.com/open-mercato/open-mercato/pull/4656
+- [x] Parallel implementation #4649 superseded by #4656
 
 ## Follow-up: record-level currency uniformity (#4676)
 
