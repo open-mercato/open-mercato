@@ -50,13 +50,17 @@ const fsp = fs.promises
  * - Not suitable for production or multi-process environments
  *
  * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential backoff.
- * There is **no dead-letter store**: once attempts are exhausted the job is removed from
- * `queue.json` and only counted in `state.failedCount`, so the payload is lost and the
- * failure survives solely as an error log line. Anything that must not be dropped needs
- * its own durable record before enqueueing, or the `async` strategy.
+ * **This strategy keeps no failed-job store**: once attempts are exhausted the job is
+ * removed from `queue.json` and only counted in `state.failedCount`, so the payload is
+ * lost and the failure survives solely as an error log line. The `async` strategy does
+ * retain them — it enqueues with `removeOnFail: 1000`, so the most recent 1000 failures
+ * stay inspectable — which is another reason not to run `local` where losing a job
+ * matters. Anything that must not be dropped needs its own durable record before
+ * enqueueing, or the `async` strategy.
  *
  * `DEFAULT_MAX_ATTEMPTS` is a module constant, not a per-job option — callers cannot
- * request a different attempt count. See the retry handling in `process()` below.
+ * request a different attempt count. (`async` likewise hard-codes `attempts: 3`.)
+ * See the retry handling in `process()` below.
  *
  * All file I/O is asynchronous (`fs.promises.*`) so queue operations do not
  * block the Node.js event loop. A per-queue promise chain serializes
