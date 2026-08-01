@@ -50,7 +50,7 @@ Make release changelog preparation finalize matching upgrade-note windows and gu
 
 ### Phase 2: Ship the current release companion
 
-- [ ] 2.1 Author the 0.6.6 to 0.6.7 migration skill
+- [x] 2.1 Author the 0.6.6 to 0.6.7 migration skill — d6b160726
 - [ ] 2.2 Publish the skill across agent surfaces
 
 ### Phase 3: Verify and review
