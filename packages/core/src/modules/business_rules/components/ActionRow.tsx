@@ -68,7 +68,7 @@ export function ActionRow({
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-start">
           <label className="text-xs font-medium text-foreground col-span-1">
-            {t('business_rules.components.actionRow.config.recipients')} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
+            {t('business_rules.components.actionRow.config.recipients')} {required && <span className="text-status-error-text">{t('business_rules.components.actionRow.actionType.required')}</span>}
           </label>
           <Input
             type="text"
@@ -133,7 +133,7 @@ export function ActionRow({
       return (
         <div key={field} className="grid grid-cols-4 gap-2 items-start">
           <label className="text-xs font-medium text-foreground col-span-1">
-            {t('business_rules.components.actionRow.config.message')} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
+            {t('business_rules.components.actionRow.config.message')} {required && <span className="text-status-error-text">{t('business_rules.components.actionRow.actionType.required')}</span>}
           </label>
           <textarea
             value={value}
@@ -153,7 +153,7 @@ export function ActionRow({
     return (
       <div key={field} className="grid grid-cols-4 gap-2 items-center">
         <label className="text-xs font-medium text-foreground col-span-1">
-          {field} {required && <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>}
+          {field} {required && <span className="text-status-error-text">{t('business_rules.components.actionRow.actionType.required')}</span>}
         </label>
         <Input
           type="text"
@@ -172,7 +172,7 @@ export function ActionRow({
         {/* Action Type */}
         <div className="grid grid-cols-4 gap-2 items-center">
           <label className="text-xs font-medium text-foreground col-span-1">
-            {t('business_rules.components.actionRow.actionType')} <span className="text-red-500">{t('business_rules.components.actionRow.actionType.required')}</span>
+            {t('business_rules.components.actionRow.actionType')} <span className="text-status-error-text">{t('business_rules.components.actionRow.actionType.required')}</span>
           </label>
           <Select
             value={action.type || undefined}
@@ -202,7 +202,7 @@ export function ActionRow({
         {/* Error Display */}
         {error && (
           <div className="mt-2">
-            <p className="text-xs text-destructive">{error}</p>
+            <p className="text-xs text-status-error-text">{error}</p>
           </div>
         )}
       </div>
@@ -234,7 +234,7 @@ export function ActionRow({
         <button
           type="button"
           onClick={() => onDelete(index)}
-          className="p-1 text-muted-foreground hover:text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+          className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
           title={t('business_rules.components.actionRow.delete')}
         >
           <X className="w-4 h-4" />

@@ -2607,7 +2607,7 @@ function ProductMetaSection({
           )}
         />
         {errors.subtitle ? (
-          <p className="text-xs text-destructive">{errors.subtitle}</p>
+          <p className="text-xs text-status-error-text">{errors.subtitle}</p>
         ) : null}
       </div>
 
@@ -2640,7 +2640,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.handle ? (
-          <p className="text-xs text-destructive">{errors.handle}</p>
+          <p className="text-xs text-status-error-text">{errors.handle}</p>
         ) : null}
       </div>
 
@@ -2662,7 +2662,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.sku ? (
-          <p className="text-xs text-destructive">{errors.sku}</p>
+          <p className="text-xs text-status-error-text">{errors.sku}</p>
         ) : null}
       </div>
 
@@ -2699,7 +2699,7 @@ function ProductMetaSection({
           </SelectContent>
         </Select>
         {errors.productType ? (
-          <p className="text-xs text-destructive">
+          <p className="text-xs text-status-error-text">
             {errors.productType}
           </p>
         ) : null}

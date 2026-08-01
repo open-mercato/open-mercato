@@ -128,7 +128,7 @@ export function WorkflowSelectorField({
         <p className="text-xs text-muted-foreground mt-0.5">
           {description}
         </p>
-        {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+        {error && <p className="text-xs text-status-error-text mt-1">{error}</p>}
       </div>
 
       {!workflowId ? (
@@ -159,10 +159,10 @@ export function WorkflowSelectorField({
               ) : workflowDetails?.error ? (
                 <>
                   <div className="flex items-center gap-2">
-                    <AlertCircle className="size-4 text-yellow-600" />
+                    <AlertCircle className="size-4 text-status-warning-text" />
                     <span className="text-sm font-semibold text-gray-900">{workflowId}</span>
                   </div>
-                  <p className="text-xs text-yellow-600">{t('workflows.common.workflowNotFoundOrUnavailable')}</p>
+                  <p className="text-xs text-status-warning-text">{t('workflows.common.workflowNotFoundOrUnavailable')}</p>
                 </>
               ) : (
                 <>

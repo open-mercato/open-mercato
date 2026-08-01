@@ -241,9 +241,8 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
             extraActions={
               <Button
                 type="button"
-                variant="outline"
+                variant="destructive"
                 onClick={handleDelete}
-                className="text-destructive border-red-200 hover:bg-red-50"
               >
                 <Trash2 className="size-4 mr-2" />
                 Delete Transition

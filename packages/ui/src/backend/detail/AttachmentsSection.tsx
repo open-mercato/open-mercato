@@ -256,7 +256,7 @@ function AttachmentsSectionImpl({
         </div>
       )}
 
-      {error ? <p className="text-xs font-medium text-destructive">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-status-error-text">{error}</p> : null}
 
       {loading ? (
         <div className="text-sm text-muted-foreground">{t('attachments.library.loading', 'Loading attachments…')}</div>
