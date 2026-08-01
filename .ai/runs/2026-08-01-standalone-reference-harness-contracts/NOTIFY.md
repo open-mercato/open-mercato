@@ -20,3 +20,7 @@
 ## 2026-08-01T18:25:00Z — Step 1.3 complete
 
 - Delegation: `analyze_harness_policies` centralized the seven-step knowledge-change governance contract in the emitted evolution skill and routed both owning entrypoints plus their direct workflow references to it; overlay contracts passed 17/17 and recursive shared emission passed 3/3 with `TMPDIR` redirected to the repository-local temporary root.
+
+## 2026-08-01T18:26:00Z — Step 1.4 complete
+
+- Delegation: `analyze_harness_policies` added controller-derived finite range/lane requirements, generated-source ownership checks, and grouped fail-closed temporary-Git fixtures while preserving the 202-case catalog; the focused controller suite passed 13/13 and recursive emission/documentation assertions passed 3/3 with repository-local `TMPDIR`.

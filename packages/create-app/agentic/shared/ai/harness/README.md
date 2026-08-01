@@ -18,6 +18,18 @@ yarn harness:release --runner codex --portability-runner claude --prepare-target
 
 The primary runner owns all 202 routing cases, all 46 writable cases, and all generative-judge runs. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
+## Knowledge-change synchronization
+
+Before certifying a committed change to harness routing, skills, discovery, context reads, evaluators, or oracles, create an authored manifest from `knowledge-change.schema.json` and run:
+
+```text
+yarn harness:validate-knowledge-change --manifest <path> --base <ref>
+```
+
+The manifest must omit controller-owned `resolvedBaseSha`, `headSha`, and `focusedExecutions`. From a clean HEAD and local ancestor base, the controller derives the change class, changed contracts, finite affected release ranges/lanes, case and validator/oracle membership, catalog count, declared file hashes, generated source ownership, and documentation presence. A `knowledge-contract` must provide affected cases/ranges, a changed focused Node test, and required lanes: the controller applies only the test patch at base, derives fixed argv without a shell, reruns both base and HEAD to reject flaky or unchanged evidence, and requires fail-before/pass-after. `asset-sync` is accepted without focused execution only when each declared generated copy has an unchanged authoritative source and matching current hash.
+
+On success the command atomically replaces the authored file with a mode-`0600` completed artifact containing the resolved SHAs and sanitized exit/output hashes. Attach only that artifact's hash and summary to the affected certified-lane evidence; it does not replace `harness:release`, and raw test output or absolute paths are not evidence.
+
 Writable evaluation is intentionally opt-in. The expanded catalog has a 46-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
 ```text

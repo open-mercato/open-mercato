@@ -120,6 +120,15 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     assert.equal(existsSync(emittedPath), true, `${entry.path} must exist`)
     assert.equal(createHash('sha256').update(readFileSync(emittedPath)).digest('hex'), entry.sha256)
   }
+  const emittedHarnessReadme = readFileSync(join(targetDir, '.ai', 'harness', 'README.md'), 'utf8')
+  const emittedHarnessRelease = readFileSync(join(targetDir, '.ai', 'harness', 'RELEASE.md'), 'utf8')
+  for (const documentation of [emittedHarnessReadme, emittedHarnessRelease]) {
+    assert.ok(
+      documentation.includes('yarn harness:validate-knowledge-change --manifest <path> --base <ref>'),
+      'emitted harness documentation must route knowledge changes through the exact generated-app command',
+    )
+    assert.match(documentation, /mode-`0600`.*completed (?:artifact|manifest)/s)
+  }
   assert.equal(
     manifest.files.find((entry) => entry.path === '.ai/skills/om-auto-create-pr/SKILL.md')?.source,
     'external-override',

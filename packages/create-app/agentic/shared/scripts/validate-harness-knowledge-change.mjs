@@ -20,6 +20,14 @@ const CHANGE_CONTRACT_RULES = Object.freeze([
   ['oracle', /(?:^|\/)(?:writable-(?:ast|behavior)-oracles\.mjs|validators\.json)$/],
   ['evaluator', /(?:^|\/)(?:ai\/harness\/.*\.schema\.json|scripts\/(?:evaluate-agent-harness|agent-harness-tool-server|validate-harness-knowledge-change|knowledge-change-contract)\.mjs)$/],
 ])
+const CONTRACT_RANGE_REQUIREMENTS = Object.freeze({
+  routing: ['routing.required'],
+  'skill-link': ['routing.required'],
+  discovery: ['deterministic'],
+  'context-read': ['routing.required'],
+  evaluator: ['deterministic'],
+  oracle: ['writable'],
+})
 
 function usage() {
   return 'Usage: node scripts/validate-harness-knowledge-change.mjs --manifest <path> --base <ref>'
@@ -111,7 +119,11 @@ function releaseLaneIds(matrix) {
   return result
 }
 
-function validateCatalogSurfaces(root, manifest) {
+function requiredRangesFor(contracts) {
+  return [...new Set(contracts.flatMap((contract) => CONTRACT_RANGE_REQUIREMENTS[contract] ?? []))].sort()
+}
+
+function validateCatalogSurfaces(root, manifest, derivedClass, derivedContracts) {
   const harnessRoot = path.join(root, 'packages', 'create-app', 'agentic', 'shared', 'ai', 'harness')
   const fallbackHarnessRoot = path.join(root, '.ai', 'harness')
   const selectedHarnessRoot = fs.existsSync(path.join(harnessRoot, 'cases.json')) ? harnessRoot : fallbackHarnessRoot
@@ -123,6 +135,7 @@ function validateCatalogSurfaces(root, manifest) {
   if (cases.length !== manifest.expectedCatalogCount) errors.push(`expectedCatalogCount is stale: ${manifest.expectedCatalogCount}/${cases.length}`)
   if (registry?.catalog?.expectedCaseCount !== cases.length) errors.push('validator catalog count differs from cases.json')
   const caseMap = new Map(cases.map((entry) => [entry?.id, entry]))
+  if (derivedClass === 'knowledge-contract' && manifest.affectedCaseIds.length === 0) errors.push('knowledge-contract requires at least one affected case')
   for (const caseId of manifest.affectedCaseIds) {
     const item = caseMap.get(caseId)
     if (!item) { errors.push(`affected case does not exist: ${caseId}`); continue }
@@ -139,6 +152,13 @@ function validateCatalogSurfaces(root, manifest) {
   const lanes = releaseLaneIds(matrix)
   for (const rangeId of manifest.affectedRanges) if (!lanes.has(rangeId)) errors.push(`affected range does not exist: ${rangeId}`)
   for (const lane of manifest.requiredReleaseLanes) if (!lanes.has(lane)) errors.push(`release lane does not exist: ${lane}`)
+  if (derivedClass === 'knowledge-contract') {
+    for (const rangeId of requiredRangesFor(derivedContracts)) {
+      if (!lanes.has(rangeId)) errors.push(`Git-derived range is absent from release-matrix.json: ${rangeId}`)
+      if (!manifest.affectedRanges.includes(rangeId)) errors.push(`affectedRanges is missing Git-derived range ${rangeId}`)
+      if (!manifest.requiredReleaseLanes.includes(rangeId)) errors.push(`requiredReleaseLanes is missing Git-derived lane ${rangeId}`)
+    }
+  }
   return { errors, cases, registry, matrix }
 }
 
@@ -163,6 +183,7 @@ function deriveChangedItems(root, baseSha, changed, manifest) {
 
 function validateDeclaredFiles(root, baseSha, changed, manifest) {
   const errors = []
+  const authoritativePaths = new Set(manifest.authoritativeFiles.map((entry) => entry.path))
   const declared = new Set([...manifest.authoritativeFiles.map((entry) => entry.path), ...manifest.generatedFiles.map((entry) => entry.path)])
   for (const relative of changed) if (!declared.has(relative)) errors.push(`changed path is not declared: ${relative}`)
   for (const entry of manifest.authoritativeFiles) {
@@ -175,6 +196,7 @@ function validateDeclaredFiles(root, baseSha, changed, manifest) {
     try {
       const absolute = containedFile(root, entry.path)
       containedFile(root, entry.sourcePath)
+      if (!authoritativePaths.has(entry.sourcePath)) errors.push(`generated sourcePath is not declared authoritative: ${entry.sourcePath}`)
       if (hashFile(absolute) !== entry.sha256) errors.push(`generated hash is stale: ${entry.path}`)
       if (!gitFileHash(root, baseSha, entry.sourcePath)) errors.push(`generated source does not exist at base: ${entry.sourcePath}`)
     } catch (error) { errors.push(error.message) }
@@ -275,7 +297,6 @@ export function main(argv = process.argv.slice(2)) {
     if (git(root, ['merge-base', '--is-ancestor', baseSha, headSha], { allowFailure: true }).status !== 0) throw new Error('--base must be an ancestor of HEAD')
     const changed = changedPaths(root, baseSha, headSha)
     if (changed.length === 0) throw new Error('base-to-HEAD diff is empty')
-    const catalog = validateCatalogSurfaces(root, manifest)
     const declaredFileErrors = validateDeclaredFiles(root, baseSha, changed, manifest)
     const derivedContracts = changedContractsFor(changed)
     if (JSON.stringify([...manifest.changedContracts].sort()) !== JSON.stringify(derivedContracts)) {
@@ -284,6 +305,7 @@ export function main(argv = process.argv.slice(2)) {
     const changedItems = deriveChangedItems(root, baseSha, changed, manifest)
     const derivedClass = deriveKnowledgeChangeClass({ changedItems })
     if (manifest.changeClass !== derivedClass) declaredFileErrors.push(`declared changeClass differs from Git-derived class: ${manifest.changeClass}/${derivedClass}`)
+    const catalog = validateCatalogSurfaces(root, manifest, derivedClass, derivedContracts)
     const errors = [...catalog.errors, ...declaredFileErrors]
     if (errors.length) throw new Error(errors.join('; '))
     const focusedExecutions = derivedClass === 'knowledge-contract' ? collectFocusedEvidence(root, baseSha, manifest) : []
