@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-generated-code-review-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "verdict", "report", "validationEvidence", "findings"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "verdict": { "enum": ["approve", "request changes"] },
+    "report": { "type": "string", "minLength": 256, "maxLength": 16384 },
+    "validationEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9:._-]+$", "maxLength": 100 },
+          "status": { "const": "pass" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "path", "line", "rationale", "fix"],
+        "properties": {
+          "severity": { "enum": ["blocker", "major", "minor", "nit"] },
+          "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
+          "rationale": { "type": "string", "minLength": 8, "maxLength": 1200 },
+          "fix": { "type": "string", "minLength": 8, "maxLength": 1200 }
+        }
+      }
+    }
+  }
+}
