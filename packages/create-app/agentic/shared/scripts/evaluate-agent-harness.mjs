@@ -447,6 +447,24 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     if (!Number.isInteger(item.maxContextFiles) || item.maxContextFiles < requiredInitialContextFiles || item.maxContextFiles > registry.catalog.maxContextFiles) add(id, 'maxContextFiles is impossible or excessive')
     if (!Number.isInteger(item.maxInitialContextBytes) || item.maxInitialContextBytes < 4096 || item.maxInitialContextBytes > registry.catalog.maxInitialContextBytes) add(id, 'maxInitialContextBytes is invalid')
     if (!Number.isInteger(item.maxTotalContextBytes) || item.maxTotalContextBytes < item.maxInitialContextBytes || item.maxTotalContextBytes > registry.catalog.maxTotalContextBytes) add(id, 'maxTotalContextBytes is invalid')
+    // A case must be satisfiable against the assets this app actually ships: an agent that
+    // reads exactly what the case requires, or exactly what it declares, can never be failed
+    // by that case's own budget. Measured from disk, so a grown guide or fact-sheet surfaces
+    // here instead of as a live routing failure that looks like a model mistake.
+    if (Number.isInteger(item.maxContextFiles) && Number.isInteger(item.maxInitialContextBytes) && Number.isInteger(item.maxTotalContextBytes)) {
+      const required = contextStats(root, item.context?.required ?? [])
+      const declared = contextStats(root, [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? [])])
+      // `required` is a guaranteed false negative and `declared` only a latent one, so each
+      // budget reports the sharper of the two rather than both.
+      for (const [measure, limit, budget] of [
+        ['initialBytes', item.maxInitialContextBytes, 'maxInitialContextBytes'],
+        ['bytes', item.maxTotalContextBytes, 'maxTotalContextBytes'],
+        ['initialFiles', item.maxContextFiles, 'maxContextFiles'],
+      ]) {
+        if (required[measure] > limit) add(id, `required context exceeds ${budget}: ${required[measure]}/${limit}`)
+        else if (declared[measure] > limit) add(id, `declared context exceeds ${budget}: ${declared[measure]}/${limit}`)
+      }
+    }
     if (!isUniqueStringArray(item.relatedCases, { min: 1 })) add(id, 'relatedCases must not be empty')
     for (const related of item.relatedCases ?? []) if (!idSet.has(related)) add(id, `dangling related case ${related}`)
     const writable = WRITABLE_KINDS.has(item.evaluationKind)

@@ -71,7 +71,8 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 
 - **Global search / Cmd+K palette** — `GET /api/search/global` uses the tenant's saved strategy set (default `['fulltext','vector','tokens']`; ignores URL `strategies`). `GET /api/search` accepts a `strategies` override. Fulltext (Meili) is the intended fuzzy/typo-tolerant backend; tokens participate as an always-available fallback.
 - **AI assistant** — `search.hybrid_search` / `search.get_record_context` tools resolve the same `SearchService`.
-- **DataTable list / column filters** — do **not** go through `SearchService`. Each list route (customers, auth users, customer_accounts, messages) queries **`search_tokens` directly** (hash-token lookup) because searchable PII columns are **encrypted at rest**, so `ILIKE` on ciphertext can't match plaintext. This is why tokens must always exist even when Meili is configured.
+- **DataTable list / column filters** — do **not** go through `SearchService`. List routes for customers, auth users, customer accounts, messages, checkout transactions, and inbox proposals query **`search_tokens` directly** (hash-token lookup) because searchable PII columns are **encrypted at rest**, so `ILIKE` on ciphertext can't match plaintext. The shared `findEntityIdsBySearchTokens` helper applies field and tenant/organization scope consistently. This is why tokens must always exist even when Meili is configured.
+- **Non-canonical creation events** — modules whose lifecycle event does not use the canonical `<module>.<entity>.created` entity name must add an explicit subscriber that emits `query_index.upsert_one`. Checkout transactions (`checkout.transaction.created`) and inbox proposals (`inbox_ops.proposal.created`) use this bridge so direct token lookups stay current.
 - **Exact-match on encrypted PII** (`fieldPolicy.hashOnly`: email, phone, tax_id) — served by token-hash presence (list routes require **all** query tokens to match; `TokenSearchStrategy` uses a 50% `minMatchRatio`), plus a dedicated `emailHash` column for email exact lookups.
 
 ### A.4 Configuration surface
@@ -218,6 +219,7 @@ Memoization is per engine instance; engines are constructed per request (`create
 
 ## Backward Compatibility
 
+- **Encrypted list-search correction**: the shared token-lookup export, direct route unions, search-source entries, and non-canonical event bridges are additive. Existing routes, event IDs, entity IDs, and raw `ILIKE` predicates remain available; token matches are unioned into the existing result set.
 - **Phase 0**: docs + one CLI help string (non-behavioral) + a stale code comment. No contract surface changes. `BACKWARD_COMPATIBILITY.md` unaffected.
 - **Phase 1**: strictly additive — new CLI flags/commands, a new orchestration service, a new admin action. The three existing reindex entry points and their feature IDs (`search.reindex`, `query_index.reindex`, `search.manage`) are preserved and delegated to. Any change to the bare `reindex` default must follow the deprecation protocol (help-text `@deprecated`, bridge ≥1 minor, `UPGRADE_NOTES.md`).
 - **Phase 2/3**: new drivers/packages are additive and env-gated; a Postgres-only profile is opt-in. `SearchStrategyId`, `SearchStrategy`, event IDs (`search.index_record`, `search.delete_record`, `query_index.*`), queue names (`fulltext-indexing`, `vector-indexing`), and DI keys (`searchService`, `searchIndexer`, `searchStrategies`) are FROZEN/STABLE surfaces — extend, never rename.
@@ -229,6 +231,7 @@ Memoization is per engine instance; engines are constructed per request (`create
 - No change to tenant-scoping of settings (owned by `2026-06-15-tenant-scoped-search-settings.md`) or results (SPEC-041).
 - Phase 0 changes no runtime search behavior.
 - Phase 4 adds no schema. Of the durable probe fixes discussed on #4723, two no-schema measures landed inside the resolver at the maintainer's direction (index-usable `= / IS NULL` tenant predicates replacing `IS NOT DISTINCT FROM`, and a process-level TTL presence cache, `OM_SEARCH_TOKEN_PRESENCE_CACHE_MS`); the durable worst-case fix is the probe-shaped index specced in `2026-07-31-search-token-probe-index.md` (the earlier "measure after #4685" gate was dropped once multi-million-row `search_tokens` was confirmed as production steady state, not a #4685 artifact).
+- Direct token-lookup consumers require unit coverage for query tokenization/scoping, route-level union behavior, event-to-index lifecycle bridges, and self-contained API integration coverage for the affected list endpoints.
 
 ## Verification
 

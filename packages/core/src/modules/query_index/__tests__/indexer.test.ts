@@ -1,5 +1,6 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import type { AggregateSearchOptions } from '../lib/document'
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(),
@@ -14,8 +15,8 @@ jest.mock('../lib/document', () => {
   const actual = jest.requireActual('../lib/document')
   return {
     ...actual,
-    attachAggregateSearchField: (doc: Record<string, unknown>) => (
-      mockAggregateOverride ? mockAggregateOverride(doc) : actual.attachAggregateSearchField(doc)
+    attachAggregateSearchField: (doc: Record<string, unknown>, options?: AggregateSearchOptions) => (
+      mockAggregateOverride ? mockAggregateOverride(doc) : actual.attachAggregateSearchField(doc, options)
     ),
   }
 })
@@ -152,6 +153,38 @@ describe('Indexer', () => {
     expect(doc!['cf:tags']).toEqual(['a', 'b'])
     expect(doc!.search_text).toContain('A')
     expect(doc!.search_text).toContain('b')
+  })
+
+  test('buildIndexDoc applies the entity-scoped aggregate field blocklist', async () => {
+    const originalBlocklist = process.env.OM_SEARCH_FIELD_BLOCKLIST
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'example:todo@title'
+    try {
+      const fake = createFakeKysely({
+        baseTable: 'todos',
+        baseRows: [{
+          id: '1',
+          title: 'Blocked title',
+          description: 'Visible description',
+          organization_id: 'org1',
+          tenant_id: 't1',
+        }],
+        cfValues: [],
+      })
+      const em: any = { getKysely: () => fake.db }
+
+      const doc = await buildIndexDoc(em, {
+        entityType: 'example:todo',
+        recordId: '1',
+        organizationId: 'org1',
+        tenantId: 't1',
+      })
+
+      expect(doc?.search_text).toContain('Visible description')
+      expect(doc?.search_text).not.toContain('Blocked title')
+    } finally {
+      if (originalBlocklist === undefined) delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+      else process.env.OM_SEARCH_FIELD_BLOCKLIST = originalBlocklist
+    }
   })
 
   test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {
