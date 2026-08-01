@@ -385,6 +385,14 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   readOnlyOverlay?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
+  /**
+   * How the custom-fields "Manage fields" affordance behaves:
+   * - 'inline' (default) — opens the embedded fieldset quick-editor dialog.
+   * - 'page' — navigates straight to the full custom-fields editor page in a
+   *   new tab. Use for end-user dialogs (e.g. the calendar event editor) where
+   *   the nested admin quick-editor is out of place.
+   */
+  customFieldsManageMode?: 'inline' | 'page'
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
   replacementHandle?: string
@@ -727,6 +735,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   readOnly = false,
   readOnlyOverlay,
   customFieldsetBindings,
+  customFieldsManageMode = 'inline',
   injectionSpotId,
   replacementHandle,
   collapsibleGroups,
@@ -2406,9 +2415,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     (entityId: string, fieldsetCode: string | null, view: 'entity' | 'fieldset' = 'entity') => {
       const href = buildCustomFieldsManageHref(entityId)
       if (!href) return
+      if (customFieldsManageMode === 'page') {
+        // End-user dialogs skip the nested quick-editor and go straight to the
+        // full custom-fields editor page, keeping the unsaved form intact.
+        const params = fieldsetCode ? `${href.includes('?') ? '&' : '?'}fieldset=${encodeURIComponent(fieldsetCode)}` : ''
+        if (typeof window !== 'undefined') window.open(`${href}${params}`, '_blank', 'noopener')
+        return
+      }
       setFieldsetEditorTarget({ entityId, fieldsetCode, view })
     },
-    [buildCustomFieldsManageHref],
+    [buildCustomFieldsManageHref, customFieldsManageMode],
   )
 
   const appliedInitialValuesSnapshotRef = React.useRef<string | undefined>(undefined)

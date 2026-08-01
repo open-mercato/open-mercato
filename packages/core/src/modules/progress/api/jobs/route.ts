@@ -16,7 +16,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('progress').child({ component: 'jobs' })
 
 const routeMetadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['progress.view'] },
   POST: { requireAuth: true, requireFeatures: ['progress.create'] },
 }
 

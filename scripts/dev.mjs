@@ -619,6 +619,12 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
   ) {
     env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
   }
+  if (
+    typeof process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER !== 'string'
+    || process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER.trim() === ''
+  ) {
+    env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER = 'true'
+  }
   return env
 }
 

@@ -12,6 +12,7 @@ import { E as CoreEntities } from '#generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import {
@@ -117,6 +118,14 @@ const ACTIVITY_TYPE_DEFAULTS: DictionaryDefault[] = [
   { value: 'meeting', label: 'Meeting', color: '#f59e0b', icon: 'lucide:users' },
   { value: 'note', label: 'Note', color: '#a855f7', icon: 'lucide:notebook' },
   { value: 'task', label: 'Task', color: '#ef4444', icon: 'lucide:check-square' },
+]
+
+export const INTERACTION_STATUS_DEFAULTS: DictionaryDefault[] = [
+  { value: 'planned', label: 'Planned', color: '#2563eb', icon: 'lucide:circle' },
+  { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
+  { value: 'waiting', label: 'Waiting / blocked', color: '#a855f7', icon: 'lucide:pause-circle' },
+  { value: 'done', label: 'Done', color: '#22c55e', icon: 'lucide:check-circle' },
+  { value: 'canceled', label: 'Canceled', color: '#6b7280', icon: 'lucide:x-circle' },
 ]
 
 const JOB_TITLE_DEFAULTS: DictionaryDefault[] = [
@@ -1155,6 +1164,17 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       icon: entry.icon,
     })
   }
+  for (const entry of INTERACTION_STATUS_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'interaction_status',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
   for (const entry of JOB_TITLE_DEFAULTS) {
     await ensureDictionaryEntry(em, {
       tenantId,
@@ -1975,6 +1995,7 @@ async function seedCustomerStressTest(
       updated_at: Date
       deleted_at: null
     }> = []
+    const searchConfig = resolveSearchConfig()
     for (const [entityType, bucket] of pendingIndexDocs.entries()) {
       for (const entry of bucket.values()) {
         if (!entry.baseRow || Object.keys(entry.baseRow).length === 0) continue
@@ -1983,10 +2004,15 @@ async function seedCustomerStressTest(
           entity_id: entry.recordId,
           organization_id: entry.organizationId,
           tenant_id: entry.tenantId,
-          doc: buildIndexDocument(entry.baseRow, entry.customFields, {
-            organizationId: entry.organizationId,
-            tenantId: entry.tenantId,
-          }),
+          doc: buildIndexDocument(
+            entry.baseRow,
+            entry.customFields,
+            {
+              organizationId: entry.organizationId,
+              tenantId: entry.tenantId,
+            },
+            { entityType, config: searchConfig },
+          ),
           index_version: 1,
           created_at: entry.createdAt,
           updated_at: entry.updatedAt,

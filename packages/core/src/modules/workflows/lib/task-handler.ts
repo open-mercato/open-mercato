@@ -17,9 +17,9 @@ import {
   WorkflowInstance,
   WorkflowEvent,
   StepInstance,
-  WorkflowDefinition,
 } from '../data/entities'
 import { executeWorkflow } from './workflow-executor'
+import { findDefinitionForInstance } from './find-definition'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -191,9 +191,7 @@ export async function completeUserTask(
   const currentStepId = instance.currentStepId
 
   // Load workflow definition to find transitions
-  const definition = await em.findOne(WorkflowDefinition, {
-    id: instance.definitionId,
-  })
+  const definition = await findDefinitionForInstance(em, instance)
 
   if (!definition) {
     throw new UserTaskError(

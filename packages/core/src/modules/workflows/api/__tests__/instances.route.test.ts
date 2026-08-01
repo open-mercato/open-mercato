@@ -362,7 +362,7 @@ describe('Workflow Instances API', () => {
       )
     })
 
-    test('should not trust caller supplied initiatedBy metadata', async () => {
+    test('should ignore client-supplied initiatedBy metadata', async () => {
       (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
       (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
 
@@ -373,21 +373,30 @@ describe('Workflow Instances API', () => {
           initialContext: {},
           metadata: {
             entityType: 'order',
+            entityId: 'order-123',
             initiatedBy: 'admin-user-id',
           },
         }),
       })
 
       await startInstance(request)
+      await flushBackgroundWorkflowExecution()
 
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
         mockEm,
         expect.objectContaining({
           metadata: expect.objectContaining({
             entityType: 'order',
+            entityId: 'order-123',
             initiatedBy: testUserId,
           }),
         })
+      )
+      expect(workflowExecutor.executeWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        mockContainer,
+        testInstanceId,
+        { userId: testUserId }
       )
     })
 

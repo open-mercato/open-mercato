@@ -130,6 +130,30 @@ describe('communication_channels enrichers — no duplicate MessageChannelLink l
   // em.find branches on the entity argument so we can count per-entity queries.
   // findWithDecryption is a thin wrapper over em.find(entity, where, options),
   // so each entity passed to findWithDecryption surfaces here as call[0].
+  function makeParticipantQuery(rows: Array<{ id: string }>) {
+    const joinBuilder: any = {
+      onRef: jest.fn(() => joinBuilder),
+      on: jest.fn(() => joinBuilder),
+    }
+    const expressionBuilder: any = jest.fn((...args: unknown[]) => args)
+    expressionBuilder.or = jest.fn((expressions: unknown[]) => expressions)
+    const query: any = {
+      selectFrom: jest.fn(() => query),
+      leftJoin: jest.fn((_table: string, join: (builder: any) => unknown) => {
+        join(joinBuilder)
+        return query
+      }),
+      select: jest.fn(() => query),
+      distinct: jest.fn(() => query),
+      where: jest.fn((...args: unknown[]) => {
+        if (typeof args[0] === 'function') args[0](expressionBuilder)
+        return query
+      }),
+      execute: jest.fn(async () => rows),
+    }
+    return { expressionBuilder, joinBuilder, query }
+  }
+
   function makeFind() {
     return jest.fn(async (entity: unknown) => {
       if (entity === MessageChannelLink) {
@@ -173,11 +197,12 @@ describe('communication_channels enrichers — no duplicate MessageChannelLink l
 
   it('runs the full enrichment pass with a single MessageChannelLink (and ExternalConversation) query', async () => {
     const find = makeFind()
+    const { query: participantQuery } = makeParticipantQuery([{ id: 'm1' }, { id: 'm2' }])
     const ctx = {
       organizationId: 'org',
       tenantId: 'tenant',
       userId: 'user-1',
-      em: { find },
+      em: { find, getKysely: () => participantQuery },
       container: { resolve: () => null },
     } as any
 
@@ -200,11 +225,12 @@ describe('communication_channels enrichers — no duplicate MessageChannelLink l
 
   it('the merged channel enricher produces _channel, _channelPayload and _channelContact in one pass', async () => {
     const find = makeFind()
+    const { query: participantQuery } = makeParticipantQuery([{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }])
     const ctx = {
       organizationId: 'org',
       tenantId: 'tenant',
       userId: 'user-1',
-      em: { find },
+      em: { find, getKysely: () => participantQuery },
       container: { resolve: () => null },
     } as any
 
@@ -241,5 +267,37 @@ describe('communication_channels enrichers — no duplicate MessageChannelLink l
     expect(out[2]._channel).toBeNull()
     expect(out[2]._channelPayload).toBeNull()
     expect(out[2]._channelContact).toBeNull()
+  })
+
+  it('does not enrich channel data for a same-organization non-participant', async () => {
+    const find = makeFind()
+    const { expressionBuilder, joinBuilder, query: participantQuery } = makeParticipantQuery([{ id: 'm1' }])
+    const ctx = {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-1',
+      em: { find, getKysely: () => participantQuery },
+      container: { resolve: () => null },
+    } as any
+
+    const enricher = findEnricher('communication_channels.message-channel')
+    const out = (await enricher.enrichMany!([{ id: 'm1' }, { id: 'm2' }] as any, ctx)) as any[]
+
+    expect(out[0]._channelPayload).toMatchObject({ channelPayload: { blocks: [] } })
+    expect(out[1]).toMatchObject({
+      _channel: null,
+      _channelPayload: null,
+      _channelContact: null,
+    })
+
+    const linkQuery = find.mock.calls.find(([entity]) => entity === MessageChannelLink)
+    expect(linkQuery?.[1]).toMatchObject({ messageId: { $in: ['m1'] } })
+    expect(joinBuilder.on).toHaveBeenCalledWith('r.recipient_user_id', '=', 'user-1')
+    expect(joinBuilder.on).toHaveBeenCalledWith('r.deleted_at', 'is', null)
+    expect(participantQuery.where).toHaveBeenCalledWith('m.tenant_id', '=', 'tenant')
+    expect(participantQuery.where).toHaveBeenCalledWith('m.organization_id', '=', 'org')
+    expect(participantQuery.where).toHaveBeenCalledWith('m.deleted_at', 'is', null)
+    expect(expressionBuilder).toHaveBeenCalledWith('m.sender_user_id', '=', 'user-1')
+    expect(expressionBuilder).toHaveBeenCalledWith('r.message_id', 'is not', null)
   })
 })

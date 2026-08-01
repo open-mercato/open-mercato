@@ -14,7 +14,11 @@ import {
   type NotificationTenantContext,
 } from './notificationFactory'
 import { toNotificationDto } from './notificationMapper'
-import { getRecipientUserIdsForFeature, getRecipientUserIdsForRole } from './notificationRecipients'
+import {
+  getRecipientUserIdsForFeature,
+  getRecipientUserIdsForRole,
+  getScopedNotificationRecipientUserIds,
+} from './notificationRecipients'
 import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -32,6 +36,23 @@ const UNIQUE_NOTIFICATION_ACTIVE_STATUSES: NotificationStatus[] = ['unread', 're
 
 function normalizeOrgScope(organizationId: string | null | undefined): string | null {
   return organizationId ?? null
+}
+
+async function assertNotificationRecipientsInScope(
+  em: EntityManager,
+  recipientUserIds: string[],
+  ctx: NotificationServiceContext,
+): Promise<void> {
+  const scopedRecipientUserIds = await getScopedNotificationRecipientUserIds(
+    getDb(em),
+    ctx.tenantId,
+    normalizeOrgScope(ctx.organizationId),
+    recipientUserIds,
+  )
+
+  if (scopedRecipientUserIds.length !== recipientUserIds.length) {
+    throw new CrudHttpError(404, { error: 'Notification recipient not found' })
+  }
 }
 
 function applyNotificationContent(
@@ -214,6 +235,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const { recipientUserId, ...content } = input
       const writeEm = rootEm.fork()
       const notification = await writeEm.transactional(async (tx) => {
+        await assertNotificationRecipientsInScope(tx, [recipientUserId], ctx)
         const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
         await tx.flush()
         return entity
@@ -237,6 +259,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
+        await assertNotificationRecipientsInScope(tx, recipientUserIds, ctx)
         for (const recipientUserId of recipientUserIds) {
           const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
           notifications.push(notification)

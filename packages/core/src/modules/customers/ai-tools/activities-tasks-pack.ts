@@ -13,6 +13,7 @@ import {
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
 import {
   CustomerActivity,
   CustomerComment,
@@ -238,9 +239,9 @@ const listTasksInput = z
     companyId: z.string().uuid().optional().describe('Restrict to tasks linked to this company entity id.'),
     dealId: z.string().uuid().optional().describe('Restrict to tasks connected to this deal id.'),
     status: z
-      .enum(['open', 'done', 'cancelled'])
+      .enum(['open', 'in_progress', 'waiting', 'done', 'canceled', 'cancelled'])
       .optional()
-      .describe('Filter canonical interaction tasks by status. Ignored when listing legacy todo links.'),
+      .describe('Filter canonical interaction tasks by status. "open" matches every non-terminal status (planned/in_progress/waiting and custom statuses). "cancelled" is accepted as an alias for "canceled". Ignored when listing legacy todo links.'),
     limit: z.number().int().min(1).max(100).optional().describe('Max rows (default 50, max 100).'),
     offset: z.number().int().min(0).optional().describe('Rows to skip (default 0).'),
   })
@@ -269,7 +270,15 @@ const listTasksTool: CustomersAiToolDefinition = {
     if (ctx.organizationId) interactionWhere.organizationId = ctx.organizationId
     if (entityId) interactionWhere.entity = entityId
     if (input.dealId) interactionWhere.dealId = input.dealId
-    if (input.status) interactionWhere.status = input.status === 'open' ? 'planned' : input.status === 'done' ? 'completed' : 'cancelled'
+    if (input.status) {
+      if (input.status === 'open') {
+        interactionWhere.status = { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] }
+      } else if (input.status === 'cancelled') {
+        interactionWhere.status = 'canceled'
+      } else {
+        interactionWhere.status = input.status
+      }
+    }
     const interactionRows = await findWithDecryption<CustomerInteraction>(
       em,
       CustomerInteraction,
