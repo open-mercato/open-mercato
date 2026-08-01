@@ -1,0 +1,53 @@
+# Certified partners of Open Mercato and their GitHub contributors.
+#
+# Contributors listed here may run `/label <label>` on pull requests
+# (see .github/workflows/community-labels.yml); everyone else is ignored.
+#
+# To add a contributor: open a PR extending your company's list.
+# An Open Mercato review + merge of that PR is the approval.
+
+partners:
+  - company: 10clouds
+    contributors: [cielecki]
+  - company: 300.codes
+    contributors: [strzesniewski, B0G3, AK-300codes]
+  - company: FilaNovum
+    contributors: [mkadziolka]
+  - company: AMT Solution
+    contributors: [amtmich]
+  - company: Cognize
+    contributors: [jakubmatwiejew-wq]
+  - company: Commerce Weavers
+    contributors: [lchrusciel]
+  - company: Dev4You
+    contributors: [PawelSydorow, Paul-Mlodochowki]
+  - company: Fast White Cat
+    contributors: [adeptofvoltron, lbajsarowicz]
+  - company: Freight Tech
+    contributors: [fto-aubergine, karolina-fto]
+  - company: GoNextStage
+    contributors: [truongx, mat-kruk]
+  - company: Itrix
+    contributors: [itrixjarek]
+  - company: LemonMind
+    contributors: [msoroka]
+  - company: Omdyo
+    contributors: [zielivia, haxiorz]
+  - company: 8lines
+    contributors: [jtomaszewski, RadnoK, KamilGrocholski, patrykbojczuk, KubaBir, frshy]
+  - company: Evojam
+    contributors: [marcinwadon, abankowski]
+  - company: Idego
+    contributors: [Gajam19]
+  - company: Softiq
+    contributors: [adam-marszowski, wwaleszczykSoftiq, Heppe-SOFTIQ]
+  - company: Tandemite
+    contributors: [mat89c]
+  - company: The Good Code
+    contributors: [migsilva89, mpiatko]
+  - company: they.dev
+    contributors: [pmadajthey]
+  - company: Univio
+    contributors: [gsobczyk, szymonkilar]
+  - company: White Label Coders
+    contributors: [redjungle-as, ArtSadWLC, KBraneckiWLC]
