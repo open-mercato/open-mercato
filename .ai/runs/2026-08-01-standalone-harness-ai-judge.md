@@ -50,6 +50,8 @@ Add a reusable LLM-as-judge workflow for standalone generative evaluations and u
 
 ## Progress
 
+PR: #4786
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 Review fix: compare app-generated URLs with installed module facts and derive page URLs exactly as the generator does. — 765fa2151
