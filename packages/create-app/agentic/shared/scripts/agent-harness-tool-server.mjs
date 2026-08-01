@@ -3,6 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { normalizeExampleReadPath } from './example-read-policy.mjs'
 
 const MAX_READ_BYTES = 256 * 1024
 const MAX_WRITE_BYTES = 256 * 1024
@@ -65,8 +66,10 @@ const rootArg = process.argv[2]
 const mode = process.argv[3]
 let allowedReads
 let allowedWrites
+let exampleReadPolicy
 try { allowedReads = JSON.parse(process.argv[4] ?? '[]') } catch { fail('allowed read set is invalid JSON') }
 try { allowedWrites = JSON.parse(process.argv[5] ?? '[]') } catch { fail('allowed write set is invalid JSON') }
+try { exampleReadPolicy = process.argv[6] ? JSON.parse(process.argv[6]) : null } catch { fail('example read policy is invalid JSON') }
 if (!path.isAbsolute(rootArg ?? '')) fail('root must be absolute')
 if (!['read-only', 'writable'].includes(mode)) fail('mode must be read-only or writable')
 if (!Array.isArray(allowedReads) || allowedReads.some((entry) => !safeRelative(entry, { allowInstalledSourcePatterns: true }) || ['*', '**'].includes(entry))) fail('allowed read set is invalid')
@@ -74,6 +77,69 @@ if (!Array.isArray(allowedWrites) || allowedWrites.some((entry) => !safeRelative
 const root = fs.realpathSync(rootArg)
 const readMatchers = allowedReads.map(globToRegExp)
 const writeMatchers = allowedWrites.map(globToRegExp)
+
+function prepareExampleReadPolicy(policy) {
+  if (policy === null) return []
+  if (!policy || policy.version !== 1 || !Array.isArray(policy.exampleRoots)) fail('example read policy has an invalid shape')
+  return policy.exampleRoots.map((entry) => {
+    if (!entry || typeof entry !== 'object' || !Array.isArray(entry.entrypoints) || !Array.isArray(entry.capabilities)
+      || !Number.isInteger(entry.maxFiles) || entry.maxFiles < 1 || !Number.isInteger(entry.maxBytes) || entry.maxBytes < 1) {
+      fail('example read policy root has an invalid shape')
+    }
+    let normalizedRoot
+    try { normalizedRoot = normalizeExampleReadPath(entry.root) } catch (error) { fail(`example read policy root is unsafe: ${error.message}`) }
+    const entrypoints = new Set()
+    const capabilities = new Map()
+    for (const candidate of entry.entrypoints) {
+      let normalized
+      try { normalized = normalizeExampleReadPath(candidate) } catch (error) { fail(`example entrypoint is unsafe: ${error.message}`) }
+      if (!normalized.startsWith(`${normalizedRoot}/`)) fail('example entrypoint is outside its root')
+      entrypoints.add(normalized)
+    }
+    for (const capability of entry.capabilities) {
+      if (!capability || typeof capability.capabilityId !== 'string') fail('example capability has an invalid shape')
+      let normalized
+      try { normalized = normalizeExampleReadPath(capability.path) } catch (error) { fail(`example capability path is unsafe: ${error.message}`) }
+      if (!normalized.startsWith(`${normalizedRoot}/`) || entrypoints.has(normalized) || capabilities.has(normalized)) fail('example capability path is invalid or duplicated')
+      capabilities.set(normalized, capability.capabilityId)
+    }
+    return {
+      root: normalizedRoot,
+      entrypoints,
+      capabilities,
+      maxFiles: entry.maxFiles,
+      maxBytes: entry.maxBytes,
+      entrypointRead: false,
+      distinctPaths: new Set(),
+      totalBytes: 0,
+    }
+  })
+}
+
+const exampleRoots = prepareExampleReadPolicy(exampleReadPolicy)
+
+function authorizeExampleRead(normalized, stat) {
+  const exampleRoot = exampleRoots.find((entry) => normalized.startsWith(`${entry.root}/`))
+  if (!exampleRoot) return () => {}
+  const isEntrypoint = exampleRoot.entrypoints.has(normalized)
+  const capabilityId = exampleRoot.capabilities.get(normalized)
+  if (!isEntrypoint && !capabilityId) throw new Error('path is not an allowed example capability file')
+  if (!isEntrypoint && !exampleRoot.entrypointRead) throw new Error('read a declared example entrypoint before capability files')
+  let nextBytes = exampleRoot.totalBytes
+  if (!exampleRoot.distinctPaths.has(normalized)) {
+    const nextFiles = exampleRoot.distinctPaths.size + 1
+    nextBytes += stat.size
+    if (nextFiles > exampleRoot.maxFiles) throw new Error(`cumulative example file budget exceeded: ${nextFiles}/${exampleRoot.maxFiles}`)
+    if (nextBytes > exampleRoot.maxBytes) throw new Error(`cumulative example byte budget exceeded: ${nextBytes}/${exampleRoot.maxBytes}`)
+  }
+  return () => {
+    if (!exampleRoot.distinctPaths.has(normalized)) {
+      exampleRoot.distinctPaths.add(normalized)
+      exampleRoot.totalBytes = nextBytes
+    }
+    if (isEntrypoint) exampleRoot.entrypointRead = true
+  }
+}
 
 function resolveRead(relative) {
   if (!safeRelative(relative)) throw new Error('path is outside the allowed app context')
@@ -89,7 +155,8 @@ function resolveRead(relative) {
   const stat = fs.statSync(real)
   if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('path must be a bounded regular file')
   if (!SAFE_TEXT_EXTENSIONS.has(path.extname(real).toLowerCase()) && path.basename(real) !== 'AGENTS.md') throw new Error('path is not an allowed text file')
-  return { real, stat }
+  const commitExampleRead = authorizeExampleRead(normalized, stat)
+  return { real, stat, commitExampleRead }
 }
 
 function resolveWrite(relative) {
@@ -151,8 +218,10 @@ function handle(message) {
     const name = message.params?.name
     const input = message.params?.arguments ?? {}
     if (name === 'read') {
-      const { real } = resolveRead(input.path)
-      toolResult(message.id, fs.readFileSync(real, 'utf8'))
+      const { real, commitExampleRead } = resolveRead(input.path)
+      const content = fs.readFileSync(real, 'utf8')
+      commitExampleRead()
+      toolResult(message.id, content)
       return
     }
     if (name === 'write') {

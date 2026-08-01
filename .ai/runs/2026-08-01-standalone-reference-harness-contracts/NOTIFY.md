@@ -35,3 +35,7 @@
 ## 2026-08-01T18:27:00Z — Step 2.1 complete
 
 - Delegation: `analyze_harness_policies` added the optional finite example-root/fallback schema, emitted pure path/policy helper, and schema/security/budget/compatibility fixtures without widening live reads or changing the 202-case catalog; focused policy tests passed 5/5, deterministic compatibility tests passed 2/2, and recursive emission passed 3/3 with repository-local `TMPDIR`.
+
+## 2026-08-01T18:44:42Z — Step 2.2 rescue complete
+
+- Delegation: `analyze_routing_reference` rescued Step 2.2 after implementation dispatch, adding canonical inventory loading, exact capability-scoped reads, successful-entrypoint sequencing, pre-content cumulative budgets, and redacted result evidence while preserving the omitted-policy CLI and result shape; focused policy/server tests passed 11/11 and the evaluator suite passed 88/88 with repository-local `TMPDIR`.

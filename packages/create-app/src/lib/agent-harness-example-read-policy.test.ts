@@ -18,13 +18,23 @@ type PolicyModule = {
   }
   normalizeExampleReadPath: (value: string) => string
   resolveExistingExamplePath: (root: string, relative: string) => { relativePath: string; realPath: string }
+  loadExampleReadPolicy: (root: string, context: unknown) => {
+    version: number
+    exampleRoots: Array<{
+      root: string
+      entrypoints: string[]
+      capabilities: Array<{ capabilityId: string; path: string }>
+      maxFiles: number
+      maxBytes: number
+    }>
+  } | null
   validateCumulativeExampleBudget: (
     usage: { fileCount: number; totalBytes: number },
     budget: { maxFiles: number; maxBytes: number },
   ) => string[]
   validateExampleReadPolicy: (
     context: unknown,
-    inventory: Record<string, string[]>,
+    inventory: Record<string, string[]> | Array<{ capabilityId: string; paths: string[] }>,
     options?: { caseRoot?: string },
   ) => { ok: boolean; errors: string[]; policy: { exampleRoots: unknown[]; installedVersionFallback: unknown } }
 }
@@ -43,20 +53,26 @@ function stageExampleRoot() {
     [`${root}/README.md`, '# Reference\n'],
     [`${root}/references/surface-map.md`, '# Surface map\n'],
     [`${root}/api/route.ts`, 'export const route = true\n'],
+    [`${root}/data/entity.ts`, 'export const entity = true\n'],
     [`${root}/backend/page.tsx`, 'export default function Page() { return null }\n'],
   ]) write(caseRoot, relative, content)
+  const inventory = {
+    'api.crud-factory': [`${root}/api/route.ts`],
+    'data.entity': [`${root}/data/entity.ts`],
+    'ui.crud-form': [`${root}/backend/page.tsx`],
+  }
+  const inventoryEntries = Object.entries(inventory).map(([capabilityId, paths]) => ({ capabilityId, paths }))
+  write(caseRoot, `${root}/references/surface-inventory.json`, `${JSON.stringify(inventoryEntries, null, 2)}\n`)
   return {
     caseRoot,
     root,
-    inventory: {
-      'api.crud-factory': [`${root}/api/route.ts`],
-      'ui.crud-form': [`${root}/backend/page.tsx`],
-    },
+    inventory,
+    inventoryEntries,
     context: {
       exampleRoots: [{
         root,
         entrypoints: ['README.md', 'references/surface-map.md'],
-        allowedCapabilityIds: ['api.crud-factory', 'ui.crud-form'],
+        allowedCapabilityIds: ['api.crud-factory', 'data.entity', 'ui.crud-form'],
         maxFiles: 12,
         maxBytes: 131_072,
       }],
@@ -103,6 +119,37 @@ test('valid capability-scoped roots normalize and resolve exact entrypoints', as
     const resolved = policy.resolveExistingExamplePath(fixture.caseRoot, `${fixture.root}/README.md`)
     assert.equal(resolved.relativePath, `${fixture.root}/README.md`)
     assert.equal(fs.statSync(resolved.realPath).isFile(), true)
+  } finally {
+    fs.rmSync(fixture.caseRoot, { recursive: true, force: true })
+  }
+})
+
+test('canonical surface inventory builds exact server policy without widening the example root', async () => {
+  const policy = await import(pathToFileURL(helperPath).href) as PolicyModule
+  const fixture = stageExampleRoot()
+  try {
+    const validated = policy.validateExampleReadPolicy(fixture.context, fixture.inventoryEntries, { caseRoot: fixture.caseRoot })
+    assert.equal(validated.ok, true, validated.errors.join('; '))
+    const loaded = policy.loadExampleReadPolicy(fixture.caseRoot, fixture.context)
+    assert.deepEqual(loaded, {
+      version: 1,
+      exampleRoots: [{
+        root: fixture.root,
+        entrypoints: [
+          `${fixture.root}/README.md`,
+          `${fixture.root}/references/surface-map.md`,
+        ],
+        capabilities: [
+          { capabilityId: 'api.crud-factory', path: `${fixture.root}/api/route.ts` },
+          { capabilityId: 'data.entity', path: `${fixture.root}/data/entity.ts` },
+          { capabilityId: 'ui.crud-form', path: `${fixture.root}/backend/page.tsx` },
+        ],
+        maxFiles: 12,
+        maxBytes: 131_072,
+      }],
+    })
+    assert.equal(loaded?.exampleRoots[0]?.capabilities.some((entry) => entry.path === `${fixture.root}/unrelated.ts`), false)
+    assert.equal(policy.loadExampleReadPolicy(fixture.caseRoot, { required: ['AGENTS.md'], forbidden: [] }), null)
   } finally {
     fs.rmSync(fixture.caseRoot, { recursive: true, force: true })
   }

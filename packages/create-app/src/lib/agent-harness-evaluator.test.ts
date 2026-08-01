@@ -15,6 +15,7 @@ const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandb
 const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 const sourceFrameworkContext = path.join(sharedRoot, 'scripts', 'framework-context.mjs')
+const sourceExampleReadPolicy = path.join(sharedRoot, 'scripts', 'example-read-policy.mjs')
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript-standalone/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
@@ -54,6 +55,12 @@ type StoredResult = {
   actualContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   declaredContext: { paths: string[]; bytes: number; initialPaths: string[]; initialBytes: number; metadataPaths: string[]; metadataEntries: number; metadataBytes: number }
   writable?: { changedPaths: string[]; targetFingerprint: string }
+  exampleReads?: {
+    orderedPaths: string[]
+    matches: Array<{ path: string; root: string; capabilityId: string | null }>
+    cumulative: Array<{ root: string; files: number; bytes: number }>
+    firstViolation: string | null
+  }
 }
 
 type StoredReviewResult = {
@@ -102,6 +109,7 @@ function stageApp(): string {
   fs.copyFileSync(sourceToolServer, path.join(root, 'scripts', 'agent-harness-tool-server.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
   fs.copyFileSync(sourceFrameworkContext, path.join(root, 'scripts', 'framework-context.mjs'))
+  fs.copyFileSync(sourceExampleReadPolicy, path.join(root, 'scripts', 'example-read-policy.mjs'))
   fs.mkdirSync(path.join(root, 'node_modules'))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export const enabledModules = []\n')
@@ -931,6 +939,107 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON
     assert.equal(parsed.reasoningEffort, 'high')
     assert.deepEqual(parsed.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
     assert.deepEqual(parsed.declaredContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+    assert.equal('exampleReads' in parsed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live routing stores ordered capability-scoped example evidence outside selected and actual context', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const referenceRoot = 'src/modules/reference_module'
+  const exampleFiles = new Map([
+    [`${referenceRoot}/README.md`, '# Reference module\n'],
+    [`${referenceRoot}/references/surface-map.md`, '# Surface map\n'],
+    [`${referenceRoot}/api/route.ts`, 'export const route = true\n'],
+    [`${referenceRoot}/data/entity.ts`, 'export const entity = true\n'],
+    [`${referenceRoot}/backend/page.tsx`, 'export default function Page() { return null }\n'],
+  ])
+  for (const [relative, content] of exampleFiles) {
+    const destination = path.join(root, relative)
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    fs.writeFileSync(destination, content)
+  }
+  const inventory = [
+    { capabilityId: 'api.crud-factory', paths: [`${referenceRoot}/api/route.ts`] },
+    { capabilityId: 'data.entity', paths: [`${referenceRoot}/data/entity.ts`] },
+    { capabilityId: 'ui.crud-form', paths: [`${referenceRoot}/backend/page.tsx`] },
+  ]
+  fs.writeFileSync(path.join(root, referenceRoot, 'references', 'surface-inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`)
+  const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+  const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & {
+    context: HarnessCase['context'] & {
+      exampleRoots?: Array<{
+        root: string
+        entrypoints: string[]
+        allowedCapabilityIds: string[]
+        maxFiles: number
+        maxBytes: number
+      }>
+    }
+  }>
+  const firstCase = cases.find((entry) => entry.id === 'OMH-001')
+  assert.ok(firstCase)
+  firstCase.context.allowedExtra = [`${referenceRoot}/**`]
+  firstCase.context.exampleRoots = [{
+    root: referenceRoot,
+    entrypoints: ['README.md', 'references/surface-map.md'],
+    allowedCapabilityIds: ['api.crud-factory', 'data.entity', 'ui.crud-form'],
+    maxFiles: 5,
+    maxBytes: 4_096,
+  }]
+  fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+  const orderedExamples = [
+    `${referenceRoot}/README.md`,
+    `${referenceRoot}/references/surface-map.md`,
+    `${referenceRoot}/api/route.ts`,
+    `${referenceRoot}/data/entity.ts`,
+    `${referenceRoot}/backend/page.tsx`,
+  ]
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+if (!prompt.includes('read one of its exact entrypoints before any capability file')
+  || !prompt.includes('Example reads are evidence and must not appear in selectedContext')) process.exit(10)
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-3))
+const allowedWrites = JSON.parse(mcpArgs.at(-2))
+const examplePolicy = JSON.parse(mcpArgs.at(-1))
+if (allowedWrites.length !== 0 || allowedReads.includes(${JSON.stringify(`${referenceRoot}/**`)})
+  || !${JSON.stringify(orderedExamples)}.every((entry) => allowedReads.includes(entry))
+  || examplePolicy.exampleRoots[0].capabilities.length !== 3) process.exit(11)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+for (const file of ['AGENTS.md', '.ai/guides/architecture.md', ...${JSON.stringify(orderedExamples)}]) console.log(JSON.stringify({
+  type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' }
+}))
+`)
+  try {
+    const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const stored = storedResults(root)[0]
+    assert.deepEqual(stored.selectedContext, ['AGENTS.md', '.ai/guides/architecture.md'])
+    assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+    assert.deepEqual(stored.exampleReads?.orderedPaths, orderedExamples)
+    assert.deepEqual(stored.exampleReads?.matches, orderedExamples.map((examplePath, index) => ({
+      path: examplePath,
+      root: referenceRoot,
+      capabilityId: index < 2 ? null : inventory[index - 2].capabilityId,
+    })))
+    assert.deepEqual(stored.exampleReads?.cumulative, [{
+      root: referenceRoot,
+      files: 5,
+      bytes: [...exampleFiles.values()].reduce((total, content) => total + Buffer.byteLength(content), 0),
+    }])
+    assert.equal(stored.exampleReads?.firstViolation, null)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

@@ -87,11 +87,21 @@ function validateBudget(label, maxFiles, maxBytes, limits, errors) {
 
 function normalizeInventory(capabilityInventory, errors) {
   const normalized = new Map()
-  if (!isPlainObject(capabilityInventory)) {
-    errors.push('capability inventory must map IDs to exact paths')
+  const entries = Array.isArray(capabilityInventory)
+    ? capabilityInventory.map((entry) => [entry?.capabilityId, entry?.paths])
+    : isPlainObject(capabilityInventory)
+      ? Object.entries(capabilityInventory)
+      : null
+  if (!entries) {
+    errors.push('capability inventory must contain capabilityId/path entries')
     return normalized
   }
-  for (const [capabilityId, paths] of Object.entries(capabilityInventory)) {
+  for (const [capabilityId, paths] of entries) {
+    if (typeof capabilityId !== 'string') {
+      errors.push('capability inventory entry is missing capabilityId')
+      continue
+    }
+    if (normalized.has(capabilityId)) errors.push(`capability inventory ID is duplicated: ${capabilityId}`)
     if (!CAPABILITY_ID.test(capabilityId)) errors.push(`capability inventory ID is invalid: ${capabilityId}`)
     if (!Array.isArray(paths) || paths.length === 0 || paths.some((entry) => typeof entry !== 'string') || new Set(paths).size !== paths.length) {
       errors.push(`capability inventory paths are invalid: ${capabilityId}`)
@@ -104,6 +114,47 @@ function normalizeInventory(capabilityInventory, errors) {
     normalized.set(capabilityId, exactPaths)
   }
   return normalized
+}
+
+export function loadExampleReadPolicy(caseRoot, context) {
+  if (!Array.isArray(context?.exampleRoots) || context.exampleRoots.length === 0) return null
+  const inventoryEntries = []
+  for (const root of context.exampleRoots) {
+    const normalizedRoot = normalizeExampleReadPath(root.root)
+    const inventoryRelative = `${normalizedRoot}/references/surface-inventory.json`
+    const inventoryFile = resolveExistingExamplePath(caseRoot, inventoryRelative)
+    const inventoryStat = fs.statSync(inventoryFile.realPath)
+    if (!inventoryStat.isFile()) throw new Error(`example capability inventory must be a file: ${inventoryRelative}`)
+    let parsed
+    try { parsed = JSON.parse(fs.readFileSync(inventoryFile.realPath, 'utf8')) } catch { throw new Error(`example capability inventory is invalid JSON: ${inventoryRelative}`) }
+    if (!Array.isArray(parsed)) throw new Error(`example capability inventory must be an array: ${inventoryRelative}`)
+    inventoryEntries.push(...parsed)
+  }
+  const validation = validateExampleReadPolicy(context, inventoryEntries, { caseRoot })
+  if (!validation.ok) throw new Error(validation.errors.join('; '))
+  const inventory = normalizeInventory(inventoryEntries, [])
+  return {
+    version: 1,
+    exampleRoots: validation.policy.exampleRoots.map((root) => {
+      const entrypoints = root.entrypoints.map((entrypoint) => `${root.root}/${entrypoint}`)
+      const capabilities = []
+      for (const capabilityId of root.allowedCapabilityIds) {
+        for (const exactPath of inventory.get(capabilityId) ?? []) {
+          if (!exactPath.startsWith(`${root.root}/`)) continue
+          const resolved = resolveExistingExamplePath(caseRoot, exactPath)
+          if (!fs.statSync(resolved.realPath).isFile()) throw new Error(`example capability must resolve to a file: ${exactPath}`)
+          capabilities.push({ capabilityId, path: exactPath })
+        }
+      }
+      return {
+        root: root.root,
+        entrypoints,
+        capabilities,
+        maxFiles: root.maxFiles,
+        maxBytes: root.maxBytes,
+      }
+    }),
+  }
 }
 
 export function validateCumulativeExampleBudget(usage, budget) {
