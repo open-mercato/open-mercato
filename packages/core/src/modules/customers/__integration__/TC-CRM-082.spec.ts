@@ -20,10 +20,12 @@ import { randomUUID } from 'node:crypto';
  *   quarter-over-quarter deltas, a per-stage open-pipeline breakdown, top owners, and a
  *   6-month win-rate series. All money is converted to the tenant base currency where rates
  *   are available; partial conversions are disclosed via `convertedAll` / `missingRateCurrencies`.
- * - `activeDeals.value` / `pipelineValue.value` aggregate OPEN deals (status ∈ {open, in_progress}).
+ * - `activeDeals.value` / `pipelineValue.value` aggregate OPEN deals (status ∈ {open, in_progress}
+ *   AND closure_outcome IS NULL — a recorded closure outcome closes a deal on its own).
  * - `wonThisQuarter` counts deals (status='win' OR closure_outcome='won') whose `updated_at` falls
  *   in the current quarter — a freshly-created `win` deal qualifies (updated_at = now).
- * - `needAttention` = open + overdue (expected_close_at < today) ∪ stuck deals.
+ * - `needAttention` = open + overdue (expected_close_at < today) ∪ stuck deals, both sides using
+ *   the same open-deal predicate.
  * - Requires auth: an unauthenticated GET returns 401.
  *
  * The summary aggregates ALL org deals, so demo/seeded deals are present in the totals. This test
@@ -324,6 +326,99 @@ test.describe('TC-CRM-082: Deals KPI summary endpoint', () => {
       ).toBe(before.pipelineValue.value);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', foreignDealId);
+    }
+  });
+
+  // Regression guard for #4697. `dealUpdateSchema` accepts `closureOutcome` on its own and the
+  // update command writes only the column it was given, so a deal can end up with
+  // `status = 'open'` and `closure_outcome = 'won'` at once — the shape any importer or
+  // integration that closes deals through the API produces. Before the fix the summary route's
+  // open-deal predicate read `status` alone, so that single deal was counted as active pipeline
+  // AND as won inside one response. The route now requires `closure_outcome IS NULL` on every
+  // open-deal query, so closing a deal this way must move its value out of `pipelineValue` and
+  // its head out of `activeDeals`, exactly as a `status` flip does.
+  test('drops a deal closed through closure_outcome alone from the pipeline and active-deal cards', async ({ request }) => {
+    test.slow();
+
+    const stamp = Date.now();
+    const DEAL_VALUE = 210_000; // large and unmistakable, so any residue in the totals shows up.
+
+    let token: string | null = null;
+    let dealId: string | null = null;
+
+    try {
+      token = await getAuthToken(request, 'admin');
+      const scope = getTokenScope(token);
+
+      const before = await fetchSummary(request, token);
+      assertSummaryShape(before);
+      const seedCurrency = before.baseCurrencyCode ?? undefined;
+
+      dealId = await createDealFixture(request, token, {
+        title: `TC-CRM-082 Closure-only ${stamp}`,
+        status: 'open',
+        valueAmount: DEAL_VALUE,
+        valueCurrency: seedCurrency,
+        ownerUserId: scope.userId,
+      });
+
+      // The deal is open: it must be visible in both active-deal cards first, otherwise the
+      // "it disappears after closing" assertion below would pass vacuously.
+      const whileOpen = await fetchSummary(request, token);
+      assertSummaryShape(whileOpen);
+      expect(
+        whileOpen.activeDeals.value - before.activeDeals.value,
+        'the freshly seeded open deal should raise activeDeals by exactly 1',
+      ).toBe(1);
+
+      // Close it the way the CRUD API permits: `closureOutcome` only, `status` untouched.
+      const closeResponse = await apiRequest(request, 'PUT', '/api/customers/deals', {
+        token,
+        data: { id: dealId, closureOutcome: 'won' },
+      });
+      expect(closeResponse.status(), 'PUT with closureOutcome alone should be accepted').toBe(200);
+
+      // Confirm the premise of the regression: the write left `status` alone. If a future change
+      // makes the API derive `status` from `closureOutcome`, this assertion is the signal to
+      // revisit the test — the KPI assertions below hold under either behavior.
+      const readBack = await apiRequest(request, 'GET', `/api/customers/deals?id=${encodeURIComponent(dealId)}`, { token });
+      expect(readBack.status()).toBe(200);
+      const readBackBody = await readJsonSafe<{ items?: Array<{ id: string; status?: string; closureOutcome?: string | null }> }>(readBack);
+      const closedRow = readBackBody?.items?.find((entry) => entry.id === dealId);
+      expect(closedRow, 'the closed deal should still be readable').toBeTruthy();
+      expect(closedRow?.status, 'closing via closureOutcome must not move status').toBe('open');
+
+      const afterClose = await fetchSummary(request, token);
+      assertSummaryShape(afterClose);
+
+      // The deal is closed, so both active-deal cards must return to their baseline …
+      expect(
+        afterClose.activeDeals.value,
+        'a deal closed through closure_outcome must leave the active-deal count',
+      ).toBe(before.activeDeals.value);
+
+      // … and it must be counted as won exactly once, never as both at the same time.
+      expect(
+        afterClose.wonThisQuarter.dealsClosed - before.wonThisQuarter.dealsClosed,
+        'the closed deal should be counted once in wonThisQuarter',
+      ).toBe(1);
+
+      // Money assertions are only deterministic when a base currency exists and the seed used it.
+      if (before.baseCurrencyCode) {
+        const pipelineDelta = afterClose.pipelineValue.value - before.pipelineValue.value;
+        expect(
+          Math.abs(pipelineDelta),
+          `pipelineValue should return to its baseline after the deal is closed (got delta ${pipelineDelta})`,
+        ).toBeLessThanOrEqual(1);
+
+        const wonDelta = afterClose.wonThisQuarter.value - before.wonThisQuarter.value;
+        expect(
+          Math.abs(wonDelta - DEAL_VALUE),
+          `wonThisQuarter should increase by ~${DEAL_VALUE} (got delta ${wonDelta})`,
+        ).toBeLessThanOrEqual(1);
+      }
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
     }
   });
 });

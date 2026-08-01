@@ -196,6 +196,17 @@ export async function GET(req: Request) {
   const scopeWhere = `tenant_id = ? AND organization_id IN (${orgPlaceholders}) AND deleted_at IS NULL`
   const scopeValues: Array<string | number | null> = [effectiveTenantId, ...orgFilterIds]
   const openPlaceholders = OPEN_STATUSES.map(() => '?').join(',')
+  // A deal is closed when EITHER `status` OR `closure_outcome` says so. The CRUD API accepts
+  // `closureOutcome` on its own (`data/validators.ts`), so a deal can hold `status = 'open'` and
+  // `closure_outcome = 'won'` at the same time. The won/lost queries below already read both
+  // columns, so the open predicate must read both too — otherwise one deal comes back as active
+  // pipeline AND won inside a single response.
+  //
+  // `IS NULL` rather than `!= 'won'`: `closure_outcome` is nullable and every open deal holds NULL
+  // there, so a `!=` comparison evaluates to NULL and would drop every open deal instead of the
+  // closed ones. This matches the `closureOutcome IS NULL` filter the dashboards pipeline-summary
+  // widget applies, so the card and the chart count the same deals.
+  const openDealsWhere = `status IN (${openPlaceholders}) AND closure_outcome IS NULL`
 
   // 1) Open pipeline: per (stage, currency) sums + open-deal owner per row, so we can
   //    derive pipeline value (per stage + converted total) and the open owner set in one pass.
@@ -207,7 +218,7 @@ export async function GET(req: Request) {
         COUNT(*) AS count,
         owner_user_id
       FROM customer_deals
-      WHERE ${scopeWhere} AND status IN (${openPlaceholders})
+      WHERE ${scopeWhere} AND ${openDealsWhere}
       GROUP BY pipeline_stage, UPPER(COALESCE(value_currency, '')), owner_user_id`,
     [...scopeValues, ...OPEN_STATUSES],
   )
@@ -221,7 +232,7 @@ export async function GET(req: Request) {
         COALESCE(SUM(value_amount) FILTER (WHERE created_at >= ? AND created_at < ?), 0) AS previous_total,
         COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS previous_count
       FROM customer_deals
-      WHERE ${scopeWhere} AND status IN (${openPlaceholders})
+      WHERE ${scopeWhere} AND ${openDealsWhere}
       GROUP BY UPPER(COALESCE(value_currency, ''))`,
     [
       currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
@@ -283,9 +294,12 @@ export async function GET(req: Request) {
   )
 
   // Overdue open deals (id set) + stuck deals (id set) → union count for "need attention".
+  // "Need attention" is a slice of the active-deal card, so it carries the same `closure_outcome`
+  // guard as the pipeline queries: a deal closed through `closure_outcome` alone must not be
+  // reported as needing attention while it is also being counted as won.
   const overdueRows: Array<{ id: string }> = await connection.execute<Array<{ id: string }>>(
     `SELECT id FROM customer_deals
-      WHERE ${scopeWhere} AND status = 'open' AND expected_close_at IS NOT NULL AND expected_close_at < CURRENT_DATE`,
+      WHERE ${scopeWhere} AND status = 'open' AND closure_outcome IS NULL AND expected_close_at IS NOT NULL AND expected_close_at < CURRENT_DATE`,
     [...scopeValues],
   )
   // `fetchStuckDealIds` is single-org; run it for every org in scope so multi-org callers don't
@@ -298,15 +312,15 @@ export async function GET(req: Request) {
   for (const list of stuckIdLists) for (const id of list) stuckIdSet.add(id)
 
   // The stuck-deal query does not filter status, so a stuck id can be a won/lost/closed deal.
-  // "Need attention" is an active-deal metric — intersect with the open (OPEN_STATUSES) set so
-  // terminal deals never inflate the count.
+  // "Need attention" is an active-deal metric — intersect with the open set (open status AND no
+  // recorded closure outcome) so terminal deals never inflate the count.
   let openStuckIds: string[] = []
   if (stuckIdSet.size > 0) {
     const stuckIdValues = Array.from(stuckIdSet)
     const stuckPlaceholders = stuckIdValues.map(() => '?').join(',')
     const openStuckRows: Array<{ id: string }> = await connection.execute<Array<{ id: string }>>(
       `SELECT id FROM customer_deals
-        WHERE ${scopeWhere} AND status IN (${openPlaceholders}) AND id IN (${stuckPlaceholders})`,
+        WHERE ${scopeWhere} AND ${openDealsWhere} AND id IN (${stuckPlaceholders})`,
       [...scopeValues, ...OPEN_STATUSES, ...stuckIdValues],
     )
     openStuckIds = openStuckRows.map((row) => row.id)
