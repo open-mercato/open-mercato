@@ -20,7 +20,7 @@ When any module emits a domain event (e.g., `customers.person.created`, `sales.o
 2. Matches each event against registered webhook subscriptions (supports wildcards like `customers.*`)
 3. Enqueues delivery jobs to a dedicated `webhook-deliveries` queue
 4. A delivery worker signs the payload per Standard Webhooks spec and delivers it
-5. On failure, retries with exponential backoff (up to 10 attempts over ~24 hours)
+5. On failure, retries with exponential backoff (up to 10 attempts over ~8.5 minutes by default)
 
 ```
   Module emits event → Event Bus → Webhook Dispatcher → Delivery Queue → HTTP POST
@@ -146,18 +146,34 @@ Use the official [Standard Webhooks libraries](https://github.com/standard-webho
 
 ## Retry Behavior
 
-Failed deliveries are retried with exponential backoff:
+Failed deliveries are retried with exponential backoff. The delay before attempt *n* is
+`1s × 2^(n-2)` plus up to 1s of jitter (`calculateNextRetry` in `lib/delivery.ts`):
 
-| Attempt | Delay |
-|---------|-------|
-| 1 | Immediate |
-| 2 | ~5 seconds |
-| 3 | ~5 minutes |
-| 4 | ~30 minutes |
-| 5 | ~2 hours |
-| 6 | ~5 hours |
-| 7 | ~10 hours |
-| 8-10 | ~14-24 hours |
+| Attempt | Delay before it |
+|---------|-----------------|
+| 1 | immediate |
+| 2 | ~1 second |
+| 3 | ~2 seconds |
+| 4 | ~4 seconds |
+| 5 | ~8 seconds |
+| 6 | ~16 seconds |
+| 7 | ~32 seconds |
+| 8 | ~1 minute |
+| 9 | ~2 minutes |
+| 10 | ~4 minutes |
+
+**Total window**: with the default `maxRetries` of 10, a delivery exhausts its attempts about
+**8.5 minutes** after the first one — not hours. Retries stop once `attemptNumber` reaches
+`maxRetries`, so the last delay is the one before the final attempt. In general the window is
+`2^(maxRetries - 1) - 1` seconds, so raising `maxRetries` grows it geometrically: 15 gives ~4.5 hours,
+17 gives ~18 hours.
+
+:::warning
+Size your alerting against this window, not against a multi-hour assumption. A receiver that is down
+for more than ~9 minutes will exhaust every attempt for events emitted during the outage. If you need
+longer durability, raise `maxRetries` on the webhook or consume from the dead-letter path rather than
+relying on the default.
+:::
 
 **Non-retryable responses**: HTTP 4xx (except 408 and 429) are not retried.
 
@@ -212,7 +228,7 @@ interface WebhookEndpointAdapter {
 ```
 
 Inbound webhooks are:
-- **Rate limited** per endpoint
+- **Rate limit per endpoint** is configurable and persisted, but is **not enforced yet** — the delivery worker ignores `rateLimitPerMinute`. Throttle at the receiver until it is wired up.
 - **Deduplicated** by message ID
 - Processed via **fire-and-forget** (return 200 immediately, emit event for async processing)
 
