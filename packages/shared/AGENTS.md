@@ -52,6 +52,7 @@ yarn workspace @open-mercato/shared build
 | `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
+| `search/` | When resolving record ids from the `search_tokens` index — MUST use instead of hand-rolling the Kysely lookup, and MUST be unioned into (or replace) any `$ilike` filter on a column an encryption map covers | `@open-mercato/shared/lib/search/tokenLookup` |
 | `string.ts` | When parsing comma-separated lists from CLI args/query params, or coercing a string to `undefined` when blank | `@open-mercato/shared/lib/string` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 
@@ -88,6 +89,35 @@ peak connection demand of all processes against one database is additive.
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organizationId })
 ```
+
+### Search Tokens — MUST use instead of `$ilike` on encrypted columns
+
+```typescript
+import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
+
+const match = await findEntityIdsBySearchTokens({
+  db: em.getKysely<any>(),
+  entityType: E.customers.customer_entity,
+  query: term,
+  fields: ['display_name', 'primary_email'],
+  scope: { tenantId, organizationId },
+})
+if (match.matched && match.ids.length) filters.$or.push({ id: { $in: match.ids } })
+```
+
+An `$ilike` predicate runs against the stored column value. For a field covered by a
+module encryption map that value is ciphertext, so the filter matches nothing and the
+endpoint returns an empty page indistinguishable from a genuine no-result. The token
+index stores hashes of the plaintext, so it keeps matching. Issue #2990.
+
+- `matched: false` means the index was **not consulted** (blank query, `OM_SEARCH_ENABLED=off`,
+  or the term produced no tokens) — it is NOT "nothing matched". Keep the caller's own
+  predicate in that case.
+- `matched: true` with `ids: []` is a real empty result.
+- Queries that go through the query engine get this routing automatically; raw
+  `em.find` / Kysely list routes must wire it themselves. When the fallback would run
+  `ILIKE` against an encrypted column, both query engines now log a warning
+  (`lib/query/ciphertext-search-warning`) instead of degrading silently.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
 
