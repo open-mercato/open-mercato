@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-harness-knowledge-change.schema.json",
+  "title": "Open Mercato standalone harness authored knowledge-change manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "changeClass",
+    "baseRef",
+    "affectedCaseIds",
+    "affectedRanges",
+    "changedContracts",
+    "focusedTestFiles",
+    "authoritativeFiles",
+    "generatedFiles",
+    "expectedCatalogCount",
+    "requiredReleaseLanes",
+    "documentationFiles"
+  ],
+  "properties": {
+    "changeClass": { "enum": ["knowledge-contract", "asset-sync"] },
+    "baseRef": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$" },
+    "affectedCaseIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^OMH-[0-9]{3}$" }
+    },
+    "affectedRanges": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/rangeId" }
+    },
+    "changedContracts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["routing", "skill-link", "discovery", "context-read", "evaluator", "oracle"]
+      }
+    },
+    "focusedTestFiles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/relativePath" }
+    },
+    "authoritativeFiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/authoritativeFile" }
+    },
+    "generatedFiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/generatedFile" }
+    },
+    "expectedCatalogCount": { "type": "integer", "minimum": 0 },
+    "requiredReleaseLanes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/rangeId" }
+    },
+    "documentationFiles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/relativePath" }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "rangeId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,99}$" },
+    "authoritativeFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "generatedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "sourcePath"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sourcePath": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "focusedExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["testFile", "command", "baseWithTestPatch", "head"],
+      "properties": {
+        "testFile": { "$ref": "#/$defs/relativePath" },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+        },
+        "baseWithTestPatch": { "$ref": "#/$defs/executionResult" },
+        "head": { "$ref": "#/$defs/executionResult" }
+      }
+    },
+    "executionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "stdoutSha256", "stderrSha256"],
+      "properties": {
+        "exitCode": { "type": "integer" },
+        "stdoutSha256": { "$ref": "#/$defs/sha256" },
+        "stderrSha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

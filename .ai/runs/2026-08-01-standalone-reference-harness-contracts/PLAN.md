@@ -17,7 +17,7 @@ Issue: #4729
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add failure-first knowledge-change manifest and classifier tests | dispatch:capable | todo | — |
+| 1 | 1.1 | Add failure-first knowledge-change manifest and classifier tests | dispatch:capable | done | self:step-1.1 |
 | 1 | 1.2 | Implement the knowledge-change schema and controller validator | dispatch:capable | todo | — |
 | 1 | 1.3 | Strengthen both harness-evolution workflows with the shared governance contract | dispatch:standard | todo | — |
 | 1 | 1.4 | Add synchronization fixtures and machine-enforced asset/count/hash checks | dispatch:capable | todo | — |
@@ -178,4 +178,3 @@ Implement all four specifications from merged design PR #4728 in one dependency-
 - Read-policy relaxation could expose unrelated or sensitive content; capability IDs, dual budgets, realpath containment, sensitive-path denial, and redacted traces preserve the security boundary.
 - The feature is large enough that environment or runner availability may block full harness certification; run artifacts remain resumable and record any unavailable lane as a blocker rather than a pass.
 - The issue body requested split PRs, but the user explicitly superseded that packaging decision for this run; all four specs therefore land atomically in this one PR while retaining their one-way ownership boundaries.
-
