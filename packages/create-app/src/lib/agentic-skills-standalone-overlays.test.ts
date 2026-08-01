@@ -289,6 +289,42 @@ test('local spec implementation cannot report completion without green gates and
   assert.match(phaseReference, /Every configured command must exit zero/)
 })
 
+test('local spec implementation shares stable planning and report contracts without losing interaction', () => {
+  const implementation = readOverrideSkill('om-implement-spec')
+  const specResolution = fs.readFileSync(
+    new URL('om-implement-spec/references/spec-resolution.md', skillsDir),
+    'utf8',
+  )
+  const planning = fs.readFileSync(
+    new URL('om-implement-spec/references/planning-and-progress.md', skillsDir),
+    'utf8',
+  )
+  const reportTemplate = fs.readFileSync(
+    new URL('om-implement-spec/references/report-templates.md', skillsDir),
+    'utf8',
+  )
+
+  for (const reference of [
+    'references/spec-resolution.md',
+    'references/planning-and-progress.md',
+    'references/report-templates.md',
+  ]) {
+    assert.ok(implementation.includes(reference), `om-implement-spec must load ${reference}`)
+  }
+  assert.match(specResolution, /path.*name\/title.*issue.*spec PR/is)
+  assert.match(specResolution, /Closest candidates:/)
+  assert.match(planning, /Goal.*Scope.*Non-goals.*Source doc:.*Risks/is)
+  assert.match(planning, /Only one phase may be `in_progress`/)
+  assert.match(planning, /present.*plan.*user.*before coding/is)
+  assert.match(reportTemplate, /### 📋 Plan & progress/)
+  assert.match(reportTemplate, /### 🧪 Validation & 🔍 review/)
+  assert.match(reportTemplate, /### 📸 UI verification/)
+  assert.match(reportTemplate, /^Spec: <repo-relative spec path>$/m)
+  assert.match(reportTemplate, /never emit `PR:` or `Issue:`/)
+  assert.match(implementation, /does not create branches, commits, labels, issues, or pull requests/)
+  assert.match(implementation, /wait for the user's confirmation before coding/)
+})
+
 // Setup never creates a directory-level link. The installer owns Claude's
 // per-skill compatibility layer after the canonical collection exists.
 test('setup leaves every per-agent skills directory to install-skills.mjs', () => {
