@@ -91,4 +91,29 @@ Plus `yarn lint`, which the spec's own gate names.
 
 ### Phase 5: Validation gate
 
-- [ ] 5.1 Run the full configured validation gate plus `yarn lint`
+- [x] 5.1 Run the full configured validation gate plus `yarn lint` — green except two pre-existing `@open-mercato/core` failures documented below
+
+### Validation gate result (2026-08-01, local runner)
+
+| Command | Result |
+|---|---|
+| `yarn build:packages` (×2, around `yarn generate`) | ✅ 21/21 tasks |
+| `yarn generate` | ✅ |
+| `yarn i18n:check-sync` / `yarn i18n:check-usage` | ✅ (unused-key report is advisory) |
+| `yarn typecheck` | ✅ 21/21 tasks |
+| `yarn test` | ⚠️ 23/24 packages green; `@open-mercato/core` fails — see below |
+| `yarn lint` | ✅ 0 errors (12 pre-existing warnings in `@open-mercato/app`) |
+| `yarn build:app` | ✅ |
+
+Both `@open-mercato/core` failures are unrelated to this change, which touches no file under
+`packages/core`:
+
+1. `sales/api/__tests__/documents.routes.test.ts` — 3 tests expect `201`, receive `400`. Pre-existing
+   collision on `develop` between `7b1dab910 fix(sales): deprecate ignored order payment totals with
+   warnings (#4796)` (added the tests) and `76604da24 fix(sales): require at least one line item on
+   orders (#4093)` (made their item-less payloads invalid).
+2. `customer_accounts/.../user-detail.route.test.ts` and `query_index/__tests__/coverage-warmup.test.ts`
+   — jest worker `SIGSEGV` under the full fan-out; both pass in isolation (14/14).
+
+`yarn test` at the repo's pinned `--max-old-space-size=768` also OOMs in `open-mercato-docs`; the run
+above used a 4 GB heap. Both are known local-runner limits, not regressions from this branch.
