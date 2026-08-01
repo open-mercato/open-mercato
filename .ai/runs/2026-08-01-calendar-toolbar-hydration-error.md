@@ -40,8 +40,8 @@ Source doc: `.ai/specs/2026-06-11-crm-calendar.md`
 
 ### Phase 1: Deterministic localized labels
 
-- [ ] 1.1 Add regression coverage that rejects hydration-unstable Unicode spacing in date and time labels.
-- [ ] 1.2 Canonicalize invisible `Intl` spacing without changing the visible localized output or fallback behavior.
+- [x] 1.1 Add regression coverage that rejects hydration-unstable Unicode spacing in date and time labels. — 439bd7d1f5
+- [x] 1.2 Canonicalize invisible `Intl` spacing without changing the visible localized output or fallback behavior. — 439bd7d1f5
 
 ### Phase 2: Verification
 
