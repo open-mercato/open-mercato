@@ -4,7 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
+import { findEntityIdsBySearchTokens, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { E } from '#generated/entities.ids.generated'
 import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy, type InboxProposalCategory } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
@@ -57,7 +57,7 @@ export async function GET(req: Request) {
         { summary: { $ilike: `%${escapeLikePattern(query.search)}%` } },
       ]
       const tokenMatch = await findEntityIdsBySearchTokens({
-        db: ctx.em.getKysely<any>(),
+        db: ctx.em.getKysely<SearchTokenDatabase>(),
         entityType: E.inbox_ops.inbox_proposal,
         query: query.search,
         fields: ['summary'],

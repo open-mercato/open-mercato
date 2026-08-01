@@ -60,6 +60,16 @@ describe('warnOnCiphertextLikeFallback', () => {
     expect(loggerModule.__warn).not.toHaveBeenCalled()
   })
 
+  it('does not cache a non-encrypted lookup as already warned', async () => {
+    await warnOnCiphertextLikeFallback({
+      entity: 'auth:user', fields: ['email'], tenantId: 'tenant-1', reason: 'no-search-tokens', service: createService([]),
+    })
+    await warnOnCiphertextLikeFallback({
+      entity: 'auth:user', fields: ['email'], tenantId: 'tenant-1', reason: 'no-search-tokens', service: createService(['email']),
+    })
+    expect(loggerModule.__warn).toHaveBeenCalledTimes(1)
+  })
+
   it('matches camelCase filter fields against snake_case map entries', async () => {
     await warnOnCiphertextLikeFallback({
       entity: 'checkout:checkout_transaction',
@@ -129,6 +139,14 @@ describe('warnOnCiphertextLikeFallback', () => {
     })
     expect(loggerModule.__warn.mock.calls[0][1]).toMatchObject({ reason: 'search-disabled' })
     expect(loggerModule.__warn.mock.calls[0][1].hint).toContain('OM_SEARCH_ENABLED')
+  })
+
+  it('reports values that are too short to tokenize', async () => {
+    await warnOnCiphertextLikeFallback({
+      entity: 'auth:user', fields: ['email'], tenantId: null, reason: 'no-indexable-tokens', service: createService(['email']),
+    })
+    expect(loggerModule.__warn.mock.calls[0][1]).toMatchObject({ reason: 'no-indexable-tokens' })
+    expect(loggerModule.__warn.mock.calls[0][1].hint).toContain('OM_SEARCH_MIN_LEN')
   })
 
   it('never rethrows when the encryption lookup fails', async () => {

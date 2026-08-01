@@ -34,12 +34,13 @@ function createKyselyMock(rows: Array<{ entity_id: unknown }>) {
   return { db: db as never, calls, tableNameRef, builder }
 }
 
-function compileSql(raw: any): string {
-  if (typeof raw?.toOperationNode === 'function') {
-    const node = raw.toOperationNode()
-    return Array.isArray(node?.sqlFragments) ? node.sqlFragments.join(' ? ') : ''
+function compileSql(raw: unknown): string {
+  if (raw && typeof raw === 'object' && 'toOperationNode' in raw && typeof raw.toOperationNode === 'function') {
+    const node = raw.toOperationNode() as { sqlFragments?: unknown }
+    return Array.isArray(node.sqlFragments) ? node.sqlFragments.join(' ? ') : ''
   }
-  return String(raw?.sql ?? raw)
+  if (raw && typeof raw === 'object' && 'sql' in raw) return String(raw.sql)
+  return String(raw)
 }
 
 function rawWhereFragments(calls: KyselyCall[]): string[] {

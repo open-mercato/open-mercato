@@ -1,9 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Kysely } from 'kysely'
-import { findEntityIdsBySearchTokensCompat } from '@open-mercato/shared/lib/search/tokenLookup'
+import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 
-function getDb(em: EntityManager): Kysely<any> {
-  return em.getKysely<any>()
+function getDb(em: EntityManager): Kysely<SearchTokenDatabase> {
+  return em.getKysely<SearchTokenDatabase>()
 }
 
 export async function findMessageIdsBySearchTokens({

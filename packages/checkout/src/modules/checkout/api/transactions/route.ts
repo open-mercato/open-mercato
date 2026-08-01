@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
+import { findEntityIdsBySearchTokens, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../lib/constants'
 import { handleCheckoutRouteError, requireAdminContext, userHasCheckoutFeature } from '../helpers'
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
       // raises 42883, so only an exact id lookup is meaningful here.
       if (UUID_PATTERN.test(search)) searchOr.push({ id: search })
       const tokenMatch = await findEntityIdsBySearchTokens({
-        db: em.getKysely<any>(),
+        db: em.getKysely<SearchTokenDatabase>(),
         entityType: CHECKOUT_ENTITY_IDS.transaction,
         query: search,
         fields: ['email', 'first_name', 'last_name'],

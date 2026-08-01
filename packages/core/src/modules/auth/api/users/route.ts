@@ -23,7 +23,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
-import { findEntityIdsBySearchTokensCompat } from '@open-mercato/shared/lib/search/tokenLookup'
+import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import {
   getSelectedTenantFromRequest,
@@ -503,7 +503,7 @@ async function findUserIdsBySearchTokens(
   field?: string,
 ): Promise<string[] | null> {
   return findEntityIdsBySearchTokensCompat({
-    db: (em as any).getKysely(),
+    db: em.getKysely<SearchTokenDatabase>(),
     entityType,
     query: search,
     fields: field ? [field] : undefined,

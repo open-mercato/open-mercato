@@ -334,18 +334,46 @@ export class BasicQueryEngine implements QueryEngine {
           organizationScope: orgScope,
         })
       }
-      if (!searchActive) {
+      const fallbackFields = searchFilters
+        .filter((filter) => !searchActive || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => String(filter.field))
+      if (fallbackFields.length) {
         await warnOnCiphertextLikeFallback({
           entity: String(entity),
-          fields,
+          fields: fallbackFields,
           tenantId: opts.tenantId ?? null,
           // `searchEnabled` also folds in the missing-table and
           // omitAutomaticTenantOrgScope cases, which are "no usable tokens"
           // rather than "the operator switched search off".
-          reason: searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          reason: searchActive
+            ? 'no-indexable-tokens'
+            : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
           service: this.getEncryptionService(),
         })
       }
+    }
+    for (const [alias, joinedFilters] of joinFilters) {
+      const filters = joinedFilters.filter((entry) => entry.op === 'like' || entry.op === 'ilike')
+      if (!filters.length) continue
+      const join = joinMap.get(alias)
+      if (!join?.entityId) continue
+      const hasJoinedTokens = searchEnabled
+        ? await this.hasSearchTokens(join.entityId, opts.tenantId ?? null, orgScope)
+        : false
+      joinSearchAvailability.set(join.entityId, hasJoinedTokens)
+      const fallbackFields = filters
+        .filter((filter) => !hasJoinedTokens || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => filter.column)
+      if (!fallbackFields.length) continue
+      await warnOnCiphertextLikeFallback({
+        entity: join.entityId,
+        fields: fallbackFields,
+        tenantId: opts.tenantId ?? null,
+        reason: hasJoinedTokens
+          ? 'no-indexable-tokens'
+          : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+        service: this.getEncryptionService(),
+      })
     }
     const recordIdColumn = qualify('id')
 

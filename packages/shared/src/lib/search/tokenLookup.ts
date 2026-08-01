@@ -2,8 +2,16 @@ import { type Kysely, sql } from 'kysely'
 import { resolveSearchConfig, type SearchConfig } from './config'
 import { tokenizeText } from './tokenize'
 
-type AnyDb = Kysely<any>
-type AnyBuilder = any
+export type SearchTokenDatabase = {
+  search_tokens: {
+    entity_id: string
+    entity_type: string
+    field: string
+    token_hash: string
+    tenant_id: string | null
+    organization_id: string | null
+  }
+}
 
 /**
  * Tenant/organization scoping for a `search_tokens` lookup.
@@ -30,7 +38,7 @@ export type SearchTokenLookupResult =
   | { matched: false; reason: SearchTokenLookupSkipReason }
 
 export type FindEntityIdsBySearchTokensInput = {
-  db: AnyDb
+  db: Kysely<SearchTokenDatabase>
   entityType: string
   query: string
   fields?: readonly string[] | null
@@ -69,7 +77,7 @@ export async function findEntityIdsBySearchTokens({
   const { hashes } = tokenizeText(trimmed, searchConfig)
   if (!hashes.length) return { matched: false, reason: 'no-tokens' }
 
-  let builder: AnyBuilder = (db as AnyBuilder)
+  let builder = db
     .selectFrom('search_tokens')
     .select('entity_id')
     .where('entity_type', '=', entityType)

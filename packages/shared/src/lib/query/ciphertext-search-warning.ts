@@ -1,4 +1,5 @@
 import { createLogger } from '../logger'
+import type { EntityId } from '../../modules/entities'
 
 const logger = createLogger('shared').child({ component: 'query' })
 
@@ -8,14 +9,14 @@ const logger = createLogger('shared').child({ component: 'query' })
  */
 export type CiphertextWarningEncryptionService = {
   getEncryptedFieldNames?: (
-    entityId: any,
+    entityId: EntityId,
     tenantId?: string | null,
     organizationId?: string | null,
   ) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null | undefined
 
-export type CiphertextLikeFallbackReason = 'no-search-tokens' | 'search-disabled'
+export type CiphertextLikeFallbackReason = 'no-indexable-tokens' | 'no-search-tokens' | 'search-disabled'
 
 // One warning per entity/tenant/field per process — the fallback repeats on
 // every request, and an operator only needs to learn about it once.
@@ -71,16 +72,18 @@ export async function warnOnCiphertextLikeFallback(params: {
       ),
     )
     for (const field of candidates) {
+      if (!encrypted.has(field)) continue
       if (warned.size >= WARN_CACHE_CAP) warned.clear()
       warned.add(warnKey(entity, tenantId, field))
-      if (!encrypted.has(field)) continue
       logger.warn('Text search filter cannot match an encrypted column', {
         entity,
         field,
         reason,
         hint: reason === 'search-disabled'
           ? 'OM_SEARCH_ENABLED is off, so the filter runs as ILIKE against ciphertext and matches nothing.'
-          : 'No search_tokens exist for this entity and scope, so the filter runs as ILIKE against ciphertext and matches nothing. Index the entity through query_index and reindex, or filter on the deterministic hash column.',
+          : reason === 'no-indexable-tokens'
+            ? 'The filter value produced no search tokens, so it runs as ILIKE against ciphertext and matches nothing. Use at least OM_SEARCH_MIN_LEN indexable characters, or filter on the deterministic hash column.'
+            : 'No search_tokens exist for this entity and scope, so the filter runs as ILIKE against ciphertext and matches nothing. Index the entity through query_index and reindex, or filter on the deterministic hash column.',
       })
     }
   } catch (err) {

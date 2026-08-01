@@ -4,7 +4,7 @@ import { sql } from 'kysely'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryCustomFieldSource, QueryJoinEdge, QueryEngine } from '@open-mercato/shared/lib/query/types'
-import { findEntityIdsBySearchTokensCompat } from '@open-mercato/shared/lib/search/tokenLookup'
+import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 const { withScopedPayload, parseScopedCommandInput } = createScopedApiHelpers({
@@ -107,7 +107,7 @@ async function findSearchTokenEntityIds({
 }: SearchTokenMatchInput): Promise<string[] | null> {
   const em = ctx.container.resolve('em') as EntityManager
   return findEntityIdsBySearchTokensCompat({
-    db: em.getKysely<any>(),
+    db: em.getKysely<SearchTokenDatabase>(),
     entityType,
     query,
     fields,
