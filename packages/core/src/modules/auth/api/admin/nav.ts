@@ -98,6 +98,13 @@ const adminNavResponseSchema = z.object({
   profilePathPrefixes: z.array(z.string()),
   grantedFeatures: z.array(z.string()),
   roles: z.array(z.string()),
+  // Present when a single organization is in scope; `null` under an all-organizations selection or
+  // when the lookup fails. Declared optional so the response contract stays additive for clients
+  // generated against an older schema.
+  currentOrganization: z.object({
+    id: z.string(),
+    name: z.string(),
+  }).nullable().optional(),
 })
 
 const adminNavErrorSchema = z.object({
@@ -146,13 +153,13 @@ export async function GET(req: Request) {
     selectedTenantId = auth.tenantId ?? null
   }
 
-  // The payload embeds the enabled-module set and its declared features (via
-  // `filterGrantsByEnabledModules`) plus the backend route manifest, none of
-  // which any tag invalidation covers — there is no database write to hang one off.
-  // Without the fingerprint a deploy that changes `modules.ts` stays invisible to
-  // every user holding a warm entry; the TTL bounds anything the fingerprint misses.
-  const cacheVersion = `v4:${getModuleSurfaceFingerprint()}`
-  const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
+  // v6: the payload gained `currentOrganization`, and the payload also embeds the enabled-module set,
+  // its declared features, and the backend route manifest. The selection is part of the key because
+  // the resolved organization cannot distinguish "all organizations" from "my own organization".
+  // The fingerprint invalidates module-surface changes; the TTL bounds anything it cannot observe.
+  const cacheVersion = `v6:${getModuleSurfaceFingerprint()}`
+  const cacheSelection = selectedOrganizationId === undefined ? 'default' : (selectedOrganizationId ?? 'null')
+  const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}`
   try {
     if (cache?.get) {
       const cached = await cache.get(cacheKey)

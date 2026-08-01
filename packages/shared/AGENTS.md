@@ -208,7 +208,7 @@ MUST rules:
 
 ### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
 
-Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.
+Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-19 are wired.
 
 | Use case | Helper |
 |----------|--------|
@@ -220,6 +220,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 | Widgets | `applyInjectionWidgetOverridesToEntries()`, `applyInjectionWidgetOverridesToTables()`, `applyDashboardWidgetOverridesToEntries()`, `applyComponentOverridesToEntries()` |
 | Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
 | DI | `applyDiOverridesToContainer()` |
+| Sidebar nav ordering | `applyNavGroupOrderOverrides()`, `getNavGroupOrderOverride()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
@@ -228,6 +229,8 @@ MUST rules:
 - `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.
 - The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests`, widget registries, notification registries, etc.) so the overrides take effect when the registry stores entries.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
+- `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
+- Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds.
 
 ### Query Engine Extensibility (UMES)
 

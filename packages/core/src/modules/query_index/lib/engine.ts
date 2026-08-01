@@ -415,12 +415,16 @@ export class HybridQueryEngine implements QueryEngine {
       const searchSources: SearchTokenSource[] = indexSources
         .map((src) => ({ entity: String(src.entityId), recordIdColumn: src.recordIdColumn }))
         .filter((src) => src.recordIdColumn && src.entity)
-      const hasSearchTokens = searchEnabled && searchSources.length
+      const searchFilters = normalizedFilters.filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+      // Probe `search_tokens` only when this query actually searches. Every consumer of
+      // `searchRuntime.enabled` already sits behind a like/ilike guard, so on a plain list load the
+      // answer is unused — and the probe is a `LIMIT 1` the planner can resolve as a seq scan over a
+      // large `search_tokens`. The join path below already probes lazily for the same reason.
+      const hasSearchTokens = searchEnabled && searchSources.length && searchFilters.length
         ? await this.searchSourcesHaveTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
       const joinSearchAvailability = new Map<string, boolean>()
-      const searchFilters = normalizeFilters(opts.filters).filter((filter) => filter.op === 'like' || filter.op === 'ilike')
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -707,8 +711,14 @@ export class HybridQueryEngine implements QueryEngine {
 
       const applyJoinFilterOpFn = (target: AnyBuilder, column: string, op: FilterOp, value?: unknown): AnyBuilder => {
         switch (op) {
-          case 'eq': return target.where(column, '=', value as any)
-          case 'ne': return target.where(column, '!=', value as any)
+          case 'eq':
+            return value === null
+              ? target.where(column, 'is', null)
+              : target.where(column, '=', value as any)
+          case 'ne':
+            return value === null
+              ? target.where(column, 'is not', null)
+              : target.where(column, '!=', value as any)
           case 'gt': return target.where(column, '>', value as any)
           case 'gte': return target.where(column, '>=', value as any)
           case 'lt': return target.where(column, '<', value as any)
@@ -1570,8 +1580,8 @@ export class HybridQueryEngine implements QueryEngine {
     value: unknown,
   ): any {
     switch (op) {
-      case 'eq': return eb(column, '=', value)
-      case 'ne': return eb(column, '!=', value)
+      case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
+      case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)
       case 'gt': return eb(column, '>', value)
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)
@@ -1630,9 +1640,13 @@ export class HybridQueryEngine implements QueryEngine {
     const orgScope = this.resolveOrganizationScope(opts)
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 
+    const normalizedFilters = normalizeFilters(opts.filters)
+    const hasSearchFilter = normalizedFilters.some((filter) => filter.op === 'like' || filter.op === 'ilike')
+
     const searchConfig = resolveSearchConfig()
     const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
-    const hasSearchTokens = searchEnabled
+    // Same gate as `query()`: without a like/ilike filter the probe's answer is never read.
+    const hasSearchTokens = searchEnabled && hasSearchFilter
       ? await this.hasSearchTokens(entity, opts.tenantId ?? null, orgScope)
       : false
     const searchRuntime: SearchRuntime = {
@@ -1642,8 +1656,6 @@ export class HybridQueryEngine implements QueryEngine {
       tenantId: opts.tenantId ?? null,
       mintAlias: createSearchAliasMinter(),
     }
-
-    const normalizedFilters = normalizeFilters(opts.filters)
 
     const applyScope = (q: AnyBuilder): AnyBuilder => {
       let next = q
@@ -2235,8 +2247,14 @@ export class HybridQueryEngine implements QueryEngine {
     }
     const col: any = column
     switch (filter.op) {
-      case 'eq': return q.where(col, '=', filter.value as any)
-      case 'ne': return q.where(col, '!=', filter.value as any)
+      case 'eq':
+        return filter.value === null
+          ? q.where(col, 'is', null)
+          : q.where(col, '=', filter.value as any)
+      case 'ne':
+        return filter.value === null
+          ? q.where(col, 'is not', null)
+          : q.where(col, '!=', filter.value as any)
       case 'gt':
       case 'gte':
       case 'lt':

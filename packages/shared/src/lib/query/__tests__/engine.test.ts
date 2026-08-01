@@ -477,6 +477,36 @@ describe('BasicQueryEngine (Kysely)', () => {
     )
   })
 
+  test('bypasses search-token filtering when automatic scope is explicitly disabled', async () => {
+    const fakeDb = createFakeKysely({
+      todos: [],
+      'information_schema.tables': [
+        { table_name: 'search_tokens' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'todos', column_name: 'search_text' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const hasSearchTokensSpy = jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('example:todo', {
+      tenantId: 't1',
+      fields: ['id'],
+      omitAutomaticTenantOrgScope: true,
+      filters: {
+        search_text: { $ilike: '%avision%' },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(hasSearchTokensSpy).not.toHaveBeenCalled()
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === 'todos')
+    expect(baseCall?._ops.wheres).toContainEqual(['todos.search_text', 'ilike', '%avision%'])
+  })
+
   test('join filters use whereExists with configured alias', async () => {
     const fakeDb = createFakeKysely({
       customer_entities: [],
