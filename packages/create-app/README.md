@@ -35,6 +35,8 @@ npx create-mercato-app <app-name> [options]
 |--------|-------------|
 | `--app <name>` | Bootstrap an official Open Mercato ready app from `open-mercato/ready-app-<name>` |
 | `--app-url <url>` | Bootstrap a ready app from a GitHub repository URL |
+| `--preset <id>` | Select the `classic`, `empty`, or `crm` starter without prompting |
+| `--agents <list>` | Set up `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none` without prompting |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
 | `--init-git` | Initialize a local Git repository after scaffolding |
 | `--no-init-git` | Do not prompt for or initialize a local Git repository |
@@ -64,6 +66,12 @@ npx create-mercato-app my-store --registry http://localhost:4873
 # Create a new app without the agentic setup wizard
 npx create-mercato-app my-store --skip-agentic-setup
 
+# Create a classic app with every supported AI coding-tool configuration
+npx create-mercato-app my-store --preset classic --agents all
+
+# Set up only Claude Code and Codex
+npx create-mercato-app my-store --agents claude-code,codex
+
 # Create a new app and initialize a local Git repository
 npx create-mercato-app my-store --init-git
 ```
@@ -76,7 +84,71 @@ npx create-mercato-app my-store --init-git
 - `--skip-agentic-setup` skips only the interactive agentic setup wizard
 - Imported ready apps are copied as raw source snapshots: the CLI does not rewrite dependency versions, package names, or application source files
 - Imported ready apps skip the interactive agentic setup wizard; if you want agentic tooling later, run `yarn mercato agentic:init` inside the generated app
+- `--agents` is only supported for bare scaffolds; use `yarn mercato agentic:init` after importing a ready app
 - Imported ready apps must not contain `.template` files; the scaffold fails closed if template files are found
+
+## Standalone AI Harness
+
+A bare scaffold can install a standalone-specific AI development harness for Claude Code, Codex, Cursor, or any selected subset. It combines a compact task router, module/task guides, local skills, an integrity-pinned subset of `open-mercato/skills`, exact installed-framework context, and a reproducible evaluation catalog.
+
+### Install or refresh skills
+
+Agentic setup attempts installation automatically. Re-run it after cloning, after an offline setup, or when selecting another tier:
+
+```bash
+yarn install-skills --list
+yarn install-skills
+yarn install-skills --with automation # opt in to loop/issue/release-maintenance workflows
+```
+
+The default is the 13 local core skills plus the 15-skill dependency-closed daily external tier. Advanced loop engines, issue authoring, and upgrade-note maintenance stay opt-in through `--with automation` (or `--all`). `.agents/skills/` is canonical; Claude Code receives compatibility links. The installer downloads the exact pinned `open-mercato/skills` archive, copies only individually hash-attested skill directories, and never executes archive or package-runner code. It activates the selected external set as one transaction: any failure restores the complete previous set before local installation continues. It preserves unknown user-owned skills and quarantines stale or modified installer-owned content.
+
+### Upgrade an existing generated harness
+
+After upgrading Open Mercato, refresh generated harness assets without overwriting local context:
+
+```bash
+yarn mercato agentic:init --update-harness
+```
+
+The ownership-aware update replaces unchanged generated files, recreates missing owned files, and refreshes the manifest atomically. Modified or unknown files remain in place; exact generated-path conflicts get an adjacent `.incoming` candidate. Managed paths are resolved below the canonical app root and a symlinked ancestor is rejected before publication. Use `--force` only when intentionally replacing known generated targets. External skill installation is a separate retryable phase, so offline installation does not roll back the harness update.
+
+### Resolve installed framework context
+
+Use the escape hatch when the routed guides do not contain an exact contract. It resolves the package versions selected by the app and their source/`AGENTS.md` chain without bulk-loading dependencies:
+
+```bash
+yarn framework:context --module customers --query makeCrudRoute
+yarn framework:context --package @open-mercato/ui --query CrudForm
+yarn framework:context --root
+```
+
+Bounded snapshots are written under ignored `.ai/framework-context/`; warnings make degraded dist/type-only context explicit.
+
+### Evaluate and maintain the harness
+
+Use deterministic checks during development:
+
+```bash
+yarn harness:validate --case OMH-009
+yarn harness:validate --family testing
+yarn harness:validate --all
+```
+
+`harness:validate --all` is the deterministic catalog gate, not the full release suite. Authenticated `--runner codex` / `--runner claude` live routing uses host filesystem containment on macOS (`sandbox-exec`) and Linux (Bubblewrap). The model gets no shell, process, environment, discovery, browser, or network tool: both CLIs receive only an evaluator-owned, `env -i` MCP server for exact-path reads and case-allowlisted writes. The selected app is intentionally readable through that narrow tool, so use a fresh or otherwise non-sensitive generated app. macOS `sandbox-exec` can enforce network-free lanes but cannot isolate loopback from the host; native macOS and Windows must use a contained Linux VM/container with Bubblewrap for the complete release gate.
+
+Run the full matrix once per Open Mercato release from a fresh scaffold:
+
+```bash
+yarn install-skills
+yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
+```
+
+The target directory must be absolute, new or empty, and outside the controller app. Select one blocking primary runner with `--runner codex` or `--runner claude`; it owns all 192 routing cases and every writable/review lane, with no per-case fallback. Optionally add the different authenticated runner through `--portability-runner` for the exact 45-case representative read-only lane. Omitting it is valid and recorded as not requested; once requested, its failures are blocking. Use a fresh, sanitized controller: automatic preparation fails before copying `.env`/`.env.*` local configuration (safe example/sample/template files remain allowed), credential files, or private-key files. The complete gate requires Linux with trusted system Bubblewrap (`bwrap`) and user namespaces because its Playwright API/browser lanes need a loopback namespace isolated from the host. Preflight rejects untrusted/no-op/pass-through executables and proves isolated loopback plus a capability-free payload before target preparation, provider invocation, or writes; native macOS and Windows therefore fail closed. The command also fails closed when a required runner, browser, or test runtime is unavailable. The 192-case catalog includes 92 framework-neutral business prompts and 45 writable implementation/regression cases (23.4%). The release command runs live routing, writable trusted oracles, per-target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Foundation and target validation—including `yarn build`—receive a minimal environment with network access denied, and persisted diagnostics redact sensitive environment values and URL userinfo. Test-authoring coverage executes a Jest unit test plus Linux/Bubblewrap loopback-only Playwright API and browser tests through fixed controller-owned commands against a read-only target; runtime reports must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests. The suite then writes a schema-valid sanitized mode-`0600` report under `.ai/harness/results/` with the selected primary and optional portability runner policy.
+
+Use the bundled `om-evolve-harness` skill to add a real case: reproduce failure first, select one smallest knowledge owner, run any generated unit/integration tests plus target checks, require code review, and finish with the full release suite. Open Mercato framework maintainers use the monorepo-only `$om-refresh-standalone-harness --from <ref> --to <ref>` workflow for every release range and retain its sanitized maintenance report.
+
+For normal app changes, describe the business outcome directly or use the installed spec workflow for multi-phase work. Before handoff, run `yarn generate`, the smallest affected unit/integration tests, `yarn typecheck`, `yarn lint`, and `yarn build` as appropriate; applying migrations still requires explicit approval.
 
 ## Git And GitHub
 

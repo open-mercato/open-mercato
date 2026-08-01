@@ -27,6 +27,7 @@ export const moduleOverrideExamples: ModuleOverrides = {
   ai: {
     agents: { 'catalog.catalog_assistant': null },
     tools: { inbox_ops_accept_action: null },
+    extensions: [], // additive AiAgentExtension[]; do not use null-map semantics
   },
   routes: {
     api: { 'DELETE /api/example/items': null },
