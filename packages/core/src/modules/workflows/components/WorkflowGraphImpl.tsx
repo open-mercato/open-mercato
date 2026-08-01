@@ -25,14 +25,10 @@ import {
   MarkerType,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode, TriggerNode, StickyNoteNode, AnnotationGroupNode} from './nodes'
+import {StartNode, EndNode, UserTaskNode, AutomatedNode, SubWorkflowNode, WaitForSignalNode, WaitForTimerNode, WaitForConditionNode, ParallelForkNode, ParallelJoinNode, InvokeAgentNode, IfElseNode, SwitchNode, StickyNoteNode, AnnotationGroupNode} from './nodes'
 import { ANNOTATION_GROUP_NODE_TYPE, ANNOTATION_NOTE_NODE_TYPE } from '../lib/editor-annotations'
 import {
-  buildTriggerEdge,
-  buildTriggerNode,
   buildTriggerNodeModel,
-  isTriggerNode,
-  WORKFLOW_TRIGGER_NODE_TYPE,
   type TriggerLike,
 } from '../lib/trigger-node'
 import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
@@ -490,45 +486,42 @@ export default function WorkflowGraphImpl({
     })
   }, [decoratedNodes, runOverlay, runAgentLabels])
 
-  // The trigger pill (fidelity gap #5). Derived at render time from the
-  // definition's triggers and anchored to the START terminal, so it is absent
-  // from the node state, the undo stack, the drag autosave, the per-user draft
-  // and the subgraph clipboard by construction — not by remembering to filter it
-  // in each of them.
+  // Triggers (fidelity gap #5, Direction A). Derived at render time from the
+  // definition's triggers and folded into the START node as a clickable cap —
+  // NOT a separate overlay node with a dashed connector. The old overlay node
+  // was minted fresh every render and, being outside the node state, was
+  // re-measured by ReactFlow on every render in an unbounded loop (the canvas
+  // "teleport" bug). Injecting the cap into the OWNED START node avoids that:
+  // its measurement is persisted to state like any real node. The model stays
+  // out of the document, undo, autosave, the per-user draft and the subgraph
+  // clipboard because it lives only in the render-time `data`, never in the
+  // definition (`graphToDefinition` reads steps/edges, not this key).
   const triggerModel = useMemo(
     () => (triggers ? buildTriggerNodeModel(triggers, { definitionEnabled }) : null),
     [triggers, definitionEnabled],
   )
 
-  const triggerAnchor = useMemo(
-    () => (triggerModel ? overlaidNodes.find((node) => node.type === 'start') ?? null : null),
-    [triggerModel, overlaidNodes],
-  )
-
   const canvasNodes = useMemo(() => {
-    if (!triggerModel || !triggerAnchor) return overlaidNodes
-    return [...overlaidNodes, buildTriggerNode(triggerModel, triggerAnchor, { onOpen: onOpenTriggers })]
-  }, [overlaidNodes, triggerModel, triggerAnchor, onOpenTriggers])
+    if (!triggerModel) return overlaidNodes
+    return overlaidNodes.map((node) =>
+      node.type === 'start'
+        ? { ...node, data: { ...node.data, trigger: triggerModel, onOpenTriggers } }
+        : node,
+    )
+  }, [overlaidNodes, triggerModel, onOpenTriggers])
 
   const displayEdges = useMemo(() => {
     const withGhosts = showCompensation ? [...edges, ...buildCompensationGhostEdges(edges)] : edges
-    const overlaid = !runOverlay
-      ? withGhosts
-      : withGhosts.map((edge) =>
-          isRouteTaken(runOverlay, { transitionId: edge.id, fromStepId: edge.source, toStepId: edge.target })
-            ? { ...edge, data: { ...edge.data, state: 'completed' } }
-            : edge,
-        )
-    if (!triggerAnchor) return overlaid
-    return [...overlaid, buildTriggerEdge(triggerAnchor.id, ROUTE_MARKER_END)]
-  }, [showCompensation, edges, runOverlay, triggerAnchor])
+    if (!runOverlay) return withGhosts
+    return withGhosts.map((edge) =>
+      isRouteTaken(runOverlay, { transitionId: edge.id, fromStepId: edge.source, toStepId: edge.target })
+        ? { ...edge, data: { ...edge.data, state: 'completed' } }
+        : edge,
+    )
+  }, [showCompensation, edges, runOverlay])
 
-  // The pill is not a step, so a click on it must never reach the step
-  // inspector. It carries its own button, which opens the triggers section of
-  // the definition drawer instead.
   const handleNodeClick = useCallback(
     (event: React.MouseEvent, node: Node) => {
-      if (isTriggerNode(node)) return
       onNodeClickProp?.(event, node)
     },
     [onNodeClickProp],
@@ -549,7 +542,6 @@ export default function WorkflowGraphImpl({
       invokeAgent: InvokeAgentNode,
       ifElse: IfElseNode,
       switch: SwitchNode,
-      [WORKFLOW_TRIGGER_NODE_TYPE]: TriggerNode,
       [ANNOTATION_NOTE_NODE_TYPE]: StickyNoteNode,
       [ANNOTATION_GROUP_NODE_TYPE]: AnnotationGroupNode,
     }),

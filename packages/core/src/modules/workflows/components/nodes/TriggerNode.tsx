@@ -13,6 +13,13 @@ import type { TriggerNodeModel } from '../../lib/trigger-node'
 const TRIGGER_HANDLE_TOP = 16
 
 /**
+ * @deprecated Superseded by {@link TriggerCap} (fidelity gap #5, Direction A),
+ * which folds the trigger summary onto the START node instead of rendering a
+ * separate overlay node joined by a dashed connector. No longer registered in
+ * the editor's node-type map or mounted by `WorkflowGraphImpl`; retained for its
+ * unit test and any third-party embed until removed one minor after the
+ * UPGRADE_NOTES entry.
+ *
  * The canvas trigger node (fidelity gap #5) — "where does this start", answered
  * on the canvas instead of three clicks deep in the details drawer.
  *

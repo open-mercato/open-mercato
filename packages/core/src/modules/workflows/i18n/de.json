@@ -1893,6 +1893,7 @@
   "workflows.transitions.triggers.manual": "Manuell",
   "workflows.transitions.triggers.signal": "Signal",
   "workflows.transitions.triggers.timer": "Timer",
+  "workflows.triggerNode.capCount": "{count} Trigger",
   "workflows.triggerNode.definitionDisabled": "Workflow deaktiviert – nichts startet ihn",
   "workflows.triggerNode.manual": "manueller / API-Start",
   "workflows.triggerNode.more": "+{count} weitere",

@@ -1893,6 +1893,7 @@
   "workflows.transitions.triggers.manual": "Ręczny",
   "workflows.transitions.triggers.signal": "Sygnał",
   "workflows.transitions.triggers.timer": "Timer",
+  "workflows.triggerNode.capCount": "{count} wyzwalaczy",
   "workflows.triggerNode.definitionDisabled": "workflow wyłączony — nic go nie uruchamia",
   "workflows.triggerNode.manual": "start ręczny / API",
   "workflows.triggerNode.more": "+{count} więcej",

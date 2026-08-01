@@ -270,38 +270,42 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Command / function / event / agent / signal / sub-workflow ids render `font-mono`; the mockup's
   10.4px mono has no DS equivalent and is NOT reproduced — `text-xs` is the floor.
 
-## Canvas Trigger Node (fidelity gap #5)
+## Canvas Trigger Cap (fidelity gap #5, Direction A)
 
-- **`lib/trigger-node.ts` (PURE) derives the pill; `components/nodes/TriggerNode.tsx` renders it.**
-  It is a RENDER-TIME overlay minted in `WorkflowGraphImpl` from the `triggers` prop, the same rule
-  the compensation ghosts and the last-run overlay follow — so it is absent from the node state, the
-  undo stack, the drag autosave, the per-user draft and the subgraph clipboard BY CONSTRUCTION.
-  `graphToDefinition`, `validateWorkflowGraph` and `applyAutoLayout` filter it anyway, which is what
-  makes the guarantee testable (`lib/__tests__/trigger-node.test.ts`).
+- **`lib/trigger-node.ts` (PURE) derives the model; `components/nodes/TriggerCap.tsx` renders it,
+  FOLDED onto the START node.** `WorkflowGraphImpl` injects `buildTriggerNodeModel(...)` into the
+  OWNED start node's render-time `data` (`data.trigger` + `data.onOpenTriggers`); `StartNode` floats
+  the cap ABSOLUTELY above its pill (`bottom-full`), so the cap adds no height to the terminal and
+  never enters the node's measured box. This replaces the earlier separate overlay node
+  (`components/nodes/TriggerNode.tsx`, now `@deprecated`) joined by a dashed connector.
+- **Why the fold, not an overlay node.** The overlay node was minted fresh every render and, being
+  OUTSIDE the node state, was re-measured by ReactFlow on every render in an unbounded loop that
+  pinned the CPU and starved node dragging (the canvas "teleport" bug). Injecting into the OWNED
+  start node is loop-safe: its measurement is persisted to state like any real node. As defense in
+  depth, `handleNodesChange` also drops changes for nodes the editor does not own
+  (`lib/owned-node-changes.ts`).
+- **Still display-only.** The model lives only in render-time `data`, never in the definition, so it
+  is absent from the document, undo, drag autosave, the per-user draft and the subgraph clipboard by
+  construction — `graphToDefinition` reads steps/edges, not `data.trigger`. Read-only viewers pass no
+  `triggers`, so they render no cap.
 - **NO engine change.** The triggers are already on the definition; nothing here is read by the
   executor.
-- **ONE node lists every trigger, not one node per trigger.** Triggers are a definition-level
-  property and every one of them starts the SAME START step, so N pills converging on one target
-  would be N edges' worth of noise carrying a list's worth of information. Capped at
-  `TRIGGER_NODE_EVENT_LIMIT` (= `ROUTE_CHIP_LIMIT`) with a `+N` line, and enabled triggers sort first
-  so a disabled one can never displace a live entry point into the overflow.
+- **ONE cap summarises every trigger.** Triggers are a definition-level property and every one starts
+  the SAME START step. The cap shows a count (`workflows.triggerNode.capCount`) plus the manual/API
+  line; the full list lives in the Triggers modal it opens. Model still capped at
+  `TRIGGER_NODE_EVENT_LIMIT` (= `ROUTE_CHIP_LIMIT`), enabled first.
 - **What it says must be TRUE.** `POST /api/workflows/instances` → `startWorkflow` needs no trigger,
-  so the manual/API line is unconditional and a definition with ZERO triggers still renders the node
-  (rendering nothing would leave "where does this start" unanswered for the majority of definitions).
-  `startWorkflow` throws `DEFINITION_DISABLED` before it looks at a trigger, so a disabled definition
-  renders ONLY that fact. MUST NOT draw an event trigger as the only way in.
-- **It is not a step and has no rank.** It is positioned relative to the START terminal
-  (`TRIGGER_NODE_*` in `lib/node-geometry.ts`, `TRIGGER_NODE_GAP` = dagre's own `ranksep`) and is
-  never handed to dagre — ranking it would move it out from under its own anchor and would make it
-  count toward the exactly-one-START invariant.
-- **The connector is deliberately not a `workflowTransition`.** It carries no condition, no
-  activities and no id the engine resolves, so it uses the built-in bezier with its own dash pattern
-  (`4,4` — distinct from error `8,4`, data-mapping `2,3`, compensation `10,4,2,4`; `pending` is
-  solid). The pill exposes no connectable handle, so it can never become a route endpoint.
-- **Clicking it opens `DefinitionMetadataDrawer` AT its `inputs` section** (`focusSection`, which
-  scrolls AND focuses — the keyboard path has to arrive there too). The pill IS a `<button>`, so
-  §4.6's non-pointer requirement is met by the element rather than by a re-implementation, and every
-  state it paints pairs its token with a glyph and an `sr-only` name.
+  so the manual/API line is unconditional and a definition with ZERO event triggers still renders the
+  cap. `startWorkflow` throws `DEFINITION_DISABLED` before it looks at a trigger, so a disabled
+  definition's cap states ONLY that (amber `PowerOff` + label). MUST NOT draw an event trigger as the
+  only way in.
+- **Accessibility (spec §4.6).** The cap IS a `<button>` (`data-testid="workflow-trigger-cap"`) with
+  a named `aria-label`; every state pairs its token colour with a glyph and a label — never colour
+  alone. Clicking it calls `onOpenTriggers` (the Triggers modal); `stopPropagation` keeps the click
+  off the step inspector.
+- The old overlay-node geometry (`TRIGGER_NODE_*` in `lib/node-geometry.ts`) and helpers
+  (`buildTriggerNode`, `buildTriggerEdge`, `TRIGGER_EDGE_DASH_ARRAY`, `WORKFLOW_TRIGGER_NODE_TYPE`)
+  remain exported for the deprecated component and its test; they are no longer used by the editor.
 
 ## User Task Forms (`formSchema`)
 
