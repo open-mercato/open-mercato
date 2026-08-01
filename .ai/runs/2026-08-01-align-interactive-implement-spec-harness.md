@@ -54,7 +54,7 @@ Align the standalone app's interactive `om-implement-spec` workflow with the sha
 
 ### Phase 2: Smallest knowledge owner
 
-- [ ] 2.1 Add the progressive implement-spec references and route the interactive skill through them, borrowing the shared automation's stable contracts while explicitly preserving local user confirmations and phase gates.
+- [x] 2.1 Add the progressive implement-spec references and route the interactive skill through them, borrowing the shared automation's stable contracts while explicitly preserving local user confirmations and phase gates. — 031cb3786
 
 ### Phase 3: Synchronization and evidence
 
