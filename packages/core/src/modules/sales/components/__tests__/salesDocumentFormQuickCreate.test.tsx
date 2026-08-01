@@ -37,6 +37,11 @@ const personValues = {
   ],
 }
 
+jest.mock('../useSalesChannelsEnabled', () => ({
+  SALES_CHANNELS_TOGGLE_ID: 'sales_channels_enabled',
+  useSalesChannelsEnabled: () => ({ enabled: true, isLoading: false }),
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: any[]) => mockApiCall(...args),
   apiCallOrThrow: jest.fn().mockResolvedValue({ items: [] }),
