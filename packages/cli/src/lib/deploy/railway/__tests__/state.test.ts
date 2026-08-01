@@ -19,6 +19,6 @@ describe('Railway deployment state', () => {
 
     expect(loadRailwayState(path)).toEqual(state)
     expect(readFileSync(path, 'utf8')).not.toMatch(/token|password/i)
-    expect(railwayStatePath(cwd, false).endsWith('.mercato/railway.json.local')).toBe(true)
+    expect(railwayStatePath(cwd, false).replace(/\\/g, '/').endsWith('.mercato/railway.json.local')).toBe(true)
   })
 })

@@ -518,8 +518,8 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     for (const related of item.relatedCases ?? []) if (!idSet.has(related)) add(id, `dangling related case ${related}`)
     const writable = WRITABLE_KINDS.has(item.evaluationKind)
     if (item.frameworkContext !== undefined) {
-      if (!writable || !Array.isArray(item.frameworkContext) || item.frameworkContext.length === 0 || item.frameworkContext.length > 3) {
-        add(id, 'frameworkContext requires one to three writable-case queries')
+      if (!Array.isArray(item.frameworkContext) || item.frameworkContext.length === 0 || item.frameworkContext.length > 3) {
+        add(id, 'frameworkContext requires one to three queries')
       }
       for (const request of item.frameworkContext ?? []) {
         const selectors = [request?.module, request?.package].filter((value) => value !== undefined)

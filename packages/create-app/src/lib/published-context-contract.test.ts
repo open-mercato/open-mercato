@@ -9,10 +9,11 @@ const packagesRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '
 const repositoryRoot = join(packagesRoot, '..')
 
 function packedFiles(packageDir: string): string[] {
-  const result = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+  const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: packageDir,
     encoding: 'utf8',
     maxBuffer: 20 * 1024 * 1024,
+    shell: process.platform === 'win32',
   })
   assert.equal(result.status, 0, result.stderr)
   const parsed = JSON.parse(result.stdout) as Array<{ files?: Array<{ path?: string }> }>

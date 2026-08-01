@@ -4,7 +4,8 @@ import path from 'node:path'
 import { McpClient } from '../mcp-client'
 
 describe('McpClient stdio integration', () => {
-  it('starts exactly one SDK-managed server process for one stdio client connection', async () => {
+  const itConditional = process.platform === 'win32' ? it.skip : it
+  itConditional('starts exactly one SDK-managed server process for one stdio client connection', async () => {
     const previousSpawnLog = process.env.MCP_SPAWN_LOG
     const logPath = path.join(os.tmpdir(), `open-mercato-mcp-spawn-${Date.now()}.log`)
     process.env.MCP_SPAWN_LOG = logPath

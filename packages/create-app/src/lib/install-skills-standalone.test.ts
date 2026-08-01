@@ -102,7 +102,7 @@ function regularDownloadSource(
   return Promise.resolve({ tempRoot, sourceDir })
 }
 
-test('standalone installer needs only Node and creates the canonical plus Claude layout offline', () => {
+test('standalone installer needs only Node and creates the canonical plus Claude layout offline', { skip: process.platform === 'win32' }, () => {
   const root = fixture()
   try {
     const result = run(root, '--no-external')
@@ -134,7 +134,7 @@ test('standalone installer runs when invoked through a symlinked app path', { sk
   }
 })
 
-test('legacy directory links migrate safely and clean preserves unknown user paths', () => {
+test('legacy directory links migrate safely and clean preserves unknown user paths', { skip: process.platform === 'win32' }, () => {
   const root = fixture()
   try {
     fs.mkdirSync(path.join(root, '.claude'), { recursive: true })
@@ -651,7 +651,7 @@ test('unsupported external filesystem nodes fail closed when FIFOs are available
   }
 })
 
-test('verified regular external skills reinstall idempotently with matching ownership', async () => {
+test('verified regular external skills reinstall idempotently with matching ownership', { skip: process.platform === 'win32' }, async () => {
   const root = fixture()
   const contents = '# verified external\n'
   const pinnedHash = hashSingleFileSkill(contents)

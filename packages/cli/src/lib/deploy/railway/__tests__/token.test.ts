@@ -31,9 +31,13 @@ describe('Railway token resolution', () => {
     const configPath = join(cwd, 'railway.json')
     writeCachedRailwayToken(configPath, 'cached-token')
 
-    expect(statSync(configPath).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') {
+      expect(statSync(configPath).mode & 0o777).toBe(0o600)
+    }
     expect(readFileSync(configPath, 'utf8')).toContain('cached-token')
-    chmodSync(configPath, 0o644)
-    expect(() => readCachedRailwayToken(configPath, 'linux')).toThrow('permissions must be 0600')
+    if (process.platform !== 'win32') {
+      chmodSync(configPath, 0o644)
+      expect(() => readCachedRailwayToken(configPath, 'linux')).toThrow('permissions must be 0600')
+    }
   })
 })

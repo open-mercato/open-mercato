@@ -28,6 +28,7 @@ test('custom registry config is accepted by the scaffolded Yarn version', () => 
     const output = execFileSync(process.platform === 'win32' ? 'yarn.cmd' : 'yarn', ['config', 'get', 'npmScopes', '--json'], {
       cwd: root,
       encoding: 'utf8',
+      shell: process.platform === 'win32',
     })
     const scopes = JSON.parse(output) as Record<string, { npmMinimalAgeGate?: number, npmRegistryServer?: string }>
     assert.equal(scopes['open-mercato']?.npmRegistryServer, 'http://localhost:4874')

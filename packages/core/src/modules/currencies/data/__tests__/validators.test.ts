@@ -47,7 +47,7 @@ describe('exchangeRateCreateSchema', () => {
     
     expect(result.date.getSeconds()).toBe(0)
     expect(result.date.getMilliseconds()).toBe(0)
-    expect(result.date.getMinutes()).toBe(30)
+    expect(result.date.getUTCMinutes()).toBe(30)
   })
 
   it('should make dates with different seconds map to same minute', () => {
