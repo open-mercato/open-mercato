@@ -43,7 +43,7 @@ Remove the React development-console error caused by rendering the theme initial
 
 ### Phase 1: Regression coverage
 
-- [ ] 1.1 Add a layout regression assertion that requires the theme initializer to use Next.js `Script` with stable identity and pre-interactive execution.
+- [x] 1.1 Add a layout regression assertion that requires the theme initializer to use Next.js `Script` with stable identity and pre-interactive execution. — c021c32af
 
 ### Phase 2: Minimal repair
 
