@@ -349,6 +349,50 @@ export type ModuleExtensionSurfaceFacts = {
   unresolved: ModuleExtensionUnresolvedFact[]
 }
 
+export type ExtensionHostFamily =
+  | 'generic'
+  | 'menu'
+  | 'data-table'
+  | 'crud-form'
+  | 'detail'
+  | 'portal-page'
+  | 'component-handle'
+  | 'entity'
+  | 'api-route'
+  | 'command'
+  | 'event'
+  | 'query-lifecycle'
+  | 'dashboard'
+  | 'notification'
+  | 'integration'
+  | 'specialized-registry'
+  | 'module-override'
+
+export type ExtensionHostCapability =
+  | 'render-widget'
+  | 'headless-widget'
+  | 'menu-item'
+  | 'column-widget'
+  | 'row-action'
+  | 'bulk-action'
+  | 'filter-widget'
+  | 'toolbar-widget'
+  | 'field-widget'
+  | 'lifecycle-handler'
+  | 'component-replacement'
+  | 'response-enricher'
+  | 'query-enricher'
+  | 'api-interceptor'
+  | 'command-interceptor'
+  | 'mutation-guard'
+  | 'entity-extension'
+  | 'async-subscriber'
+  | 'sync-subscriber'
+  | 'browser-client'
+  | 'browser-portal'
+  | 'registry-contribution'
+  | 'module-override'
+
 export type ModuleExtensionHostFact = {
   key: string
   id: string
@@ -360,6 +404,8 @@ export type ModuleExtensionHostFact = {
   operations?: string[]
   contextContract?: string
   dataContract?: string
+  scopeContract?: string
+  runtimeContract?: string
   activation?: 'always' | 'host-opt-in' | 'caller-opt-in' | 'feature-gated'
   bound: boolean
   stability: 'frozen' | 'stable'
@@ -372,18 +418,22 @@ export type ModuleExtensionHostFact = {
   fallbacks?: string[]
 }
 
-export type ModuleExtensionContributionFact = {
+export type ModuleExtensionTargetFact = {
   id: string
-  kind: ExtensionContributionKind
-  targets: Array<{
-    id: string
-    resolution: 'exact' | 'pattern' | 'framework' | 'fact-ref' | 'optional-external' | 'unresolved'
-  }>
+  resolution: 'exact' | 'pattern' | 'framework' | 'fact-ref' | 'optional-external' | 'unresolved'
+  factRef?: { factSection: string; factKey: string }
+  optionalOwnerPackage?: string
+}
+
+export type ModuleExtensionContributionBase = {
+  id: string
+  targets: ModuleExtensionTargetFact[]
   phases?: string[]
   operations?: string[]
   features?: string[]
-  placement?: { relativeTo?: string; position?: string; priority?: number }
-  specialistRoute?: string
+  scopeContract: string
+  activation?: 'always' | 'host-opt-in' | 'caller-opt-in' | 'feature-gated'
+  placement?: { relativeTo?: string; position?: 'first' | 'last' | 'before' | 'after'; priority?: number }
   roundTripId?: string
   override?: {
     domain: string
@@ -392,6 +442,132 @@ export type ModuleExtensionContributionFact = {
   }
   source: { path: string; symbol?: string }
 }
+
+export type ModuleExtensionContributionFact = ModuleExtensionContributionBase & (
+  | {
+      kind: 'widget'
+      details: {
+        payload: 'render' | 'headless' | 'menu' | 'dashboard' | 'notification' | 'integration'
+        registryKey: string
+        itemIds?: string[]
+        labelKeys?: string[]
+        contextContract?: string
+        dataContract?: string
+        executionGuard: 'host' | 'contribution' | 'both'
+      }
+    }
+  | {
+      kind: 'data-table'
+      details: {
+        payload: 'column' | 'row-action' | 'bulk-action' | 'filter' | 'toolbar' | 'render'
+        tableId: string
+        executionGuard: 'host' | 'contribution' | 'both'
+      }
+    }
+  | {
+      kind: 'crud-form'
+      details: {
+        payload: 'render' | 'field' | 'lifecycle-handler'
+        entityId: string
+        fieldIds?: string[]
+        groupIds?: string[]
+        requestHeaderCapability: boolean
+      }
+    }
+  | {
+      kind: 'component-override'
+      details: { handle: string; mode: 'replace' | 'wrapper' | 'props'; propsContract: string }
+    }
+  | {
+      kind: 'response-enricher'
+      details: {
+        targetEntity: string
+        surfaces: Array<'list' | 'detail'>
+        timeoutMs: number
+        fallback: 'none' | 'configured'
+        critical: boolean
+        cachePosture: 'record-pure' | 'rerun-on-list-cache-hit'
+        queryEngine?: {
+          engines: string[]
+          applyOn: Array<'list' | 'detail'>
+          activation: 'caller-opt-in'
+        }
+      }
+    }
+  | {
+      kind: 'api-interceptor'
+      details: {
+        route: string
+        methods: string[]
+        phases: Array<'before' | 'after'>
+        activation: 'crud-pipeline' | 'custom-route-bridge'
+        timeoutMs: number
+        failurePosture: 'fail-closed' | 'fallback'
+      }
+    }
+  | {
+      kind: 'command-interceptor'
+      details: {
+        targetCommand: string
+        phases: Array<'before-execute' | 'after-execute' | 'before-undo' | 'after-undo'>
+      }
+    }
+  | {
+      kind: 'mutation-guard'
+      details: {
+        entityId: string
+        operations: Array<'create' | 'update' | 'delete'>
+        capabilities: Array<'block' | 'rewrite' | 'after-success'>
+        optimisticLock: 'preserved'
+      }
+    }
+  | {
+      kind: 'entity-extension'
+      details: {
+        hostEntityId: string
+        extensionEntityId: string
+        linkId: string
+        scopeContract: string
+        orphanContract: string
+      }
+    }
+  | {
+      kind: 'subscriber'
+      details: {
+        event: string
+        subscriberId: string
+        persistent: boolean
+        sync: boolean
+        priority?: number
+      }
+    }
+  | {
+      kind: 'browser-reaction'
+      details: {
+        transports: Array<'client' | 'portal' | 'notification-effect'>
+        hooks: string[]
+        audienceScopeContract: string
+        maxPayloadBytes?: number
+        dedupWindowMs?: number
+      }
+    }
+  | {
+      kind: 'specialized-registry'
+      details: {
+        registry: 'notification' | 'integration' | 'search' | 'vector' | 'ai' | 'payment' | 'shipping' | 'currency' | 'workflow'
+        registryId: string
+        specialistRoute: string
+      }
+    }
+  | {
+      kind: 'module-override'
+      details: {
+        domain: string
+        key: string
+        mode: 'disable-replace' | 'replace' | 'additive'
+      }
+    }
+)
 
 export type ModuleExtensionUnresolvedFact = {
   key: string
@@ -404,7 +580,7 @@ export type ModuleExtensionUnresolvedFact = {
 }
 ```
 
-The host capability and contribution-kind unions cover every row of the normative UMES inventory. Existing fact sections stay authoritative: an event host references the event fact and adds sync/async subscription and browser-transport capabilities; an entity host references the entity fact and adds enricher/guard/query/extension capability; a route or command host references its route/command fact and adds phases and override identity. Imported/computed definitions that cannot be resolved become visible diagnostics, never silent absence.
+The host capability union and discriminated contribution-detail union cover every row of the normative UMES inventory. Kind-specific details are required, not a loose metadata bag: readers cannot silently omit timeout/fallback/cache posture, activation, delivery mode, scope contracts, execution guards, link/orphan semantics, or override identity when the source contract defines them. `factRef` and `optionalOwnerPackage` preserve correlation provenance without copying an existing contract. Existing fact sections stay authoritative: an event host references the event fact and adds sync/async subscription and browser-transport capabilities; an entity host references the entity fact and adds enricher/guard/query/extension capability; a route or command host references its route/command fact and adds phases and override identity. Imported/computed definitions that cannot be resolved become visible diagnostics, never silent absence.
 
 ### 5. Generated Markdown
 
@@ -421,13 +597,13 @@ Each `.ai/guides/modules/<module>.md` gains two compact sections:
 
 ## UMES contributions
 
-| ID | Kind | Target | Phase / operations | Resolution |
-|---|---|---|---|---|
-| catalog.product-columns | data-table/columns | data-table:catalog.products.list:columns | read | exact |
-| catalog.product-enricher | response/query-enricher | catalog.product | list, detail / caller opt-in query | fact-ref |
+| ID | Kind | Target | Phase / operations | Contract | Resolution |
+|---|---|---|---|---|---|
+| catalog.product-columns | data-table/columns | data-table:catalog.products.list:columns | read | column; guard=both | exact |
+| catalog.product-enricher | response/query-enricher | catalog.product | list, detail / caller opt-in query | timeout=2000; fallback=configured; cache=rerun | fact-ref |
 ```
 
-Rows with a common `roundTripId` link read enrichment, field/column display, request headers, and write handlers without embedding source. The existing `Host extension points` token summary remains byte-compatible in shape and heading.
+The `Contract` cell is a deterministic compact rendering of the kind-specific `details`; it never embeds fallback values, function bodies, or source text. Rows with a common `roundTripId` link read enrichment, field/column display, request headers, and write handlers without embedding source. The existing `Host extension points` token summary remains byte-compatible in shape and heading.
 
 ### 6. Framework-owned global hosts
 
@@ -778,7 +954,7 @@ Then run the configured validation sequence from `.ai/agentic.config.json`. The 
 | Root + core | Preserve module isolation; optional consumer owns glue | Compliant | Catalog is read-only metadata; no cross-module import or ORM relationship is added. |
 | Root + BC | Frozen widget spot IDs cannot be renamed/removed | Compliant | Migration preserves byte values, aliases, wildcard semantics, context, and resolution order. |
 | BC auto-discovery | New convention may be added; existing conventions immutable | Compliant | Adds optional `extension-points.ts` and documents it; removes nothing. |
-| BC types/signatures | Required fields cannot be added to stable consumers in a breaking way | Compliant | New JSON/type property is optional; helper APIs are additive. |
+| BC types/signatures | Required fields cannot be added to stable consumers in a breaking way | Compliant | New JSON/type property is optional; helper APIs are additive; newly introduced discriminated detail records define the complete contract before first release. |
 | BC generated files | Generated output shape remains compatible | Compliant | Top-level record and existing required fields/exports remain unchanged. |
 | Core UMES | Keep IDs, phases, ordering, feature guards, timeouts, and canonical convention readers stable | Compliant | Facts reference existing contracts and reuse registry readers; no runtime activation changes. |
 | Core extensions | Cross-module data links use `data/extensions.ts` | Compliant | Catalog reads extension declarations and existing entity facts; it creates no relation. |
@@ -819,6 +995,7 @@ None identified.
 - Bounded the design against the existing Platform Map and module-facts specs to avoid duplicate runtime tooling.
 - Applied the fresh-context SPLIT finding by deferring outgoing contribution inventory and host correlation to a separate specification.
 - Maintainer override: expanded this PR to the complete UMES taxonomy, including contributions/correlation, enrichers, interceptors, guards, entity/query extensions, DOM/portal bridge, menus, all bound CrudForm/DataTable surfaces, unified overrides, and optional standalone-harness linkage to the UMES umbrella spec.
+- Review autofix: replaced the underspecified generic contribution record with explicit host-family/capability unions, correlation provenance, scope contracts, and discriminated kind-specific details; generated Markdown now exposes a compact contract summary.
 
 ### Review — 2026-08-01
 
