@@ -51,12 +51,16 @@ export type CustomFieldDefinition = {
   formEditable?: boolean
   indexed?: boolean
   listVisible?: boolean
+  // Display order within a form/card; lower renders first. When omitted, the
+  // installer derives it from the declaration order of the field set.
+  priority?: number
   // Optional UI hints for generated forms/filters
   // Editors for multiline-rich text fields:
   //  - 'markdown' -> UIW Markdown editor
   //  - 'simpleMarkdown' -> minimal toolbar markdown
   //  - 'htmlRichText' -> contenteditable rich text
-  editor?: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
+  //  - 'plain' -> plain <textarea> without any rich-text toolbar
+  editor?: 'markdown' | 'simpleMarkdown' | 'htmlRichText' | 'plain'
   // Input hint for plain text fields (e.g., tags input when multi=true)
   // Allow additional custom renderers (e.g., listbox from modules)
   input?: string
@@ -94,6 +98,10 @@ export type CustomEntitySpec = {
   labelField?: string
   defaultEditor?: string
   showInSidebar?: boolean
+  // When true, records of this entity require an explicit per-entity ACL grant
+  // (entities.records.<id>.view/.manage) beyond the coarse entities.records.*
+  // feature. Defaults to unrestricted.
+  accessRestricted?: boolean
   global?: boolean
   fields?: CustomFieldDefinition[]
 }
