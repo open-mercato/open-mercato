@@ -128,9 +128,10 @@ describe('buildLucideRegistrySource', () => {
     expect(syntacticDiagnostics(buildLucideRegistrySource(fixture))).toEqual([])
   })
 
-  it('reports syntactic diagnostics when an export name is not a valid identifier', () => {
-    const source = buildLucideRegistrySource([{ kebab: 'broken', exportName: 'not a valid export' }])
-    expect(syntacticDiagnostics(source).length).toBeGreaterThan(0)
+  it('fails loudly when an export name would produce an unparseable module', () => {
+    expect(() => buildLucideRegistrySource([{ kebab: 'broken', exportName: 'not a valid export' }])).toThrow(
+      /not syntactically valid/
+    )
   })
 })
 
