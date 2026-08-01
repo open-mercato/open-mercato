@@ -29,7 +29,8 @@
       "om-spec-writing",
       "om-auto-fix-pr",
       "om-close-fixed-issues",
-      "om-verify-in-repo"
+      "om-verify-in-repo",
+      "om-pr-autopilot"
     ]
   },
   "tiers": {
@@ -46,7 +47,10 @@
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
-        "om-help"
+        "om-help",
+        "om-refresh-standalone-harness",
+        "om-judge-agent-session",
+        "om-share-this-session"
       ]
     },
     "automation": {
