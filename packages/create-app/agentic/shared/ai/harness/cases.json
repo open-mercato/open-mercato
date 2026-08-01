@@ -363,7 +363,7 @@
     "mode": "spec",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Given an approved additive, app-owned library-management specification with separate data/API, admin UI, and event-subscriber overdue-notification phases (not a durable workflow), explain how to implement selected phases so every completed phase leaves a working app and preserves the spec contracts.",
+    "prompt": "Given an approved additive, app-owned library-management specification with separate data/API, admin UI, and event-subscriber overdue-notification phases (not a durable workflow), resolve the spec reference, present the selected phase plan for confirmation, explain how to implement it so every completed phase leaves a working app, and define the progress and final report with a stable spec reference without claiming PR automation.",
     "tags": [
       "architecture",
       "spec-pr",
@@ -392,7 +392,11 @@
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/skills/om-implement-spec/SKILL.md"
+        ".ai/skills/om-implement-spec/SKILL.md",
+        ".ai/skills/om-implement-spec/references/spec-resolution.md",
+        ".ai/skills/om-implement-spec/references/phases-and-gates.md",
+        ".ai/skills/om-implement-spec/references/planning-and-progress.md",
+        ".ai/skills/om-implement-spec/references/report-templates.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md"
@@ -404,8 +408,14 @@
       ]
     },
     "requiredDecisions": [
+      "spec-resolution",
+      "phase-execution-plan",
+      "interactive-confirmation",
       "working-phases",
-      "smallest-validation"
+      "smallest-validation",
+      "implementation-progress",
+      "stable-implementation-report",
+      "spec-reference-marker"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -12193,13 +12203,13 @@
   },
   {
     "id":"OMH-168","title":"Implement selected purchasing-plan stages while keeping the application working","family":"architecture","mode":"spec","evaluationKind":"routing","risk":"medium",
-    "prompt":"Implement only phases two and three of the approved purchasing plan, preserve the agreed boundaries, and leave the application working after each phase.",
+    "prompt":"Resolve the approved purchasing specification, implement only phases two and three, preserve the agreed boundaries, and leave the application working after each phase. Confirm the selected phase plan before coding, then report progress, validation, review, and the stable spec reference without pretending that local delivery opened a pull request.",
     "tags":["business-language","spec-implementation","purchasing"],
     "owner":{"kind":"skill","path":".ai/skills/om-implement-spec/SKILL.md","ruleIds":["BC-01","BC-03"]},
     "expectedRouter":{"required":["spec-pr"],"allowedExtra":["module-data","backend-ui","ai-workflow"]},
     "requiredSkills":["om-implement-spec"],
-    "context":{"required":["AGENTS.md",".ai/skills/om-implement-spec/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["working-phases","smallest-validation","selected-phase-boundary","preserve-spec-contracts"],
+    "context":{"required":["AGENTS.md",".ai/skills/om-implement-spec/SKILL.md",".ai/skills/om-implement-spec/references/spec-resolution.md",".ai/skills/om-implement-spec/references/phases-and-gates.md",".ai/skills/om-implement-spec/references/planning-and-progress.md",".ai/skills/om-implement-spec/references/report-templates.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "requiredDecisions":["spec-resolution","phase-execution-plan","interactive-confirmation","working-phases","smallest-validation","selected-phase-boundary","preserve-spec-contracts","implementation-progress","stable-implementation-report","spec-reference-marker"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","implement (?:all|remaining) phases","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":114688,"relatedCases":["OMH-006"]

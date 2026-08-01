@@ -1961,11 +1961,22 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['spec-pr'], selectedSkills: ['om-implement-spec'],
-  selectedContext: ['AGENTS.md', '.agents/skills/om-implement-spec/SKILL.md'],
-  decisions: ['working-phases', 'smallest-validation'], violations: []
+  selectedContext: [
+    'AGENTS.md',
+    '.agents/skills/om-implement-spec/SKILL.md',
+    '.agents/skills/om-implement-spec/references/spec-resolution.md',
+    '.agents/skills/om-implement-spec/references/phases-and-gates.md',
+    '.agents/skills/om-implement-spec/references/planning-and-progress.md',
+    '.agents/skills/om-implement-spec/references/report-templates.md'
+  ],
+  decisions: [
+    'spec-resolution', 'phase-execution-plan', 'interactive-confirmation',
+    'working-phases', 'smallest-validation', 'implementation-progress',
+    'stable-implementation-report', 'spec-reference-marker'
+  ], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md'
+  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/report-templates.md'
 } }))
 `)
   try {
@@ -1974,7 +1985,14 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
     })
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
-    assert.deepEqual(storedResults(root)[0].selectedContext, ['AGENTS.md', '.ai/skills/om-implement-spec/SKILL.md'])
+    assert.deepEqual(storedResults(root)[0].selectedContext, [
+      'AGENTS.md',
+      '.ai/skills/om-implement-spec/SKILL.md',
+      '.ai/skills/om-implement-spec/references/spec-resolution.md',
+      '.ai/skills/om-implement-spec/references/phases-and-gates.md',
+      '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+      '.ai/skills/om-implement-spec/references/report-templates.md',
+    ])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
