@@ -35,7 +35,7 @@ export default async function handle(job: QueuedJob<CheckoutExpiryJob>, ctx: Han
   const cutoff = new Date(Date.now() - EXPIRY_TIMEOUT_MS)
 
   if (!job.payload?.tenantId || !job.payload?.organizationId) {
-    throw new Error('tenantId and organizationId are required in CheckoutExpiryJob')
+    throw new Error('[internal] tenantId and organizationId are required in CheckoutExpiryJob')
   }
 
   const { tenantId, organizationId } = job.payload

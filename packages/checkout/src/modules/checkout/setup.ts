@@ -1,16 +1,15 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import crypto from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { ensureCheckoutFieldsetsAndDefinitions } from './seed/customFields'
 import { seedCheckoutExamples } from './seed/examples'
 import { CHECKOUT_EXPIRY_QUEUE } from './workers/transaction-expiry.worker'
 export { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from './lib/defaults'
 
 function stableUuidFromString(input: string): string {
-  const bytes = crypto.createHash('sha256').update(input).digest().subarray(0, 16)
-  // RFC4122: set version (5) and variant (10xx)
+  const bytes = createHash('sha256').update(input).digest().subarray(0, 16)
   bytes[6] = (bytes[6] & 0x0f) | 0x50
   bytes[8] = (bytes[8] & 0x3f) | 0x80
-  const hex = Buffer.from(bytes).toString('hex') // 32 hex chars
+  const hex = Buffer.from(bytes).toString('hex')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
@@ -42,29 +41,25 @@ export const setup: ModuleSetupConfig = {
     })
 
     const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration === 'function' && cradle.hasRegistration('schedulerService')) {
-      try {
-        const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
-        await schedulerService.register({
-          id: stableUuidFromString(`checkout:transaction-expiry:${ctx.tenantId}`),
-          name: 'Checkout transaction expiry',
-          description: 'Marks stale checkout transactions as expired and runs usage limit updates.',
-          scopeType: 'organization',
-          organizationId: ctx.organizationId,
-          tenantId: ctx.tenantId,
-          scheduleType: 'interval',
-          scheduleValue: '10m',
-          timezone: 'UTC',
-          targetType: 'queue',
-          targetQueue: CHECKOUT_EXPIRY_QUEUE,
-          sourceType: 'module',
-          sourceModule: 'checkout',
-          isEnabled: true,
-        })
-      } catch {
-        // Scheduler may not be installed in this deployment; ignore.
-      }
-    }
+    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+
+    const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+    await schedulerService.register({
+      id: stableUuidFromString(`checkout:transaction-expiry:${ctx.tenantId}:${ctx.organizationId}`),
+      name: 'Checkout transaction expiry',
+      description: 'Marks stale checkout transactions as expired and runs usage limit updates.',
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'interval',
+      scheduleValue: '10m',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: CHECKOUT_EXPIRY_QUEUE,
+      sourceType: 'module',
+      sourceModule: 'checkout',
+      isEnabled: true,
+    })
   },
 
   defaultRoleFeatures: {

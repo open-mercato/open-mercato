@@ -1,4 +1,7 @@
+import { beforeEach, describe, expect, it, jest } from '@jest/globals'
+import type { JobContext, QueuedJob } from '@open-mercato/queue'
 import { CheckoutTransaction } from '../../data/entities'
+import type { CheckoutExpiryJob } from '../transaction-expiry.worker'
 
 const findWithDecryption = jest.fn()
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -10,21 +13,31 @@ describe('checkout transaction-expiry worker', () => {
     execute: jest.fn().mockResolvedValue({ ok: true }),
   }
 
-  const mockEm = {
+  type MockEntityManager = {
+    fork: () => MockEntityManager
+  }
+
+  const mockEm: MockEntityManager = {
     fork: () => mockEm,
   }
 
-  const mockResolve = jest.fn((name: string) => {
-    if (name === 'em') return mockEm
-    if (name === 'commandBus') return mockCommandBus
-    throw new Error(`Missing dependency: ${name}`)
-  })
+  const resolve = <ResolvedValue = unknown>(name: string): ResolvedValue => {
+    if (name === 'em') return mockEm as ResolvedValue
+    if (name === 'commandBus') return mockCommandBus as ResolvedValue
+    throw new Error(`[internal] Missing dependency: ${name}`)
+  }
 
-  const mockContext = {
-    resolve: mockResolve,
+  const mockContext: JobContext & { resolve: typeof resolve } = {
+    resolve,
     jobId: 'job-1',
     attemptNumber: 1,
-  } as any
+    queueName: 'checkout-transaction-expiry',
+  }
+
+  const baseJob = {
+    id: 'job-1',
+    createdAt: '2026-08-01T00:00:00.000Z',
+  }
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -36,11 +49,12 @@ describe('checkout transaction-expiry worker', () => {
     await expect(
       handle(
         {
-          payload: { batchSize: 10 } as any,
-        } as any,
+          ...baseJob,
+          payload: { batchSize: 10 },
+        } as unknown as QueuedJob<CheckoutExpiryJob>,
         mockContext,
       ),
-    ).rejects.toThrow('tenantId and organizationId are required in CheckoutExpiryJob')
+    ).rejects.toThrow('[internal] tenantId and organizationId are required in CheckoutExpiryJob')
 
     expect(findWithDecryption).not.toHaveBeenCalled()
   })
@@ -65,16 +79,16 @@ describe('checkout transaction-expiry worker', () => {
 
     await handle(
       {
+        ...baseJob,
         payload: {
           batchSize: 50,
           tenantId: 'tenant-456',
           organizationId: 'org-123',
         },
-      } as any,
+      } satisfies QueuedJob<CheckoutExpiryJob>,
       mockContext,
     )
 
-    // Verify findWithDecryption was called with org and tenant scoping
     expect(findWithDecryption).toHaveBeenCalledWith(
       mockEm,
       CheckoutTransaction,
@@ -92,7 +106,6 @@ describe('checkout transaction-expiry worker', () => {
       },
     )
 
-    // Verify command bus executes updateStatus for each transaction with context
     expect(mockCommandBus.execute).toHaveBeenCalledTimes(2)
     expect(mockCommandBus.execute).toHaveBeenNthCalledWith(
       1,
