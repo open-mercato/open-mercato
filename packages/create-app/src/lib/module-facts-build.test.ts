@@ -122,3 +122,27 @@ test('build does not emit unreachable package-level standalone guides', () => {
     )
   }
 })
+
+// A fact-sheet no case routes at all is a capability the catalog cannot even offer an agent.
+// This guard closes that tier only: an `allowedExtra` reference counts as routed, and it never
+// fails a run that skips the read, so being routed is weaker than being asserted (#4603 tracks
+// tightening this to "required by some case"). Selection uses the same production intersection
+// the scaffold applies, so enabling a module in the template without a case fails here (#4565).
+test('every module fact-sheet a scaffold ships is routed by at least one catalog case', () => {
+  ensureBuilt()
+  const shipped = selectModuleFactSheets(join(pkgRoot, 'template'), join(guidesDir, 'modules'))
+  assert.ok(shipped.length > 0, 'the scaffold must ship at least one module fact-sheet')
+
+  const cases = JSON.parse(
+    fs.readFileSync(join(pkgRoot, 'agentic', 'shared', 'ai', 'harness', 'cases.json'), 'utf8'),
+  ) as Array<{ context: { required: string[]; allowedExtra?: string[] } }>
+  const routed = new Set(cases.flatMap((entry) => [...entry.context.required, ...(entry.context.allowedExtra ?? [])]))
+
+  const uncovered = shipped.filter((moduleId) => !routed.has(`.ai/guides/modules/${moduleId}.md`))
+  assert.deepEqual(
+    uncovered,
+    [],
+    `these shipped module fact-sheets are absent from every case context: ${uncovered.join(', ')}. `
+    + 'Add a case that requires .ai/guides/modules/<id>.md, or stop enabling the module in the template.',
+  )
+})

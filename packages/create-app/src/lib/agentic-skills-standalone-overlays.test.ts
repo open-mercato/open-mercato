@@ -272,6 +272,76 @@ test('standalone auto implementation audits readiness and falls back to the loca
   )
 })
 
+test('local spec implementation cannot report completion without green gates and invoked review', () => {
+  const implementation = readOverrideSkill('om-implement-spec')
+  const phaseReference = fs.readFileSync(
+    new URL('om-implement-spec/references/phases-and-gates.md', skillsDir),
+    'utf8',
+  )
+
+  for (const source of [implementation, phaseReference]) {
+    assert.match(source, /actually invoke the installed `om-code-review` skill/)
+    assert.match(source, /load `\.ai\/review-checklist\.md`/)
+    assert.match(source, /baseline|pre-existing/)
+    assert.match(source, /follow-up edit|later edit/)
+  }
+  assert.match(implementation, /not permission to claim the work is built, validated, or complete/)
+  assert.match(phaseReference, /Every configured command must exit zero/)
+})
+
+test('local spec implementation shares stable planning and report contracts without losing interaction', () => {
+  const implementation = readOverrideSkill('om-implement-spec')
+  const specResolution = fs.readFileSync(
+    new URL('om-implement-spec/references/spec-resolution.md', skillsDir),
+    'utf8',
+  )
+  const planning = fs.readFileSync(
+    new URL('om-implement-spec/references/planning-and-progress.md', skillsDir),
+    'utf8',
+  )
+  const reportTemplate = fs.readFileSync(
+    new URL('om-implement-spec/references/report-templates.md', skillsDir),
+    'utf8',
+  )
+
+  for (const reference of [
+    'references/spec-resolution.md',
+    'references/planning-and-progress.md',
+    'references/report-templates.md',
+  ]) {
+    assert.ok(implementation.includes(reference), `om-implement-spec must load ${reference}`)
+  }
+  assert.match(specResolution, /path.*name\/title.*issue.*spec PR/is)
+  assert.match(specResolution, /Closest candidates:/)
+  assert.match(planning, /Goal.*Scope.*Non-goals.*Source doc:.*Risks/is)
+  assert.match(planning, /Only one phase may be `in_progress`/)
+  assert.match(planning, /present.*plan.*user.*before coding/is)
+  assert.match(reportTemplate, /### 📋 Plan & progress/)
+  assert.match(reportTemplate, /### 🧪 Validation & 🔍 review/)
+  assert.match(reportTemplate, /### 📸 UI verification/)
+  assert.match(reportTemplate, /^Spec: <repo-relative spec path>$/m)
+  assert.match(reportTemplate, /never emit `PR:` or `Issue:`/)
+  assert.match(implementation, /does not create branches, commits, labels, issues, or pull requests/)
+  assert.match(implementation, /wait for the user's confirmation before coding/)
+
+  const catalog = JSON.parse(
+    fs.readFileSync(new URL('../harness/cases.json', skillsDir), 'utf8'),
+  ) as Array<{ id: string; context: { required: string[] } }>
+  const requiredReferences = [
+    '.ai/skills/om-implement-spec/references/spec-resolution.md',
+    '.ai/skills/om-implement-spec/references/phases-and-gates.md',
+    '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+    '.ai/skills/om-implement-spec/references/report-templates.md',
+  ]
+  for (const caseId of ['OMH-006', 'OMH-168']) {
+    const harnessCase = catalog.find((entry) => entry.id === caseId)
+    assert.ok(harnessCase, `${caseId} must remain in the harness catalog`)
+    for (const reference of requiredReferences) {
+      assert.ok(harnessCase.context.required.includes(reference), `${caseId} must require ${reference}`)
+    }
+  }
+})
+
 // Setup never creates a directory-level link. The installer owns Claude's
 // per-skill compatibility layer after the canonical collection exists.
 test('setup leaves every per-agent skills directory to install-skills.mjs', () => {
