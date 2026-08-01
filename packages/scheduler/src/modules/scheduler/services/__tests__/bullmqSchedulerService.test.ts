@@ -413,6 +413,42 @@ describe('BullMQSchedulerService', () => {
       )
     })
 
+    it('should clamp a legacy sub-minute schedule and continue registering the batch', async () => {
+      const dbSchedules = [
+        { id: 'legacy', name: 'Legacy', isEnabled: true, scheduleType: 'interval', scheduleValue: '10s', timezone: 'UTC', scopeType: 'system' },
+        { id: 'current', name: 'Current', isEnabled: true, scheduleType: 'cron', scheduleValue: '0 0 * * *', timezone: 'UTC', scopeType: 'system' },
+      ] as ScheduledJob[]
+
+      mockForkedEm.find.mockResolvedValue(dbSchedules)
+      mockQueue.getRepeatableJobs.mockResolvedValue([])
+
+      await service.syncAll()
+
+      expect(mockQueue.add).toHaveBeenCalledTimes(2)
+      expect(mockQueue.add).toHaveBeenNthCalledWith(
+        1,
+        'schedule-legacy',
+        expect.any(Object),
+        expect.objectContaining({
+          repeat: {
+            every: 60 * 1000,
+            tz: 'UTC',
+          },
+        }),
+      )
+      expect(mockQueue.add).toHaveBeenNthCalledWith(
+        2,
+        'schedule-current',
+        expect.any(Object),
+        expect.objectContaining({
+          repeat: {
+            pattern: '0 0 * * *',
+            tz: 'UTC',
+          },
+        }),
+      )
+    })
+
     it('should remove orphaned BullMQ jobs', async () => {
       const dbSchedules = [
         { id: 'schedule-1', name: 'Schedule 1', isEnabled: true },
