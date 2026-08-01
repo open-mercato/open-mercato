@@ -107,7 +107,40 @@ export interface ActivityDefinition {
   async?: boolean // Flag to execute activity asynchronously via queue
   retryPolicy?: RetryPolicy
   timeoutMs?: number
+  /**
+   * @deprecated Use `timeoutMs`. Legacy ISO 8601 duration string accepted by
+   * the definition schema before #4424; normalized by `resolveActivityTimeoutMs`.
+   */
+  timeout?: string
   compensate?: boolean // Flag to execute compensation on failure
+}
+
+/**
+ * Effective timeout for an activity, in milliseconds.
+ *
+ * The editor and this executor both speak `timeoutMs`, but the definition
+ * schema historically accepted only an ISO 8601 `timeout` string — so stored
+ * definitions can carry either. Prefer `timeoutMs`; fall back to parsing
+ * `timeout`, ignoring a malformed value rather than throwing mid-execution
+ * (an unparseable timeout must not fail an activity that would otherwise
+ * succeed). Returns undefined when no usable timeout is configured (#4424).
+ */
+export function resolveActivityTimeoutMs(activity: {
+  timeoutMs?: number
+  timeout?: string
+}): number | undefined {
+  if (typeof activity.timeoutMs === 'number' && activity.timeoutMs > 0) {
+    return activity.timeoutMs
+  }
+  if (typeof activity.timeout === 'string' && activity.timeout.trim().length > 0) {
+    try {
+      const parsed = parseDuration(activity.timeout.trim())
+      if (Number.isFinite(parsed) && parsed > 0) return parsed
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 export interface RetryPolicy {
@@ -332,11 +365,13 @@ export async function executeActivity(
     try {
       const startTime = Date.now()
 
-      // Execute with timeout if specified
-      const result = activity.timeoutMs
+      // Execute with timeout if specified (timeoutMs, or a legacy ISO 8601
+      // `timeout` string normalized to ms — see resolveActivityTimeoutMs).
+      const timeoutMs = resolveActivityTimeoutMs(activity)
+      const result = timeoutMs
         ? await executeWithTimeout(
             () => executeActivityByType(em, container, activity, context),
-            activity.timeoutMs
+            timeoutMs
           )
         : await executeActivityByType(em, container, activity, context)
 

@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { parseCronExpression } from '../lib/cronParser'
-import { parseInterval } from '../lib/intervalParser'
+import { resolveScheduleIntervalMs } from '../lib/intervalParser'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -288,7 +288,7 @@ export class BullMQSchedulerService {
       opts.pattern = schedule.scheduleValue
     } else if (schedule.scheduleType === 'interval') {
       // Parse interval (e.g., "15m", "2h", "1d")
-      const intervalMs = parseInterval(schedule.scheduleValue)
+      const intervalMs = resolveScheduleIntervalMs(schedule.scheduleValue)
       opts.every = intervalMs
     } else {
       throw new Error(`Unsupported schedule type: ${schedule.scheduleType}`)

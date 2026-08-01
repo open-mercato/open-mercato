@@ -29,13 +29,59 @@ export function hasReadableModuleSource(moduleRoot: string): boolean {
   return false
 }
 
-function dedupeById(sources: ModuleFactSource[]): ModuleFactSource[] {
-  const seen = new Set<string>()
+function resolveDuplicateModuleIds(
+  sources: ModuleFactSource[],
+  resolver: PackageResolver,
+): ModuleFactSource[] {
+  const sourcesByModule = new Map<string, ModuleFactSource[]>()
+  for (const source of sources) {
+    const matches = sourcesByModule.get(source.moduleId) ?? []
+    matches.push(source)
+    sourcesByModule.set(source.moduleId, matches)
+  }
+
+  const duplicates = [...sourcesByModule.entries()].filter(([, matches]) => matches.length > 1)
+  if (duplicates.length === 0) return sources
+
+  const selectedProviders = new Map<string, Set<string>>()
+  const implicitCoreSelections = new Set<string>()
+  for (const entry of resolver.loadEnabledModules()) {
+    const providers = selectedProviders.get(entry.id) ?? new Set<string>()
+    providers.add(entry.from ?? '@open-mercato/core')
+    selectedProviders.set(entry.id, providers)
+    if (entry.from === undefined) implicitCoreSelections.add(entry.id)
+  }
+
+  const selectedSources = new Map<string, ModuleFactSource>()
+  for (const [moduleId, matches] of duplicates) {
+    const providers = [...new Set(matches.map((source) => source.from ?? '<unknown>'))]
+      .sort((left, right) => left.localeCompare(right))
+    const configuredProviders = [...(selectedProviders.get(moduleId) ?? [])]
+      .sort((left, right) => left.localeCompare(right))
+    const selected = configuredProviders.length === 1
+      ? matches.filter((source) => source.from === configuredProviders[0])
+      : []
+
+    if (selected.length !== 1) {
+      const configured = configuredProviders.length > 0
+        ? implicitCoreSelections.has(moduleId)
+          ? '; src/modules.ts omits "from", which defaults to @open-mercato/core'
+          : `; src/modules.ts selects ${configuredProviders.join(', ')}`
+        : '; src/modules.ts does not select a provider'
+      throw new Error(
+        `[module-facts] duplicate module id "${moduleId}" is provided by ${providers.join(', ')}${configured}. `
+        + 'Select exactly one matching provider in src/modules.ts.',
+      )
+    }
+    selectedSources.set(moduleId, selected[0])
+  }
+
+  const emitted = new Set<string>()
   const result: ModuleFactSource[] = []
   for (const source of sources) {
-    if (seen.has(source.moduleId)) continue
-    seen.add(source.moduleId)
-    result.push(source)
+    if (emitted.has(source.moduleId)) continue
+    emitted.add(source.moduleId)
+    result.push(selectedSources.get(source.moduleId) ?? source)
   }
   return result
 }
@@ -51,8 +97,13 @@ export function discoverPackageModuleSources(resolver: PackageResolver): ModuleF
     for (const discovered of discoverModulesInPackage(pkg.path)) {
       const moduleRoot = path.join(pkg.modulesPath, discovered.moduleId)
       if (!hasReadableModuleSource(moduleRoot)) continue
-      sources.push({ moduleId: discovered.moduleId, moduleRoot, from: pkg.name })
+      sources.push({
+        moduleId: discovered.moduleId,
+        moduleRoot,
+        from: pkg.name,
+        packageVersion: pkg.version ?? null,
+      })
     }
   }
-  return dedupeById(sources)
+  return resolveDuplicateModuleIds(sources, resolver)
 }
