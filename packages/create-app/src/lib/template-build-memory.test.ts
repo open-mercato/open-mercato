@@ -46,3 +46,13 @@ test('standalone template ships cross-env so the heap flag works cross-platform'
     'expected standalone template build script to invoke cross-env',
   )
 })
+
+test('standalone template forces production mode for Next builds', () => {
+  const template = readJson('../../template/package.json.template')
+
+  assert.match(
+    template.scripts.build,
+    /cross-env\s+NODE_ENV=production\s+NODE_OPTIONS=/,
+    'the development container exports NODE_ENV=development, so the build script must override it before invoking Next',
+  )
+})
