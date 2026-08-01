@@ -5,6 +5,7 @@ import {
   assertNoUnresolvedExtensionTargets,
   correlateModuleExtensionFacts,
   extractModuleExtensionFacts,
+  getFrameworkExtensionHosts,
   renderFrameworkExtensionPointsMarkdown,
 } from '../module-extension-facts'
 import type { ModuleFactsJsonEntry } from '../module-facts'
@@ -169,6 +170,37 @@ describe('module extension facts', () => {
     expect(first).toContain('integrations.detail:{integrationId}')
     expect(first).toContain('menu:backend.sidebar')
     expect(extensionSurfacesAreOptional).toBe(true)
+  })
+
+  it('projects every wired unified override key with its supported mode', () => {
+    const overrides = getFrameworkExtensionHosts()
+      .filter((host) => host.family === 'module-override')
+      .map((host) => [host.id, host.operations?.[0]])
+
+    expect(overrides).toEqual([
+      ['module-override:acl.features', 'disable-replace'],
+      ['module-override:ai.agents', 'disable-replace'],
+      ['module-override:ai.extensions', 'additive'],
+      ['module-override:ai.tools', 'disable-replace'],
+      ['module-override:cli', 'disable-replace'],
+      ['module-override:commandInterceptors', 'disable-replace'],
+      ['module-override:di', 'disable-replace'],
+      ['module-override:encryption.maps', 'disable-replace'],
+      ['module-override:enrichers', 'disable-replace'],
+      ['module-override:events.subscribers', 'disable-replace'],
+      ['module-override:guards', 'disable-replace'],
+      ['module-override:interceptors', 'disable-replace'],
+      ['module-override:nav.groupOrder', 'additive'],
+      ['module-override:notifications.handlers', 'disable-replace'],
+      ['module-override:notifications.types', 'disable-replace'],
+      ['module-override:routes.api', 'disable-replace'],
+      ['module-override:routes.pages', 'disable-replace'],
+      ['module-override:setup', 'replace'],
+      ['module-override:widgets.components', 'disable-replace'],
+      ['module-override:widgets.dashboard', 'disable-replace'],
+      ['module-override:widgets.injection', 'disable-replace'],
+      ['module-override:workers', 'disable-replace'],
+    ])
   })
 
   it('reports declarations whose authoritative source no longer binds the host key', () => {

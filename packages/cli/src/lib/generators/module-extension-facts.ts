@@ -105,6 +105,57 @@ function frameworkHost(
   }
 }
 
+function frameworkOverrideHost(
+  key: string,
+  mode: 'disable-replace' | 'replace' | 'additive',
+): ModuleExtensionHostFact {
+  return {
+    key: `framework.module-override.${key}`,
+    id: `module-override:${key}`,
+    resolution: 'framework',
+    family: 'module-override',
+    ownerModule: 'framework',
+    capabilities: ['module-override'],
+    operations: [mode],
+    bound: true,
+    stability: 'stable',
+    source: {
+      kind: 'framework',
+      path: 'packages/shared/src/modules/overrides.ts',
+      symbol: `ModuleOverrides.${key}`,
+    },
+  }
+}
+
+const FRAMEWORK_OVERRIDE_HOSTS = [
+  frameworkOverrideHost('ai.agents', 'disable-replace'),
+  frameworkOverrideHost('ai.tools', 'disable-replace'),
+  frameworkOverrideHost('ai.extensions', 'additive'),
+  frameworkOverrideHost('routes.api', 'disable-replace'),
+  frameworkOverrideHost('routes.pages', 'disable-replace'),
+  frameworkOverrideHost('events.subscribers', 'disable-replace'),
+  frameworkOverrideHost('workers', 'disable-replace'),
+  frameworkOverrideHost('widgets.injection', 'disable-replace'),
+  frameworkOverrideHost('widgets.components', 'disable-replace'),
+  frameworkOverrideHost('widgets.dashboard', 'disable-replace'),
+  frameworkOverrideHost('notifications.types', 'disable-replace'),
+  frameworkOverrideHost('notifications.handlers', 'disable-replace'),
+  frameworkOverrideHost('interceptors', 'disable-replace'),
+  frameworkOverrideHost('commandInterceptors', 'disable-replace'),
+  frameworkOverrideHost('enrichers', 'disable-replace'),
+  frameworkOverrideHost('guards', 'disable-replace'),
+  frameworkOverrideHost('cli', 'disable-replace'),
+  frameworkOverrideHost('setup', 'replace'),
+  frameworkOverrideHost('acl.features', 'disable-replace'),
+  frameworkOverrideHost('di', 'disable-replace'),
+  frameworkOverrideHost('encryption.maps', 'disable-replace'),
+  frameworkOverrideHost('nav.groupOrder', 'additive'),
+] as const
+
+function allFrameworkHosts(): ModuleExtensionHostFact[] {
+  return [...FRAMEWORK_HOSTS, ...FRAMEWORK_OVERRIDE_HOSTS]
+}
+
 function sourceFile(filePath: string): ts.SourceFile | null {
   if (!fs.existsSync(filePath)) return null
   const scriptKind = filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
@@ -976,7 +1027,7 @@ export function correlateExtensionTarget(
   if (exact) return { id: targetFact.id, resolution: exact.resolution === 'fact-ref' ? 'fact-ref' : 'exact' }
   const patterned = allHosts.find((host) => host.bound && host.resolution === 'pattern' && patternMatches(host.id, targetFact.id))
   if (patterned) return { id: targetFact.id, resolution: 'pattern' }
-  const framework = FRAMEWORK_HOSTS.find((host) => patternMatches(host.id, targetFact.id))
+  const framework = allFrameworkHosts().find((host) => patternMatches(host.id, targetFact.id))
     ?? (FRAMEWORK_PREFIXES.some((prefix) => targetFact.id.startsWith(prefix)) ? FRAMEWORK_HOSTS[0] : undefined)
   if (framework) return { id: targetFact.id, resolution: 'framework' }
   if (options.entityIds.has(targetFact.id)) {
@@ -1040,12 +1091,16 @@ export function assertNoUnresolvedExtensionTargets(
 }
 
 export function getFrameworkExtensionHosts(): ModuleExtensionHostFact[] {
-  return sortHosts(FRAMEWORK_HOSTS.map((host) => ({ ...host, capabilities: [...host.capabilities] })))
+  return sortHosts(allFrameworkHosts().map((host) => ({
+    ...host,
+    capabilities: [...host.capabilities],
+    ...(host.operations ? { operations: [...host.operations] } : {}),
+  })))
 }
 
 export function renderFrameworkExtensionPointsMarkdown(): string {
   const rows = getFrameworkExtensionHosts().map((host) =>
-    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ')} | ${host.stability.toUpperCase()} |`,
+    `| ${host.id} | ${host.family} | ${[...host.capabilities, ...(host.operations ?? [])].join(', ')} | ${host.stability.toUpperCase()} |`,
   )
   return [
     '# Framework extension points (generated, do not edit)',
