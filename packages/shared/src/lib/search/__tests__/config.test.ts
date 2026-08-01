@@ -99,6 +99,7 @@ describe('OM_SEARCH_FIELD_BLOCKLIST parsing', () => {
     process.env.OM_SEARCH_FIELD_BLOCKLIST = 'constructor@body,toString@summary,__proto__@notes'
     const config = resolveSearchConfig()
 
+    expect(Object.getPrototypeOf(config.entityBlocklistedFields)).toBeNull()
     expect(config.entityBlocklistedFields?.['constructor']).toEqual(['body'])
     expect(config.entityBlocklistedFields?.['tostring']).toEqual(['summary'])
     expect(config.entityBlocklistedFields?.['__proto__']).toEqual(['notes'])

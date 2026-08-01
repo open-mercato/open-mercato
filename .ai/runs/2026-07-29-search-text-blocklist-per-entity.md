@@ -118,11 +118,14 @@ rule) with the entity-scoped syntax.
 
 ## Progress
 
-PR: #4630
+PR: #4654 (supersedes #4630)
 
 ### Review pass (om-auto-review-pr, self-authored → autofix eligible)
 
 - [x] R.1 Guard the entity blocklist lookup against inherited `Object.prototype` keys — 213d8aad7
+- [x] R.2 Preserve #4686 fail-closed encryption while passing the entity type after the `develop` merge — d81eeb1d6
+- [x] R.3 Build the entity blocklist as a null-prototype record
+- [x] R.4 Cover entity-scoped blocklisting through the incremental `buildIndexDoc` path
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 

@@ -1033,3 +1033,11 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Publish source and instruction files in package tarballs, resolve them through the app's declared module package and exact installed version, and materialize only the requested read-only context outside `node_modules`. Keep a versioned root/BC snapshot for offline fallback, report version skew, and never teach agents to edit or broadly ingest installed dependencies.
 
 **Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
+
+## Keep fallible document preparation outside encryption guards
+
+**Context**: Query-index aggregation and encryption shared an empty catch, so a configuration failure could skip encryption and let a plaintext document continue to persistence.
+
+**Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
+
+**Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.

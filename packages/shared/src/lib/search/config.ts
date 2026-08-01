@@ -73,7 +73,10 @@ function parseFieldBlocklist(raw: string | undefined): {
     if (!global.includes(fallback)) global.push(fallback)
   }
 
-  return { global, byEntity: Object.fromEntries(byEntity) }
+  const scopedBlocklist = Object.create(null) as Record<string, string[]>
+  for (const [entityType, fields] of byEntity) scopedBlocklist[entityType] = fields
+
+  return { global, byEntity: scopedBlocklist }
 }
 
 export function resolveSearchConfig(): SearchConfig {
