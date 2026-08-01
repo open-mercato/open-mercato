@@ -11,8 +11,8 @@ import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
-jest.mock('../DefinitionTriggersEditor', () => ({
-  DefinitionTriggersEditor: ({
+jest.mock('../TriggersEditor', () => ({
+  TriggersEditor: ({
     value,
     onChange,
   }: {

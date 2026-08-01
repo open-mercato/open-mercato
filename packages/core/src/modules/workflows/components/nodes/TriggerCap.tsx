@@ -1,6 +1,6 @@
 'use client'
 
-import { MousePointerClick, PowerOff, Zap } from 'lucide-react'
+import { ChevronRight, MousePointerClick, PowerOff, Zap } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TriggerNodeModel } from '../../lib/trigger-node'
 
@@ -27,7 +27,10 @@ export function TriggerCap({ model, onOpen }: { model: TriggerNodeModel; onOpen?
 
   const openLabel = t('workflows.triggerNode.open', 'Edit triggers')
   const manualLabel = t('workflows.triggerNode.manual', 'manual / API start')
-  const countLabel = t('workflows.triggerNode.capCount', '{count} triggers', { count: triggerCount })
+  const countLabel =
+    triggerCount === 1
+      ? t('workflows.triggerNode.capCountOne', '{count} trigger', { count: triggerCount })
+      : t('workflows.triggerNode.capCount', '{count} triggers', { count: triggerCount })
   const definitionDisabledLabel = t(
     'workflows.triggerNode.definitionDisabled',
     'workflow disabled — nothing starts it',
@@ -83,9 +86,11 @@ export function TriggerCap({ model, onOpen }: { model: TriggerNodeModel; onOpen?
             ·
           </span>
         </>
-      ) : null}
-      <MousePointerClick className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+      ) : (
+        <MousePointerClick className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+      )}
       <span className="truncate text-muted-foreground">{manualLabel}</span>
+      <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
     </button>
   )
 }

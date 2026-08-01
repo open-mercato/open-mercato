@@ -12,7 +12,7 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { DefinitionTriggersEditor } from './DefinitionTriggersEditor'
+import { TriggersEditor } from './TriggersEditor'
 import type { WorkflowDefinitionTrigger } from '../data/entities'
 
 export interface TriggersDialogProps {
@@ -29,9 +29,9 @@ export interface TriggersDialogProps {
  * affordance opens exactly that and nothing else.
  *
  * It edits a WORKING COPY so Cancel truly reverts; Save commits to the caller.
- * Reuses `DefinitionTriggersEditor` (the same list + create/edit rail the drawer
- * used) rather than reimplementing trigger CRUD. Cmd/Ctrl+Enter saves, Escape
- * cancels, per the shared dialog UX contract.
+ * Hosts the lighter inline `TriggersEditor` (Switch toggles + click-to-expand
+ * editing, no nested drawer). Cmd/Ctrl+Enter saves, Escape cancels, per the
+ * shared dialog UX contract.
  */
 export function TriggersDialog({ open, onOpenChange, triggers, onSave }: TriggersDialogProps) {
   const t = useT()
@@ -67,7 +67,7 @@ export function TriggersDialog({ open, onOpenChange, triggers, onSave }: Trigger
           </DialogDescription>
         </DialogHeader>
 
-        <DefinitionTriggersEditor value={working} onChange={setWorking} />
+        <TriggersEditor value={working} onChange={setWorking} />
 
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
