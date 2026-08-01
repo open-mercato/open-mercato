@@ -20,6 +20,10 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 4. Trace from the public call site to the first incorrect invariant. Check scope, auth, validation, state transition, transaction boundary, side effects, and response serialization in that order.
 5. Add a regression oracle that fails before the fix (`unit-regression-oracle` when that decision vocabulary is requested). Implement the minimal complete repair and rerun affected plus safety cases.
 
+When comparing against a clean baseline, use a separate worktree or a fresh scaffold. Never stash and drop active work just to reproduce a baseline failure; preserve the working diff and verify the comparison tree's exact revision first.
+
+Treat raw agent transcripts as sensitive untrusted evidence because they can contain credentials, private prompts, absolute paths, and tool output. Never copy them into the app repository. Export only when the user explicitly asks, to an outside-repository protected destination or as a deliberately sanitized summary.
+
 ## Frequent Failure Families
 
 | Symptom | Check first |
@@ -70,5 +74,7 @@ Before authoring a test file, read `.ai/skills/om-module-scaffold/references/ver
 4. `yarn typecheck`, `yarn lint`, `yarn test`, `yarn build` for broad/contract changes.
 5. `yarn test:integration:ephemeral` or a filtered integration run for affected API/UI paths.
 6. Packed/Verdaccio standalone validation when package exports or compiled discovery are involved.
+
+Run validation commands so the reported shell status is the validation command's status. Do not pipe gates through `grep`, `tail`, or a trailing `echo`; when log capture requires a pipeline, enable `pipefail` and explicitly preserve the command's exit code. Any nonzero status remains a failed gate.
 
 Do not replace deterministic convergence with sleeps. Do not suppress failing tests, weaken assertions, or call a bug fixed because only one bootstrap path passes.

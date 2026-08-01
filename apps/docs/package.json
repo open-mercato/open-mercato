@@ -7,7 +7,8 @@
     "start": "docusaurus build && docusaurus serve",
     "build": "docusaurus build",
     "serve": "docusaurus serve",
-    "clean": "rimraf build .docusaurus"
+    "clean": "rimraf build .docusaurus",
+    "test": "yarn clean && yarn build && node --test __tests__/search-index.test.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "^3.10.2",

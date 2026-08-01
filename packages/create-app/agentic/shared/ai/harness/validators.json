@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "catalog": {
-    "expectedCaseCount": 192,
+    "expectedCaseCount": 202,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
     "maxTotalContextBytes": 262144,
@@ -29,7 +29,7 @@
       "OMH-093", "OMH-105", "OMH-107", "OMH-115", "OMH-122", "OMH-128", "OMH-130", "OMH-133",
       "OMH-137", "OMH-140", "OMH-144", "OMH-146", "OMH-149", "OMH-150", "OMH-151", "OMH-153",
       "OMH-156", "OMH-163", "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
-      "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192"
+      "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193"
     ]
   },
   "validators": {

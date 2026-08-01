@@ -35,6 +35,15 @@
         "bundleHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
+    "judgeSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "bundleHash"],
+      "properties": {
+        "name": { "const": "om-judge-agent-session" },
+        "bundleHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
     "policyHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "reviewedPaths": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "maxLength": 300 } },
     "reviewedBytes": { "type": "integer", "minimum": 1 },
@@ -64,7 +73,10 @@
       }
     },
     "verdict": { "enum": ["approve", "request changes", "error"] },
+    "judgeVerdict": { "enum": ["pass", "fail", "inconclusive"] },
     "report": { "type": "string", "maxLength": 16384 },
+    "judgeReport": { "type": "string", "maxLength": 16384 },
+    "fixedEvidenceStatus": { "const": "pass" },
     "findings": {
       "type": "array",
       "maxItems": 32,
@@ -80,6 +92,19 @@
           "fix": { "type": "string", "minLength": 8, "maxLength": 1200 }
         }
       }
+    },
+    "artifactFindings": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/artifactFinding" }
+    },
+    "harnessOwnerFindings": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/harnessOwnerFinding" }
+    },
+    "designSystemReview": {
+      "$ref": "#/$defs/designSystemReview"
     },
     "violations": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
     "attempts": { "const": 1 },
@@ -104,6 +129,43 @@
         "metadataPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "metadataEntries": { "type": "integer", "minimum": 0 },
         "metadataBytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "artifactFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "path", "line", "rationale", "fix"],
+      "properties": {
+        "severity": { "enum": ["blocker", "major", "minor", "nit"] },
+        "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "line": { "type": ["integer", "null"], "minimum": 1 },
+        "rationale": { "type": "string", "minLength": 8, "maxLength": 1200 },
+        "fix": { "type": "string", "minLength": 8, "maxLength": 1200 }
+      }
+    },
+    "harnessOwnerFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactFinding", "ownerKind", "owner", "rationale", "fix", "rerunCaseIds"],
+      "properties": {
+        "artifactFinding": { "type": ["integer", "null"], "minimum": 0 },
+        "ownerKind": { "enum": ["root", "guide", "skill", "facts", "hook", "case", "oracle"] },
+        "owner": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "rationale": { "type": "string", "minLength": 8, "maxLength": 1200 },
+        "fix": { "type": "string", "minLength": 8, "maxLength": 1200 },
+        "rerunCaseIds": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "string", "pattern": "^OMH-[0-9]{3}$" } }
+      }
+    },
+    "designSystemReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "status", "findings"],
+      "properties": {
+        "reviewer": { "enum": ["om-backend-ui-design", "not-applicable"] },
+        "status": { "enum": ["pass", "fail", "not-applicable"] },
+        "findings": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 8, "maxLength": 1200 } }
       }
     }
   }
