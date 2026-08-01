@@ -22,7 +22,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 const FORBIDDEN_STATUS_CLASSES = [
-  'text-destructive',
+  'text-red-600',
   'bg-red-50',
   'border-red-200',
   'text-amber-600',
