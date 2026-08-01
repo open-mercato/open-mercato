@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { loadBootstrapData } from '../dynamicLoader'
 import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
@@ -50,6 +51,18 @@ const BASE_GENERATED_MODULES: Record<string, { ts: string; compiled: string }> =
 }
 
 let compiledCacheGeneration = 0
+const APP_TSCONFIG = JSON.stringify({
+  compilerOptions: {
+    experimentalDecorators: true,
+    emitDecoratorMetadata: true,
+    useDefineForClassFields: false,
+    target: 'ES2022',
+  },
+})
+
+function hash(content: string): string {
+  return crypto.createHash('sha256').update(content).digest('hex')
+}
 
 function writeGeneratedModule(generatedDir: string, baseName: string, source: { ts: string; compiled: string }) {
   fs.writeFileSync(path.join(generatedDir, `${baseName}.ts`), source.ts)
@@ -57,14 +70,33 @@ function writeGeneratedModule(generatedDir: string, baseName: string, source: { 
 }
 
 /**
- * Write the .mjs sibling with an mtime ahead of its .ts source so
- * compileAndImport takes its cache path and never invokes esbuild. Each write
- * advances the timestamp, which also gives the retry a distinct `?mtime=` import
- * URL instead of the rejected module's cached one.
+ * Write a compiled sibling and matching sidecar so compileAndImport can take its
+ * cache path without invoking esbuild. Each rewrite changes the output hash,
+ * which gives the retry a distinct `?cache=` import URL.
  */
 function writeCompiledSibling(generatedDir: string, baseName: string, compiled: string) {
+  const source = fs.readFileSync(path.join(generatedDir, `${baseName}.ts`), 'utf8')
+  const inputHash = hash(JSON.stringify({
+    version: 4,
+    sourceHash: hash(source),
+    tsconfigHashes: {
+      'tsconfig.json': hash(APP_TSCONFIG),
+    },
+  }))
+  const sourceRelativePath = path.relative(
+    path.dirname(path.dirname(generatedDir)),
+    path.join(generatedDir, `${baseName}.ts`),
+  ).split(path.sep).join('/')
   const compiledPath = path.join(generatedDir, `${baseName}.mjs`)
   fs.writeFileSync(compiledPath, compiled)
+  fs.writeFileSync(`${compiledPath}.cache.json`, JSON.stringify({
+    version: 4,
+    inputHash,
+    outputHash: hash(compiled),
+    dependencies: {
+      [sourceRelativePath]: hash(source),
+    },
+  }))
   compiledCacheGeneration += 1
   const fresh = new Date(Date.now() + compiledCacheGeneration * 60_000)
   fs.utimesSync(compiledPath, fresh, fresh)
@@ -74,6 +106,7 @@ function createAppRoot(entityIdsCache: string): string {
   const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4526-'))
   const generatedDir = path.join(appRoot, '.mercato', 'generated')
   fs.mkdirSync(generatedDir, { recursive: true })
+  fs.writeFileSync(path.join(appRoot, 'tsconfig.json'), APP_TSCONFIG)
   for (const [baseName, source] of Object.entries(BASE_GENERATED_MODULES)) {
     writeGeneratedModule(generatedDir, baseName, source)
   }
@@ -87,7 +120,7 @@ function createAppRoot(entityIdsCache: string): string {
 function recoverByRewritingCache(appRoot: string, compiled: string): GeneratedCacheRecoveryResult {
   const generatedDir = path.join(appRoot, '.mercato', 'generated')
   writeCompiledSibling(generatedDir, 'entities.ids.generated', compiled)
-  // Node busts its ESM cache through the `?mtime=` query compileAndImport
+  // Node busts its ESM cache through the `?cache=` query compileAndImport
   // appends; Jest's registry keys on the resolved path alone, so the retry would
   // otherwise replay the rejected evaluation instead of the rewritten file.
   jest.resetModules()
