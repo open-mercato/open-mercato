@@ -18,6 +18,7 @@ import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
+import { resolveEffectiveTenantId } from '../../../lib/publicQuoteTenantScope'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -68,7 +69,13 @@ export async function POST(req: Request) {
     const em = (container.resolve('em') as EntityManager).fork()
 
     const hashedToken = hashAuthToken(token)
-    const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
+    const effectiveTenantId = resolveEffectiveTenantId(auth)
+    // A session whose tenant cannot be resolved must not fall through to an unscoped lookup.
+    // Anonymous callers (no auth) and tenant-less API keys stay unscoped by design.
+    if (auth && effectiveTenantId === null && auth.isApiKey !== true) {
+      throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
+    }
+    const tenantScope = effectiveTenantId ? { tenantId: effectiveTenantId } : undefined
 
     const commandBus = container.resolve('commandBus') as CommandBus
 
@@ -85,7 +92,7 @@ export async function POST(req: Request) {
           SalesQuote,
           {
             acceptanceToken,
-            ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
+            ...(effectiveTenantId ? { tenantId: effectiveTenantId } : {}),
             deletedAt: null,
           },
           { lockMode: LockMode.PESSIMISTIC_WRITE },

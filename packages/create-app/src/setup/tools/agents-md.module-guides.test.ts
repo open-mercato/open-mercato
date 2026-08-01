@@ -6,9 +6,10 @@ import test from 'node:test'
 import {
   injectModuleGuides,
   readEnabledModuleIds,
-  readModuleGuideLabels,
+  renderModuleGuidesBlock,
   selectModuleFactSheets,
 } from './shared.js'
+import { renderModuleGuidesBlock as renderCliModuleGuidesBlock } from '../../../../cli/src/lib/agentic-setup.js'
 
 // A fixture bundle of fact-sheets that build.mjs would have written to
 // dist/agentic/guides/modules/. Post-auto-discovery the real bundle is every
@@ -83,6 +84,14 @@ test('selectModuleFactSheets returns enabled ∩ bundled only (T5)', () => {
   assert.deepEqual(selected, ['customers', 'sales'])
 })
 
+test('selectModuleFactSheets keeps a valid empty intersection empty', () => {
+  const targetDir = makeTmpDir()
+  writeModulesTs(targetDir, ['app_only_module'])
+  const modulesSubdir = makeFactSheetDir(BUNDLED_FIXTURE)
+
+  assert.deepEqual(selectModuleFactSheets(targetDir, modulesSubdir), [])
+})
+
 test('selectModuleFactSheets falls back to the full bundled set when the enabled set cannot be read (T5, R5)', () => {
   const targetDir = makeTmpDir() // no src/modules.ts written
   const modulesSubdir = makeFactSheetDir(BUNDLED_FIXTURE)
@@ -91,7 +100,7 @@ test('selectModuleFactSheets falls back to the full bundled set when the enabled
   assert.deepEqual(selected, [...BUNDLED_FIXTURE].sort())
 })
 
-test('injectModuleGuides writes exactly the selected rows, drops the hedge, and is idempotent (T6)', () => {
+test('injectModuleGuides writes exactly the selected ID index, drops the hedge, and is idempotent (T6)', () => {
   const targetDir = makeTmpDir()
   const agentsPath = join(targetDir, 'AGENTS.md')
   fs.writeFileSync(agentsPath, AGENTS_TEMPLATE)
@@ -99,10 +108,13 @@ test('injectModuleGuides writes exactly the selected rows, drops the hedge, and 
   injectModuleGuides(agentsPath, ['customers', 'sales'])
   const firstPass = fs.readFileSync(agentsPath, 'utf8')
 
-  assert.match(firstPass, /\| .* \| `\.ai\/guides\/modules\/customers\.md` \|/)
-  assert.match(firstPass, /\| .* \| `\.ai\/guides\/modules\/sales\.md` \|/)
+  assert.match(firstPass, /Enabled module facts: `customers`,`sales`\./)
+  assert.match(firstPass, /Load `\.ai\/guides\/modules\/<id>\.md` only when `<id>` is explicitly named or is the targeted installed module\/host/)
+  assert.equal((firstPass.match(/\.ai\/guides\/modules\//g) ?? []).length, 1, 'the reusable path pattern appears once')
+  assert.ok(!firstPass.includes('modules/customers.md'), 'module IDs must not expand into per-module paths')
+  assert.ok(!firstPass.includes('modules/sales.md'), 'module IDs must not expand into per-module paths')
   assert.ok(!firstPass.includes('(if available)'))
-  assert.ok(!firstPass.includes('modules/workflows.md'), 'non-selected modules must not appear')
+  assert.ok(!firstPass.includes('`workflows`'), 'non-selected modules must not appear')
   assert.ok(firstPass.includes('intro prose stays untouched'), 'surrounding prose must be preserved')
 
   injectModuleGuides(agentsPath, ['customers', 'sales'])
@@ -110,42 +122,30 @@ test('injectModuleGuides writes exactly the selected rows, drops the hedge, and 
   assert.equal(secondPass, firstPass)
 })
 
-test('readModuleGuideLabels sources labels from module-facts.json (description → title → skip) (T6)', () => {
-  const guidesDir = makeTmpDir()
-  fs.writeFileSync(
-    join(guidesDir, 'module-facts.json'),
-    JSON.stringify({
-      customers: { title: 'Customer Relationship Management', description: 'Core CRM capabilities.' },
-      sales: { title: 'Sales Management', description: null },
-      auth: { title: null, description: null },
-    }),
-  )
-
-  const labels = readModuleGuideLabels(guidesDir)
-  assert.equal(labels.customers, 'Core CRM capabilities.')
-  assert.equal(labels.sales, 'Sales Management')
-  assert.ok(!('auth' in labels), 'a module with neither description nor title must be omitted')
+test('create-app and agentic:init render byte-identical module fact indexes', () => {
+  for (const selected of [[], ['customers', 'sales'], BUNDLED_FIXTURE]) {
+    assert.equal(renderModuleGuidesBlock(selected), renderCliModuleGuidesBlock(selected))
+  }
 })
 
-test('readModuleGuideLabels degrades to an empty map when the sidecar is missing or malformed (T6)', () => {
-  const missingDir = makeTmpDir()
-  assert.deepEqual(readModuleGuideLabels(missingDir), {})
-
-  const malformedDir = makeTmpDir()
-  fs.writeFileSync(join(malformedDir, 'module-facts.json'), '{ not valid json')
-  assert.deepEqual(readModuleGuideLabels(malformedDir), {})
-})
-
-test('injectModuleGuides renders labels from the facts map and falls back to a generic label (T6)', () => {
+test('injectModuleGuides keeps a large enabled set compact and never embeds fact descriptions (T6)', () => {
   const targetDir = makeTmpDir()
   const agentsPath = join(targetDir, 'AGENTS.md')
   fs.writeFileSync(agentsPath, AGENTS_TEMPLATE)
+  const selected = Array.from({ length: 64 }, (_, index) => `module_${String(index).padStart(2, '0')}`)
 
-  injectModuleGuides(agentsPath, ['customers', 'sales'], { customers: 'Core CRM capabilities.' })
+  injectModuleGuides(agentsPath, selected)
   const rendered = fs.readFileSync(agentsPath, 'utf8')
+  const block = rendered.slice(
+    rendered.indexOf('<!-- om:module-guides:start -->') + '<!-- om:module-guides:start -->'.length,
+    rendered.indexOf('<!-- om:module-guides:end -->'),
+  ).trim()
 
-  assert.match(rendered, /\| Core CRM capabilities\. \| `\.ai\/guides\/modules\/customers\.md` \|/)
-  assert.match(rendered, /\| Use the sales module \| `\.ai\/guides\/modules\/sales\.md` \|/)
+  assert.ok(Buffer.byteLength(block) < 1_200, `compact module index is ${Buffer.byteLength(block)} bytes`)
+  assert.equal(block.split('\n').length, 3)
+  assert.equal((block.match(/\.ai\/guides\/modules\/<id>\.md/g) ?? []).length, 1)
+  assert.ok(!block.includes('Core CRM capabilities'))
+  assert.ok(!block.includes('| Task | Load |'))
 })
 
 test('injectModuleGuides warns and leaves the file unchanged when the markers are absent (T6)', () => {
