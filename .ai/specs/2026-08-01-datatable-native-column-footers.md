@@ -10,6 +10,10 @@
 
 Add one presentation primitive to the shared `DataTable`: render TanStack column footer definitions in a native `<tfoot>` whose cells stay aligned with the visible header/body columns. The primitive is data-source agnostic. It does not fetch, calculate, persist, or interpret aggregate values; callers supply footer renderers through the existing column definitions.
 
+## Overview
+
+This specification defines the presentation-only prerequisite for column-aligned totals and other footer content. It makes the existing TanStack footer extension seam visible in shared `DataTable`, preserves all current tables when no footer is declared, and proves layout/accessibility in a self-contained example. Backend aggregation and persisted controls remain separate capabilities.
+
 ## Resolved assumptions
 
 | Question | Decision | Rationale |
@@ -19,7 +23,7 @@ Add one presentation primitive to the shared `DataTable`: render TanStack column
 | Layout verification | Add a self-contained example route and Playwright case | The shared table has no stable standalone page for visual and DOM coverage |
 | Existing PR | Treat #3972 as the implementation candidate for this spec | It already targets this capability; it must be brought into conformance and independently QA-approved before merge |
 
-## Problem
+## Problem Statement
 
 The current `DataTable` offers a free-form `:footer` injection spot below the table, but that spot cannot guarantee one value per visible column. Consumers that need totals or other column-aligned content would otherwise recreate visibility, selection, sticky-action, and horizontal-scroll layout outside the table.
 
@@ -39,6 +43,22 @@ TanStack already exposes a footer template on each column and computed footer gr
 - Adding aggregation menu controls or Perspective persistence.
 - Changing `DataTable` row, pagination, sorting, filtering, selection, or injection contracts.
 - Introducing a new app-level route registry or dependency.
+
+## Proposed Solution
+
+Render TanStack footer groups through native semantic table markup only when a visible column supplies `ColumnDef.footer`. Reuse the header/body column-order, width, pinning, selection, and action-column layout logic, and verify the primitive through focused DOM tests plus a static example route and Playwright scenario.
+
+## Architecture
+
+The change stays inside the existing `DataTable` client island, with a small shared internal cell-layout helper if needed. Column definitions remain caller-owned; TanStack owns grouping/context; the shared table owns only conditional `<tfoot>` markup. The example consumes the public component without adding a provider, route registry, server API, or cross-module dependency.
+
+## Data Models
+
+Not applicable: no entity, database, persisted setting, API DTO, migration, or snapshot changes. Footer renderers use TanStack's existing additive `ColumnDef.footer` and `columnDef.meta` types.
+
+## API Contracts
+
+Not applicable to HTTP: no endpoint or response changes. The public component contract is the already-optional `ColumnDef.footer`; existing callers without footer definitions retain identical markup and behavior.
 
 ## Detailed design
 
@@ -140,13 +160,13 @@ Because a module page is added, run `yarn generate`; only the normal generated r
 
 The self-contained Playwright test opens the example route, verifies semantic footer cells and their values, hides a column, selects a row, exercises the row action, and checks footer alignment at desktop and narrow widths. Fixtures are local/static and require no seeded data. The test restores any changed local UI state in `finally`.
 
-## Risks and rollback
+## Risks & Impact Review
 
-| Risk | Severity | Mitigation |
-|---|---|---|
-| Footer drifts from structural columns | Medium | one TanStack footer-group source plus bulk/actions regression matrix |
-| Sticky or horizontal layout regresses | Medium | reuse shared cell-class logic and browser checks at two widths |
-| Existing tables gain empty markup | Low | omit `<tfoot>` unless a visible footer exists |
+| Risk | Severity | Affected area | Mitigation | Residual risk |
+|---|---|---|---|---|
+| Footer drifts from structural columns | Medium | DataTable layout/selection/actions | one TanStack footer-group source plus bulk/actions regression matrix | Low: future structural columns must extend the matrix |
+| Sticky or horizontal layout regresses | Medium | Responsive/sticky table UX | reuse shared cell-class logic and browser checks at two widths | Low: browser-engine differences remain covered by QA |
+| Existing tables gain empty markup | Low | All DataTable callers | omit `<tfoot>` unless a visible footer exists | Minimal: malformed third-party footer definitions can still render empty cells |
 
 Rollback removes the conditional footer rendering and example page. No data, API, or persistence migration exists.
 
@@ -161,18 +181,60 @@ This change consumes the already-additive optional `ColumnDef.footer` property a
 3. Add the example module page, translated copy, and self-contained Playwright layout scenario.
 4. Run generation and the frontend/full repository gates, attach browser evidence, and obtain independent QA approval for #3972 because it carries `needs-qa`.
 
-## Final compliance report — 2026-08-01
+## Final Compliance Report — 2026-08-01
 
-- One independently deployable capability: native column-aligned footer presentation.
-- No server/API/data or persistence contract is introduced.
-- All changes stay in the shared UI package and the allowed example module.
-- The frontend boundary, dependency, LOC, hydration, accessibility, i18n, and browser-evidence requirements are explicit.
-- The linked aggregation and controls specs may consume this primitive but are not required for it to function.
+### AGENTS.md Files Reviewed
 
-**Verdict:** fully specified and ready for implementation.
+- `AGENTS.md`
+- `.ai/specs/AGENTS.md`
+- `BACKWARD_COMPATIBILITY.md`
+- `packages/ui/AGENTS.md`
+- `packages/ui/src/backend/AGENTS.md`
+- `.ai/ds-rules.md`
+- `.ai/ui-components.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Evidence |
+|---|---|---|---|
+| root `AGENTS.md` | Keep changes minimal and use shared UI primitives | Compliant | one conditional native footer path in existing `DataTable`; no dependency/provider |
+| `packages/ui/AGENTS.md` | Preserve DataTable extension/layout behavior | Compliant | TanStack groups and existing visibility/pinning/structural-column logic remain authoritative |
+| `packages/ui/src/backend/AGENTS.md` | Use standard loading/error/data-call helpers | N/A | presentation primitive performs no asynchronous data call |
+| design-system guides | Semantic tokens, shared primitives, accessible icons/interactions | Compliant | existing table tokens/primitives are reused; no hardcoded colors, arbitrary values, or inline SVG |
+| `BACKWARD_COMPATIBILITY.md` | Component contracts change additively | Compliant | consumes existing optional `ColumnDef.footer`; no required prop/import/path changes |
+| `.ai/specs/AGENTS.md` | UI paths require integration/browser evidence | Compliant | self-contained DOM and Playwright coverage plus independent QA are required |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data models match API contracts | N/A | no data model or HTTP contract |
+| API contracts match UI/UX section | N/A | presentation receives caller-rendered footer content |
+| Risks cover all operations | Pass | structural alignment, responsive layout, and dormant behavior are covered |
+| Commands defined for all mutations | N/A | no mutation |
+| Cache strategy covers all read APIs | N/A | no API or cache |
+| Linked specs conflict with this contract | Pass | linked consumers provide data but do not alter footer semantics |
+
+### Non-Compliant Items
+
+None.
+
+### Verdict
+
+**Fully compliant: approved and ready for implementation.**
 
 ## Changelog
 
 | Date | Change |
 |---|---|
 | 2026-08-01 | Split the native footer presentation primitive from PR #4455's aggregate service and control/persistence proposals; defined semantic markup, structural-column layout, a self-contained example, browser coverage, and frontend budgets. |
+
+### Review — 2026-08-01
+
+- **Reviewer**: Codex fresh-context review
+- **Security**: Passed; no data/API surface
+- **Performance**: Passed; dormant markup and LOC/bundle budgets are explicit
+- **Cache**: N/A
+- **Commands**: N/A
+- **Risks**: Passed
+- **Verdict**: Approved

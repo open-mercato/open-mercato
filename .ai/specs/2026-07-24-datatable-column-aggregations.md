@@ -12,6 +12,10 @@ Add one cohesive backend capability: an optional, bounded, aggregate-only Query 
 
 This service is dormant until a route declares its public aggregate fields. Native table footer presentation, the Sales Orders consumer, and persisted per-column controls are separate linked specifications.
 
+## Overview
+
+This specification defines one backend infrastructure capability: compute bounded aggregates over the same scoped, filter-equivalent relation as an existing CRUD list without hydrating list rows. It covers the Query Engine contract, Basic and Hybrid execution, route opt-in, OpenAPI/error behavior, precision, performance evidence, and compatibility. It introduces no UI and opts in no production business route by itself.
+
 ## Resolved assumptions
 
 | Question | Decision | Rationale |
@@ -25,7 +29,7 @@ This service is dormant until a route declares its public aggregate fields. Nati
 
 No decision weakens tenant isolation, security, or backward compatibility.
 
-## Problem
+## Problem Statement
 
 CRUD list endpoints can return only paged rows and a record count. Consumers that need totals across the entire filtered result set cannot sum the current page, and they should not reimplement tenant, organization, soft-delete, custom-field, search-token, extension, and join semantics in a second endpoint.
 
@@ -66,6 +70,22 @@ The design must prevent:
 - Custom-field values as aggregate selectors, encrypted aggregate selectors, JSON/JSONB selectors, or custom-entity document storage.
 - Aggregate-result hooks or enrichers.
 
+## Proposed Solution
+
+Add an optional `QueryEngine.aggregate` method, implement it against the existing Basic/Hybrid query-shape builders, and let `makeCrudRoute` expose a summary response only for route-declared public fields/functions. Normalize scalars to canonical strings, deduplicate multiplying joins by base id, restrict count to the ungrouped base primary key, and bound work with declaration limits plus a database statement timeout.
+
+## Architecture
+
+The route parses and resolves public summary tokens, then calls the DI-resolved Query Engine capability. Basic and Hybrid engines each construct the same scoped/filter relation used by their normal list paths, but aggregate without pagination, row hydration, decryption, or enrichment. The route maps normalized engine values into the alternate summary envelope. A missing capability or unsupported storage path fails closed; there is no cross-module ORM coupling, worker, event, or cache dependency.
+
+## Data Models
+
+No persisted entity, column, relation, migration, or snapshot changes are introduced. The only data models are additive exported TypeScript contracts for aggregate requests/results and additive route declaration metadata. Values are canonical strings at the service boundary; selectors are trusted declaration-time metadata, never client-provided database identifiers.
+
+## API Contracts
+
+Existing list URLs and ordinary paged envelopes remain unchanged. An opted-in GET list route accepts the documented `summary` query grammar and returns the alternate `{ summary: { values } }` envelope or the standard error shapes defined below. Undeclared routes keep their current parsing, response, and OpenAPI behavior. The detailed request, response, errors, and OpenAPI contract are specified in “Opt-in CRUD summary mode”, “Error contract”, and “OpenAPI contract”.
+
 ## Public Query Engine contract
 
 Add exported types and one optional method:
@@ -105,13 +125,15 @@ interface QueryEngine {
 }
 ```
 
-All selectors originate in trusted route declarations. Engines resolve them against registered entity metadata and reject unknown, encrypted, JSON/JSONB, or incompatible selector types. `count` may target the base id; grouped fields must be scalar base columns. Result ordering follows request field order and group keys sort by a deterministic null-last database ordering.
+All selectors originate in trusted route declarations. Engines resolve them against registered entity metadata and reject unknown, encrypted, JSON/JSONB, or incompatible selector types. In the first release, `count` is allowed only for the registered base primary-key selector, is always ungrouped, and means the decimal-string cardinality of distinct scoped base records. `count` declarations for another selector or with `groupBy` fail route registration/generation. Grouped non-count fields must be scalar base columns. Result ordering follows request field order and group keys sort by a deterministic null-last database ordering.
 
 ## BasicQueryEngine execution
 
 `BasicQueryEngine.aggregate` factors and reuses the same scope/filter/join builder used by `query`, after the `*.querying` extension pipeline can block or modify filters. It deliberately skips page/count selection, plaintext sort/decryption, item hydration, decoration, query enrichers, `afterList`, and `*.queried`, because those contracts operate on row results.
 
-Fields sharing one group selector share one SQL statement; ungrouped fields share another. When `includeExtensions`, explicit `joins`, or `customFieldSources` can multiply base rows, the engine first projects exactly one row per base id with the required selectors/group key and aggregates that relation. `sum`, `avg`, `min`, and `max` operate on the deduplicated base relation; `count` uses the distinct base id in multiplying shapes.
+Fields sharing one group selector share one SQL statement; ungrouped fields share another. When `includeExtensions`, explicit `joins`, or `customFieldSources` can multiply base rows, the engine first projects exactly one row per base id with the required selectors/group key and aggregates that relation. `sum`, `avg`, `min`, and `max` operate on the deduplicated base relation; `count` always uses the distinct base id.
+
+Empty-result normalization is exact: ungrouped or grouped `sum`/`avg`/`min`/`max` returns `groups: []` rather than a nullable or fabricated scalar, while the required ungrouped base-id `count` returns `groups: [{ key: null, value: "0" }]`. Every non-empty scalar remains a canonical decimal string.
 
 Each statement runs in a short transaction with `SET LOCAL statement_timeout` using the internal route-configured bound. Identifiers use Kysely references and registered metadata; values remain parameterized. PostgreSQL SQLSTATE `57014` maps only this operation to `summary_timeout`.
 
@@ -235,16 +257,16 @@ The implementation PR must benchmark the generic path against a representative o
 - A third-party engine without `aggregate` still compiles and serves ordinary lists, but an opted-in summary returns 501.
 - More groups than allowed returns 422 with no partial data.
 
-## Risks and rollback
+## Risks & Impact Review
 
-| Risk | Severity | Mitigation |
-|---|---|---|
-| Join multiplication overstates totals | High | base-id deduplicated relation and multi-source regressions |
-| Hybrid/list filters diverge | High | Hybrid-native implementation and branch parity matrix |
-| Monetary precision is lost | High | canonical strings end to end; no number conversion in the service |
-| Expensive scan harms database | High | field/group caps, route timeout, framework ceiling, consumer index/evidence gate |
-| Unsupported engine appears successful | High | explicit optional capability check and 501 |
-| Public input reaches physical selectors | High | route-owned allow list and metadata resolution |
+| Risk | Severity | Affected area | Mitigation | Residual risk |
+|---|---|---|---|---|
+| Join multiplication overstates totals | High | Query correctness | base-id deduplicated relation and multi-source regressions | Low: new join shapes require parity tests |
+| Hybrid/list filters diverge | High | Search/custom-field consumers | Hybrid-native implementation and branch parity matrix | Medium: future Hybrid branches must extend the matrix |
+| Monetary precision is lost | High | API consumers | canonical strings end to end; no number conversion in the service | Low: consumer formatting remains separately testable |
+| Expensive scan harms database | High | Database capacity/latency | field/group caps, route timeout, framework ceiling, consumer index/evidence gate | Medium: consumer-specific filters still require measured indexes |
+| Unsupported engine appears successful | High | Third-party engines | explicit optional capability check and 501 | Low: callers must surface the explicit failure |
+| Public input reaches physical selectors | High | Security/data access | route-owned allow list and metadata resolution | Low: declaration review remains required |
 
 Rollback removes route `summary` declarations. The optional engine method and additive shared types can remain harmlessly for compatibility; no data rollback exists.
 
@@ -252,7 +274,9 @@ Rollback removes route `summary` declarations. The optional engine method and ad
 
 ### Shared Query Engine
 
-- Basic `sum`/`avg`/`min`/`max`/`count`, grouped/ungrouped, exact strings, empty set, scope/deleted behavior.
+- Basic grouped/ungrouped `sum`/`avg`/`min`/`max` plus ungrouped base-id `count`, exact strings, empty set, scope/deleted behavior.
+- Registration rejects count on a non-primary selector or with grouping; base-id count is distinct under multiplying joins.
+- Empty ungrouped/grouped non-count aggregates normalize to `groups: []`, while empty base-id count is one null-key group with value `"0"`.
 - Spies prove no page/count select, sort/decrypt, hydration, decoration, row enrichment, `afterList`, or `*.queried` work.
 - Multi-valued custom fields, extensions, explicit joins, and tag-shaped joins preserve one contribution per base id.
 - Hybrid search-token, ciphertext fallback, custom-field, joined source, extension-modified, missing-base, partial-coverage, and custom-document fail-closed behavior.
@@ -297,15 +321,46 @@ No FROZEN id/path/route is renamed or removed. No database change, deprecation b
 
 Not applicable: this specification changes no `.tsx`, `packages/ui`, component, provider, browser dependency, or client boundary. UI ownership and evidence are specified only by consumer documents.
 
-## Final compliance report — 2026-08-01
+## Final Compliance Report — 2026-08-01
 
-- One independently deployable capability: filter-equivalent aggregate-only CRUD execution.
-- Tenant/organization/deleted scope and filter semantics reuse the existing list shape.
-- Interfaces, route options, response mode, and errors are additive and fail closed.
-- Exact scalar strings, deduplicated joins, Hybrid parity, hard limits, timeout, tests, and performance evidence are explicit.
-- UI presentation and the first business consumer are linked but not required for this service to function.
+### AGENTS.md Files Reviewed
 
-**Verdict:** fully specified and ready for implementation.
+- `AGENTS.md`
+- `.ai/specs/AGENTS.md`
+- `BACKWARD_COMPATIBILITY.md`
+- `packages/shared/AGENTS.md`
+- `packages/core/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Evidence |
+|---|---|---|---|
+| root `AGENTS.md` | Tenant/organization scope must not be bypassed | Compliant | Basic/Hybrid reuse the normal scoped query shape; scope parity is tested |
+| root + `packages/shared/AGENTS.md` | Validate input and parameterize queries | Compliant | zod parses public tokens; physical selectors come only from declarations; values remain parameterized |
+| `packages/core/AGENTS.md` — API Routes | Extend CRUD through `makeCrudRoute` and document OpenAPI | Compliant | opt-in declaration, alternate envelope, errors, and snapshots are explicit |
+| `packages/core/AGENTS.md` — Encryption | Do not expose encrypted/unsafe selectors | Compliant | encrypted/JSON/incompatible selectors reject; no decryption or row exposure occurs |
+| `BACKWARD_COMPATIBILITY.md` | Stable surfaces change additively | Compliant | optional engine method/declaration; ordinary responses and undeclared routes remain unchanged |
+| `.ai/specs/AGENTS.md` | One capability with complete risks/tests/compliance | Compliant | backend service is independently deployable; risk and validation evidence are enumerated |
+| UI/design-system guides | UI rules | N/A | no UI-rendering file or client boundary changes |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data models match API contracts | Pass | canonical string types match the summary envelope and exact empty semantics |
+| API contracts match UI/UX section | N/A | UI is intentionally delegated to linked consumer specs |
+| Risks cover all operations | Pass | correctness, precision, scope, capacity, capability, and selector risks are covered |
+| Commands defined for all mutations | N/A | summary execution is read-only |
+| Cache strategy covers read APIs | Pass | no cache in the first release; hard timeout/caps bound cold execution |
+| Linked specs conflict with this contract | Pass | footer, Orders, and controls consume the additive service without changing it |
+
+### Non-Compliant Items
+
+None.
+
+### Verdict
+
+**Fully compliant: approved and ready for implementation.**
 
 ## Changelog
 
@@ -314,3 +369,13 @@ Not applicable: this specification changes no `.tsx`, `packages/ui`, component, 
 | 2026-07-24 | Initial combined footer, aggregate, and control proposal. |
 | 2026-07-28 | Added join deduplication, grouping, compatibility, and stale-response considerations. |
 | 2026-08-01 | Addressed review by isolating the generic backend service; added a fail-closed optional engine method, Basic/Hybrid parity, exact strings, route-owned selectors, OpenAPI/error contracts, hard limits, database timeout, measurable performance gates, and complete compatibility coverage. Footer presentation, Orders adoption, and persisted controls moved to linked specs. |
+
+### Review — 2026-08-01
+
+- **Reviewer**: Codex fresh-context review
+- **Security**: Passed
+- **Performance**: Passed with mandatory consumer-specific EXPLAIN/index evidence
+- **Cache**: Passed; intentionally deferred with no-cache behavior explicit
+- **Commands**: N/A; read-only capability
+- **Risks**: Passed
+- **Verdict**: Approved
