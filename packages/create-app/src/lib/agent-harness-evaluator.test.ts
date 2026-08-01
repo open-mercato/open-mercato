@@ -77,6 +77,7 @@ type StoredReviewResult = {
 // The evaluator's own initial-context rule, mirrored so budget assertions measure what it measures.
 function isInitialContextPath(relative: string): boolean {
   return !relative.includes('/references/')
+    && !relative.startsWith('.ai/framework-context/')
     && !relative.startsWith('.ai/guides/modules/')
     && !relative.startsWith('.ai/guides/upstream/')
     && !relative.startsWith('.agents/skills/')
@@ -496,6 +497,35 @@ test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4
     assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${cases[2].id}:.*exceeds maxInitialContextBytes`))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the evaluator, the mirrored helper, and the calibration template agree on initial-context exclusions (#4565)', () => {
+  const evaluatorSource = fs.readFileSync(sourceEvaluator, 'utf8')
+  const productionRule = /function isInitialContextPath\(relative\) \{\n([\s\S]*?)\n\}/.exec(evaluatorSource)
+  assert.ok(productionRule, 'the evaluator must still declare isInitialContextPath for this mirror to track')
+  const body = productionRule[1]
+  const prefixes = [...body.matchAll(/!relative\.startsWith\('([^']+)'\)/g)].map((match) => match[1])
+  const substrings = [...body.matchAll(/!relative\.includes\('([^']+)'\)/g)].map((match) => match[1])
+  assert.ok(prefixes.includes('.ai/framework-context/'), 'materialized framework context stays outside the initial budgets')
+  assert.equal(
+    prefixes.length + substrings.length,
+    (body.match(/!relative\./g) ?? []).length,
+    'every production exclusion must be expressed as a startsWith or includes clause this mirror can read',
+  )
+
+  const template = fs.readFileSync(
+    path.join(sharedRoot, 'ai', 'skills', 'om-evolve-harness', 'references', 'case-template.md'),
+    'utf8',
+  )
+  assert.equal(isInitialContextPath('AGENTS.md'), true, 'an ordinary root path stays initial context')
+  for (const prefix of prefixes) {
+    assert.equal(isInitialContextPath(`${prefix}sample.md`), false, `the mirrored helper must exclude ${prefix}`)
+    assert.ok(template.includes(`\`${prefix}\``), `the calibration template must list ${prefix}`)
+  }
+  for (const substring of substrings) {
+    assert.equal(isInitialContextPath(`.ai/skills/om-sample${substring}sample.md`), false, `the mirrored helper must exclude ${substring}`)
+    assert.ok(template.includes(`\`${substring}\``), `the calibration template must list ${substring}`)
   }
 })
 

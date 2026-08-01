@@ -97,7 +97,7 @@ Three budgets are case-local: `maxContextFiles`, `maxInitialContextBytes`, `maxT
 (`MAX_REFUSED_CONTEXT_READS = 6`), not per case.
 
 The evaluator counts a path toward the *initial* budgets unless it lives under `/references/`,
-`.ai/guides/modules/`, `.ai/guides/upstream/`, or `.agents/skills/`. So the honest floor for a case is the
+`.ai/framework-context/`, `.ai/guides/modules/`, `.ai/guides/upstream/`, or `.agents/skills/`. So the honest floor for a case is the
 on-disk size of its own `context.required`, restricted to initial paths — a number the catalog never
 checked before this branch.
 
@@ -120,7 +120,13 @@ Widened from the measured footprints, rounded to the 4 KiB grid, smallest change
 |---|---|---|
 | OMH-111 | 10 → 11 | 57 344 → 65 536 |
 | OMH-146 | 4 → 6 | 32 768 → 40 960 |
-| OMH-169 | 11 → 12 | 57 344 → 65 536 |
+| OMH-169 | 11 (unchanged — 10 initial files fit) | 57 344 → 61 440 |
+
+The OMH-169 row records what shipped, not what this audit first proposed. Upstream acted on the finding
+directly, adopting 61 440 B in `296c4eed` ("test(harness): fit audited routing context") on the day this
+audit was written, so the case arrives here already satisfiable and this branch changes only OMH-111 and
+OMH-146. Its file budget never needed widening either: `.ai/guides/modules/customers.md` is non-initial,
+so the case counts ten initial files against a budget of eleven.
 
 `maxTotalContextBytes` was already generous everywhere: the smallest measured total-byte headroom across
 the catalog is 37 985 B, so no total budget was touched.
@@ -142,12 +148,20 @@ its first `generate` — measures them as zero bytes. They never count toward th
 so only the total-byte arm is affected, and it is exact from the moment the sheets are on disk. The
 controller measurements below include them.
 
-Restoring OMH-169's pre-fix byte budget on the controller reproduces:
+Restoring OMH-169's pre-fix byte budget (`maxInitialContextBytes: 57344`) on an emitted controller and
+re-running `--all` reproduces, verbatim:
 
 ```
-FAIL OMH-169: required context exceeds maxInitialContextBytes: 57372/57344; declared context exceeds maxInitialContextBytes: 57372/57344
-Deterministic: 194/195 selected cases passed
+FAIL OMH-169: required context exceeds maxInitialContextBytes: 60548/57344
+Deterministic: 200/201 selected cases passed
 ```
+
+The gate reports one message per budget, not two: `validateCatalog` tests the required set first and only
+falls through to the declared set when the required set fits, so a required-context failure never prints a
+declared-context line for the same budget. OMH-169 declares no `allowedExtra`, so its required and declared
+sets are identical anyway. The 60 548 B is the required-context measurement at the head this PR ships —
+higher than the 57 372 B measured when the budget was first widened, because the routed guides this case
+requires have grown since; the counted case total is 201 because this PR adds nine cases.
 
 ### 2.4 Budgets that are thin but not broken
 
