@@ -59,9 +59,9 @@ Add a reusable LLM-as-judge workflow for standalone generative evaluations and u
 
 ### Phase 2: Exact context and fixed guards
 
-- [ ] 2.1 Extend module-fact extraction and rendering with source-linked routes, backend pages, CLI commands, AI tools/MCP exposures, and AI agents, with focused generator/build tests.
-- [ ] 2.2 Change harness context policy and the MCP read boundary to allow only explicit read-only installed framework source paths, keeping dependency writes and broad discovery blocked.
-- [ ] 2.3 Add controller-owned duplicate normalized API/backend/frontend route checks for every writable generative artifact, with failure-first fixtures.
+- [x] 2.1 Extend module-fact extraction and rendering with source-linked routes, backend pages, CLI commands, AI tools/MCP exposures, and AI agents, with focused generator/build tests. — 1d84e9b06
+- [x] 2.2 Change harness context policy and the MCP read boundary to allow only explicit read-only installed framework source paths, keeping dependency writes and broad discovery blocked. — 1d84e9b06
+- [x] 2.3 Add controller-owned duplicate normalized API/backend/frontend route checks for every writable generative artifact, with failure-first fixtures. — 1d84e9b06
 
 ### Phase 3: Generative judge integration
 
