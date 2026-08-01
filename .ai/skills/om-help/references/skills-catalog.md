@@ -82,6 +82,7 @@ Opt-in: `yarn install-skills --with migration` — install only when needed.
 | Skill | Trigger phrase / When to use | Preceded by | Followed by |
 |-------|------------------------------|-------------|-------------|
 | `om-auto-upgrade-0.4.10-to-0.5.0` | Migrate downstream codebase from Open Mercato 0.4.10 → 0.5.0 | — | — |
+| `om-auto-upgrade-0.6.6-to-0.6.7` | Migrate downstream codebase from Open Mercato 0.6.6 → 0.6.7 | — | — |
 
 ---
 

@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.6 → 0.6.7 (unreleased)
+## 0.6.6 → 0.6.7 (2026-08-01)
 
 ### Query index reindex now fails when a batch loses records
 
