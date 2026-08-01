@@ -107,6 +107,7 @@ import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/share
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { crudFormExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
 import MarkdownField from './inputs/MarkdownField'
 
@@ -816,7 +817,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (injectionSpotId) return injectionSpotId
     if (resolvedEntityIds.length) {
       const normalized = resolvedEntityIds[0].replace(/[:]+/g, '.')
-      return `crud-form:${normalized}`
+      return crudFormExtensionSpotId(normalized)
     }
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
@@ -825,7 +826,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (resolvedEntityIds.length) return ComponentReplacementHandles.crudForm(resolvedEntityIds[0].replace(/[:]+/g, '.'))
     return ComponentReplacementHandles.crudForm('unknown')
   }, [replacementHandle, resolvedEntityIds])
-  const headerInjectionSpotId = resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : undefined
+  const headerInjectionSpotId = resolvedInjectionSpotId
+    ? extensionSpotChildId(resolvedInjectionSpotId, 'header')
+    : undefined
   
   const recordId = React.useMemo(() => {
     const raw = values.id
@@ -1083,7 +1086,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     triggerOnLoad: true,
   })
   const { widgets: injectedFieldWidgets } = useInjectionDataWidgets(
-    resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:fields` : '__disabled__:fields'
+    resolvedInjectionSpotId
+      ? extensionSpotChildId(resolvedInjectionSpotId, 'fields')
+      : '__disabled__:fields'
   )
   
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
