@@ -624,36 +624,36 @@ export const quoteAdjustmentUpdateSchema = z
   })
   .merge(quoteAdjustmentCreateSchema.partial())
 
-// An order's payment ledger is a projection of its recorded payments:
-// `recomputeOrderPaymentTotals` (commands/payments.ts) sums the SalesPayment /
-// SalesPaymentAllocation rows and overwrites these three columns on every
-// payment create, update, delete and refund. A value supplied on the document
-// itself has no payment rows behind it, so the next payment touch silently
-// erases it — the order would report a balance its payment history contradicts.
-// Document commands therefore reject them instead of accepting a second,
-// unreconciled source of truth (#4695). Record payments with
-// `sales.payments.create` / `POST /api/sales/payments`.
 export const ORDER_PAYMENT_LEDGER_FIELDS = [
   'paidTotalAmount',
   'refundedTotalAmount',
   'outstandingAmount',
 ] as const
 
-export const ORDER_PAYMENT_LEDGER_INPUT_MESSAGE =
-  'Order payment totals are derived from recorded payments and cannot be set on the order. Record a payment instead (POST /api/sales/payments).'
+export type OrderPaymentLedgerField = (typeof ORDER_PAYMENT_LEDGER_FIELDS)[number]
 
-// `z.never()` rather than an omitted key: an undeclared key is stripped silently,
-// which is the bug being fixed. Declaring it rejects any supplied value —
-// including 0 and null — with the message above on that field's path, and makes
-// it a compile error for TypeScript callers. `buildDocumentOpenApi` omits these
-// keys so the documented create surface stays accurate.
-const rejectedPaymentLedgerField = () =>
-  z.never({ error: ORDER_PAYMENT_LEDGER_INPUT_MESSAGE }).optional()
+export const ORDER_PAYMENT_LEDGER_WARNING_CODE =
+  'sales.order.payment_ledger_input_deprecated' as const
+
+export type OrderPaymentLedgerWarning = {
+  code: typeof ORDER_PAYMENT_LEDGER_WARNING_CODE
+  fields: OrderPaymentLedgerField[]
+}
+
+export function resolveSuppliedOrderPaymentLedgerFields(value: unknown): OrderPaymentLedgerField[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return ORDER_PAYMENT_LEDGER_FIELDS.filter((field) =>
+    Object.prototype.hasOwnProperty.call(value, field),
+  )
+}
 
 const orderPaymentLedgerShape = {
-  paidTotalAmount: rejectedPaymentLedgerField(),
-  refundedTotalAmount: rejectedPaymentLedgerField(),
-  outstandingAmount: rejectedPaymentLedgerField(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount: decimal().optional(),
 }
 
 const orderTotalsSchema = z.object({
@@ -1076,8 +1076,23 @@ export type PaymentMethodCreateInput = z.infer<typeof paymentMethodCreateSchema>
 export type PaymentMethodUpdateInput = z.infer<typeof paymentMethodUpdateSchema>
 export type TaxRateCreateInput = z.infer<typeof taxRateCreateSchema>
 export type TaxRateUpdateInput = z.infer<typeof taxRateUpdateSchema>
-export type OrderCreateInput = z.infer<typeof orderCreateSchema>
-export type OrderUpdateInput = z.infer<typeof orderUpdateSchema>
+export type DeprecatedOrderPaymentLedgerInput = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount?: number
+}
+
+export type OrderCreateInput = Omit<
+  z.infer<typeof orderCreateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
+export type OrderUpdateInput = Omit<
+  z.infer<typeof orderUpdateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
 export type OrderLineCreateInput = z.infer<typeof orderLineCreateSchema>
 export type OrderLineUpdateInput = z.infer<typeof orderLineUpdateSchema>
 export type OrderAdjustmentCreateInput = z.infer<typeof orderAdjustmentCreateSchema>

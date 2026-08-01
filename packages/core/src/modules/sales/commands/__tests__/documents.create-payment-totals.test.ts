@@ -1,24 +1,14 @@
 /** @jest-environment node */
 
-// Regression coverage for #4695: `orderCreateSchema` accepted `paidTotalAmount`,
-// `refundedTotalAmount` and `outstandingAmount`, and `sales.orders.create` then
-// hardcoded the ledger to "0" and recomputed totals from those zeros — the
-// caller's values vanished with no error, warning or log.
-//
-// They are not a create-time input at all: `recomputeOrderPaymentTotals`
-// (commands/payments.ts) rebuilds these three columns from the SalesPayment /
-// SalesPaymentAllocation rows on every payment write, so a value seeded on the
-// document has no payment history behind it and is erased by the next payment
-// touch. The create surface therefore rejects them, and an order starts unpaid
-// until a payment is recorded.
-
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import {
   ORDER_PAYMENT_LEDGER_FIELDS,
-  ORDER_PAYMENT_LEDGER_INPUT_MESSAGE,
+  ORDER_PAYMENT_LEDGER_WARNING_CODE,
   orderCreateSchema,
+  resolveSuppliedOrderPaymentLedgerFields,
+  type OrderPaymentLedgerWarning,
 } from '../../data/validators'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 
@@ -34,6 +24,26 @@ jest.mock('#generated/entities.ids.generated', () => ({
     },
   },
 }))
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const warn = jest.fn()
+  const logger = {
+    debug: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warn,
+    child: jest.fn(),
+  }
+  logger.child.mockReturnValue(logger)
+  return {
+    mockLoggerWarn: warn,
+    createLogger: () => logger,
+  }
+})
+
+const { mockLoggerWarn } = jest.requireMock('@open-mercato/shared/lib/logger') as {
+  mockLoggerWarn: jest.Mock
+}
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -58,8 +68,6 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   emitCrudSideEffects: jest.fn(async () => undefined),
 }))
 
-// The order-created notification fan-out needs a real database; it is non-critical
-// to the create command and irrelevant to the totals under test.
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
   resolveNotificationService: () => ({ createForFeature: jest.fn(async () => undefined) }),
 }))
@@ -67,7 +75,10 @@ jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', ()
 const TEST_TENANT_ID = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
 const TEST_ORG_ID = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'
 
-type OrderCreateResult = { orderId: string }
+type OrderCreateResult = {
+  orderId: string
+  warnings?: OrderPaymentLedgerWarning[]
+}
 
 function num(value: unknown): number {
   return Number(value ?? 0)
@@ -76,7 +87,8 @@ function num(value: unknown): number {
 function buildHarness() {
   const createdOrders: Record<string, unknown>[] = []
   const generatedNumbers: string[] = []
-  const em: Record<string, any> = {
+  let em: Record<string, unknown>
+  em = {
     fork: () => em,
     create: (_entity: unknown, data: Record<string, unknown>) => ({ ...data }),
     persist: (entity: Record<string, unknown>) => {
@@ -122,7 +134,6 @@ function buildHarness() {
   return { createdOrders, generatedNumbers, ctx }
 }
 
-// One 100.00 gross line; net equals gross so the grand total is exactly 100.00.
 function buildInput(extra: Record<string, unknown> = {}) {
   return {
     organizationId: TEST_ORG_ID,
@@ -144,38 +155,34 @@ function buildInput(extra: Record<string, unknown> = {}) {
   }
 }
 
-describe('orderCreateSchema — rejects payment ledger input (#4695)', () => {
-  it.each(ORDER_PAYMENT_LEDGER_FIELDS)('rejects %s with an actionable message', (field) => {
+describe('orderCreateSchema — deprecated payment ledger input (#4695)', () => {
+  it.each(ORDER_PAYMENT_LEDGER_FIELDS)('accepts the released %s input', (field) => {
     const result = orderCreateSchema.safeParse(buildInput({ [field]: 100 }))
 
-    expect(result.success).toBe(false)
-    const issue = result.error?.issues.find((entry) => entry.path.join('.') === field)
-    expect(issue?.message).toBe(ORDER_PAYMENT_LEDGER_INPUT_MESSAGE)
+    expect(result.success).toBe(true)
+    expect(result.data?.[field]).toBe(100)
   })
 
-  it('rejects a zero ledger value too — the field is not part of the create surface', () => {
-    const result = orderCreateSchema.safeParse(buildInput({ paidTotalAmount: 0 }))
+  it('accepts zero values and reports supplied fields in canonical order', () => {
+    const input = buildInput({ outstandingAmount: 0, paidTotalAmount: 0, refundedTotalAmount: 0 })
 
-    expect(result.success).toBe(false)
+    expect(orderCreateSchema.safeParse(input).success).toBe(true)
+    expect(resolveSuppliedOrderPaymentLedgerFields(input)).toEqual(ORDER_PAYMENT_LEDGER_FIELDS)
   })
 
-  it('reports every supplied ledger field at once', () => {
-    const result = orderCreateSchema.safeParse(
-      buildInput({ paidTotalAmount: 100, refundedTotalAmount: 25, outstandingAmount: 0 }),
-    )
+  it('does not treat inherited ledger properties as supplied input', () => {
+    const input = Object.create({ paidTotalAmount: 100 }) as Record<string, unknown>
+    Object.assign(input, buildInput())
 
-    expect(result.success).toBe(false)
-    expect(result.error?.issues.map((issue) => issue.path.join('.')).sort()).toEqual(
-      [...ORDER_PAYMENT_LEDGER_FIELDS].sort(),
-    )
+    expect(resolveSuppliedOrderPaymentLedgerFields(input)).toEqual([])
   })
 
-  it('accepts a payload that leaves the ledger to the payments module', () => {
+  it('accepts a payload that omits the deprecated ledger fields', () => {
     expect(orderCreateSchema.safeParse(buildInput()).success).toBe(true)
   })
 })
 
-describe('sales.orders.create — payment ledger (#4695)', () => {
+describe('sales.orders.create — deprecated payment ledger input (#4695)', () => {
   beforeAll(async () => {
     commandRegistry.clear?.()
     await import('../documents')
@@ -187,24 +194,45 @@ describe('sales.orders.create — payment ledger (#4695)', () => {
     return handler!
   }
 
-  it('rejects a supplied paidTotalAmount instead of discarding it', async () => {
-    const { createdOrders, generatedNumbers, ctx } = buildHarness()
+  it('ignores supplied totals, returns a stable warning, and logs once per process', async () => {
+    const first = buildHarness()
+    const second = buildHarness()
 
-    await expect(
-      getHandler().execute(buildInput({ paidTotalAmount: 100, outstandingAmount: 0 }) as never, ctx),
-    ).rejects.toThrow(ORDER_PAYMENT_LEDGER_INPUT_MESSAGE)
+    const firstResult = await getHandler().execute(
+      buildInput({ outstandingAmount: 0, paidTotalAmount: 100 }) as never,
+      first.ctx,
+    )
+    await getHandler().execute(buildInput({ refundedTotalAmount: 25 }) as never, second.ctx)
 
-    // Validation runs before the document number is drawn, so a rejected create
-    // burns neither an order number nor a persisted row.
-    expect(createdOrders).toHaveLength(0)
-    expect(generatedNumbers).toHaveLength(0)
+    expect(firstResult.warnings).toEqual([
+      {
+        code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+        fields: ['paidTotalAmount', 'outstandingAmount'],
+      },
+    ])
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'sales.orders.create ignored deprecated payment ledger input',
+      {
+        code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+        fields: ['paidTotalAmount', 'outstandingAmount'],
+      },
+    )
+    expect(first.generatedNumbers).toHaveLength(1)
+    expect(first.createdOrders).toHaveLength(1)
+    const order = first.createdOrders[0]
+    expect(num(order.grandTotalGrossAmount)).toBeCloseTo(100, 4)
+    expect(num(order.paidTotalAmount)).toBeCloseTo(0, 4)
+    expect(num(order.refundedTotalAmount)).toBeCloseTo(0, 4)
+    expect(num(order.outstandingAmount)).toBeCloseTo(100, 4)
   })
 
-  it('creates an unpaid order whose outstanding balance is the full grand total', async () => {
+  it('keeps the historical clean create result and unpaid ledger', async () => {
     const { createdOrders, ctx } = buildHarness()
 
-    await getHandler().execute(buildInput() as never, ctx)
+    const result = await getHandler().execute(buildInput() as never, ctx)
 
+    expect(result).toEqual({ orderId: expect.any(String) })
     expect(createdOrders).toHaveLength(1)
     const order = createdOrders[0]
     expect(num(order.grandTotalGrossAmount)).toBeCloseTo(100, 4)
