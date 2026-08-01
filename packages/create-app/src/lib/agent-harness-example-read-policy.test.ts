@@ -27,6 +27,12 @@ type PolicyModule = {
       maxFiles: number
       maxBytes: number
     }>
+    installedVersionFallback?: {
+      allowed: true
+      reasonCodes: string[]
+      maxFiles: number
+      maxBytes: number
+    }
   } | null
   validateCumulativeExampleBudget: (
     usage: { fileCount: number; totalBytes: number },
@@ -147,6 +153,7 @@ test('canonical surface inventory builds exact server policy without widening th
         maxFiles: 12,
         maxBytes: 131_072,
       }],
+      installedVersionFallback: fixture.context.installedVersionFallback,
     })
     assert.equal(loaded?.exampleRoots[0]?.capabilities.some((entry) => entry.path === `${fixture.root}/unrelated.ts`), false)
     assert.equal(policy.loadExampleReadPolicy(fixture.caseRoot, { required: ['AGENTS.md'], forbidden: [] }), null)

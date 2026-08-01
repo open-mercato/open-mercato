@@ -57,6 +57,16 @@
             }
           }
         },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "files", "bytes"],
+          "properties": {
+            "reason": { "type": ["string", "null"], "maxLength": 100 },
+            "files": { "type": "integer", "minimum": 0 },
+            "bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
         "firstViolation": { "type": ["string", "null"], "maxLength": 300 }
       }
     },

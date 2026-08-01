@@ -23,7 +23,7 @@ Issue: #4729
 | 1 | 1.4 | Add synchronization fixtures and machine-enforced asset/count/hash checks | dispatch:capable | done | bad3b8bd2 |
 | 2 | 2.1 | Add failing example-root schema, path-security, and compatibility fixtures | dispatch:capable | done | self:step-2.1 |
 | 2 | 2.2 | Implement capability-scoped example-root matching and cumulative budgets | dispatch:capable | done | self:step-2.2 |
-| 2 | 2.3 | Add and implement ordered installed-version fallback with redacted traces | dispatch:capable | todo | — |
+| 2 | 2.3 | Add and implement ordered installed-version fallback with redacted traces | dispatch:capable | done | self:step-2.3 |
 | 3 | 3.1 | Add failure-first spec-first routing, emission, link, and budget tests | dispatch:standard | todo | — |
 | 3 | 3.2 | Add the emitted spec-first instruction and planning-skill decision route | dispatch:standard | todo | — |
 | 3 | 3.3 | Synchronize spec-first harness cases, validators, lanes, counts, and docs | dispatch:capable | todo | — |

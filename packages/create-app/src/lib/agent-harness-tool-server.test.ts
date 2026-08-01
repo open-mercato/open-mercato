@@ -213,6 +213,115 @@ test('the MCP allows exact fact-linked installed source reads but not dependency
   }
 })
 
+test('installed-version fallback is reason-gated after local inspection with an independent finite budget', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-fallback-')))
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-fallback-outside-')))
+  const exampleRoot = 'src/modules/reference_module'
+  const installedRoot = 'node_modules/@open-mercato/core/src'
+  const reason = 'LOCAL_EXAMPLE_MISSING_VERSIONED_CONTRACT'
+  const contents = new Map([
+    [`${exampleRoot}/README.md`, '# Local reference without versioned contract\n'],
+    [`${exampleRoot}/api/route.ts`, 'export const localRoute = true\n'],
+    [`${installedRoot}/api.ts`, 'export const installedApi = true\n'],
+    [`${installedRoot}/data.ts`, 'export const installedData = true\n'],
+    [`${installedRoot}/ui.tsx`, 'export const installedUi = true\n'],
+    [`${installedRoot}/.cache/cached.ts`, 'export const cachedSecret = true\n'],
+    [`${installedRoot}/secret-config.ts`, 'export const sensitiveMarker = true\n'],
+  ])
+  for (const [relative, content] of contents) {
+    const destination = path.join(root, relative)
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    fs.writeFileSync(destination, content)
+  }
+  fs.mkdirSync(path.join(root, 'node_modules', 'generic-package'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'node_modules', 'generic-package', 'index.ts'), 'export const genericMarker = true\n')
+  const outsideFile = path.join(outside, 'outside.ts')
+  fs.writeFileSync(outsideFile, 'export const outsideMarker = true\n')
+  fs.symlinkSync(outsideFile, path.join(root, installedRoot, 'escape.ts'))
+  const policy = {
+    version: 1,
+    exampleRoots: [{
+      root: exampleRoot,
+      entrypoints: [`${exampleRoot}/README.md`],
+      capabilities: [{ capabilityId: 'api.crud-factory', path: `${exampleRoot}/api/route.ts` }],
+      maxFiles: 1,
+      maxBytes: 1_024,
+    }],
+    installedVersionFallback: {
+      allowed: true,
+      reasonCodes: [reason],
+      maxFiles: 2,
+      maxBytes: 1_024,
+    },
+  }
+  const allowedReads = [`${exampleRoot}/README.md`, `${exampleRoot}/api/route.ts`, `${installedRoot}/**`]
+  try {
+    const positive = call(root, 'read-only', allowedReads, [], [
+      { name: 'read', arguments: { path: `${exampleRoot}/README.md` } },
+      { name: 'read', arguments: { path: `${installedRoot}/api.ts`, fallbackReason: reason } },
+      { name: 'read', arguments: { path: `${installedRoot}/data.ts` } },
+    ], policy)
+    assert.equal(positive[2].result.isError, undefined)
+    assert.equal(positive[3].result.isError, undefined)
+    assert.equal(positive[4].result.isError, undefined)
+    assert.match(positive[3].result.content[0].text, /installedApi/)
+    assert.match(positive[4].result.content[0].text, /installedData/)
+
+    const beforeEntrypoint = call(root, 'read-only', allowedReads, [], [
+      { name: 'read', arguments: { path: `${installedRoot}/api.ts`, fallbackReason: reason } },
+    ], policy)
+    assert.match(beforeEntrypoint[2].result.content[0].text, /local example entrypoint before installed-version fallback/)
+
+    const missingReason = call(root, 'read-only', allowedReads, [], [
+      { name: 'read', arguments: { path: `${exampleRoot}/README.md` } },
+      { name: 'read', arguments: { path: `${installedRoot}/api.ts` } },
+    ], policy)
+    assert.match(missingReason[3].result.content[0].text, /requires an allowed reason code/)
+
+    const unknownReason = call(root, 'read-only', allowedReads, [], [
+      { name: 'read', arguments: { path: `${exampleRoot}/README.md` } },
+      { name: 'read', arguments: { path: `${installedRoot}/api.ts`, fallbackReason: 'UNKNOWN_REASON' } },
+    ], policy)
+    assert.match(unknownReason[3].result.content[0].text, /reason is not allowed/)
+
+    const fileOverflow = call(root, 'read-only', allowedReads, [], [
+      { name: 'read', arguments: { path: `${exampleRoot}/README.md` } },
+      { name: 'read', arguments: { path: `${installedRoot}/api.ts`, fallbackReason: reason } },
+      { name: 'read', arguments: { path: `${installedRoot}/data.ts` } },
+      { name: 'read', arguments: { path: `${installedRoot}/ui.tsx` } },
+    ], policy)
+    assert.match(fileOverflow[5].result.content[0].text, /fallback file budget exceeded: 3\/2/)
+    assert.doesNotMatch(JSON.stringify(fileOverflow[5]), /installedUi/)
+
+    const apiBytes = Buffer.byteLength(contents.get(`${installedRoot}/api.ts`) ?? '')
+    const bytePolicy = {
+      ...policy,
+      installedVersionFallback: { ...policy.installedVersionFallback, maxBytes: apiBytes },
+    }
+    const byteOverflow = call(root, 'read-only', allowedReads, [], [
+      { name: 'read', arguments: { path: `${exampleRoot}/README.md` } },
+      { name: 'read', arguments: { path: `${installedRoot}/api.ts`, fallbackReason: reason } },
+      { name: 'read', arguments: { path: `${installedRoot}/data.ts` } },
+    ], bytePolicy)
+    assert.match(byteOverflow[4].result.content[0].text, /fallback byte budget exceeded/)
+    assert.doesNotMatch(JSON.stringify(byteOverflow[4]), /installedData/)
+
+    const protectedPaths = call(root, 'read-only', allowedReads, [], [
+      { name: 'read', arguments: { path: `${exampleRoot}/README.md` } },
+      { name: 'read', arguments: { path: installedRoot, fallbackReason: reason } },
+      { name: 'read', arguments: { path: `${installedRoot}/escape.ts`, fallbackReason: reason } },
+      { name: 'read', arguments: { path: `${installedRoot}/.cache/cached.ts`, fallbackReason: reason } },
+      { name: 'read', arguments: { path: `${installedRoot}/secret-config.ts`, fallbackReason: reason } },
+      { name: 'read', arguments: { path: 'node_modules/generic-package/index.ts', fallbackReason: reason } },
+    ], policy)
+    for (const reply of protectedPaths.slice(3)) assert.equal(reply.result.isError, true)
+    assert.doesNotMatch(JSON.stringify(protectedPaths), /outsideMarker|cachedSecret|sensitiveMarker|genericMarker/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
 test('the writable MCP tool atomically changes only declared contained regular files', () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-write-')))
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-write-outside-')))

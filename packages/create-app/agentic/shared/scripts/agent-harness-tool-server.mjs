@@ -3,7 +3,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { normalizeExampleReadPath } from './example-read-policy.mjs'
+import {
+  EXAMPLE_READ_POLICY_LIMITS,
+  INSTALLED_VERSION_FALLBACK_REASONS,
+  normalizeExampleReadPath,
+} from './example-read-policy.mjs'
 
 const MAX_READ_BYTES = 256 * 1024
 const MAX_WRITE_BYTES = 256 * 1024
@@ -11,7 +15,10 @@ const SAFE_TEXT_EXTENSIONS = new Set([
   '.cjs', '.css', '.graphql', '.html', '.js', '.json', '.jsx', '.md', '.mdx',
   '.mjs', '.prisma', '.sql', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml',
 ])
-const FORBIDDEN_SEGMENTS = new Set(['.git', '.docker', '.kube', '.aws', '.ssh', '.codex', '.claude', '.next', 'dist'])
+const FORBIDDEN_SEGMENTS = new Set([
+  '.git', '.docker', '.kube', '.aws', '.ssh', '.codex', '.claude', '.next',
+  '.cache', '.mercato', '.turbo', 'build', 'coverage', 'dist', 'generated', 'test-results',
+])
 const FORBIDDEN_BASENAMES = new Set([
   '.npmrc', '.netrc', '.pypirc', '.git-credentials', 'secrets.json', 'credentials.json',
   'service-account-credentials.json',
@@ -47,6 +54,7 @@ function safeRelative(value, { allowInstalledSourcePatterns = false } = {}) {
   if ((installedSource ? segments.slice(4) : segments).some((entry) => FORBIDDEN_SEGMENTS.has(entry))) return false
   if (normalized === '.ai/harness' || normalized.startsWith('.ai/harness/')) return false
   if (basename === '.env' || basename.startsWith('.env.') || FORBIDDEN_BASENAMES.has(basename)) return false
+  if (/(?:^|[._-])(?:credential|credentials|secret|secrets)(?:[._-]|$)/.test(basename)) return false
   return !FORBIDDEN_SECRET_EXTENSIONS.has(path.extname(basename).toLowerCase())
 }
 
@@ -117,6 +125,21 @@ function prepareExampleReadPolicy(policy) {
 }
 
 const exampleRoots = prepareExampleReadPolicy(exampleReadPolicy)
+const fallbackPolicy = exampleReadPolicy?.installedVersionFallback ?? null
+if (fallbackPolicy && (fallbackPolicy.allowed !== true
+  || !Array.isArray(fallbackPolicy.reasonCodes) || fallbackPolicy.reasonCodes.length === 0
+  || new Set(fallbackPolicy.reasonCodes).size !== fallbackPolicy.reasonCodes.length
+  || fallbackPolicy.reasonCodes.some((reason) => typeof reason !== 'string')
+  || fallbackPolicy.reasonCodes.some((reason) => !INSTALLED_VERSION_FALLBACK_REASONS.includes(reason))
+  || !Number.isInteger(fallbackPolicy.maxFiles) || fallbackPolicy.maxFiles < 1 || fallbackPolicy.maxFiles > EXAMPLE_READ_POLICY_LIMITS.fallbackMaxFiles
+  || !Number.isInteger(fallbackPolicy.maxBytes) || fallbackPolicy.maxBytes < 1 || fallbackPolicy.maxBytes > EXAMPLE_READ_POLICY_LIMITS.fallbackMaxBytes)) {
+  fail('installed-version fallback policy has an invalid shape')
+}
+const fallbackState = fallbackPolicy ? {
+  reason: null,
+  distinctPaths: new Set(),
+  totalBytes: 0,
+} : null
 
 function authorizeExampleRead(normalized, stat) {
   const exampleRoot = exampleRoots.find((entry) => normalized.startsWith(`${entry.root}/`))
@@ -141,7 +164,39 @@ function authorizeExampleRead(normalized, stat) {
   }
 }
 
-function resolveRead(relative) {
+function authorizeInstalledFallback(normalized, stat, fallbackReason) {
+  if (!fallbackPolicy || !fallbackState) {
+    if (fallbackReason !== undefined) throw new Error('installed-version fallback is not allowed for this case')
+    return () => {}
+  }
+  if (!isInstalledSourcePath(normalized, false)) {
+    if (fallbackReason !== undefined) throw new Error('installed-version fallback reason is valid only for protected package source reads')
+    return () => {}
+  }
+  if (!exampleRoots.some((entry) => entry.entrypointRead)) throw new Error('inspect a declared local example entrypoint before installed-version fallback')
+  if (fallbackState.reason === null) {
+    if (typeof fallbackReason !== 'string') throw new Error('the first installed-version fallback read requires an allowed reason code')
+    if (!fallbackPolicy.reasonCodes.includes(fallbackReason)) throw new Error(`installed-version fallback reason is not allowed: ${fallbackReason}`)
+  } else if (fallbackReason !== undefined && fallbackReason !== fallbackState.reason) {
+    throw new Error(`installed-version fallback reason does not match the active reason: ${fallbackReason}`)
+  }
+  let nextBytes = fallbackState.totalBytes
+  if (!fallbackState.distinctPaths.has(normalized)) {
+    const nextFiles = fallbackState.distinctPaths.size + 1
+    nextBytes += stat.size
+    if (nextFiles > fallbackPolicy.maxFiles) throw new Error(`cumulative installed-version fallback file budget exceeded: ${nextFiles}/${fallbackPolicy.maxFiles}`)
+    if (nextBytes > fallbackPolicy.maxBytes) throw new Error(`cumulative installed-version fallback byte budget exceeded: ${nextBytes}/${fallbackPolicy.maxBytes}`)
+  }
+  return () => {
+    if (fallbackState.reason === null) fallbackState.reason = fallbackReason
+    if (!fallbackState.distinctPaths.has(normalized)) {
+      fallbackState.distinctPaths.add(normalized)
+      fallbackState.totalBytes = nextBytes
+    }
+  }
+}
+
+function resolveRead(relative, fallbackReason) {
   if (!safeRelative(relative)) throw new Error('path is outside the allowed app context')
   const normalized = relative.replaceAll('\\', '/')
   if (!readMatchers.some((matcher) => matcher.test(normalized))) throw new Error('path is outside the case read allowlist')
@@ -156,7 +211,8 @@ function resolveRead(relative) {
   if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('path must be a bounded regular file')
   if (!SAFE_TEXT_EXTENSIONS.has(path.extname(real).toLowerCase()) && path.basename(real) !== 'AGENTS.md') throw new Error('path is not an allowed text file')
   const commitExampleRead = authorizeExampleRead(normalized, stat)
-  return { real, stat, commitExampleRead }
+  const commitInstalledFallback = authorizeInstalledFallback(normalized, stat, fallbackReason)
+  return { real, stat, commitExampleRead, commitInstalledFallback }
 }
 
 function resolveWrite(relative) {
@@ -184,7 +240,15 @@ const tools = [
   {
     name: 'read',
     description: 'Read one exact app-relative instruction, fact, source, or allowed target file. Fact-linked @open-mercato package source reads are allowed; absolute paths, discovery, credentials, dependency writes, Git, and harness internals are rejected.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' } } },
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['path'],
+      properties: {
+        path: { type: 'string' },
+        ...(fallbackPolicy ? { fallbackReason: { type: 'string' } } : {}),
+      },
+    },
   },
   ...(mode === 'writable' ? [{
     name: 'write',
@@ -218,9 +282,10 @@ function handle(message) {
     const name = message.params?.name
     const input = message.params?.arguments ?? {}
     if (name === 'read') {
-      const { real, commitExampleRead } = resolveRead(input.path)
+      const { real, commitExampleRead, commitInstalledFallback } = resolveRead(input.path, input.fallbackReason)
       const content = fs.readFileSync(real, 'utf8')
       commitExampleRead()
+      commitInstalledFallback()
       toolResult(message.id, content)
       return
     }

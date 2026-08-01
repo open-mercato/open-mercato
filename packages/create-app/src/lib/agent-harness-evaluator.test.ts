@@ -59,6 +59,7 @@ type StoredResult = {
     orderedPaths: string[]
     matches: Array<{ path: string; root: string; capabilityId: string | null }>
     cumulative: Array<{ root: string; files: number; bytes: number }>
+    fallback?: { reason: string | null; files: number; bytes: number }
     firstViolation: string | null
   }
 }
@@ -960,6 +961,17 @@ test('live routing stores ordered capability-scoped example evidence outside sel
     fs.mkdirSync(path.dirname(destination), { recursive: true })
     fs.writeFileSync(destination, content)
   }
+  const fallbackReason = 'LOCAL_EXAMPLE_MISSING_VERSIONED_CONTRACT'
+  const installedRoot = 'node_modules/@open-mercato/core/src'
+  const fallbackFiles = new Map([
+    [`${installedRoot}/api/factory.ts`, 'export const installedFactory = true\n'],
+    [`${installedRoot}/data/entity.ts`, 'export const installedEntity = true\n'],
+  ])
+  for (const [relative, content] of fallbackFiles) {
+    const destination = path.join(root, relative)
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    fs.writeFileSync(destination, content)
+  }
   const inventory = [
     { capabilityId: 'api.crud-factory', paths: [`${referenceRoot}/api/route.ts`] },
     { capabilityId: 'data.entity', paths: [`${referenceRoot}/data/entity.ts`] },
@@ -976,11 +988,17 @@ test('live routing stores ordered capability-scoped example evidence outside sel
         maxFiles: number
         maxBytes: number
       }>
+      installedVersionFallback?: {
+        allowed: true
+        reasonCodes: string[]
+        maxFiles: number
+        maxBytes: number
+      }
     }
   }>
   const firstCase = cases.find((entry) => entry.id === 'OMH-001')
   assert.ok(firstCase)
-  firstCase.context.allowedExtra = [`${referenceRoot}/**`]
+  firstCase.context.allowedExtra = [`${referenceRoot}/**`, ...fallbackFiles.keys()]
   firstCase.context.exampleRoots = [{
     root: referenceRoot,
     entrypoints: ['README.md', 'references/surface-map.md'],
@@ -988,6 +1006,12 @@ test('live routing stores ordered capability-scoped example evidence outside sel
     maxFiles: 5,
     maxBytes: 4_096,
   }]
+  firstCase.context.installedVersionFallback = {
+    allowed: true,
+    reasonCodes: [fallbackReason],
+    maxFiles: 2,
+    maxBytes: 1_024,
+  }
   fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
   const orderedExamples = [
     `${referenceRoot}/README.md`,
@@ -996,20 +1020,24 @@ test('live routing stores ordered capability-scoped example evidence outside sel
     `${referenceRoot}/data/entity.ts`,
     `${referenceRoot}/backend/page.tsx`,
   ]
+  const orderedReads = [...orderedExamples, ...fallbackFiles.keys()]
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('read one of its exact entrypoints before any capability file')
-  || !prompt.includes('Example reads are evidence and must not appear in selectedContext')) process.exit(10)
+  || !prompt.includes('first installed-package source read must call harness.read with both path and fallbackReason')
+  || !prompt.includes(${JSON.stringify(fallbackReason)})
+  || !prompt.includes('Installed fallback reads are evidence and must not appear in selectedContext')) process.exit(10)
 const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
 const allowedReads = JSON.parse(mcpArgs.at(-3))
 const allowedWrites = JSON.parse(mcpArgs.at(-2))
 const examplePolicy = JSON.parse(mcpArgs.at(-1))
 if (allowedWrites.length !== 0 || allowedReads.includes(${JSON.stringify(`${referenceRoot}/**`)})
-  || !${JSON.stringify(orderedExamples)}.every((entry) => allowedReads.includes(entry))
-  || examplePolicy.exampleRoots[0].capabilities.length !== 3) process.exit(11)
+  || !${JSON.stringify(orderedReads)}.every((entry) => allowedReads.includes(entry))
+  || examplePolicy.exampleRoots[0].capabilities.length !== 3
+  || examplePolicy.installedVersionFallback.reasonCodes[0] !== ${JSON.stringify(fallbackReason)}) process.exit(11)
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture'], selectedSkills: [],
   selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
@@ -1018,6 +1046,12 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
 for (const file of ['AGENTS.md', '.ai/guides/architecture.md', ...${JSON.stringify(orderedExamples)}]) console.log(JSON.stringify({
   type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' }
 }))
+;${JSON.stringify([...fallbackFiles.keys()])}.forEach((file, index) => console.log(JSON.stringify({
+  type: 'item.completed', item: {
+    type: 'mcp_tool_call', server: 'harness', tool: 'read',
+    arguments: { path: file, ...(index === 0 ? { fallbackReason: ${JSON.stringify(fallbackReason)} } : {}) }, status: 'completed'
+  }
+})))
 `)
   try {
     const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
@@ -1028,20 +1062,173 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md', ...${JSON.stringi
     const stored = storedResults(root)[0]
     assert.deepEqual(stored.selectedContext, ['AGENTS.md', '.ai/guides/architecture.md'])
     assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
-    assert.deepEqual(stored.exampleReads?.orderedPaths, orderedExamples)
-    assert.deepEqual(stored.exampleReads?.matches, orderedExamples.map((examplePath, index) => ({
-      path: examplePath,
-      root: referenceRoot,
-      capabilityId: index < 2 ? null : inventory[index - 2].capabilityId,
-    })))
+    assert.deepEqual(stored.exampleReads?.orderedPaths, orderedReads)
+    assert.deepEqual(stored.exampleReads?.matches, [
+      ...orderedExamples.map((examplePath, index) => ({
+        path: examplePath,
+        root: referenceRoot,
+        capabilityId: index < 2 ? null : inventory[index - 2].capabilityId,
+      })),
+      ...[...fallbackFiles.keys()].map((fallbackPath) => ({
+        path: fallbackPath,
+        root: installedRoot,
+        capabilityId: null,
+      })),
+    ])
     assert.deepEqual(stored.exampleReads?.cumulative, [{
       root: referenceRoot,
       files: 5,
       bytes: [...exampleFiles.values()].reduce((total, content) => total + Buffer.byteLength(content), 0),
     }])
+    assert.deepEqual(stored.exampleReads?.fallback, {
+      reason: fallbackReason,
+      files: 2,
+      bytes: [...fallbackFiles.values()].reduce((total, content) => total + Buffer.byteLength(content), 0),
+    })
     assert.equal(stored.exampleReads?.firstViolation, null)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live routing records the first ordered installed-fallback violation without adding fallback context', { skip: !targetSandboxAvailable }, () => {
+  const reason = 'LOCAL_EXAMPLE_MISSING_VERSIONED_CONTRACT'
+  const referenceRoot = 'src/modules/reference_module'
+  const installedRoot = 'node_modules/@open-mercato/core/src'
+  const localEntrypoint = `${referenceRoot}/README.md`
+  const installedApi = `${installedRoot}/api.ts`
+  const installedData = `${installedRoot}/data.ts`
+  const scenarios = [
+    {
+      name: 'before-entrypoint',
+      calls: [
+        { path: installedApi, fallbackReason: reason, status: 'failed' },
+        { path: localEntrypoint, status: 'completed' },
+      ],
+      expected: /fallback read before declared local entrypoint/,
+      maxFiles: 2,
+    },
+    {
+      name: 'missing-reason',
+      calls: [
+        { path: localEntrypoint, status: 'completed' },
+        { path: installedApi, status: 'failed' },
+      ],
+      expected: /missing an allowed reason code/,
+      maxFiles: 2,
+    },
+    {
+      name: 'unknown-reason',
+      calls: [
+        { path: localEntrypoint, status: 'completed' },
+        { path: installedApi, fallbackReason: 'UNKNOWN_REASON', status: 'failed' },
+      ],
+      expected: /reason is not allowed: UNKNOWN_REASON/,
+      maxFiles: 2,
+    },
+    {
+      name: 'file-overflow',
+      calls: [
+        { path: localEntrypoint, status: 'completed' },
+        { path: installedApi, fallbackReason: reason, status: 'completed' },
+        { path: installedData, status: 'failed' },
+      ],
+      expected: /fallback file budget exceeded: 2\/1/,
+      maxFiles: 1,
+    },
+    {
+      name: 'refused-read',
+      calls: [
+        { path: localEntrypoint, status: 'completed' },
+        { path: installedApi, fallbackReason: reason, status: 'failed' },
+      ],
+      expected: /fallback read was refused/,
+      maxFiles: 2,
+    },
+  ]
+  for (const scenario of scenarios) {
+    const root = stageApp()
+    try {
+      for (const [relative, content] of [
+        [localEntrypoint, '# Local entrypoint\n'],
+        [`${referenceRoot}/api/route.ts`, 'export const localRoute = true\n'],
+        [installedApi, 'export const installedApi = true\n'],
+        [installedData, 'export const installedData = true\n'],
+      ] as const) {
+        const destination = path.join(root, relative)
+        fs.mkdirSync(path.dirname(destination), { recursive: true })
+        fs.writeFileSync(destination, content)
+      }
+      fs.mkdirSync(path.join(root, referenceRoot, 'references'), { recursive: true })
+      fs.writeFileSync(path.join(root, referenceRoot, 'references', 'surface-inventory.json'), `${JSON.stringify([
+        { capabilityId: 'api.crud-factory', paths: [`${referenceRoot}/api/route.ts`] },
+      ], null, 2)}\n`)
+      const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+      const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & {
+        context: HarnessCase['context'] & {
+          exampleRoots?: Array<{
+            root: string
+            entrypoints: string[]
+            allowedCapabilityIds: string[]
+            maxFiles: number
+            maxBytes: number
+          }>
+          installedVersionFallback?: {
+            allowed: true
+            reasonCodes: string[]
+            maxFiles: number
+            maxBytes: number
+          }
+        }
+      }>
+      const firstCase = cases.find((entry) => entry.id === 'OMH-001')
+      assert.ok(firstCase)
+      firstCase.context.allowedExtra = [installedApi, installedData]
+      firstCase.context.exampleRoots = [{
+        root: referenceRoot,
+        entrypoints: ['README.md'],
+        allowedCapabilityIds: ['api.crud-factory'],
+        maxFiles: 1,
+        maxBytes: 1_024,
+      }]
+      firstCase.context.installedVersionFallback = {
+        allowed: true,
+        reasonCodes: [reason],
+        maxFiles: scenario.maxFiles,
+        maxBytes: 1_024,
+      }
+      fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+      const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['architecture'], selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'], violations: []
+}))
+for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) console.log(JSON.stringify({
+  type: 'item.completed', item: { type: 'mcp_tool_call', id: 'base-' + file, server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' }
+}))
+;${JSON.stringify(scenario.calls)}.forEach((call, index) => console.log(JSON.stringify({
+  type: 'item.completed', item: { type: 'mcp_tool_call', id: 'fallback-' + index, server: 'harness', tool: 'read', arguments: {
+    path: call.path, ...(call.fallbackReason ? { fallbackReason: call.fallbackReason } : {})
+  }, status: call.status }
+})))
+`)
+      const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      })
+      assert.equal(run.status, 1, `${scenario.name}\n${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+      const stored = storedResults(root)[0]
+      assert.match(stored.exampleReads?.firstViolation ?? '', scenario.expected, scenario.name)
+      assert.deepEqual(stored.selectedContext, ['AGENTS.md', '.ai/guides/architecture.md'])
+      assert.deepEqual(stored.actualContext.paths, ['.ai/guides/architecture.md', 'AGENTS.md'])
+      assert.doesNotMatch(JSON.stringify(stored.exampleReads), /installedApi|installedData/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   }
 })
 

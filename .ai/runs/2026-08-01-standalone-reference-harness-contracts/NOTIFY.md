@@ -39,3 +39,10 @@
 ## 2026-08-01T18:44:42Z — Step 2.2 rescue complete
 
 - Delegation: `analyze_routing_reference` rescued Step 2.2 after implementation dispatch, adding canonical inventory loading, exact capability-scoped reads, successful-entrypoint sequencing, pre-content cumulative budgets, and redacted result evidence while preserving the omitted-policy CLI and result shape; focused policy/server tests passed 11/11 and the evaluator suite passed 88/88 with repository-local `TMPDIR`.
+
+## 2026-08-02T05:53:15Z — om-auto-continue-pr-loop resume
+
+- Resumed by: @pkarw
+- Resume point: 2.3 (source: CEZ handoff plus Tasks table; checkpoint HANDOFF.md was stale after lean Steps 2.1–2.2)
+- PR head SHA: `8d3f8c44b`
+- Recovery: the interrupted Step 2.3 work was preserved as unpushed autosave commit `5395389fd`; validation and bookkeeping are being completed before amending and pushing it as the single Step commit.

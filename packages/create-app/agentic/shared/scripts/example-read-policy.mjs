@@ -133,6 +133,7 @@ export function loadExampleReadPolicy(caseRoot, context) {
   const validation = validateExampleReadPolicy(context, inventoryEntries, { caseRoot })
   if (!validation.ok) throw new Error(validation.errors.join('; '))
   const inventory = normalizeInventory(inventoryEntries, [])
+  const installedVersionFallback = validation.policy.installedVersionFallback
   return {
     version: 1,
     exampleRoots: validation.policy.exampleRoots.map((root) => {
@@ -154,6 +155,7 @@ export function loadExampleReadPolicy(caseRoot, context) {
         maxBytes: root.maxBytes,
       }
     }),
+    ...(installedVersionFallback ? { installedVersionFallback } : {}),
   }
 }
 
