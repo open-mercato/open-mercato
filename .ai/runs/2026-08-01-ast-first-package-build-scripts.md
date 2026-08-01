@@ -42,12 +42,13 @@ the generated file shrinks to two imports and one object literal — no JSX, no
 - The spec's step 2 says "export the pure part of the lucide generator **from `build.mjs`**".
   `packages/ui/build.mjs` ends in a top-level `await buildPackage(...)`, so importing it from a
   Jest test would run the whole package build on import. The pure function therefore lands in a
-  side-effect-free sibling module (`packages/ui/scripts/lucideRegistrySource.mjs`) that
+  side-effect-free sibling module (`packages/ui/scripts/lucideRegistrySource.cjs`) that
   `build.mjs` imports; the spec's intent (a pure, testable `buildLucideRegistrySource`) is met.
-  Same shape for `packages/shared` (`scripts/versionSource.mjs`).
-- Jest in both packages transforms only `.ts/.tsx/.js/.jsx`, so each package's `jest.config.cjs`
-  gains `.mjs` to its `transform` pattern and `moduleFileExtensions`. This is the minimum change
-  that lets a test import a build-time ESM module.
+  Same shape for `packages/shared` (`scripts/versionSource.cjs`).
+- Those emitters are `.cjs`, not `.mjs`: Jest treats `.mjs` as ESM unconditionally and cannot load
+  it from the CommonJS test runtime, while Node's ESM `import` reads named exports out of CommonJS
+  fine. Each package's `jest.config.cjs` therefore gains `.cjs` to its `transform` pattern — the
+  minimum change that makes a build-time emitter testable.
 
 ## Risks
 
