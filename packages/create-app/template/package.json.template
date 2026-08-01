@@ -27,6 +27,7 @@
     "install-skills": "node ./scripts/install-skills.mjs",
     "framework:context": "node ./scripts/framework-context.mjs",
     "harness:validate": "node ./scripts/evaluate-agent-harness.mjs",
+    "harness:validate-knowledge-change": "node ./scripts/validate-harness-knowledge-change.mjs",
     "harness:fixture": "node ./scripts/prepare-agent-harness-fixture.mjs",
     "harness:release": "node ./scripts/run-agent-harness-release.mjs",
     "db:generate": "mercato db generate",

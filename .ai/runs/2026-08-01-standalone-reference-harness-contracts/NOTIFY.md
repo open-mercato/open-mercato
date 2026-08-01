@@ -12,3 +12,7 @@
 ## 2026-08-01T17:51:40Z — Step 1.1 complete
 
 - Delegation: `analyze_harness_policies` added the pure knowledge-change manifest/classification contract, authored schema, and focused fail-closed tests; direct Node test passed 4/4.
+
+## 2026-08-01T18:24:00Z — Step 1.2 complete
+
+- Delegation: `analyze_harness_policies` implemented the fail-closed Git-derived knowledge-change controller, package/template commands, emission expectations, and focused isolated-worktree coverage; the direct controller suite passed 7/7. The shared emission suite passed 2/3, with its existing OS `/tmp` write failing under the host filesystem (`Unknown system error -122`).

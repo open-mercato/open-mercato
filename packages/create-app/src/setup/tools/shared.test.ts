@@ -87,6 +87,7 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     'AGENTS.md',
     '.ai/harness/cases.json',
     '.ai/harness/fixtures/seeds.json',
+    '.ai/harness/knowledge-change.schema.json',
     '.ai/harness/release-result.schema.json',
     '.ai/harness/target-validation-result.schema.json',
     '.ai/skills/om-evolve-harness/SKILL.md',
@@ -99,6 +100,7 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     'scripts/install-skills.mjs',
     'scripts/prepare-agent-harness-fixture.mjs',
     'scripts/run-agent-harness-release.mjs',
+    'scripts/validate-harness-knowledge-change.mjs',
   ]) {
     assert.equal(existsSync(join(targetDir, relativePath)), true, `${relativePath} must be emitted recursively`)
   }
