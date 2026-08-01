@@ -44,6 +44,7 @@ import {
   WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE,
 } from '../lib/compensation-ghosts'
 import { buildAgentOutcomeRows } from '../lib/node-outcome-rows'
+import { filterOwnedNodeChanges } from '../lib/owned-node-changes'
 import { isRouteTaken, resolveNodeRunStatus, type RunExecution } from '../lib/run-execution'
 import {
   presentationToWorkflowStatus,
@@ -344,10 +345,22 @@ export default function WorkflowGraphImpl({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      const nextNodes = applyNodeChanges(changes, latestNodesRef.current)
+      // Render-only overlay nodes (the trigger pill, fidelity gap #5) are minted
+      // in `canvasNodes` at render time and are NOT part of the editor's node
+      // state. ReactFlow still measures them and emits a `dimensions` change on
+      // every render; applying that here would setNodes → re-render → re-mint the
+      // overlay → ReactFlow re-measures it → an unbounded loop that pins the CPU
+      // and starves node dragging, so a dragged card never visibly tracks the
+      // cursor and only lands at the drop point (the "teleport" bug). Keep only
+      // changes for nodes we own; if nothing is left, this batch is pure overlay
+      // churn — do nothing so no re-render is scheduled.
+      const ownedIds = new Set(latestNodesRef.current.map((node) => node.id))
+      const ownedChanges = filterOwnedNodeChanges(changes, ownedIds)
+      if (ownedChanges.length === 0) return
+      const nextNodes = applyNodeChanges(ownedChanges, latestNodesRef.current)
       setNodes(nextNodes)
       if (onNodesChangeProp) {
-        onNodesChangeProp(nextNodes, describeNodeChanges(changes))
+        onNodesChangeProp(nextNodes, describeNodeChanges(ownedChanges))
       }
     },
     [setNodes, onNodesChangeProp]
