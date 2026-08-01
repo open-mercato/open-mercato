@@ -50,9 +50,12 @@ export const discordChannelStateSchema = z
     botUserId: z.string().optional(),
     lastConnectedAt: z.string().optional(),
     // Per-channel AI auto-reply toggle (default OFF). When truthy, the AI
-    // auto-reply subscriber may answer "easy" inbound messages.
+    // auto-reply subscriber may answer "easy" inbound messages. No product
+    // surface writes this key in the first release — the configuration path
+    // ships with #4778, so in practice the subscriber stays dormant.
     aiAutoReplyEnabled: z.boolean().optional(),
-    // Agent id to invoke when AI auto-reply is enabled.
+    // Agent id to invoke when AI auto-reply is enabled. Also unwritten in the
+    // first release (#4778).
     aiAgentId: z.string().optional(),
   })
   .partial()

@@ -17,19 +17,34 @@ import {
 const logger = createLogger('channel_discord').child({ component: 'ai-auto-reply' })
 
 /**
- * AI auto-reply subscriber (SPEC 2026-06-19 § AI bot wiring).
+ * AI auto-reply subscriber (SPEC 2026-06-19 § AI bot wiring) — DORMANT in this release.
  *
- * Listens to `communication_channels.message.received`, filters to Discord, and
- * — only when the channel opted in (default OFF) AND the optional `ai_assistant`
- * peer is present — drafts a reply via the programmatic agent runtime and sends
- * it back through the generic hub outbound path (compose → outbound-bridge →
- * `deliver_outbound` → Discord REST). Nothing Discord-specific leaks into the
- * send path; any module could do the same.
+ * ⚠️ Scope: the first release ships this subscriber as inert scaffolding and does
+ * NOT promise AI auto-reply as a product capability. Nothing in the product writes
+ * the two channel-state keys that arm it (`aiAutoReplyEnabled`, `aiAgentId`), there
+ * is no configuration surface for them, and every agent this repository currently
+ * ships is chat-mode and feature-gated — so `runAiAgentObject` below would be denied
+ * by the agent policy even if the keys were set by hand. The production design
+ * (an object-mode or service-principal agent identity, the configuration path that
+ * writes those keys, the proposal surface for the `complex` tier, and an integration
+ * test that drives the real policy/runtime instead of mocking it) is tracked in
+ * open-mercato/open-mercato#4778 and lands with that issue, not here.
  *
- * Safety:
+ * What it does when it does run: listens to `communication_channels.message.received`,
+ * filters to Discord, and — only when the channel opted in (default OFF) AND the
+ * optional `ai_assistant` peer is present — drafts a reply via the programmatic agent
+ * runtime and sends it back through the generic hub outbound path (compose →
+ * outbound-bridge → `deliver_outbound` → Discord REST). Nothing Discord-specific leaks
+ * into the send path; any module could do the same.
+ *
+ * Safety (why shipping it dormant is safe rather than merely unused):
  *   - `ai_assistant` is an OPTIONAL peer resolved softly; absent → no-op.
- *   - Easy messages auto-reply (text only). Complex / low-confidence messages
- *     are NOT auto-sent — they surface for human approval (propose-only).
+ *   - Every path is opt-in and fails closed: no opt-in flag, no agent id, no peer,
+ *     or any error inside the draft/send step all degrade to a silent no-op, so the
+ *     channel keeps working as a plain inbox.
+ *   - Complex / low-confidence messages (including suspected prompt injection) are
+ *     never auto-sent. In this release they are dropped with a log line — the
+ *     human-approval surface they are meant to reach is part of #4778.
  *   - The agent runs with the channel's tenant scope; `runAiAgentObject`
  *     enforces the agent's own `requiredFeatures` / `mutationPolicy` — this
  *     subscriber cannot widen them. Privileged writes still route through the AI
@@ -118,9 +133,10 @@ export default async function handler(payload: MessageReceivedPayload, ctx: Ctx)
   // (4) Classify — easy vs complex.
   const classification = classifyDiscordMessage(body)
   if (classification.tier === 'complex') {
-    // Propose-only: never auto-send anything risky. A follow-up surfaces the
-    // proposed reply for human approval in the inbox UI.
-    logger.info('discord message classified complex — propose-only, no auto-send', {
+    // Never auto-send anything risky. The approval surface that is meant to show
+    // the proposed reply to a human is part of #4778; until it exists the message
+    // is dropped here with a log line rather than silently answered.
+    logger.info('discord message classified complex — no auto-send (approval surface tracked in #4778)', {
       channelId: payload.channelId,
       reason: classification.reason,
     })

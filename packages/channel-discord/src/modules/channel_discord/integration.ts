@@ -6,7 +6,7 @@ export const integration: IntegrationDefinition = {
   id: 'channel_discord',
   title: 'Discord',
   description:
-    'Connect a Discord bot as a two-way channel. Outbound via the Discord REST API; inbound in real time via a Gateway worker; slash commands / buttons via a signed (Ed25519) Interactions endpoint. Optionally answers inbound messages with an AI agent. Inbound requires the gateway worker to be running (`mercato channel_discord start-gateway`) — outbound works without it.',
+    'Connect a Discord bot as a two-way channel. Outbound via the Discord REST API; inbound in real time via a Gateway worker; a signed (Ed25519) Interactions endpoint that verifies and acknowledges slash commands / buttons. Inbound requires the gateway worker to be running (`mercato channel_discord start-gateway`) — outbound works without it. This release does not answer messages with an AI agent.',
   category: 'communication',
   hub: 'communication_channels',
   providerKey: 'discord',
@@ -17,7 +17,7 @@ export const integration: IntegrationDefinition = {
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
-  tags: ['discord', 'chat', 'bot', 'gateway', 'communication', 'ai'],
+  tags: ['discord', 'chat', 'bot', 'gateway', 'communication'],
   detailPage: {
     widgetSpotId: channelDiscordDetailWidgetSpotId,
   },

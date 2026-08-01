@@ -1,12 +1,18 @@
 import { discordChannelStateSchema, type DiscordChannelState } from './credentials'
 
 /**
- * AI auto-reply helpers (SPEC 2026-06-19 § AI bot wiring).
+ * AI auto-reply helpers (SPEC 2026-06-19 § AI bot wiring) — dormant in this release.
+ *
+ * The subscriber these helpers serve is inert scaffolding for now: no product
+ * surface writes `aiAutoReplyEnabled` / `aiAgentId`, so `isAiAutoReplyEnabled`
+ * answers `false` everywhere in practice. The production wiring is tracked in
+ * open-mercato/open-mercato#4778; see `subscribers/ai-auto-reply.ts` for the full
+ * scope note.
  *
  * `ai_assistant` is an OPTIONAL peer. This module never statically imports it;
  * the subscriber resolves it softly via DI (`mcpToolRegistry`) and, only when it
  * is present AND per-channel auto-reply is enabled, dynamically imports
- * `runAiAgentText`. When the peer is absent the subscriber no-ops and the channel
+ * `runAiAgentObject`. When the peer is absent the subscriber no-ops and the channel
  * still works as a plain inbox (module-decoupling contract).
  */
 
