@@ -48,8 +48,8 @@ PR: #4804
 
 ### Phase 1: Port the dependency update
 
-- [x] 1.1 Replay PR #4650's manifest version changes onto `origin/develop` and regenerate a coherent lockfile. — 3c4539e1b
-- [x] 1.2 Compare the migrated delta with PR #4650 to confirm that all still-applicable dependency updates are preserved without reverting newer `develop` changes. — 3c4539e1b
+- [x] 1.1 Replay PR #4650's manifest version changes onto `origin/develop` and regenerate a coherent lockfile. — df78b530e
+- [x] 1.2 Compare the migrated delta with PR #4650 to confirm that all still-applicable dependency updates are preserved without reverting newer `develop` changes. — df78b530e
 
 ### Phase 2: Validate the migrated dependency graph
 
