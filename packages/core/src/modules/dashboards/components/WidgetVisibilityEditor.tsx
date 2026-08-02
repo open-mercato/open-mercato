@@ -9,6 +9,9 @@ import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/u
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'WidgetVisibilityEditor' })
 
 const WIDGET_VISIBILITY_CONTEXT_ID = 'dashboards-widget-visibility:save'
 
@@ -193,11 +196,14 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       setLoading(true)
       setError(null)
       try {
-        await loadCatalog()
-        if (kind === 'role') await loadRoleData(tenantIdRef.current, organizationIdRef.current)
-        else await loadUserData(tenantIdRef.current, organizationIdRef.current)
+        await Promise.all([
+          loadCatalog(),
+          kind === 'role'
+            ? loadRoleData(tenantIdRef.current, organizationIdRef.current)
+            : loadUserData(tenantIdRef.current, organizationIdRef.current),
+        ])
       } catch (err) {
-        console.error('Failed to load widget visibility data', err)
+        logger.error('Failed to load widget visibility data', { err })
         if (!cancelled) {
           setError(tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.'))
         }
@@ -221,7 +227,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
         if (kind === 'role') await loadRoleData(tenantId, organizationId)
         else await loadUserData(tenantId, organizationId)
       } catch (err) {
-        console.error('Failed to reload widget visibility data', err)
+        logger.error('Failed to reload widget visibility data', { err })
       }
     }
     refetch()
@@ -309,7 +315,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       }
       try { flash(t('dashboards.widgets.flash.saved', 'Dashboard widgets updated'), 'success') } catch {}
     } catch (err) {
-      console.error('Failed to save widget visibility', err)
+      logger.error('Failed to save widget visibility', { err })
       setError(t('dashboards.widgets.error.save', 'Unable to save dashboard widget preferences.'))
     } finally {
       setSaving(false)

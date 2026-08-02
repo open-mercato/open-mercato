@@ -1,4 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolve, dirname } from 'node:path'
+
+const logger = createLogger('ai_assistant')
 
 const MCP_CONFIG_FILENAME = '.mcp.json'
 
@@ -8,7 +11,7 @@ const MCP_CONFIG_FILENAME = '.mcp.json'
 const PROJECT_ROOT_MARKERS = ['.git', 'yarn.lock', 'pnpm-lock.yaml', 'package-lock.json'] as const
 
 const log = (message: string, ...args: unknown[]) => {
-  console.error(`[MCP Dev] ${message}`, ...args)
+  logger.info(message, args.length > 0 ? { details: args.map((arg) => String(arg)).join(' ') } : undefined)
 }
 
 type PermissionStat = { uid: number; mode: number }
@@ -34,9 +37,9 @@ export function findProjectRoot(startDir: string, exists: (path: string) => bool
 /**
  * Validate the ownership and permissions of `.mcp.json` before its secret is
  * read. Refuses when the file is owned by another user (a planted/shadowed
- * config) and warns loudly when it is accessible to group/other (the key is a
- * live secret). POSIX-only: when `currentUid` is null (e.g. Windows) the checks
- * are skipped.
+ * config) or accessible to group/other (the key is a live secret). POSIX-only:
+ * when `currentUid` is null (e.g. Windows) the ownership and mode checks are
+ * skipped; descriptor/path identity checks still apply.
  */
 export function checkMcpConfigPermissions(
   configPath: string,
@@ -52,11 +55,17 @@ export function checkMcpConfigPermissions(
     }
   }
   if ((fileStat.mode & 0o077) !== 0) {
-    warn(
-      `${configPath} is accessible to group/other (mode ${(fileStat.mode & 0o777).toString(8)}); it contains a live API key — restrict it with: chmod 600 ${configPath}`,
-    )
+    const reason = `${configPath} is accessible to group/other (mode ${(fileStat.mode & 0o777).toString(8)}); it contains a live API key — restrict it with: chmod 600 ${configPath}`
+    warn(reason)
+    return { ok: false, reason }
   }
   return { ok: true }
+}
+
+type FileIdentity = { dev: number; ino: number }
+
+function isSameFile(openedFile: FileIdentity, pathEntry: FileIdentity): boolean {
+  return openedFile.dev === pathEntry.dev && openedFile.ino === pathEntry.ino
 }
 
 /**
@@ -73,34 +82,50 @@ export async function getApiKeyFromMcpJson(): Promise<string | undefined> {
     return envKey.trim()
   }
 
-  const { readFile, stat } = await import('node:fs/promises')
-  const { existsSync } = await import('node:fs')
+  const { lstat, open } = await import('node:fs/promises')
+  const { constants, existsSync } = await import('node:fs')
 
   try {
     const projectRoot = findProjectRoot(process.cwd(), existsSync)
     const mcpJsonPath = resolve(projectRoot, MCP_CONFIG_FILENAME)
-    if (!existsSync(mcpJsonPath)) {
-      return undefined
+    let openFlags = constants.O_RDONLY
+    if (process.platform !== 'win32') {
+      openFlags |= constants.O_NOFOLLOW | constants.O_NONBLOCK
     }
 
-    const fileStat = await stat(mcpJsonPath)
-    const currentUid = typeof process.getuid === 'function' ? process.getuid() : null
-    const permissionCheck = checkMcpConfigPermissions(
-      mcpJsonPath,
-      { uid: fileStat.uid, mode: fileStat.mode },
-      currentUid,
-      (message) => log(`Warning: ${message}`),
-    )
-    if (!permissionCheck.ok) {
-      log(`Error: ${permissionCheck.reason}`)
-      return undefined
+    const fileHandle = await open(mcpJsonPath, openFlags)
+    try {
+      const [fileStat, pathStat] = await Promise.all([fileHandle.stat(), lstat(mcpJsonPath)])
+      if (
+        !fileStat.isFile() ||
+        pathStat.isSymbolicLink() ||
+        !pathStat.isFile() ||
+        !isSameFile(fileStat, pathStat)
+      ) {
+        log(`Error: refusing to read ${mcpJsonPath}: it is not the opened regular file`)
+        return undefined
+      }
+
+      const currentUid = typeof process.getuid === 'function' ? process.getuid() : null
+      const permissionCheck = checkMcpConfigPermissions(
+        mcpJsonPath,
+        { uid: fileStat.uid, mode: fileStat.mode },
+        currentUid,
+        (message) => log(`Warning: ${message}`),
+      )
+      if (!permissionCheck.ok) {
+        log(`Error: ${permissionCheck.reason}`)
+        return undefined
+      }
+
+      const content = await fileHandle.readFile({ encoding: 'utf-8' })
+      const config = JSON.parse(content)
+      const serverConfig = config?.mcpServers?.['open-mercato']
+
+      return serverConfig?.headers?.['x-api-key']
+    } finally {
+      await fileHandle.close()
     }
-
-    const content = await readFile(mcpJsonPath, 'utf-8')
-    const config = JSON.parse(content)
-    const serverConfig = config?.mcpServers?.['open-mercato']
-
-    return serverConfig?.headers?.['x-api-key']
   } catch {
     return undefined
   }

@@ -1,4 +1,4 @@
-import sharp from 'sharp'
+import sharp, { type Metadata } from 'sharp'
 
 export const MAX_IMAGE_SOURCE_BYTES = 25 * 1024 * 1024
 export const MAX_IMAGE_SOURCE_PIXELS = 40_000_000
@@ -92,7 +92,7 @@ export function validateImageMagicBytes(buffer: Buffer, declaredMimeType: string
 }
 
 export async function validateImageDimensions(buffer: Buffer): Promise<ImageSafetyResult> {
-  let metadata: sharp.Metadata
+  let metadata: Metadata
   try {
     metadata = await sharp(buffer, {
       failOn: 'error',

@@ -34,6 +34,12 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const em = container.resolve('em') as EntityManager
+  // Audited for #3386 rollout (P3): both orderBy fields are non-encrypted.
+  // SalesChannel.name is absent from the sales:sales_channel encryption map
+  // (only address/contact fields are encrypted). CatalogPriceKind has no
+  // encryption map at all. This is a discovery endpoint with no pagination,
+  // so the #3278 two-phase encrypted-sort does not apply. Covered by
+  // __tests__/discovery-route.test.ts.
   const [localChannels, priceKinds] = await Promise.all([
     findWithDecryption(em, SalesChannel, {
       organizationId: auth.orgId,

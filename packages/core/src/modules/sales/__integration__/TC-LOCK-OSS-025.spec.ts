@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import {
   createSalesOrderFixture,
   createOrderLineFixture,
+  createShipmentFixture,
 } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -93,7 +94,10 @@ async function fetchAnyOrderLineId(
   )
   expect(response.status(), 'GET /api/sales/order-lines should return 200').toBe(200)
   const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
-  const lineId = body.items?.find((item) => typeof item?.id === 'string')?.id
+  // Skip the zero-priced seed line created by the fixture (issue #4021) so the
+  // caller operates on the line it actually added.
+  const lineId = (body.items?.find((item) => typeof item?.id === 'string' && item?.name !== 'QA seed line')
+    ?? body.items?.find((item) => typeof item?.id === 'string'))?.id
   expect(typeof lineId, 'order should have at least one line to return').toBe('string')
   return lineId as string
 }
@@ -198,6 +202,9 @@ test.describe('TC-LOCK-OSS-025: order adjustments + returns document-aggregate c
         quantity: 2,
       })
       const orderLineId = await fetchAnyOrderLineId(request, token, orderId)
+      // The return guard (issue #3034) requires the line to have been shipped.
+      // Ship before capturing t1 so the fresh header reflects the latest order state.
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
       const t1 = await readUpdatedAt(request, token, ORDERS_BASE, orderId)
       expect(t1, "adding a line should advance the parent order's updated_at").not.toBe(t0)
 

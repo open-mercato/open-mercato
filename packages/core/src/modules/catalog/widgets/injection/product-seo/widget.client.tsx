@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { subscribeProductSeoValidation } from './state'
+import { subscribeProductSeoValidation, setProductSeoTranslator } from './state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Alert } from '@open-mercato/ui/primitives/alert'
@@ -36,6 +36,12 @@ function computeIssueKeys(title: string, description: string): IssueKey[] {
 
 export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps<unknown, SeoData>) {
   const t = useT()
+  // Expose the translator to the module's `onBeforeSave` hook (which has no React
+  // context) so the save-block message is localized (#3299).
+  React.useEffect(() => {
+    setProductSeoTranslator(t)
+    return () => setProductSeoTranslator(null)
+  }, [t])
   const title = (data?.title || data?.name || '') ?? ''
   const description = data?.description ?? ''
   const baselineIssueKeys = React.useMemo(() => computeIssueKeys(title, description), [title, description])

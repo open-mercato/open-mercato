@@ -44,17 +44,31 @@ Strategies automatically become unavailable if their backend is not configured (
 
 ## Configure Global Search (Cmd+K)
 
+Search settings (Cmd+K strategies, embedding provider/model, auto-index flag) are
+**tenant-scoped**: each tenant reads/writes its own row and never overwrites another
+tenant's settings. A tenant with no saved row inherits the instance default (legacy
+global row) and finally the env-derived default; GET responses carry a `source` of
+`tenant | instance | env`. Scope is always derived from the authenticated context,
+never from the request body. The vector index itself (shared pgvector table) stays
+instance-level; per-tenant scoping covers settings selection, not the stored vectors.
+
 Set global search dialog strategies per-tenant via **Settings > Search** or the API:
 
 ```typescript
 // Get current config
 GET /api/search/settings/global-search
-// Response: { "enabledStrategies": ["fulltext", "vector", "tokens"] }
+// Response: { "enabledStrategies": ["fulltext", "vector", "tokens"], "source": "tenant" }
 
-// Update config
+// Update config (writes only this tenant's row)
 POST /api/search/settings/global-search
 // Body: { "enabledStrategies": ["fulltext", "tokens"] }
 ```
+
+Provider availability is verified by an active, cached, fail-closed probe
+(`embeddingProviderProbe`): Ollama is checked via `GET {OLLAMA_BASE_URL}/api/tags`
+(no longer assumed reachable), key-based providers via env-key presence. The
+embeddings GET returns per-provider `available`/`reason`; the embeddings POST
+rejects selecting an unreachable provider with `409 { error, reason }`.
 
 ## Create a Search Configuration
 
@@ -523,8 +537,13 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `QUEUE_REDIS_URL` | When using a separate Redis for queues | Alternative to `REDIS_URL` for queue-specific connections |
 | `OM_SEARCH_ENABLED` | When you need to disable the search module entirely | Default: `true`; set to `false` to disable |
 | `OM_SEARCH_DEBUG` | When debugging search behavior | Enables verbose debug logging |
+| `OM_SEARCH_MIN_LEN` | When tuning the Postgres `search_tokens` index | Default: `3`. Minimum token length + floor of prefix expansion. **Token strategy only** — no effect on fulltext/vector |
+| `OM_SEARCH_ENABLE_PARTIAL` | When trading `search_tokens` size for prefix matching | Default: `true`. Prefix/partial expansion for tokens (Meilisearch unaffected); increases `search_tokens` size ~5–6×. **Token strategy only** |
+| `OM_SEARCH_HASH_ALGO` | When choosing the token hash algorithm | Default: `sha256` (accepts `sha1`, `md5`). **Token strategy only** |
+| `OM_SEARCH_STORE_RAW_TOKENS` | Almost never — debugging tokenization only | Default: `false`. Stores plaintext token alongside the hash — **security-sensitive**, retains plaintext of otherwise-hashed values. **Token strategy only** |
+| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field-name substrings, merged with built-in `password,token,secret,hash`; prefix an entry with `entityType@` to scope it to one entity. Applies to per-field tokens and aggregate `search_text`; reindex affected entities after changes. **Token strategy only** |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
-| `DEBUG_SEARCH_ENRICHER` | When debugging presenter enrichment | Enables presenter enricher debug logs |
+| `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 
 ## Run Queue Workers
 
@@ -702,7 +721,7 @@ buildSource: async (ctx) => {
 - [ ] Run `yarn mercato search test-meilisearch` if fulltext is not returning results
 - [ ] Check `OM_SEARCH_ENABLED` is not set to `false`
 - [ ] Enable `OM_SEARCH_DEBUG=true` for verbose logging
-- [ ] Enable `DEBUG_SEARCH_ENRICHER=true` if presenters are missing or wrong
+- [ ] Set `OM_LOG_LEVEL=debug` if presenters are missing or wrong (surfaces presenter enricher diagnostics)
 - [ ] Verify the entity has `enabled: true` (or omitted, since default is `true`)
 - [ ] Verify the CRUD route has `indexer: { entityType }` for auto-indexing
 - [ ] Check queue workers are running if using `QUEUE_STRATEGY=async`

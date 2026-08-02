@@ -1,12 +1,29 @@
 /**
- * Debug utilities for search module.
+ * Debug utilities for search module, backed by the shared structured
+ * logging facade (`@open-mercato/shared/lib/logger`).
  *
- * Set OM_SEARCH_DEBUG=true to enable debug logging.
+ * Set OM_SEARCH_DEBUG=true to opt into the verbose diagnostic helpers
+ * (`searchDebug`/`searchDebugWarn`). Emission also flows through the
+ * global `OM_LOG_LEVEL` gate, so when using OM_SEARCH_DEBUG in
+ * production set OM_LOG_LEVEL=debug as well.
  */
 
+import { createLogger, type Logger } from '@open-mercato/shared/lib/logger'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+
+const packageLogger = createLogger('search')
+const componentLoggers = new Map<string, Logger>()
+
+function componentLogger(prefix: string): Logger {
+  const existing = componentLoggers.get(prefix)
+  if (existing) return existing
+  const scoped = packageLogger.child({ component: prefix })
+  componentLoggers.set(prefix, scoped)
+  return scoped
+}
+
 export function isSearchDebugEnabled(): boolean {
-  const raw = (process.env.OM_SEARCH_DEBUG ?? '').toLowerCase()
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+  return parseBooleanWithDefault(process.env.OM_SEARCH_DEBUG, false)
 }
 
 /**
@@ -14,11 +31,7 @@ export function isSearchDebugEnabled(): boolean {
  */
 export function searchDebug(prefix: string, message: string, data?: Record<string, unknown>): void {
   if (!isSearchDebugEnabled()) return
-  if (data) {
-    console.log(`[${prefix}] ${message}`, data)
-  } else {
-    console.log(`[${prefix}] ${message}`)
-  }
+  componentLogger(prefix).debug(message, data)
 }
 
 /**
@@ -26,11 +39,7 @@ export function searchDebug(prefix: string, message: string, data?: Record<strin
  */
 export function searchDebugWarn(prefix: string, message: string, data?: Record<string, unknown>): void {
   if (!isSearchDebugEnabled()) return
-  if (data) {
-    console.warn(`[${prefix}] ${message}`, data)
-  } else {
-    console.warn(`[${prefix}] ${message}`)
-  }
+  componentLogger(prefix).warn(message, data)
 }
 
 /**
@@ -40,11 +49,7 @@ export function searchDebugWarn(prefix: string, message: string, data?: Record<s
  * the configured embedding dimension no longer matches the vector table.
  */
 export function searchWarn(prefix: string, message: string, data?: Record<string, unknown>): void {
-  if (data) {
-    console.warn(`[${prefix}] ${message}`, data)
-  } else {
-    console.warn(`[${prefix}] ${message}`)
-  }
+  componentLogger(prefix).warn(message, data)
 }
 
 /**
@@ -52,9 +57,5 @@ export function searchWarn(prefix: string, message: string, data?: Record<string
  * Errors should always be visible for troubleshooting.
  */
 export function searchError(prefix: string, message: string, data?: Record<string, unknown>): void {
-  if (data) {
-    console.error(`[${prefix}] ${message}`, data)
-  } else {
-    console.error(`[${prefix}] ${message}`)
-  }
+  componentLogger(prefix).error(message, data)
 }

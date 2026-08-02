@@ -9,6 +9,7 @@ const apiCall = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => '/backend/dictionaries',
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({

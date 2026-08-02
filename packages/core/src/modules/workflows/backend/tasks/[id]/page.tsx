@@ -26,6 +26,9 @@ import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { UserTaskResponse, UserTaskStatus } from '../../../data/types'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export default function UserTaskDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
@@ -116,7 +119,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
         flash(error?.error || t('workflows.tasks.messages.completeFailed'), 'error')
       }
     } catch (err) {
-      console.error('Error completing task:', err)
+      logger.error('Error completing task', { err })
       flash(t('workflows.tasks.messages.completeFailed'), 'error')
     } finally {
       setSubmitting(false)

@@ -6,6 +6,9 @@ import { CustomerDeal } from '../../../../data/entities'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/core'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -78,7 +81,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.widgets.newDeals failed', err)
+    logger.error('customers.widgets.newDeals failed', { err })
     return NextResponse.json(
       { error: translate('customers.widgets.newDeals.error', 'Failed to load recently created deals') },
       { status: 500 },

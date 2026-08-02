@@ -78,6 +78,7 @@ describe('integrations write routes — optimistic-lock enforcement', () => {
     return {
       resolveUpdatedAt: jest.fn().mockResolvedValue(updatedAtIso ? new Date(updatedAtIso) : null),
       getSchema: () => ({ fields: [] }),
+      resolve: jest.fn().mockResolvedValue(null),
       save: credentialsSave.mockResolvedValue(undefined),
     }
   }

@@ -5,12 +5,15 @@
 import * as React from 'react'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { MessageComposer } from '../MessageComposer'
-import { apiCall } from '../../utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '../../utils/apiCall'
 import { flash } from '../../FlashMessages'
+import { dismissRecordConflict, getRecordConflictForTest } from '../../conflicts'
 
 jest.mock('../../utils/apiCall', () => ({
   apiCall: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => unknown) => run()),
 }))
 
 jest.mock('../../FlashMessages', () => ({
@@ -59,6 +62,10 @@ describe('MessageComposer draft flow', () => {
 
   beforeEach(() => {
     jest.resetAllMocks()
+    dismissRecordConflict()
+    ;(withScopedApiRequestHeaders as jest.Mock).mockImplementation(
+      (_headers: Record<string, string>, run: () => unknown) => run(),
+    )
     ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string, body?: string }) => {
       if (url.startsWith('/api/messages/types')) {
         return Promise.resolve({
@@ -154,6 +161,172 @@ describe('MessageComposer draft flow', () => {
     expect(payload.isDraft).toBe(false)
     expect(payload.recipients).toEqual([{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }])
     expect(flash).toHaveBeenCalledWith('Message sent.', 'success')
+  })
+
+  it('attaches the optimistic-lock header when sending an existing draft', async () => {
+    const expectedUpdatedAt = '2026-02-24T10:00:00.000Z'
+
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        messageId="draft-1"
+        expectedUpdatedAt={expectedUpdatedAt}
+        defaultValues={{
+          recipients: ['11111111-1111-4111-8111-111111111111'],
+          subject: 'Existing draft',
+          body: 'Existing draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/messages/draft-1',
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+
+    expect(withScopedApiRequestHeaders).toHaveBeenCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: expectedUpdatedAt },
+      expect.any(Function),
+    )
+  })
+
+  it('surfaces a 409 optimistic-lock conflict on the shared banner instead of a generic flash', async () => {
+    const expectedUpdatedAt = '2026-02-24T10:00:00.000Z'
+
+    ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string }) => {
+      if (url.startsWith('/api/messages/types')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            items: [{
+              type: 'default',
+              module: 'messages',
+              labelKey: 'messages.types.default',
+              icon: 'mail',
+              allowReply: true,
+              allowForward: true,
+            }],
+          },
+          response: { status: 200 },
+        })
+      }
+
+      if (url === '/api/messages/draft-1' && options?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          result: {
+            error: 'record_modified',
+            code: 'optimistic_lock_conflict',
+            currentUpdatedAt: '2026-02-24T11:00:00.000Z',
+            expectedUpdatedAt,
+          },
+          response: { status: 409 },
+        })
+      }
+
+      return Promise.resolve({ ok: true, status: 200, result: { items: [] }, response: { status: 200 } })
+    })
+
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        messageId="draft-1"
+        expectedUpdatedAt={expectedUpdatedAt}
+        defaultValues={{
+          recipients: ['11111111-1111-4111-8111-111111111111'],
+          subject: 'Existing draft',
+          body: 'Existing draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }))
+
+    await waitFor(() => {
+      const conflict = getRecordConflictForTest()
+      expect(conflict).not.toBeNull()
+      expect(conflict?.currentUpdatedAt).toBe('2026-02-24T11:00:00.000Z')
+    })
+
+    expect(flash).not.toHaveBeenCalledWith('Failed to send message.', 'error')
+  })
+
+  it('closes the compose dialog on a 409 conflict so the shared banner is not hidden behind it (TC-007)', async () => {
+    const expectedUpdatedAt = '2026-02-24T10:00:00.000Z'
+    const onOpenChange = jest.fn()
+
+    ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string }) => {
+      if (url.startsWith('/api/messages/types')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            items: [{
+              type: 'default',
+              module: 'messages',
+              labelKey: 'messages.types.default',
+              icon: 'mail',
+              allowReply: true,
+              allowForward: true,
+            }],
+          },
+          response: { status: 200 },
+        })
+      }
+
+      if (url === '/api/messages/draft-1' && options?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          result: {
+            error: 'record_modified',
+            code: 'optimistic_lock_conflict',
+            currentUpdatedAt: '2026-02-24T11:00:00.000Z',
+            expectedUpdatedAt,
+          },
+          response: { status: 409 },
+        })
+      }
+
+      return Promise.resolve({ ok: true, status: 200, result: { items: [] }, response: { status: 200 } })
+    })
+
+    renderWithProviders(
+      <MessageComposer
+        open
+        variant="compose"
+        messageId="draft-1"
+        expectedUpdatedAt={expectedUpdatedAt}
+        onOpenChange={onOpenChange}
+        defaultValues={{
+          recipients: ['11111111-1111-4111-8111-111111111111'],
+          subject: 'Existing draft',
+          body: 'Existing draft body',
+        }}
+      />,
+      { dict: {} },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const sendButtons = within(dialog).getAllByRole('button', { name: 'Send' })
+    fireEvent.click(sendButtons[sendButtons.length - 1] as HTMLButtonElement)
+
+    await waitFor(() => {
+      expect(getRecordConflictForTest()).not.toBeNull()
+    })
+    // The page-level conflict banner is hidden behind the modal, so the dialog
+    // must close to reveal it (and its Refresh action) to the user.
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('saves an existing draft via PATCH without a draft transition flag', async () => {

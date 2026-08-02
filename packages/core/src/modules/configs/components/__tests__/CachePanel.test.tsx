@@ -265,4 +265,14 @@ describe('CachePanel', () => {
     expect(screen.getByRole('button', { name: 'Purge all cache' })).toHaveAttribute('type', 'button')
     expect(screen.getByRole('button', { name: 'Purge segment' })).toHaveAttribute('type', 'button')
   })
+
+  it('renders load failures through the shared ErrorMessage primitive', async () => {
+    ;(readApiResultOrThrow as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+
+    renderWithProviders(<CachePanel />, { dict })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('boom')
+    expect(alert.className).not.toMatch(/red/)
+  })
 })

@@ -1,7 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { findRouteManifestMatch, getFrontendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
-import { bootstrap } from '@/bootstrap'
 import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
@@ -10,15 +9,21 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import type { Metadata } from 'next'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { frontendMiddlewareEntries } from '@/.mercato/generated/frontend-middleware.generated'
 
-bootstrap()
 registerFrontendRouteManifests(frontendRoutes)
 
 type FrontendParams = { params: Promise<{ slug: string[] }> }
+
+async function ensureServerBootstrap() {
+  const { bootstrap } = await import('@/bootstrap')
+  bootstrap()
+}
 
 async function renderAccessDenied() {
   const { translate } = await resolveTranslations()
@@ -59,15 +64,26 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
   if (match.route.requireCustomerAuth) {
     const { getCustomerAuthFromCookies } = await import('@open-mercato/core/modules/customer_accounts/lib/customerAuthServer')
     const customerAuth = await getCustomerAuthFromCookies()
+    const segments = pathname.split('/').filter(Boolean)
+    const orgSlug = segments[0] ?? ''
     if (!customerAuth) {
-      // Extract orgSlug from pathname for redirect (e.g., /my-org/portal/orders → my-org)
-      const segments = pathname.split('/').filter(Boolean)
-      const orgSlug = segments[0] ?? ''
       redirect(`/${orgSlug}/portal/login`)
     }
+    await ensureServerBootstrap()
+    const portalContainer = await createRequestContainer()
+    const em = portalContainer.resolve('em') as EntityManager
+    const org = orgSlug
+      ? await em.findOne(Organization, {
+          id: customerAuth.orgId,
+          slug: orgSlug,
+          deletedAt: null,
+        } as any)
+      : null
+    const organizationId = org ? String(org.id) : null
+    if (!organizationId || organizationId !== customerAuth.orgId) return renderAccessDenied()
+
     const customerFeatures = match.route.requireCustomerFeatures
     if (customerFeatures && customerFeatures.length) {
-      const portalContainer = await createRequestContainer()
       const customerRbac = portalContainer.resolve('customerRbacService') as CustomerRbacService
       const ok = await customerRbac.userHasAllFeatures(
         customerAuth.sub,
@@ -85,6 +101,7 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
   const ensureContainer = async () => {
     if (!container) {
+      await ensureServerBootstrap()
       container = await createRequestContainer()
     }
     return container

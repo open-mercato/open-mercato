@@ -12,6 +12,9 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { TimeInput } from '@open-mercato/ui/backend/inputs/TimeInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('currencies').child({ component: 'CurrencyFetchingConfig' })
 
 interface FetchConfig {
   id: string
@@ -91,7 +94,7 @@ export default function CurrencyFetchingConfig() {
         setConfigs(result.configs as FetchConfig[])
       }
     } catch (err: any) {
-      console.error('Failed to initialize providers:', err)
+      logger.error('Failed to initialize providers', { err })
     } finally {
       setInitializing(false)
     }

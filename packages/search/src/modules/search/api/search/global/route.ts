@@ -64,8 +64,8 @@ export async function GET(req: Request) {
       )
     }
 
-    // Fetch saved global search strategies
-    const strategies = await resolveGlobalSearchStrategies(container)
+    // Fetch saved global search strategies (per-tenant; falls back to the instance default)
+    const strategies = await resolveGlobalSearchStrategies(container, { scope: { tenantId: auth.tenantId } })
 
     // Load embedding config for vector strategy (only if vector is enabled)
     if (strategies.includes('vector')) {

@@ -1,9 +1,21 @@
 import { createRecordLockCrudMutationGuardService } from '../lib/crudMutationGuardService'
+import type { OssCrudMutationGuardServiceLike } from '../lib/crudMutationGuardService'
 import type { RecordLockService } from '../lib/recordLockService'
+import { DEFAULT_RECORD_LOCK_SETTINGS } from '../lib/config'
+
+function makeFloorPass(): OssCrudMutationGuardServiceLike {
+  return {
+    validateMutation: jest.fn().mockResolvedValue({ ok: true, shouldRunAfterSuccess: false }),
+    afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
+  }
+}
+
+const ENABLED_SETTINGS = { ...DEFAULT_RECORD_LOCK_SETTINGS, enabledResources: ['*'] }
 
 describe('createRecordLockCrudMutationGuardService', () => {
   test('runs after-success hook when locking is enabled even if owner lock should not be released', async () => {
     const recordLockService = {
+      getSettings: jest.fn().mockResolvedValue(ENABLED_SETTINGS),
       validateMutation: jest.fn().mockResolvedValue({
         ok: true,
         enabled: true,
@@ -17,7 +29,7 @@ describe('createRecordLockCrudMutationGuardService', () => {
       releaseAfterMutation: jest.fn().mockResolvedValue(undefined),
     } as unknown as RecordLockService
 
-    const service = createRecordLockCrudMutationGuardService(recordLockService)
+    const service = createRecordLockCrudMutationGuardService(recordLockService, makeFloorPass())
     const validation = await service.validateMutation({
       tenantId: 'tenant-1',
       organizationId: 'org-1',
@@ -35,22 +47,16 @@ describe('createRecordLockCrudMutationGuardService', () => {
     expect(validation.shouldRunAfterSuccess).toBe(true)
   })
 
-  test('skips after-success hook when locking is disabled for resource', async () => {
+  test('skips enrichment when locking is disabled for resource (settings off)', async () => {
+    const validateMutation = jest.fn()
     const recordLockService = {
-      validateMutation: jest.fn().mockResolvedValue({
-        ok: true,
-        enabled: true,
-        resourceEnabled: false,
-        strategy: 'optimistic',
-        shouldReleaseOnSuccess: false,
-        lock: null,
-        latestActionLogId: null,
-      }),
+      getSettings: jest.fn().mockResolvedValue({ ...DEFAULT_RECORD_LOCK_SETTINGS, enabledResources: ['sales.order'] }),
+      validateMutation,
       emitIncomingChangesNotificationAfterMutation: jest.fn().mockResolvedValue(undefined),
       releaseAfterMutation: jest.fn().mockResolvedValue(undefined),
     } as unknown as RecordLockService
 
-    const service = createRecordLockCrudMutationGuardService(recordLockService)
+    const service = createRecordLockCrudMutationGuardService(recordLockService, makeFloorPass())
     const validation = await service.validateMutation({
       tenantId: 'tenant-1',
       organizationId: 'org-1',
@@ -66,10 +72,12 @@ describe('createRecordLockCrudMutationGuardService', () => {
     expect(validation.ok).toBe(true)
     if (!validation.ok) throw new Error('Expected successful validation')
     expect(validation.shouldRunAfterSuccess).toBe(false)
+    expect(validateMutation).not.toHaveBeenCalled()
   })
 
   test('emits record-deleted notification hook after delete mutation success', async () => {
     const recordLockService = {
+      getSettings: jest.fn().mockResolvedValue(ENABLED_SETTINGS),
       validateMutation: jest.fn().mockResolvedValue({
         ok: true,
         enabled: true,
@@ -84,7 +92,7 @@ describe('createRecordLockCrudMutationGuardService', () => {
       releaseAfterMutation: jest.fn().mockResolvedValue(undefined),
     } as unknown as RecordLockService
 
-    const service = createRecordLockCrudMutationGuardService(recordLockService)
+    const service = createRecordLockCrudMutationGuardService(recordLockService, makeFloorPass())
     await service.afterMutationSuccess({
       tenantId: 'tenant-1',
       organizationId: 'org-1',

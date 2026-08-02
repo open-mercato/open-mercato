@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getAgent } from './agent-registry'
 import { hasRequiredFeatures } from './auth'
 import { toolRegistry } from './tool-registry'
@@ -7,6 +8,8 @@ import type {
   AiAgentMutationPolicy,
 } from './ai-agent-definition'
 import type { AiToolDefinition } from './types'
+
+const logger = createLogger('ai_assistant')
 
 export type AgentPolicyDenyCode =
   | 'agent_unknown'
@@ -92,11 +95,11 @@ export function resolveEffectiveMutationPolicy(
     codeDeclared && isKnownMutationPolicy(codeDeclared) ? codeDeclared : 'read-only'
   if (override === undefined || override === null) return base
   if (!isKnownMutationPolicy(override)) {
-    console.warn(
-      `[AI Agents] Ignoring corrupt mutationPolicy override for agent "${agentId ?? '<unknown>'}": ${String(
-        override,
-      )}. Falling back to code-declared policy "${base}".`,
-    )
+    logger.warn('Ignoring corrupt mutationPolicy override; falling back to code-declared policy', {
+      agentId: agentId ?? '<unknown>',
+      override: String(override),
+      base,
+    })
     return base
   }
   const baseRank = POLICY_RESTRICTIVENESS[base]

@@ -27,7 +27,8 @@
  * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md (§ command-level checks)
  *       .ai/specs/2026-05-28-optimistic-locking-coverage-completion.md (Phase 4)
  */
-import { CrudHttpError } from './errors'
+import type { AwilixContainer } from 'awilix'
+import { CrudHttpError, isCrudHttpError } from './errors'
 import {
   OPTIMISTIC_LOCK_CONFLICT_CODE,
   OPTIMISTIC_LOCK_CONFLICT_ERROR,
@@ -301,5 +302,63 @@ export function createCommandOptimisticLockGuardService(
         envValue: input.envValue,
       })
     },
+  }
+}
+
+const COMMAND_OPTIMISTIC_LOCK_GUARD_SERVICE_KEY = 'commandOptimisticLockGuardService'
+
+function resolveCommandOptimisticLockGuardService(
+  container: AwilixContainer,
+): CommandOptimisticLockGuardService | null {
+  try {
+    const service = container.resolve<CommandOptimisticLockGuardService>(
+      COMMAND_OPTIMISTIC_LOCK_GUARD_SERVICE_KEY,
+    )
+    if (!service || typeof service.enforce !== 'function') return null
+    return service
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Async, DI-aware command-level optimistic-lock runner (Phase 0 / S1). This is
+ * the additive seam command handlers migrate to so BOTH the OSS floor and the
+ * optional enterprise `record_locks` enrichment protect Command-pattern writes
+ * through one call:
+ *
+ *   1. The OSS `updated_at` floor runs **unconditionally first** via the
+ *      synchronous {@link enforceCommandOptimisticLock} — a stale write 409s
+ *      here regardless of any record-lock token / widget state (H2). The legacy
+ *      helper is reused verbatim, so the floor behaves identically to existing
+ *      direct call sites.
+ *   2. If the floor passes, the optional `commandOptimisticLockGuardService` is
+ *      resolved from the request container and awaited for enrichment.
+ *
+ * Fail-closed delegation (H3): a `record_lock_conflict`/409 from the enterprise
+ * service is rethrown (the write must be blocked), but ANY non-conflict error
+ * from a broken/unregistered enterprise guard is swallowed — the request
+ * degrades to OSS-only protection, never to "skip the guard".
+ *
+ * Strictly additive: with no enterprise service registered (OSS-only build) this
+ * is exactly the OSS compare. The synchronous {@link enforceCommandOptimisticLock}
+ * helper is left untouched for external callers.
+ */
+export async function enforceCommandOptimisticLockWithGuards(
+  container: AwilixContainer,
+  input: EnforceCommandOptimisticLockInput,
+): Promise<void> {
+  // 1. OSS floor — unconditional, synchronous, identical to direct call sites.
+  enforceCommandOptimisticLock(input)
+
+  // 2. Optional enterprise enrichment, fail-closed.
+  const guard = resolveCommandOptimisticLockGuardService(container)
+  if (!guard) return
+
+  try {
+    await guard.enforce(input)
+  } catch (error) {
+    // A real conflict must block the write; anything else degrades to OSS-only.
+    if (isCrudHttpError(error) && error.status === 409) throw error
   }
 }

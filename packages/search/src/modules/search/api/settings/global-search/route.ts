@@ -4,10 +4,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
-  resolveGlobalSearchStrategies,
+  resolveGlobalSearchStrategiesResult,
   saveGlobalSearchStrategies,
   DEFAULT_GLOBAL_SEARCH_STRATEGIES,
 } from '../../../lib/global-search-config'
+import type { GlobalSearchSource } from '../../../lib/global-search-config'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 import { globalSearchSettingsOpenApi } from '../../openapi'
 
@@ -22,6 +23,7 @@ export const metadata = {
 
 type SettingsResponse = {
   enabledStrategies: SearchStrategyId[]
+  source?: GlobalSearchSource
 }
 
 const toJson = (payload: SettingsResponse, init?: ResponseInit) => NextResponse.json(payload, init)
@@ -37,11 +39,12 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   try {
-    const enabledStrategies = await resolveGlobalSearchStrategies(container, {
+    const { strategies: enabledStrategies, source } = await resolveGlobalSearchStrategiesResult(container, {
       defaultValue: DEFAULT_GLOBAL_SEARCH_STRATEGIES,
+      scope: { tenantId: auth.tenantId },
     })
 
-    return toJson({ enabledStrategies })
+    return toJson({ enabledStrategies, source })
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') {
@@ -75,7 +78,9 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   try {
-    await saveGlobalSearchStrategies(container, parsed.data.enabledStrategies)
+    await saveGlobalSearchStrategies(container, parsed.data.enabledStrategies, {
+      scope: { tenantId: auth.tenantId },
+    })
 
     return NextResponse.json({ ok: true, enabledStrategies: parsed.data.enabledStrategies })
   } catch (error) {

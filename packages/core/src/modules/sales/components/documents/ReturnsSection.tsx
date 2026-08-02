@@ -17,6 +17,7 @@ import {
   emitSalesDocumentTotalsRefresh,
   subscribeSalesDocumentTotalsRefresh,
 } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import { sumShippedQuantityByLine } from '@open-mercato/core/modules/sales/lib/returnQuantity'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import { ReturnDialog, type ReturnOrderLine } from './ReturnDialog'
 import { ReturnEditDialog, type ReturnEditRecord } from './ReturnEditDialog'
@@ -60,14 +61,25 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
 
   const loadLines = React.useCallback(async () => {
     const params = new URLSearchParams({ page: '1', pageSize: '100', orderId })
-    const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-      `/api/sales/order-lines?${params.toString()}`,
-      undefined,
-      { fallback: { items: [] } },
+    const shipmentParams = new URLSearchParams({ page: '1', pageSize: '200', orderId })
+    const [response, shipmentsResponse] = await Promise.all([
+      apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-lines?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      ),
+      apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/shipments?${shipmentParams.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      ),
+    ])
+    const shippedByLine = sumShippedQuantityByLine(
+      Array.isArray(shipmentsResponse.result?.items) ? shipmentsResponse.result?.items : [],
     )
     const items = Array.isArray(response.result?.items) ? response.result?.items ?? [] : []
     const mapped: ReturnOrderLine[] = items
-      .map((item) => {
+      .map((item): ReturnOrderLine | null => {
         const map = item as Record<string, unknown>
         const id = typeof map.id === 'string' ? map.id : null
         if (!id) return null
@@ -110,6 +122,7 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
           lineNumber,
           quantity: Number.isFinite(quantity) ? quantity : 0,
           returnedQuantity: Number.isFinite(returnedQuantity) ? returnedQuantity : 0,
+          shippedQuantity: shippedByLine.get(id) ?? 0,
         }
       })
       .filter((entry): entry is ReturnOrderLine => Boolean(entry?.id))

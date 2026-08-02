@@ -10,7 +10,8 @@ The commands framework packages complex write flows into discrete handlers. Comm
 ## Key Concepts
 
 - Commands live under `packages/<package>/src/modules/<module>/commands/*.ts`.
-- Each handler exports a unique `id` and registers itself by calling `registerCommand(handler)` when the module boots (see `index.ts`).
+- Each handler exports a unique `id` and registers itself by calling `registerCommand(handler)` when its command file is loaded.
+- `yarn generate` creates lazy command loaders, so command files are imported on first `CommandBus.execute()` / `undo()` use instead of during module bootstrap.
 - Commands execute through the shared `CommandBus`, resolved from the request container: `container.resolve<CommandBus>('commandBus')`.
 - Action logs are generated automatically when handlers opt-in via `buildLog`, and undo tokens are supported for reversible operations.
 - Helper utilities (`parseWithCustomFields`, `emitCrudSideEffects`, etc.) reduce boilerplate when working with CRUD entities and custom fields.
@@ -44,24 +45,21 @@ Handler methods are all optional except `id` and `execute`. Use the optional hoo
 
 ### Registration
 
-Modules import their command files from `index.ts` so handlers are registered at bootstrap:
+Command files register handlers when loaded. The module generator discovers files under `commands/` and writes lazy loaders, so module `index.ts` does not need command side-effect imports:
 
 ```ts
-// packages/core/src/modules/auth/index.ts
-import './commands/users'
-import './commands/roles'
-
-export const metadata = { /* ... */ }
-```
-
-Inside the command file, call `registerCommand(handler)` once per handler:
-
-```ts
+// packages/core/src/modules/auth/commands/users.ts
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 
 registerCommand(createUserCommand)
 registerCommand(updateUserCommand)
 registerCommand(deleteUserCommand)
+```
+
+The command bus loads the matching command file on demand. Manual imports are still useful in isolated tests that read `commandRegistry` directly:
+
+```ts
+import '@open-mercato/core/modules/auth/commands/users'
 ```
 
 Attempting to register the same `id` twice throws an error, helping catch collisions early.

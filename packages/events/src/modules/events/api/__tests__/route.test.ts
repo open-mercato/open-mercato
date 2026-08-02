@@ -36,9 +36,10 @@ describe('GET /api/events (core events module route)', () => {
     jest.clearAllMocks()
   })
 
-  it('declares requireAuth: true and explicit path so the dispatcher denies anonymous callers', () => {
+  it('restricts the event catalog to authenticated workflow users', () => {
     expect(metadata.path).toBe('/events')
     expect(metadata.GET?.requireAuth).toBe(true)
+    expect(metadata.GET?.requireFeatures).toEqual(['workflows.view'])
   })
 
   it('returns the full registry by default (excludeTriggerExcluded=true)', async () => {

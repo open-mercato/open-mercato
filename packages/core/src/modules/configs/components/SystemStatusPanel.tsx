@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
@@ -23,12 +25,12 @@ const STATUS_LABEL_KEYS: Record<SystemStatusState, string> = {
   unknown: 'configs.systemStatus.state.unknown',
 }
 
-const STATUS_BADGE_CLASSES: Record<SystemStatusState, string> = {
-  enabled: 'border border-emerald-300 bg-emerald-50 text-emerald-700',
-  disabled: 'border border-slate-300 bg-slate-100 text-slate-700',
-  set: 'border border-blue-300 bg-blue-50 text-blue-700',
-  unset: 'border border-dashed border-slate-200 text-slate-500',
-  unknown: 'border border-amber-300 bg-amber-50 text-amber-700',
+const STATUS_BADGE_VARIANTS: StatusMap<SystemStatusState> = {
+  enabled: 'success',
+  disabled: 'neutral',
+  set: 'info',
+  unset: 'neutral',
+  unknown: 'warning',
 }
 
 const RUNTIME_MODE_LABEL_KEYS: Record<SystemStatusRuntimeMode, string> = {
@@ -81,15 +83,6 @@ function renderEnvAssignment(
     <code className={codeClass}>
       {`${item.key}=${value}`}
     </code>
-  )
-}
-
-function StatusBadge({ state }: { state: SystemStatusState }) {
-  const t = useT()
-  return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE_CLASSES[state]}`}>
-      {t(STATUS_LABEL_KEYS[state])}
-    </span>
   )
 }
 
@@ -163,9 +156,7 @@ export function SystemStatusPanel() {
             )}
           </p>
         </header>
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {state.error}
-        </div>
+        <ErrorMessage label={state.error} />
         <Button type="button" variant="outline" onClick={() => loadSnapshot().catch(() => {})}>
           {t('configs.systemStatus.retry', 'Retry')}
         </Button>
@@ -215,7 +206,9 @@ export function SystemStatusPanel() {
                       <h4 className="text-sm font-semibold">{t(item.labelKey)}</h4>
                       <p className="text-xs text-muted-foreground">{t(item.descriptionKey)}</p>
                     </div>
-                    <StatusBadge state={item.state} />
+                    <StatusBadge variant={STATUS_BADGE_VARIANTS[item.state]}>
+                      {t(STATUS_LABEL_KEYS[item.state])}
+                    </StatusBadge>
                   </div>
                   <dl className="grid gap-3 text-sm sm:grid-cols-2">
                     <div className="space-y-1">

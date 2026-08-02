@@ -47,7 +47,27 @@ export async function createSalesOrderFixture(
   token: string,
   currencyCode = 'USD',
 ): Promise<string> {
-  return createEntity(request, token, '/api/sales/orders', { currencyCode }, ['id', 'orderId']);
+  // A sales order must contain at least one line (see issue #4021). Seed a
+  // zero-priced placeholder line so the order is valid on creation without
+  // perturbing totals in specs that add their own priced lines afterwards.
+  return createEntity(
+    request,
+    token,
+    '/api/sales/orders',
+    {
+      currencyCode,
+      lines: [
+        {
+          currencyCode,
+          quantity: 1,
+          name: `QA seed line ${Date.now()}`,
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        },
+      ],
+    },
+    ['id', 'orderId'],
+  );
 }
 
 export async function createOrderLineFixture(
@@ -74,6 +94,27 @@ export async function createOrderLineFixture(
 }
 
 /**
+ * Ship one or more order lines so a subsequent return passes the
+ * shipped-quantity guard (issue #3034). A return can only be created for
+ * quantities that were physically shipped, so any spec that creates a return
+ * must ship the relevant line(s) first. Returns the created shipment id.
+ */
+export async function createShipmentFixture(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  items: Array<{ orderLineId: string; quantity: number }>,
+): Promise<string> {
+  return createEntity(
+    request,
+    token,
+    '/api/sales/shipments',
+    { orderId, items },
+    ['id', 'shipmentId'],
+  );
+}
+
+/**
  * Probe whether the authenticated principal can create a sales order on the
  * current tenant (i.e. holds `sales.orders.manage`). Sales-write integration
  * specs use this to self-skip on dev databases whose role ACLs were never
@@ -87,7 +128,19 @@ export async function canManageSalesOrders(
 ): Promise<boolean> {
   const response = await apiRequest(request, 'POST', '/api/sales/orders', {
     token,
-    data: { currencyCode: 'USD' },
+    // A sales order must contain at least one line (issue #4021).
+    data: {
+      currencyCode: 'USD',
+      lines: [
+        {
+          currencyCode: 'USD',
+          quantity: 1,
+          name: 'QA probe line',
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        },
+      ],
+    },
   });
   if (response.status() === 403) return false;
   if (!response.ok()) return false;

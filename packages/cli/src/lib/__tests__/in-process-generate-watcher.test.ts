@@ -1,11 +1,29 @@
-import { startInProcessGenerateWatcher } from '../in-process-generate-watcher'
+import {
+  startInProcessGenerateWatcher,
+  type GenerateWatcherChangeSignal,
+} from '../in-process-generate-watcher'
 
 const silentLogger = { log: jest.fn(), error: jest.fn() }
 
 async function flushAsync(times = 5): Promise<void> {
   for (let i = 0; i < times; i++) {
-    // eslint-disable-next-line no-await-in-loop
     await Promise.resolve()
+  }
+}
+
+function createFakeChangeSignal() {
+  let version = 0
+  let fallback = false
+  const signal: GenerateWatcherChangeSignal = {
+    currentVersion: () => version,
+    refresh: jest.fn(async () => undefined),
+    usesPollingFallback: () => fallback,
+    close: jest.fn(async () => undefined),
+  }
+  return {
+    signal,
+    markChanged: () => { version += 1 },
+    usePollingFallback: () => { fallback = true },
   }
 }
 
@@ -95,6 +113,179 @@ describe('startInProcessGenerateWatcher', () => {
 
     await handle.close()
     await handle.done
+  })
+
+  it('does not recompute the full checksum during event-gated idle polls', async () => {
+    const runGenerators = jest.fn(async () => undefined)
+    const computeStructureChecksum = jest.fn(async () => 'stable')
+    const { signal } = createFakeChangeSignal()
+    const handle = startInProcessGenerateWatcher({
+      pollMs: 1000,
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum,
+      runGenerators,
+    })
+
+    await flushAsync(8)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(1)
+
+    for (let poll = 0; poll < 20; poll += 1) {
+      jest.advanceTimersByTime(1000)
+      await flushAsync(8)
+    }
+
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(1)
+    expect(runGenerators).not.toHaveBeenCalled()
+    await handle.close()
+  })
+
+  it('coalesces filesystem event bursts into one checksum and regeneration', async () => {
+    let currentChecksum = 'before'
+    const runGenerators = jest.fn(async () => undefined)
+    const computeStructureChecksum = jest.fn(async () => currentChecksum)
+    const { signal, markChanged } = createFakeChangeSignal()
+    const handle = startInProcessGenerateWatcher({
+      pollMs: 1000,
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum,
+      runGenerators,
+    })
+
+    await flushAsync(8)
+    currentChecksum = 'after'
+    markChanged()
+    markChanged()
+    markChanged()
+    jest.advanceTimersByTime(1000)
+    await flushAsync(12)
+
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(2)
+    expect(runGenerators).toHaveBeenCalledTimes(1)
+    expect(runGenerators).toHaveBeenCalledWith('structure change')
+    await handle.close()
+  })
+
+  it('validates an unrelated filesystem event without regenerating', async () => {
+    const runGenerators = jest.fn(async () => undefined)
+    const computeStructureChecksum = jest.fn(async () => 'stable')
+    const { signal, markChanged } = createFakeChangeSignal()
+    const handle = startInProcessGenerateWatcher({
+      pollMs: 1000,
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum,
+      runGenerators,
+    })
+
+    await flushAsync(8)
+    markChanged()
+    jest.advanceTimersByTime(1000)
+    await flushAsync(12)
+
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(2)
+    expect(runGenerators).not.toHaveBeenCalled()
+    await handle.close()
+  })
+
+  it('retries a dirty checksum after a transient checksum failure', async () => {
+    const runGenerators = jest.fn(async () => undefined)
+    const computeStructureChecksum = jest.fn()
+      .mockResolvedValueOnce('before')
+      .mockRejectedValueOnce(new Error('temporary read failure'))
+      .mockResolvedValue('after')
+    const { signal, markChanged } = createFakeChangeSignal()
+    const handle = startInProcessGenerateWatcher({
+      pollMs: 1000,
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum,
+      runGenerators,
+    })
+
+    await flushAsync(8)
+    markChanged()
+    jest.advanceTimersByTime(1000)
+    await flushAsync(8)
+    expect(runGenerators).not.toHaveBeenCalled()
+
+    jest.advanceTimersByTime(1000)
+    await flushAsync(12)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(3)
+    expect(runGenerators).toHaveBeenCalledTimes(1)
+    await handle.close()
+  })
+
+  it('keeps an event that arrives while a checksum is in flight dirty for the next poll', async () => {
+    let releaseChecksum: ((value: string) => void) | null = null
+    const runGenerators = jest.fn(async () => undefined)
+    const computeStructureChecksum = jest.fn()
+      .mockResolvedValueOnce('before')
+      .mockImplementationOnce(() => new Promise<string>((resolve) => {
+        releaseChecksum = resolve
+      }))
+      .mockResolvedValue('after')
+    const { signal, markChanged } = createFakeChangeSignal()
+    const handle = startInProcessGenerateWatcher({
+      pollMs: 1000,
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum,
+      runGenerators,
+    })
+
+    await flushAsync(8)
+    markChanged()
+    jest.advanceTimersByTime(1000)
+    await flushAsync(8)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(2)
+
+    markChanged()
+    releaseChecksum?.('after')
+    await flushAsync(12)
+    expect(runGenerators).toHaveBeenCalledTimes(1)
+
+    jest.advanceTimersByTime(1000)
+    await flushAsync(12)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(3)
+    await handle.close()
+  })
+
+  it('falls back to full checksum polling when filesystem watching is unavailable', async () => {
+    const runGenerators = jest.fn(async () => undefined)
+    const computeStructureChecksum = jest.fn(async () => 'stable')
+    const { signal, usePollingFallback } = createFakeChangeSignal()
+    usePollingFallback()
+    const handle = startInProcessGenerateWatcher({
+      pollMs: 1000,
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum,
+      runGenerators,
+    })
+
+    await flushAsync(8)
+    jest.advanceTimersByTime(1000)
+    await flushAsync(8)
+    jest.advanceTimersByTime(1000)
+    await flushAsync(8)
+
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(3)
+    await handle.close()
+    expect(signal.close).toHaveBeenCalledTimes(1)
   })
 
   it('does not start a new poll while a regeneration is in flight', async () => {

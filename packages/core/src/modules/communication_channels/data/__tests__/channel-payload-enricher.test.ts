@@ -18,19 +18,34 @@ function getPayloadEnricher(): ResponseEnricher {
   return enricher
 }
 
-function makeContext(): EnricherContext {
+function makeContext(messageId: string): EnricherContext {
+  const joinBuilder: any = {
+    onRef: jest.fn(() => joinBuilder),
+    on: jest.fn(() => joinBuilder),
+  }
+  const participantQuery: any = {
+    selectFrom: jest.fn(() => participantQuery),
+    leftJoin: jest.fn((_table: string, join: (builder: any) => unknown) => {
+      join(joinBuilder)
+      return participantQuery
+    }),
+    select: jest.fn(() => participantQuery),
+    distinct: jest.fn(() => participantQuery),
+    where: jest.fn(() => participantQuery),
+    execute: jest.fn(async () => [{ id: messageId }]),
+  }
   return {
     organizationId: 'org-1',
     tenantId: 'tenant-1',
     userId: 'user-1',
-    em: {},
+    em: { getKysely: () => participantQuery },
     container: {},
   }
 }
 
 async function enrichOne(record: Record<string, unknown>): Promise<Record<string, unknown>> {
   const enricher = getPayloadEnricher()
-  const [out] = await enricher.enrichMany!([record], makeContext())
+  const [out] = await enricher.enrichMany!([record], makeContext(String(record.id)))
   return out as Record<string, unknown>
 }
 

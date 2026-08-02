@@ -22,8 +22,12 @@ import {
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
+import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'engine' })
 
 const DECRYPT_CONCURRENCY = 8
 
@@ -317,10 +321,10 @@ export class HybridQueryEngine implements QueryEngine {
             const force = this.isForcePartialIndexEnabled()
             if (!force) {
               if (gap.stats) {
-                console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+                logger.warn('Partial index coverage detected; falling back to basic engine', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
                 if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
               } else {
-                console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
+                logger.warn('Partial index coverage detected; falling back to basic engine', { entity })
                 if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
               }
               const fallbackResult = await this.fallback.query(entity, opts)
@@ -347,10 +351,10 @@ export class HybridQueryEngine implements QueryEngine {
               return await applyAfterExtensions(resultWithWarning)
             }
             if (gap.stats) {
-              console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+              logger.warn('Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
               if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
             } else {
-              console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
+              logger.warn('Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES', { entity })
               if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
             }
             partialIndexWarning = {
@@ -412,12 +416,16 @@ export class HybridQueryEngine implements QueryEngine {
       const searchSources: SearchTokenSource[] = indexSources
         .map((src) => ({ entity: String(src.entityId), recordIdColumn: src.recordIdColumn }))
         .filter((src) => src.recordIdColumn && src.entity)
-      const hasSearchTokens = searchEnabled && searchSources.length
+      const searchFilters = normalizedFilters.filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+      // Probe `search_tokens` only when this query actually searches. Every consumer of
+      // `searchRuntime.enabled` already sits behind a like/ilike guard, so on a plain list load the
+      // answer is unused — and the probe is a `LIMIT 1` the planner can resolve as a seq scan over a
+      // large `search_tokens`. The join path below already probes lazily for the same reason.
+      const hasSearchTokens = searchEnabled && searchSources.length && searchFilters.length
         ? await this.searchSourcesHaveTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
       const joinSearchAvailability = new Map<string, boolean>()
-      const searchFilters = normalizeFilters(opts.filters).filter((filter) => filter.op === 'like' || filter.op === 'ilike')
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -442,6 +450,47 @@ export class HybridQueryEngine implements QueryEngine {
           tenantId: opts.tenantId ?? null,
           organizationScope: orgScope,
           searchSources,
+        })
+        const baseSearchFilters = [...baseFilters, ...cfFilters]
+          .filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+        const fallbackFields = baseSearchFilters
+          .filter((filter) => !searchRuntime.enabled || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+          .map((filter) => String(filter.field))
+        if (fallbackFields.length) {
+          await warnOnCiphertextLikeFallback({
+            entity: String(entity),
+            fields: fallbackFields,
+            tenantId: opts.tenantId ?? null,
+            // `searchEnabled` also folds in the missing-table case, which is
+            // "no usable tokens" rather than "the operator switched search off".
+            reason: searchRuntime.enabled
+              ? 'no-indexable-tokens'
+              : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+            service: this.getEncryptionService(),
+          })
+        }
+      }
+      for (const [alias, joinedFilters] of joinFilters) {
+        const filters = joinedFilters.filter((entry) => entry.op === 'like' || entry.op === 'ilike')
+        if (!filters.length) continue
+        const join = joinMap.get(alias)
+        if (!join?.entityId) continue
+        const hasJoinedTokens = searchEnabled
+          ? await this.hasSearchTokens(String(join.entityId), opts.tenantId ?? null, orgScope)
+          : false
+        joinSearchAvailability.set(String(join.entityId), hasJoinedTokens)
+        const fallbackFields = filters
+          .filter((filter) => !hasJoinedTokens || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+          .map((filter) => filter.column)
+        if (!fallbackFields.length) continue
+        await warnOnCiphertextLikeFallback({
+          entity: String(join.entityId),
+          fields: fallbackFields,
+          tenantId: opts.tenantId ?? null,
+          reason: hasJoinedTokens
+            ? 'no-indexable-tokens'
+            : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          service: this.getEncryptionService(),
         })
       }
       const hasNonBaseSearchSource = searchSources.some(
@@ -510,7 +559,7 @@ export class HybridQueryEngine implements QueryEngine {
             const globalIndexed = globalStats.indexedCount
             const globalGap = (globalBase > 0 && globalIndexed < globalBase) || globalIndexed > globalBase
             if (globalGap) {
-              console.warn('[HybridQueryEngine] Partial index coverage detected at global scope; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
+              logger.warn('Partial index coverage detected at global scope; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
               if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
               partialIndexWarning = {
                 entity, entityLabel: this.resolveEntityLabel(entity),
@@ -704,8 +753,14 @@ export class HybridQueryEngine implements QueryEngine {
 
       const applyJoinFilterOpFn = (target: AnyBuilder, column: string, op: FilterOp, value?: unknown): AnyBuilder => {
         switch (op) {
-          case 'eq': return target.where(column, '=', value as any)
-          case 'ne': return target.where(column, '!=', value as any)
+          case 'eq':
+            return value === null
+              ? target.where(column, 'is', null)
+              : target.where(column, '=', value as any)
+          case 'ne':
+            return value === null
+              ? target.where(column, 'is not', null)
+              : target.where(column, '!=', value as any)
           case 'gt': return target.where(column, '>', value as any)
           case 'gte': return target.where(column, '>=', value as any)
           case 'lt': return target.where(column, '<', value as any)
@@ -792,7 +847,7 @@ export class HybridQueryEngine implements QueryEngine {
           resolvedKeys.forEach((key) => selectFieldSet.add(`cf:${key}`))
           if (this.isDebugVerbosity()) this.debug('query:cf:resolved-keys', { entity, keys: resolvedKeys })
         } catch (err) {
-          console.warn('[HybridQueryEngine] Failed to resolve custom field keys for', entity, err)
+          logger.warn('Failed to resolve custom field keys', { entity, err })
         }
       } else if (Array.isArray(opts.includeCustomFields)) {
         opts.includeCustomFields.map((key) => String(key)).forEach((key) => selectFieldSet.add(`cf:${key}`))
@@ -909,7 +964,7 @@ export class HybridQueryEngine implements QueryEngine {
             )
             next = { ...next, ...decrypted }
           } catch (err) {
-            console.error('Error decrypting entity payload', err)
+            logger.error('Error decrypting entity payload', { err })
           }
         }
         if (encSvc) {
@@ -1567,8 +1622,8 @@ export class HybridQueryEngine implements QueryEngine {
     value: unknown,
   ): any {
     switch (op) {
-      case 'eq': return eb(column, '=', value)
-      case 'ne': return eb(column, '!=', value)
+      case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
+      case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)
       case 'gt': return eb(column, '>', value)
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)
@@ -1627,9 +1682,13 @@ export class HybridQueryEngine implements QueryEngine {
     const orgScope = this.resolveOrganizationScope(opts)
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 
+    const normalizedFilters = normalizeFilters(opts.filters)
+    const hasSearchFilter = normalizedFilters.some((filter) => filter.op === 'like' || filter.op === 'ilike')
+
     const searchConfig = resolveSearchConfig()
     const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
-    const hasSearchTokens = searchEnabled
+    // Same gate as `query()`: without a like/ilike filter the probe's answer is never read.
+    const hasSearchTokens = searchEnabled && hasSearchFilter
       ? await this.hasSearchTokens(entity, opts.tenantId ?? null, orgScope)
       : false
     const searchRuntime: SearchRuntime = {
@@ -1639,8 +1698,6 @@ export class HybridQueryEngine implements QueryEngine {
       tenantId: opts.tenantId ?? null,
       mintAlias: createSearchAliasMinter(),
     }
-
-    const normalizedFilters = normalizeFilters(opts.filters)
 
     const applyScope = (q: AnyBuilder): AnyBuilder => {
       let next = q
@@ -1973,9 +2030,7 @@ export class HybridQueryEngine implements QueryEngine {
         await bus.emitEvent('query_index.reindex', payload, { persistent: true })
         if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
       } catch (err) {
-        console.warn('[HybridQueryEngine] Failed to schedule auto reindex:', {
-          ...context, error: err instanceof Error ? err.message : err,
-        })
+        logger.warn('Failed to schedule auto reindex', { ...context, err })
       }
     })
   }
@@ -2184,11 +2239,7 @@ export class HybridQueryEngine implements QueryEngine {
 
   private logSearchDebug(event: string, payload: Record<string, unknown>) {
     if (!this.isDebugVerbosity()) return
-    try {
-      console.info('[query-index:search]', event, JSON.stringify(payload))
-    } catch {
-      console.info('[query-index:search]', event, payload)
-    }
+    logger.debug('Search debug event', { event, payload })
   }
 
   private applyColumnFilter(
@@ -2238,8 +2289,14 @@ export class HybridQueryEngine implements QueryEngine {
     }
     const col: any = column
     switch (filter.op) {
-      case 'eq': return q.where(col, '=', filter.value as any)
-      case 'ne': return q.where(col, '!=', filter.value as any)
+      case 'eq':
+        return filter.value === null
+          ? q.where(col, 'is', null)
+          : q.where(col, '=', filter.value as any)
+      case 'ne':
+        return filter.value === null
+          ? q.where(col, 'is not', null)
+          : q.where(col, '!=', filter.value as any)
       case 'gt':
       case 'gte':
       case 'lt':
@@ -2348,7 +2405,7 @@ export class HybridQueryEngine implements QueryEngine {
   private debug(message: string, context?: Record<string, unknown>): void {
     if (!this.isDebugVerbosity()) return
     if (!this.isSqlDebugEnabled()) return
-    if (context) console.debug('[HybridQueryEngine]', message, context)
-    else console.debug('[HybridQueryEngine]', message)
+    if (context) logger.debug(message, context)
+    else logger.debug(message)
   }
 }

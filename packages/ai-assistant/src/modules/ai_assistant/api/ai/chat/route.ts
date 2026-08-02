@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { UIMessage } from 'ai'
 import { z } from 'zod'
@@ -31,6 +32,8 @@ import { AiAgentRuntimeOverrideRepository } from '../../../data/repositories/AiA
 import { createConversationStorage } from '../../../lib/conversation-storage'
 import { checkAiChatRateLimit } from '../../../lib/rate-limit'
 import type { EntityManager } from '@mikro-orm/postgresql'
+
+const logger = createLogger('ai_assistant')
 
 const MAX_MESSAGES = 100
 
@@ -389,7 +392,7 @@ function persistAssistantOnStreamCompletion(input: {
         )
       }
     } catch (error) {
-      console.error('[AI Chat Agent] Conversation persistence failure:', error)
+      logger.error('AI Chat Agent — Conversation persistence failure', { err: error })
     } finally {
       reader.releaseLock()
       await writer.close().catch(() => undefined)
@@ -534,10 +537,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         // Fail closed: refuse to dispatch if we cannot confirm the tenant allowlist.
         // Silently falling back to env-only would widen the effective allowlist when
         // the DB is unavailable, which is the opposite of what an admin intends.
-        console.error(
-          '[AI Chat Agent] Tenant allowlist lookup failed; refusing to dispatch:',
-          snapshotError,
-        )
+        logger.error('Tenant allowlist lookup failed; refusing to dispatch', { err: snapshotError })
         return jsonError(
           503,
           'Tenant allowlist is temporarily unavailable. Try again shortly.',
@@ -663,7 +663,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (error instanceof Error && error.name === 'AiChatConversationOrgNotFoundError') {
         return jsonError(400, error.message, 'organization_not_found')
       }
-      console.error('[AI Chat Agent] Failed to persist user message:', error)
+      logger.error('AI Chat Agent — Failed to persist user message', { err: error })
     }
 
     const response = await runAiAgentText({
@@ -700,7 +700,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
     }
-    console.error('[AI Chat Agent] Dispatch failure:', error)
+    logger.error('AI Chat Agent — Dispatch failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Agent dispatch failed.',

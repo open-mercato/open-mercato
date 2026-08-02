@@ -26,6 +26,13 @@ jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
   raiseCrudError: (...args: unknown[]) => mockRaiseCrudError(...args),
 }))
 
+const mockSurfaceRecordConflict = jest.fn<boolean, [unknown, unknown, unknown?]>(() => false)
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: (...args: [unknown, unknown, unknown?]) => mockSurfaceRecordConflict(...args),
+}))
+
+const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
+
 const mockFlash = jest.fn()
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => mockFlash(...args),
@@ -197,6 +204,7 @@ describe('PriceKindSettings', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockReadApiResultOrThrow.mockResolvedValue({ items: sampleItems })
+    mockSurfaceRecordConflict.mockReturnValue(false)
   })
 
   it('renders the section title and description', async () => {
@@ -420,5 +428,109 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(mockFlash).toHaveBeenCalledWith('Failed to load price kinds.', 'error')
     })
+  })
+
+  it('sends the optimistic-lock header on update (PUT) via withScopedApiRequestHeaders', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { ok: true } })
+    render(<PriceKindSettings />)
+    await waitFor(() => {
+      expect(screen.getByTestId('data-count')).toHaveTextContent('2')
+    })
+    await openEditDialog()
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('e.g. Regular price'), { target: { value: 'Updated Title' } })
+      fireEvent.click(screen.getByText('Save changes'))
+    })
+    await waitFor(() => {
+      expect(mockWithScopedApiRequestHeaders).toHaveBeenCalledWith(
+        { [OPTIMISTIC_LOCK_HEADER]: '2026-01-01' },
+        expect.any(Function),
+      )
+    })
+    await waitFor(() => {
+      expect(mockApiCall).toHaveBeenCalledWith(
+        '/api/catalog/price-kinds',
+        expect.objectContaining({ method: 'PUT' }),
+      )
+    })
+  })
+
+  it('omits the optimistic-lock header on create (POST)', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { ok: true } })
+    render(<PriceKindSettings />)
+    await waitFor(() => {
+      expect(screen.getByTestId('data-count')).toHaveTextContent('2')
+    })
+    await openCreateDialog()
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('e.g. regular'), { target: { value: 'wholesale' } })
+      fireEvent.change(screen.getByPlaceholderText('e.g. Regular price'), { target: { value: 'Wholesale Price' } })
+      fireEvent.click(screen.getByText('Create'))
+    })
+    await waitFor(() => {
+      expect(mockApiCall).toHaveBeenCalledWith(
+        '/api/catalog/price-kinds',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    // Create has no version, so the scoped-header wrapper is never engaged.
+    expect(mockWithScopedApiRequestHeaders).not.toHaveBeenCalled()
+  })
+
+  it('routes a 409 conflict on update through surfaceRecordConflict', async () => {
+    mockApiCall.mockResolvedValue({ ok: false, response: { status: 409 } })
+    mockRaiseCrudError.mockImplementation(() => {
+      const error = new Error('conflict') as Error & { status?: number; code?: string }
+      error.status = 409
+      error.code = 'optimistic_lock_conflict'
+      throw error
+    })
+    mockSurfaceRecordConflict.mockReturnValue(true)
+    render(<PriceKindSettings />)
+    await waitFor(() => {
+      expect(screen.getByTestId('data-count')).toHaveTextContent('2')
+    })
+    await openEditDialog()
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('e.g. Regular price'), { target: { value: 'Racing the other tab' } })
+      fireEvent.click(screen.getByText('Save changes'))
+    })
+    await waitFor(() => {
+      expect(mockSurfaceRecordConflict).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 409, code: 'optimistic_lock_conflict' }),
+        expect.any(Function),
+        expect.objectContaining({ onRefresh: expect.any(Function) }),
+      )
+    })
+    // When the conflict surface owns the resolution, the editor closes and no
+    // inline error duplicates the conflict messaging.
+    await waitFor(() => {
+      expect(screen.queryByTestId('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  it('routes a 409 conflict on delete through surfaceRecordConflict', async () => {
+    mockConfirm.mockResolvedValue(true)
+    mockApiCall.mockResolvedValue({ ok: false, response: { status: 409 } })
+    mockRaiseCrudError.mockImplementation(() => {
+      const error = new Error('conflict') as Error & { status?: number; code?: string }
+      error.status = 409
+      error.code = 'optimistic_lock_conflict'
+      throw error
+    })
+    mockSurfaceRecordConflict.mockReturnValue(true)
+    render(<PriceKindSettings />)
+    await waitFor(() => {
+      expect(screen.getByTestId('data-count')).toHaveTextContent('2')
+    })
+    const deleteButtons = screen.getAllByTestId('action-delete')
+    await act(async () => {
+      fireEvent.click(deleteButtons[0])
+    })
+    await waitFor(() => {
+      expect(mockSurfaceRecordConflict).toHaveBeenCalled()
+    })
+    // The conflict surface owns the messaging, so no error flash is raised.
+    expect(mockFlash).not.toHaveBeenCalledWith(expect.anything(), 'error')
   })
 })

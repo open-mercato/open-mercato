@@ -7,6 +7,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { buildEntitiesCsv } from '../lib/entitiesCsvExport'
 
 type EntityRow = {
   entityId: string
@@ -23,18 +24,6 @@ const columns: ColumnDef<EntityRow>[] = [
   { accessorKey: 'source', header: 'Source', meta: { priority: 3 } },
   { accessorKey: 'count', header: 'Fields', meta: { priority: 4 } },
 ]
-
-function toCsv(rows: EntityRow[]) {
-  const header = ['entityId','label','source','count']
-  const esc = (s: string | number) => {
-    const str = String(s ?? '')
-    if (/[",\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"'
-    return str
-  }
-  const lines = [header.join(',')]
-  for (const r of rows) lines.push([r.entityId, r.label, r.source, r.count].map(esc).join(','))
-  return lines.join('\n')
-}
 
 export default function SystemEntitiesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
@@ -66,7 +55,7 @@ export default function SystemEntitiesTable() {
       actions={(
         <>
           <Button variant="outline" onClick={() => {
-            const csv = toCsv(rows)
+            const csv = buildEntitiesCsv(rows)
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')

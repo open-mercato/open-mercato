@@ -1,4 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { McpToolDefinition, McpToolRegistry, ToolRegistrationOptions } from './types'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Global tool registry singleton.
@@ -17,7 +20,7 @@ class ToolRegistryImpl implements McpToolRegistry {
     }
 
     if (this.tools.has(tool.name)) {
-      console.warn(`[McpToolRegistry] Tool "${tool.name}" already registered, overwriting`)
+      logger.warn('Tool already registered, overwriting', { toolName: tool.name })
     }
 
     this.tools.set(tool.name, tool as McpToolDefinition)

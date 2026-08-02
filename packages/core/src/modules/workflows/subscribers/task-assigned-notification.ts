@@ -2,6 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   event: 'workflows.task.assigned',
@@ -48,6 +51,6 @@ export default async function handle(payload: TaskAssignedPayload, ctx: Resolver
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[workflows:task-assigned-notification] Failed to create notification:', err)
+    logger.error('Failed to create notification', { component: 'task-assigned-notification', err })
   }
 }

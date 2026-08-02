@@ -12,6 +12,9 @@ import {
   purgeCacheResponseSchema,
   configErrorSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('configs')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.system_status.view'] },
@@ -28,7 +31,7 @@ export async function GET(req: Request) {
     const snapshot: SystemStatusSnapshot = buildSystemStatusSnapshot()
     return NextResponse.json(snapshot)
   } catch (error) {
-    console.error('[configs.system-status] failed to build environment snapshot', error)
+    logger.error('failed to build environment snapshot', { component: 'system-status', err: error })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('configs.systemStatus.error', 'Failed to load system status') },
@@ -65,7 +68,7 @@ export async function POST(req: Request) {
     const cleared = await runWithCacheTenant(tenantScope, () => cache.clear())
     return NextResponse.json({ cleared })
   } catch (error) {
-    console.error('[configs.system-status] failed to purge cache', error)
+    logger.error('failed to purge cache', { component: 'system-status', err: error })
     return NextResponse.json(
       { error: translate('configs.systemStatus.actions.purgeCacheError', 'Failed to purge cache.') },
       { status: 500 }

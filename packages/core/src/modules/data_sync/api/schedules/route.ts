@@ -90,7 +90,7 @@ export async function POST(req: Request) {
     const schedule = await scheduleService.saveSchedule({
       ...parsed.data,
       expectedUpdatedAt: readOptimisticLockExpected(req),
-    }, scope)
+    }, scope, container)
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {

@@ -1,5 +1,3 @@
-import './commands/conflicts'
-
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {

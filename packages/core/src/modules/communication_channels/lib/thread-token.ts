@@ -3,6 +3,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadToken } from '../data/entities'
 import { isUniqueViolation } from './pg-errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'thread-token' })
 
 /**
  * Per-thread crypto token used by the layered thread-matcher to attach
@@ -60,8 +63,8 @@ function getKey(): Buffer {
         ' refusing to sign thread tokens with a static dev key in production.',
     )
   }
-  console.warn(
-    `[communication_channels] No ${HMAC_KEY_ENV} or ${HMAC_FALLBACK_KEY_ENV} configured.` +
+  logger.warn(
+    `No ${HMAC_KEY_ENV} or ${HMAC_FALLBACK_KEY_ENV} configured.` +
       ' Thread tokens will use a dev-only static key — DO NOT USE IN PRODUCTION.',
   )
   cachedKey = createHash('sha256').update('open-mercato-thread-token-dev').digest()

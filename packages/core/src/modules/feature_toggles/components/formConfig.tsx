@@ -13,7 +13,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { booleanOverrideSelectValue } from "./overrideFormConfig";
 
 
-export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderProps) {
+export function DefaultValueField(props: CrudCustomFieldRenderProps) {
     const t = useT()
     const selectedType = props.values?.type as string;
 
@@ -132,7 +132,7 @@ export function createFieldDefinitions(
             id: 'defaultValue',
             label: '',
             type: 'custom',
-            component: renderDefaultValueCreateComponent,
+            component: (props) => <DefaultValueField {...props} />,
             description: t('feature_toggles.form.fields.defaultValue.description'),
         },
     ]

@@ -10,28 +10,22 @@ import {
   InlineDateRangeSelect,
   type DateRangePreset,
 } from '@open-mercato/ui/backend/date-range'
-import { DEFAULT_SETTINGS, hydrateSettings, type PipelineSummarySettings } from './config'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import {
+  DEFAULT_SETTINGS,
+  buildPipelineDataRequest,
+  hydrateSettings,
+  type PipelineStatusScope,
+  type PipelineSummarySettings,
+} from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'pipeline-summary' })
 
 async function fetchPipelineData(settings: PipelineSummarySettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
-  const body = {
-    entityType: 'customers:deals',
-    metric: {
-      field: 'valueAmount',
-      aggregate: 'sum',
-    },
-    groupBy: {
-      field: 'pipelineStage',
-      resolveLabels: true,
-    },
-    dateRange: {
-      field: 'createdAt',
-      preset: settings.dateRange,
-    },
-  }
-
-  return fetchWidgetData<WidgetDataResponse>(body)
+  return fetchWidgetData<WidgetDataResponse>(buildPipelineDataRequest(settings))
 }
 
 function formatStageLabel(stage: unknown, t: (key: string, fallback: string) => string): string {
@@ -73,7 +67,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
         }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load pipeline data', err)
+      logger.error('Failed to load pipeline data', { err })
       setError(t('dashboards.analytics.widgets.pipelineSummary.error', 'Failed to load data'))
     } finally {
       setLoading(false)
@@ -94,6 +88,30 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           value={hydrated.dateRange}
           onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
         />
+        <div className="space-y-1.5">
+          <label
+            htmlFor="pipeline-summary-status-scope"
+            className="text-xs font-semibold uppercase text-muted-foreground"
+          >
+            {t('dashboards.analytics.settings.dealStatusScope', 'Deals included')}
+          </label>
+          <Select
+            value={hydrated.statusScope}
+            onValueChange={(value) => onSettingsChange({ ...hydrated, statusScope: value as PipelineStatusScope })}
+          >
+            <SelectTrigger id="pipeline-summary-status-scope" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="open">
+                {t('dashboards.analytics.settings.dealStatusScopeOpen', 'Open deals only')}
+              </SelectItem>
+              <SelectItem value="all">
+                {t('dashboards.analytics.settings.dealStatusScopeAll', 'All deals, including won and lost')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     )
   }

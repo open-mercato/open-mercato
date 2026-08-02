@@ -1,4 +1,7 @@
 import { parseBooleanToken } from '../boolean'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'profiler' })
 
 const ROUND_PRECISION = 1000
 const NS_PER_MS = BigInt(1_000_000)
@@ -267,9 +270,8 @@ class ProfilerImpl implements Profiler {
     if (this.root.meta && Object.keys(this.root.meta).length > 0) {
       snapshot.meta = this.root.meta
     }
-    const serialized = JSON.stringify(snapshot, null, 2)
     try {
-      console.info(this.root.loggerLabel, serialized)
+      logger.info('Profiler snapshot', { label: this.root.loggerLabel, snapshot })
     } catch {
       // ignore logging failures
     }

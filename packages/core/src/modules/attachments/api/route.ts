@@ -13,6 +13,7 @@ import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import { assertAttachmentScopeInvariant } from '../lib/access'
+import { resolveAttachmentOrganizationId } from '../lib/requestScope'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -41,6 +42,9 @@ import {
   willExceedAttachmentTenantQuota,
 } from '../lib/upload-limits'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -195,10 +199,11 @@ export async function GET(req: Request) {
   }
   const { entityId, recordId, page, pageSize } = parsedQuery.data
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as EntityManager
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
-  if (auth.orgId) filter.organizationId = auth.orgId
+  if (orgId) filter.organizationId = orgId
   const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC' }
   const usePaging = typeof page === 'number' && typeof pageSize === 'number'
   const total = usePaging ? await em.count(Attachment, filter) : null
@@ -221,7 +226,7 @@ export async function GET(req: Request) {
     },
     {
       tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId ?? null,
+      organizationId: orgId ?? null,
     },
   )
   return NextResponse.json({
@@ -259,9 +264,19 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // A superadmin browsing with "All organizations" selected has no concrete
+  // organization scope, but an attachment must be stored under exactly one
+  // organization (the scope invariant forbids partial-null rows). Reject with a
+  // clear, actionable error instead of a 401 — a 401 makes the client-side
+  // fetch layer treat it as session expiry, show a misleading toast, and reset
+  // the in-progress form (#3764).
+  if (!auth.orgId) {
+    return NextResponse.json({
+      error: t('attachments.errors.selectOrganization', 'Select a specific organization before uploading an attachment.'),
+    }, { status: 400 })
+  }
   const tenantId = auth.tenantId
-  const orgId = auth.orgId
 
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
@@ -287,11 +302,13 @@ export async function POST(req: Request) {
   const tags = parseFormTags(form.get('tags'))
   const assignmentsFromForm = parseFormAssignments(form.get('assignments'))
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as EntityManager
-  const dataEngine = resolve('dataEngine')
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const dataEngine = container.resolve('dataEngine')
   const storageDriverFactory =
-    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
+    (container.resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
+  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
@@ -389,7 +406,7 @@ export async function POST(req: Request) {
     })
     storedPath = stored.storagePath
   } catch (error) {
-    console.error('[attachments] failed to persist file', error)
+    logger.error('Failed to persist file', { err: error })
     return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
   }
 
@@ -410,7 +427,7 @@ export async function POST(req: Request) {
         mimeType: fileMimeType,
       })
     } catch (error) {
-      console.error('[attachments] failed to extract attachment content', error)
+      logger.error('Failed to extract attachment content', { err: error })
     } finally {
       await cleanup().catch(() => {})
     }
@@ -422,12 +439,12 @@ export async function POST(req: Request) {
   }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
   const attachmentId = randomUUID()
-  assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: auth.orgId })
+  assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: orgId })
   const att = em.create(Attachment, {
     id: attachmentId,
     entityId,
     recordId,
-    organizationId: auth.orgId!,
+    organizationId: orgId,
     tenantId: auth.tenantId!,
     fileName: safeName,
     mimeType: fileMimeType,
@@ -456,16 +473,16 @@ export async function POST(req: Request) {
       }
     })
   } catch (error) {
-    console.error('[attachments] failed to persist attachment with custom attributes', error)
+    logger.error('Failed to persist attachment with custom attributes', { err: error })
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 
   if (useLlmOcr) {
     requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
-      console.error('[attachments] failed to queue OCR processing', error)
+      logger.error('Failed to queue OCR processing', { err: error })
     })
   } else if (wantsLlmOcr) {
-    console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
+    logger.warn('OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
   }
 
   if (dataEngine) {
@@ -527,26 +544,33 @@ async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: strin
 
 export async function DELETE(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
   const id = url.searchParams.get('id') || ''
   if (!id) return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as EntityManager
-  const dataEngine = resolve('dataEngine')
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const dataEngine = container.resolve('dataEngine')
   const storageDriverFactory =
-    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
-  const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId!, organizationId: auth.orgId }
+    (container.resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
+  // Resolve the currently selected organization (#3765) so a multi-org admin who
+  // switched the header org deletes within that org, not their pinned home org.
+  // A superadmin browsing with "All organizations" selected has no concrete org,
+  // so resolution returns null and the delete falls back to a tenant-only scope
+  // (#3764) — letting them remove any attachment in the tenant.
+  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId! }
+  if (orgId) deleteFilter.organizationId = orgId
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await em.remove(record).flush()
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
-    console.error('[attachments] failed to cleanup cached thumbnails', error)
+    logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
   if (record.storagePath) {
     const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!,
-      organizationId: record.organizationId ?? auth.orgId,
+      organizationId: record.organizationId ?? orgId ?? '',
     })
     await delDriver.delete(record.partitionCode, record.storagePath)
   }

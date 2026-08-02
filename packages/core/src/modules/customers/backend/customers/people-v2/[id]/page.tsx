@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { User, Hash, Users, Building2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -24,6 +24,7 @@ import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, 
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
@@ -51,12 +52,16 @@ import {
   type PersonOverview,
 } from '../../../../components/formConfig'
 import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { organizationId } = useOrganizationScopeDetail()
   const isMobile = useIsMobile()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -180,7 +185,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch((err) => console.warn('[people-v2] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'people-v2', err }))
   }, [loadData])
 
   React.useEffect(() => {
@@ -189,7 +194,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
-    loadData().catch((err) => console.warn('[people-v2] reload after activity failed', err))
+    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'people-v2', err }))
   }, [loadData])
 
   const plannedActivities = React.useMemo(() => {
@@ -217,6 +222,20 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       })
     },
     [injectionContext, runMutation],
+  )
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `customers.person` + id
+  // explicitly (the hardcoded path allowlist misses the `people-v2` route).
+  // Presence/acquire/heartbeat run on load; the hook clears on unmount/record switch.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'customers.person',
+      resourceId: currentPersonId,
+      updatedAt: data?.person?.updatedAt ?? data?.person?.updated_at ?? null,
+      data: data as Record<string, unknown> | null,
+      path: pathname,
+    }),
   )
 
   const handleAddActivity = React.useCallback((kind: ActivityKind) => {
@@ -496,7 +515,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             isDirty={isDirty}
             isSaving={isSaving}
             onOpenCompaniesTab={() => setActiveTab('companies')}
-            onDataReload={() => { loadData().catch((err) => console.warn('[people-v2] onDataReload failed', err)) }}
+            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
                 primaryEmail: 'input[type="email"]',
@@ -518,7 +537,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 <CrudForm<PersonEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="customers.person"
+                  injectionSpotId="crud-form:customers.person"
                   entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
                   schema={formSchema}
                   fields={fields}

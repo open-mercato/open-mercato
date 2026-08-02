@@ -50,6 +50,7 @@ jest.mock('next/navigation', () => ({
     get: (key: string) => (key === 'tab' ? activeTabParam : null),
     toString: () => (activeTabParam ? `tab=${activeTabParam}` : ''),
   }),
+  usePathname: () => '/backend/customers/deals/test',
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
@@ -98,6 +99,7 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (_headers: Record<string, string>, run: () => Promise<unknown>) => run(),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({

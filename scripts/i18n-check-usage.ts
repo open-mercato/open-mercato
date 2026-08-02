@@ -63,6 +63,8 @@ interface KeyReference {
   key: string
   file: string
   line: number
+  /** True when the ref came from a real `t()` / `translate()` call rather than an indirect literal. */
+  direct: boolean
 }
 
 function scanSourceFiles(allTranslationKeys: Set<string>): { refs: KeyReference[]; dynamicCount: number } {
@@ -108,19 +110,14 @@ function main() {
   console.log('')
 
   // Missing keys: referenced in code via t()/translate() but not in any en.json
-  // Only flag direct calls as missing — indirect property refs are validated against known keys
-  const directCallPattern = /(?<![a-zA-Z_])(?:t|translate)\(/
-  const missingRefs = refs.filter(r => {
-    if (allTranslationKeys.has(r.key)) return false
-    // Only report as missing if it came from a direct t()/translate() call
-    const filePath = path.join(ROOT, r.file)
-    const line = fs.readFileSync(filePath, 'utf-8').split('\n')[r.line - 1] || ''
-    return directCallPattern.test(line)
-  })
+  // Only flag direct calls as missing — indirect property refs are validated against known keys.
+  // The scanner marks that distinction on the ref itself; re-reading the ref's line to test it
+  // here would miss multiline calls, whose key argument sits on a line without `t(` (#4666).
+  const missingRefs = refs.filter(r => !allTranslationKeys.has(r.key) && r.direct)
   const missingKeys = new Set(missingRefs.map(r => r.key))
 
   // Unused keys: in en.json but never referenced in code
-  const unusedKeys = [...allTranslationKeys].filter(k => !usedKeys.has(k)).sort()
+  const unusedKeys = [...allTranslationKeys].filter(k => !usedKeys.has(k)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
   let hasErrors = false
 

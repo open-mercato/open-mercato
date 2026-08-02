@@ -21,6 +21,9 @@ import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'revenue-trend' })
 
 async function fetchRevenueTrendData(settings: RevenueTrendSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -132,7 +135,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
       }))
       setData(chartData)
     } catch (err) {
-      console.error('Failed to load revenue trend data', err)
+      logger.error('Failed to load revenue trend data', { err })
       setError(t('dashboards.analytics.widgets.revenueTrend.error', 'Failed to load data'))
     } finally {
       setLoading(false)

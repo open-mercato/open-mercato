@@ -1,9 +1,5 @@
 import type { AwilixContainer } from 'awilix'
-import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-  type CrudMutationGuardValidationResult,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 
 type RouteAuth = {
   sub?: string | null
@@ -19,10 +15,21 @@ type RouteMutationGuardInput = {
 }
 
 export type RouteMutationGuardContext = {
-  result: CrudMutationGuardValidationResult | null
+  /**
+   * Marker kept for source compatibility with callers; the registry result is
+   * fully handled inside the wrapper, so callers only need `afterSuccess`.
+   */
+  result: { ok: true } | null
   afterSuccess: () => Promise<void>
 }
 
+/**
+ * Run a communication-channels custom write route through the full mutation
+ * guard registry (`runRouteMutationGuards`) instead of only the legacy DI
+ * service. Returns `{ response }` when a guard blocks the mutation, or
+ * `{ result, afterSuccess }` to run after a successful write — preserving the
+ * shape the dependent routes already consume.
+ */
 export async function validateRouteMutationGuard(params: {
   container: AwilixContainer
   req: Request
@@ -34,35 +41,28 @@ export async function validateRouteMutationGuard(params: {
     return { result: null, afterSuccess: async () => undefined }
   }
 
-  const base = {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId ?? null,
-    userId: auth.sub,
-    resourceKind: input.resourceKind,
-    resourceId: input.resourceId,
-    operation: input.operation ?? 'custom',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-  } as const
-
-  const result = await validateCrudMutationGuard(container, {
-    ...base,
-    mutationPayload: input.mutationPayload ?? null,
+  const guarded = await runRouteMutationGuards({
+    container,
+    req,
+    auth: {
+      userId: auth.sub,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? null,
+    },
+    input: {
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      operation: input.operation ?? 'custom',
+      mutationPayload: input.mutationPayload ?? null,
+    },
   })
-  if (result && !result.ok) {
-    return {
-      response: Response.json(result.body, { status: result.status }),
-    }
+
+  if (!guarded.ok) {
+    return { response: guarded.response }
   }
 
   return {
-    result,
-    afterSuccess: async () => {
-      if (!result?.ok || !result.shouldRunAfterSuccess) return
-      await runCrudMutationGuardAfterSuccess(container, {
-        ...base,
-        metadata: result.metadata ?? null,
-      })
-    },
+    result: { ok: true },
+    afterSuccess: guarded.runAfterSuccess,
   }
 }

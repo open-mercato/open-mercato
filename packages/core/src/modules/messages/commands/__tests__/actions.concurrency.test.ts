@@ -1,6 +1,7 @@
 import '@open-mercato/core/modules/messages/commands/actions'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/message-types-registry'
 
 const TENANT_ID = '55555555-5555-4555-8555-555555555555'
 const ORG_ID = '66666666-6666-4666-8666-666666666666'
@@ -129,6 +130,20 @@ function deferred<T>() {
 }
 
 describe('messages.actions.execute terminal-action concurrency (#3261)', () => {
+  beforeAll(() => {
+    registerMessageTypes([
+      {
+        type: 'messages.test.concurrency',
+        module: 'messages',
+        labelKey: 'messages.test.concurrency',
+        icon: 'bell',
+        defaultActions: [
+          { id: ACTION_ID, label: 'Do it', commandId: TARGET_COMMAND_ID, isTerminal: true },
+        ],
+      },
+    ])
+  })
+
   it('claims the terminal action before executing the target command', async () => {
     const command = commandRegistry.get('messages.actions.execute')
     expect(command).toBeTruthy()

@@ -15,7 +15,7 @@ import { LockMode } from "@mikro-orm/core";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import type { EventBus } from "@open-mercato/events";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
-import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import { CrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
 import {
   deriveResourceFromCommandId,
   invalidateCrudCache,
@@ -23,6 +23,7 @@ import {
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { resolveNotificationService } from "../../notifications/lib/notificationService";
 import { buildFeatureNotificationFromType } from "../../notifications/lib/notificationBuilder";
+import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
 import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
@@ -75,6 +76,8 @@ import {
   quoteLineCreateSchema,
   quoteAdjustmentCreateSchema,
   orderCreateSchema,
+  ORDER_PAYMENT_LEDGER_WARNING_CODE,
+  resolveSuppliedOrderPaymentLedgerFields,
   orderLineCreateSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
@@ -86,6 +89,7 @@ import {
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
   type OrderCreateInput,
+  type OrderPaymentLedgerWarning,
   type OrderLineCreateInput,
   type OrderAdjustmentCreateInput,
   type InvoiceCreateInput,
@@ -125,7 +129,9 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
-import { resolveDictionaryEntryValue } from "../lib/dictionaries";
+import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
+import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
+import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
 import { loadSalesSettings } from "./settings";
@@ -137,6 +143,10 @@ import {
 } from "@open-mercato/shared/lib/units/unitCodes";
 import type { AuthContext } from "@open-mercato/shared/lib/auth/server";
 import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/translate";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
+let warnedDeprecatedOrderPaymentLedgerInput = false
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -147,6 +157,7 @@ const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    userId: ctx.actorUserId ?? null,
   }),
 };
 
@@ -158,6 +169,7 @@ const quoteCrudEvents: CrudEventsConfig<SalesQuote> = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    userId: ctx.actorUserId ?? null,
   }),
 };
 
@@ -851,6 +863,70 @@ function normalizeStatusValue(raw: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function isConfirmedOrderStatus(status: string | null): boolean {
+  return status === "confirmed";
+}
+
+function isCancelledOrderStatus(status: string | null): boolean {
+  return status === "canceled" || status === "cancelled";
+}
+
+async function emitOrderLifecycleEvent(input: {
+  eventId: "sales.order.confirmed" | "sales.order.cancelled";
+  order: SalesOrder;
+  previousStatus: string | null;
+}): Promise<void> {
+  await emitSalesEvent(input.eventId, {
+    id: input.order.id,
+    orderId: input.order.id,
+    orderNumber: input.order.orderNumber,
+    previousStatus: input.previousStatus,
+    status: normalizeStatusValue(input.order.status),
+    tenantId: input.order.tenantId,
+    organizationId: input.order.organizationId,
+  });
+}
+
+function emitOrderLifecycleEventsForTransition(input: {
+  order: SalesOrder;
+  previousStatus: string | null;
+}): void {
+  const nextStatus = normalizeStatusValue(input.order.status);
+  if (input.previousStatus === nextStatus) return;
+
+  if (isConfirmedOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.confirmed",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      // Surface as warning so downstream automations (e.g. WMS reservation
+      // subscriber) failing to register/persist their own follow-up state is
+      // observable in logs instead of being silently dropped. The order
+      // status transition itself is already committed at this point.
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.confirmed",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
+
+  if (isCancelledOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.cancelled",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.cancelled",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
+}
+
 function resolveNoteAuthorFromAuth(auth: AuthContext | null): string | null {
   if (!auth || auth.isApiKey) return null;
   const sub = typeof auth.sub === "string" ? auth.sub.trim() : "";
@@ -1058,12 +1134,18 @@ async function applyDocumentUpdate({
     if (input.channelId === null) {
       entity.channelId = null;
     } else {
-      const channel = await em.findOne(SalesChannel, {
-        id: input.channelId,
-        organizationId,
-        tenantId,
-        deletedAt: null,
-      });
+      const channel = await findOneWithDecryption(
+        em,
+        SalesChannel,
+        {
+          id: input.channelId,
+          organizationId,
+          tenantId,
+          deletedAt: null,
+        },
+        {},
+        { tenantId, organizationId },
+      );
       if (!channel) {
         throw new CrudHttpError(400, {
           error: translate(
@@ -3793,7 +3875,16 @@ async function restoreQuoteGraph(
   em: EntityManager,
   snapshot: QuoteGraphSnapshot,
 ): Promise<SalesQuote> {
-  let quote = await em.findOne(SalesQuote, { id: snapshot.quote.id });
+  let quote = await findOneWithDecryption(
+    em,
+    SalesQuote,
+    { id: snapshot.quote.id },
+    {},
+    {
+      tenantId: snapshot.quote.tenantId,
+      organizationId: snapshot.quote.organizationId,
+    },
+  );
   if (!quote) {
     quote = em.create(SalesQuote, {
       id: snapshot.quote.id,
@@ -4085,7 +4176,16 @@ async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
 ): Promise<SalesOrder> {
-  let order = await em.findOne(SalesOrder, { id: snapshot.order.id });
+  let order = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: snapshot.order.id },
+    {},
+    {
+      tenantId: snapshot.order.tenantId,
+      organizationId: snapshot.order.organizationId,
+    },
+  );
   if (!order) {
     order = em.create(SalesOrder, {
       id: snapshot.order.id,
@@ -4711,17 +4811,18 @@ const createQuoteCommand: CommandHandler<
           linkHref: `/backend/sales/quotes/${quote.id}`,
         });
 
-        await notificationService.createForFeature(notificationInput, {
-          tenantId: quote.tenantId,
-          organizationId: quote.organizationId ?? null,
-        });
+        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+        // e-mail delivery); interactive creates are unaffected.
+        if (!ctx.bulkImport?.skipNotifications) {
+          await notificationService.createForFeature(notificationInput, {
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId ?? null,
+          });
+        }
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
-      console.error(
-        "[sales.quotes.create] Failed to create notification:",
-        err,
-      );
+      logger.error("sales.quotes.create failed to create notification", { err });
     }
 
     // Emit CRUD side effects to trigger workflow event listeners
@@ -4737,6 +4838,7 @@ const createQuoteCommand: CommandHandler<
       },
       events: quoteCrudEvents,
       indexer: { entityType: E.sales.sales_quote },
+      actorUserId: ctx.auth?.sub ?? null,
     });
 
     // Invalidate cache
@@ -4783,7 +4885,16 @@ const createQuoteCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, { id: after.quote.id });
+    const quote = await findOneWithDecryption(
+      em,
+      SalesQuote,
+      { id: after.quote.id },
+      {},
+      {
+        tenantId: after.quote.tenantId,
+        organizationId: after.quote.organizationId,
+      },
+    );
     if (!quote) return;
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
@@ -4814,9 +4925,9 @@ const deleteQuoteCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, "Quote id is required");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, { id });
+    const quote = await findOneWithDecryption(em, SalesQuote, { id });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     const [addresses, notes, tags, adjustments, lines] = await Promise.all([
       findWithDecryption(
@@ -4941,14 +5052,14 @@ const updateQuoteCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.id,
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
     if (shouldInvalidateSentToken) {
       quote.acceptanceToken = null;
@@ -5173,13 +5284,14 @@ const updateOrderCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.id,
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const previousStatus = normalizeStatusValue(order.status);
     let statusChangeNote: SalesNote | null = null;
     const shouldRecalculateTotals =
@@ -5316,6 +5428,7 @@ const updateOrderCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    emitOrderLifecycleEventsForTransition({ order, previousStatus });
     if (statusChangeNote) {
       const dataEngine = ctx.container.resolve("dataEngine");
       await emitCrudSideEffects({
@@ -5396,14 +5509,22 @@ const updateOrderCommand: CommandHandler<
 
 const createOrderCommand: CommandHandler<
   OrderCreateInput,
-  { orderId: string }
+  { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
+    const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
+    if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
+      warnedDeprecatedOrderPaymentLedgerInput = true
+      logger.warn("sales.orders.create ignored deprecated payment ledger input", {
+        code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+        fields: deprecatedPaymentLedgerFields,
+      })
+    }
     const orderNumber =
       typeof initial.orderNumber === "string" &&
       initial.orderNumber.trim().length
@@ -5422,10 +5543,15 @@ const createOrderCommand: CommandHandler<
     }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    // Soft-resolve the cache so the per-order status/fulfillment/payment dictionary lookups are
+    // memoized across a bulk import; degrades to a straight EM read when no cache is registered.
+    const dictionaryCache = ctx.container.resolve("cache", { allowUnregistered: true }) as
+      | CacheStrategy
+      | undefined;
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
-      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
+      resolveCachedDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
     ]);
     const {
       customerSnapshot: resolvedCustomerSnapshot,
@@ -5707,17 +5833,18 @@ const createOrderCommand: CommandHandler<
           linkHref: `/backend/sales/orders/${order.id}`,
         });
 
-        await notificationService.createForFeature(notificationInput, {
-          tenantId: order.tenantId,
-          organizationId: order.organizationId ?? null,
-        });
+        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+        // e-mail delivery); interactive creates are unaffected.
+        if (!ctx.bulkImport?.skipNotifications) {
+          await notificationService.createForFeature(notificationInput, {
+            tenantId: order.tenantId,
+            organizationId: order.organizationId ?? null,
+          });
+        }
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
-      console.error(
-        "[sales.orders.create] Failed to create notification:",
-        err,
-      );
+      logger.error("sales.orders.create failed to create notification", { err });
     }
 
     // Emit CRUD side effects to trigger workflow event listeners
@@ -5733,6 +5860,7 @@ const createOrderCommand: CommandHandler<
       },
       events: orderCrudEvents,
       indexer: { entityType: E.sales.sales_order },
+      actorUserId: ctx.auth?.sub ?? null,
     });
 
     // Invalidate cache
@@ -5750,7 +5878,24 @@ const createOrderCommand: CommandHandler<
       "created",
     );
 
-    return { orderId: order.id };
+    emitOrderLifecycleEventsForTransition({
+      order,
+      previousStatus: null,
+    });
+
+    return {
+      orderId: order.id,
+      ...(deprecatedPaymentLedgerFields.length
+        ? {
+            warnings: [
+              {
+                code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+                fields: deprecatedPaymentLedgerFields,
+              },
+            ],
+          }
+        : {}),
+    };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -5779,7 +5924,16 @@ const createOrderCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, { id: after.order.id });
+    const order = await findOneWithDecryption(
+      em,
+      SalesOrder,
+      { id: after.order.id },
+      {},
+      {
+        tenantId: after.order.tenantId,
+        organizationId: after.order.organizationId,
+      },
+    );
     if (!order) return;
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
@@ -5810,9 +5964,9 @@ const deleteOrderCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, { id });
+    const order = await findOneWithDecryption(em, SalesOrder, { id });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     const shipments = await em.find(SalesShipment, { order: order.id });
     const shipmentIds = shipments.map((entry) => entry.id);
@@ -6006,22 +6160,18 @@ const convertQuoteToOrderCommand: CommandHandler<
       );
       const { translate } = await resolveTranslations();
       if (!quote)
-        throw new CrudHttpError(404, {
-          error: translate(
+        throw notFound(translate(
             "sales.documents.detail.error",
             "Document not found or inaccessible.",
-          ),
-        });
+          ));
       ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-      enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+      await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
       const snapshot = await loadQuoteSnapshot(em, payload.quoteId);
       if (!snapshot)
-        throw new CrudHttpError(404, {
-          error: translate(
+        throw notFound(translate(
             "sales.documents.detail.error",
             "Document not found or inaccessible.",
-          ),
-        });
+          ));
       const orderId = payload.orderId ?? quote.id;
       const existingOrder = await findOneWithDecryption(em, SalesOrder, {
         id: orderId,
@@ -6246,14 +6396,32 @@ const convertQuoteToOrderCommand: CommandHandler<
       });
 
       const [addresses, notes, tags] = await Promise.all([
-        em.find(SalesDocumentAddress, {
-          documentId: snapshot.quote.id,
-          documentKind: "quote",
-        }),
-        em.find(SalesNote, {
-          contextType: "quote",
-          contextId: snapshot.quote.id,
-        }),
+        findWithDecryption(
+          em,
+          SalesDocumentAddress,
+          {
+            documentId: snapshot.quote.id,
+            documentKind: "quote",
+          },
+          {},
+          {
+            tenantId: snapshot.quote.tenantId,
+            organizationId: snapshot.quote.organizationId,
+          },
+        ),
+        findWithDecryption(
+          em,
+          SalesNote,
+          {
+            contextType: "quote",
+            contextId: snapshot.quote.id,
+          },
+          {},
+          {
+            tenantId: snapshot.quote.tenantId,
+            organizationId: snapshot.quote.organizationId,
+          },
+        ),
         em.find(SalesDocumentTagAssignment, {
           documentId: snapshot.quote.id,
           documentKind: "quote",
@@ -6455,6 +6623,69 @@ const quoteAdjustmentDeleteSchema = z.object({
   quoteId: z.string().uuid(),
 });
 
+const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
+
+const hasNumericChange = (
+  next: number | null | undefined,
+  previous: number | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) return false;
+  if (previous === undefined || previous === null) return true;
+  return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
+};
+
+const hasUnitChange = (
+  next: string | null | undefined,
+  previous: string | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) return false;
+  const normalizedPrevious = (previous ?? "").trim().toLowerCase();
+  if (!normalizedPrevious) return false;
+  return next.trim().toLowerCase() !== normalizedPrevious;
+};
+
+async function assertShippedOrderLineEditable(
+  em: EntityManager,
+  order: SalesOrder,
+  existingSnapshot: SalesLineSnapshot | null,
+  parsed: z.infer<typeof orderLineUpsertSchema>,
+): Promise<void> {
+  const lineId = existingSnapshot?.id;
+  if (!existingSnapshot || !lineId) return;
+  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  });
+  const shippedQuantity = shippedByLine.get(lineId) ?? 0;
+  if (shippedQuantity <= 0) return;
+
+  const { translate } = await resolveTranslations();
+  const nextQuantity = parsed.quantity ?? existingSnapshot.quantity;
+  if (nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorQuantityBelowShipped",
+        "You cannot lower the quantity below the {{shipped}} already shipped.",
+        { shipped: shippedQuantity },
+      ),
+    });
+  }
+
+  const pricingChanged =
+    hasNumericChange(parsed.unitPriceNet, existingSnapshot.unitPriceNet) ||
+    hasNumericChange(parsed.unitPriceGross, existingSnapshot.unitPriceGross) ||
+    hasNumericChange(parsed.taxRate, existingSnapshot.taxRate) ||
+    hasUnitChange(parsed.quantityUnit, existingSnapshot.quantityUnit);
+  if (pricingChanged) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorPriceShipped",
+        "You cannot change the price or unit of a line that has shipped items.",
+      ),
+    });
+  }
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -6478,14 +6709,14 @@ const orderLineUpsertCommand: CommandHandler<
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = orderLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
@@ -6499,6 +6730,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"
         ? "gross"
@@ -6794,19 +7026,17 @@ const orderLineDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, {
-        error: translate(
+      throw notFound(translate(
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
-        ),
-      });
+        ));
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const shipmentCount = await em.count(SalesShipmentItem, {
       orderLine: parsed.id,
       shipment: { deletedAt: null },
@@ -6831,10 +7061,16 @@ const orderLineDeleteCommand: CommandHandler<
     );
     const filtered = existingLines.filter((line) => line.id !== parsed.id);
     if (filtered.length === existingLines.length) {
-      throw new CrudHttpError(404, {
-        error: translate(
+      throw notFound(translate(
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
+        ));
+    }
+    if (filtered.length === 0) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          "sales.documents.items.errorDeleteLast",
+          "An order must contain at least one line item.",
         ),
       });
     }
@@ -6970,14 +7206,14 @@ const quoteLineUpsertCommand: CommandHandler<
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = quoteLineUpsertSchema.parse(rawBody);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
       em.find(
@@ -7282,14 +7518,14 @@ const quoteLineDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const existingLines = await em.find(
       SalesQuoteLine,
       { quote },
@@ -7302,7 +7538,7 @@ const quoteLineDeleteCommand: CommandHandler<
     );
     const filtered = existingLines.filter((line) => line.id !== parsed.id);
     if (filtered.length === existingLines.length) {
-      throw new CrudHttpError(404, { error: "Quote line not found" });
+      throw notFound("Quote line not found");
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapQuoteLineEntityToSnapshot(line),
@@ -7436,14 +7672,14 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -7730,14 +7966,14 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await em.findOne(SalesOrder, {
+    const order = await findOneWithDecryption(em, SalesOrder, {
       id: parsed.orderId,
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
@@ -7749,7 +7985,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     ]);
     const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
     if (filtered.length === adjustments.length) {
-      throw new CrudHttpError(404, { error: "Adjustment not found" });
+      throw notFound("Adjustment not found");
     }
     const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
     const calcLines = lineSnapshots.map((line, index) =>
@@ -7895,14 +8131,14 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -8187,14 +8423,14 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.quoteId,
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
@@ -8206,7 +8442,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     ]);
     const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
     if (filtered.length === adjustments.length) {
-      throw new CrudHttpError(404, { error: "Adjustment not found" });
+      throw notFound("Adjustment not found");
     }
     const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
     const calcLines = lineSnapshots.map((line, index) =>
@@ -8379,12 +8615,21 @@ const createInvoiceCommand: CommandHandler<
 
     // Validate orderId belongs to same org/tenant
     if (parsed.orderId) {
-      const orderExists = await em.findOne(SalesOrder, {
-        id: parsed.orderId,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      });
+      const orderExists = await findOneWithDecryption(
+        em,
+        SalesOrder,
+        {
+          id: parsed.orderId,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          deletedAt: null,
+        },
+        {},
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        },
+      );
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
@@ -8869,12 +9114,21 @@ const createCreditMemoCommand: CommandHandler<
 
     // Validate orderId belongs to same org/tenant
     if (parsed.orderId) {
-      const orderExists = await em.findOne(SalesOrder, {
-        id: parsed.orderId,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      });
+      const orderExists = await findOneWithDecryption(
+        em,
+        SalesOrder,
+        {
+          id: parsed.orderId,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          deletedAt: null,
+        },
+        {},
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        },
+      );
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }

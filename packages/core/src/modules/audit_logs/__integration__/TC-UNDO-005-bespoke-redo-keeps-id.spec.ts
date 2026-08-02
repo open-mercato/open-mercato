@@ -9,6 +9,7 @@ import {
   canManageSalesOrders,
   createOrderLineFixture,
   createSalesOrderFixture,
+  createShipmentFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { deleteFeatureToggleIfExists } from '@open-mercato/core/helpers/integration/featureTogglesFixtures'
@@ -202,6 +203,9 @@ test.describe('TC-UNDO-005: bespoke create redo restores original ids', () => {
       orderId = await createSalesOrderFixture(request, token)
       const createdOrderId = orderId
       const orderLineId = await createOrderLineFixture(request, token, createdOrderId, { quantity: 2, name: 'QA Returnable' })
+      // Returns require physically shipped quantity (issue #3034); ship the line
+      // before exercising the return create/redo flow.
+      await createShipmentFixture(request, token, createdOrderId, [{ orderLineId, quantity: 2 }])
       const reason = `QA Redo Return ${stamp()}`
 
       returnId = await expectCreateRedoKeepsId({
