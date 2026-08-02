@@ -1234,12 +1234,12 @@ function renderExtensionHostsSection(extensionSurfaces: ModuleExtensionSurfaceFa
 
 function compactContributionDetails(contribution: ModuleExtensionContributionFact): string {
   const details = contribution.details as unknown as Record<string, unknown>
-  return Object.keys(details).sort().flatMap((key) => {
+  return Object.keys(details).sort((left, right) => left.localeCompare(right)).flatMap((key) => {
     const value = details[key]
     if (value === undefined) return []
     if (Array.isArray(value)) return [`${key}=${value.join(',') || 'none'}`]
     if (value && typeof value === 'object') {
-      const nested = Object.keys(value as Record<string, unknown>).sort().map((nestedKey) => {
+      const nested = Object.keys(value as Record<string, unknown>).sort((left, right) => left.localeCompare(right)).map((nestedKey) => {
         const nestedValue = (value as Record<string, unknown>)[nestedKey]
         return `${nestedKey}:${Array.isArray(nestedValue) ? nestedValue.join(',') : String(nestedValue)}`
       })
@@ -1426,7 +1426,7 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
     apiRoutes: new Set(Object.values(factsByModule).flatMap((facts) => facts.apiRoutes.map((route) => route.path))),
   })
   assertNoUnresolvedExtensionTargets(correlated)
-  for (const moduleId of Object.keys(factsByModule).sort()) {
+  for (const moduleId of Object.keys(factsByModule).sort((left, right) => left.localeCompare(right))) {
     factsByModule[moduleId].extensionSurfaces = correlated[moduleId]
     markdownByModule[moduleId] = renderModuleFactsMarkdown(factsByModule[moduleId])
     warnings.push(...correlated[moduleId].unresolved.map((entry) =>

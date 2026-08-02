@@ -472,7 +472,7 @@ function extractDeclaredHosts(options: ExtractModuleExtensionFactsOptions): {
 
   const hosts: ModuleExtensionHostFact[] = []
   const unresolved: ModuleExtensionUnresolvedFact[] = []
-  for (const hostKey of Object.keys(hostsObject).sort()) {
+  for (const hostKey of Object.keys(hostsObject).sort((left, right) => left.localeCompare(right))) {
     const host = hostsObject[hostKey]
     if (!isStaticObject(host)) continue
     const family = stringValue(host.family) as ExtensionHostFamily | undefined
@@ -674,7 +674,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
   if (!table) return []
   const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
   const facts: ModuleExtensionContributionFact[] = []
-  for (const targetId of Object.keys(table).sort()) {
+  for (const targetId of Object.keys(table).sort((left, right) => left.localeCompare(right))) {
     const entries = table[targetId]
     if (!Array.isArray(entries)) continue
     for (const entry of entries) {
@@ -1199,7 +1199,7 @@ export function correlateExtensionTarget(
 
 export function correlateModuleExtensionFacts(options: CorrelateExtensionFactsOptions): Record<string, ModuleExtensionSurfaceFacts> {
   const result: Record<string, ModuleExtensionSurfaceFacts> = {}
-  for (const moduleId of Object.keys(options.surfacesByModule).sort()) {
+  for (const moduleId of Object.keys(options.surfacesByModule).sort((left, right) => left.localeCompare(right))) {
     const surface = options.surfacesByModule[moduleId]
     const unresolved: ModuleExtensionUnresolvedFact[] = [...surface.unresolved]
     const contributions = surface.contributions.map((contribution) => {
@@ -1233,7 +1233,7 @@ export function assertNoUnresolvedExtensionTargets(
     surface.unresolved
       .filter((entry) => entry.reason === 'unresolved-first-party-target')
       .map((entry) => `${moduleId}:${entry.key}`),
-  ).sort()
+  ).sort((left, right) => left.localeCompare(right))
   if (unresolved.length > 0) {
     throw new Error(`[module-facts] unresolved first-party extension targets: ${unresolved.join(', ')}`)
   }
