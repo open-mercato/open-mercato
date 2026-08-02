@@ -2,10 +2,31 @@
 
 Date: 2026-07-30
 
-Status: **fixture-only composed candidate passes both peak targets; production
-promotion requires explicit dependency/runtime/template approval.**
+Status: **the current-dependency stable runtime composition misses the 30% memory
+gate; no runtime control is selected for production. Its CPU reduction is parked
+as verified follow-up evidence while one source-graph hypothesis is prepared.**
 
 ## Conclusion
+
+**Authoritative stable-toolchain decision (2026-08-02): the current Next 16.2.11
+composition does not provide a memory candidate.** Against the replacement
+baseline median of **8,607.89 MB**, the isolated warmup arm peaked at **9,412.52
+MB**, the composed telemetry/warmup/embedded-scheduler arm peaked at **9,046.49
+MB**, and the one allowed lightweight-supervisor diagnostic peaked at **8,322.41
+MB**. All miss the fixed **6,025.52 MB** ceiling. The composed and lightweight
+arms reduced CPU core-seconds by **32.79%** and **30.97%**, respectively, but CPU
+is not a substitute for the memory gate. No warmup, scheduler, supervisor,
+dependency, manifest, or lockfile change is selected for the next implementation
+task.
+
+The next falsifiable direction is source-graph scoping. The retained fixture emits
+`modules.app.generated.ts` at 855,779 bytes with 586 static imports and
+`modules.bootstrap.generated.ts` at 155,026 bytes with 361 static imports. A
+separate approved experiment must show that route-scoping those registries removes
+enough first-route compiler work while preserving authentication, the protected
+page, and in-place HMR. The stable-composition evidence and proposed boundary are
+recorded below; the older historical attribution remains useful but is superseded
+for production selection by this decision.
 
 **The default module-resource telemetry snapshots written below
 `.mercato/module-resource-usage/` were one real cause: they triggered repeated
@@ -25,9 +46,9 @@ A later fixture-only composition combined that telemetry fix with Next
 embedded-scheduler mechanism. Its globally audited replacement runs reduced
 median total peak by **44.753182%** and median maximum `next-turbopack` by
 **38.023580%**, passing both fixed ceilings with material headroom. This is accepted
-measurement evidence, not an authorized production change: C5 was omitted, and
-the preview pins plus runtime/template defaults remain behind the approval
-boundary below.
+historical measurement evidence, not an authorized production change: dependency
+updates are prohibited, C5 was omitted, and the stable-toolchain rerun below
+rejects the runtime/template controls as a memory candidate.
 
 ## Baseline attribution
 
@@ -310,7 +331,7 @@ source, not the missing fix: cold runs are worse, and disabling the cache increa
 median peak. Minification and graph-pruning flags cannot be shipped on the current
 stack because they break correctness or crash Turbopack.
 
-## Current decision and approval boundary
+## Historical Next 16.2 findings and preview boundary
 
 No tested source/config intervention on Next 16.2.x satisfies both peak ceilings.
 The [current npm release tags](https://www.npmjs.com/package/next?activeTab=versions)
@@ -362,10 +383,11 @@ Next/SWC 16.2.11 and React 19.2.7, with the original package/lock/runtime hashes
 all 8,291 Next/@next file hashes, and all 790 original cache hashes passing.
 
 That preview-only result did not authorize production promotion. The completed
-fixture-only composition and its remaining approval boundary are recorded below;
-no earlier C5/scheduler saving is assumed additive.
+fixture-only composition is retained below as historical evidence, followed by
+the authoritative stable-toolchain no-selection decision; no earlier C5/scheduler
+saving is assumed additive.
 
-### Fixture-only composed acceptance candidate
+### Historical fixture-only composed diagnostic
 
 The final fixture-only composition retained the branch telemetry fix and added
 Next/`@next/env`/Darwin ARM64 SWC `16.3.0-preview.9`, React/React DOM `19.2.7`,
@@ -417,26 +439,139 @@ the preview-only separate worker-plus-scheduler topology, median maximum falls
 1,019.72→443.45 MB (576.27 MB / **56.51%**) and median mean falls
 684.75→380.25 MB (304.50 MB / **44.47%**).
 
-#### Approval-gated implementation ledger
+#### Production disposition
 
-No production code was changed for this composition. Approval is required for:
+No production code changed for this preview composition. The later user constraint
+prohibits dependency and lockfile changes, and the stable-toolchain rerun below
+rejects the runtime controls as a memory candidate. Therefore none of the former
+preview/runtime files or tests is selected for production.
 
-| Role | Exact file | Planned change / gate |
+## Stable-toolchain composition decision — 2026-08-02
+
+The tested hypothesis was:
+
+> Watched telemetry snapshots plus automatic authenticated route warmup and a
+> separate scheduler process cause avoidable compile invalidation, startup work,
+> and process overhead; relocating telemetry, skipping automatic warmup, and
+> embedding scheduler polling should reduce total RSS and CPU while preserving the
+> user-driven first compile and scheduler behavior.
+
+Every accepted run used Node 24.13.1, installed Next/`@next` 16.2.11 and React
+19.2.7, the same 5,629-file seed with canonical digest
+`27ed25b9dacd68c8b8f249086e4bb2e7b6096638e573ff99cfb75ac627a422ae`,
+the same marker-A hash
+`8672e3cd23e43756f1a885b20724915c98110fff70a7c26da3cd756dcf516a6b`,
+and the fixed authenticated page/edit/HMR workflow. The replacement baseline
+medians are 8,607.89 MB peak RSS, 6,643.70 MB mean RSS, 130.24 CPU core-seconds,
+72.43% mean CPU, and 876.91% peak sampled CPU. Its hard 30% ceiling is 6,025.52
+MB.
+
+| Accepted arm | Peak RSS | Mean RSS | CPU core-s | Mean CPU | Peak CPU | Peak RSS vs baseline | CPU core-s vs baseline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Isolated warmup suppression; original telemetry and separate scheduler/shared worker | 9,412.52 MB | 7,045.96 MB | 124.52 | 69.17% | 900.47% | +804.63 MB (+9.35%) | -5.72 (-4.39%) |
+| Telemetry relocation + warmup suppression + embedded scheduler | 9,046.49 MB | 7,452.67 MB | 87.54 | 48.91% | 927.90% | +438.60 MB (+5.10%) | -42.70 (-32.79%) |
+| Lightweight supervisor diagnostic with the composed controls | 8,322.41 MB | 6,946.07 MB | 89.90 | 49.83% | 816.89% | -285.48 MB (-3.32%) | -40.34 (-30.97%) |
+
+The isolated arm is retained in
+`.mercato/dev-rss/stable-composition-telemetry-warmup.json`; its validity envelope
+is under `.mercato/dev-rss/evidence/stable-composition/`. It ran 180,002 ms with
+173 samples, issued zero automatic warmup requests, wrote the `warmup-skipped`
+ready reason, retained one separate scheduler and one shared worker, passed the
+browser/identity/audit gates, and made memory worse.
+
+The composed arm is retained as
+`.mercato/dev-rss/stable-composition-embedded-scheduler.json`. It ran 180,001 ms
+with 172 samples, wrote two fresh telemetry files below
+`.mercato/next/module-resource-usage`, retained exactly one
+`queue worker --all --with-scheduler` and no scheduler child or separate shared
+worker, and logged one scheduler polling start/stop plus six complete
+execute/enqueue/consume/complete cycles. Marker A appeared at T+74,235, marker B
+at T+111,674 after the T+100 edit, and the same Next PID/start survived through
+the independent T+140,103 identity capture. It misses the memory ceiling by
+3,020.97 MB even though CPU core-seconds improved by 32.79%.
+
+Because the composed arm missed the gate, the plan allowed one lightweight-
+supervisor run. The retained runtime envelope was initially rejected only because
+the coordinator applied the warmup arm's telemetry-root predicate to the
+`lightweight` label. The reconciliation script recomputed that predicate from the
+retained launch time and fresh telemetry files, then reasserted every unchanged
+gate. The corrected validity envelope is
+`.mercato/dev-rss/evidence/stable-composition/stable-composition-lightweight-supervisor-validity.json`;
+the original harness-error envelope remains beside it. The arm saves 724.08 MB
+peak and 506.60 MB mean RSS versus the composed arm, but still misses the hard
+ceiling by 2,296.89 MB. It also requires bypassing standard `yarn dev`, so it is a
+diagnostic, not a shippable default under the approved no-manifest-change scope.
+
+One warmup prelaunch and two composed attempts are excluded from all comparisons:
+the warmup prelaunch was withdrawn before the dev spawn after the copied
+coordinator resolved the seed from the wrong directory; one composed attempt had
+no browser action inside the required window; and one observed marker A only after
+the edit. Their evidence is preserved with `withdrawn` labels, and every post-
+withdrawal audit passed.
+
+### Exact production selection
+
+- Selected runtime controls: **none**.
+- Selected production files for the next implementation task: **none**.
+- Selected regression-test files for the next implementation task: **none**.
+- New or changed environment defaults: **none**.
+- Rollback: **none required**, because every runtime/source experiment was
+  fixture-only and restored.
+- Existing branch state: the previously implemented Task 3 telemetry relocation
+  remains unchanged as rebuild/sustained-memory hygiene; it is not a newly
+  selected Task 5 control and is not claimed to satisfy the peak-memory goal.
+- Parked follow-up: the embedded and lightweight arms' roughly 30–33% CPU-work
+  reductions may be reconsidered only after a memory candidate exists; they must
+  not be presented as satisfying the memory goal.
+
+The next implementation task must not apply warmup, embedded-scheduler, or
+lightweight-supervisor defaults from these results.
+
+### Next source-graph hypothesis and bounded proposed boundary
+
+The next single hypothesis is that first-route Turbopack memory is dominated by
+the two broad generated module registries: `modules.app.generated.ts` is 855,779
+bytes with 586 static imports, and `modules.bootstrap.generated.ts` is 155,026
+bytes with 361, for 947 static imports total. Route-scoped additive loaders should
+keep unrelated module entrypoints out of the initial server bootstrap and client
+app graph while preserving the existing generated filenames, `modules` exports,
+default exports, and `bootstrapModules` compatibility alias.
+
+This is a proposal for a separate measured architecture decision, not a selected
+Task 5 manifest. Read-only inspection bounds that proposal to:
+
+| Role | Proposed file/test boundary | Required proof before production selection |
 | --- | --- | --- |
-| Dependency pin | `package.json` | Pin approved Next preview version. |
-| Dependency pin | `apps/mercato/package.json` | Mirror app Next pin. |
-| Dependency pin | `packages/create-app/template/package.json.template` | Mirror scaffold Next pin. |
-| Lockfile | `yarn.lock` | Resolve the approved preview dependency set. |
-| Warmup runtime | `packages/create-app/template/scripts/dev-runtime.mjs` | Suppress automatic targeted warmup by default; preserve explicit opt-in. |
-| Root wrapper contract | `scripts/dev.mjs` | Retain/verify embedded-scheduler default and explicit override behavior. |
-| Template wrapper | `packages/create-app/template/scripts/dev.mjs` | Mirror the root embedded-scheduler default and explicit override. |
-| Regression test | `scripts/__tests__/dev-cache-purge.test.mjs` | Assert root/template wrapper default and override parity. |
-| Regression test | `packages/create-app/src/lib/template-dev-log-files.test.ts` | Assert template warmup default/opt-in and embedded topology wiring. |
-| Dependency gate | `packages/create-app/src/lib/template-dependency-drift.test.ts` | Verify app/template Next pins cannot drift. |
+| Generator | `packages/cli/src/lib/generators/module-registry.ts` | Emit additive route-scoped loader output without renaming or removing current registries/exports. |
+| Server app/template consumers | `apps/mercato/src/bootstrap.ts`; `packages/create-app/template/src/bootstrap.ts` | Consume the scoped server loader with exact app/template parity. |
+| Client app/template consumers | `apps/mercato/src/app/start/page.tsx`; `packages/create-app/template/src/app/start/page.tsx` | Consume the scoped client loader while preserving the `/start` behavior. |
+| Generator tests | `packages/cli/src/lib/generators/__tests__/module-subset.test.ts`; `packages/cli/src/lib/generators/__tests__/structural-contracts.test.ts`; `packages/cli/src/lib/generators/__tests__/output-snapshots.test.ts` | Prove the route-scoped import boundary plus legacy filename/export compatibility. |
+| Consumer/parity tests | `apps/mercato/src/__tests__/bootstrap.test.ts`; create `packages/create-app/src/lib/template-route-scoped-registries.test.ts` | Prove server selection and exact monorepo/template wiring parity. |
 
-The telemetry relocation already implemented on this branch remains unchanged.
+A fixture-only arm is accepted for promotion to the three-run candidate sequence
+only if it passes the same seed, Node, browser, scheduler, telemetry, identity,
+HMR, shutdown, and audit gates and reaches at most 6,025.52 MB peak RSS. A result
+above that ceiling rejects this hypothesis for the current goal even if it is a
+directional improvement. Any need to touch shared bootstrap internals, catch-all
+route contracts, generated filenames/exports, or files outside the boundary above
+requires a new architecture decision before editing them.
 
-## Restoration audit
+## Stable composition restoration audit
+
+The fixture was restored to package hash
+`b7f1aba393d1841e2c719efeb7478d7027fcd9d22f73d01f7fc3140e52dc7c84`,
+lockfile hash
+`94cd39654752c9cfb73dce51def0475cac02d0facc137c101744f91e24a851be`,
+`scripts/dev.mjs` hash
+`78b4b94d3dd2d5d855ae001ee3b2e5849e55392764c8f5f2566838f73180cac4`,
+`scripts/dev-runtime.mjs` hash
+`e15fa5b889afc1e3b2474da92113441a9d967c1632eac71226723b4622bfa354`,
+and marker A. Installed Next/`@next` is 16.2.11 and React/React DOM is 19.2.7.
+The final audit at `2026-08-02T17:53:19.403Z` found zero matching fixture,
+profiler, browser-controller, worker/scheduler processes and zero listeners on
+ports 3000/4000. The worktree dependency/manifest/lockfile diff is empty.
+
+## Historical preview restoration audit
 
 After the composed experiment, the fixture was restored with marker B, normal
 targeted-warmup behavior, no dev/profiler/browser tree, and its exact baseline

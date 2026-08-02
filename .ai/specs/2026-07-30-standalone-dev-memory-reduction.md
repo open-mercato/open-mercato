@@ -13,16 +13,17 @@ administrator, visits an authenticated backend page, changes a standalone module
 source file, observes hot reload without a server restart, and retains one RSS and
 CPU profiler report.
 
-**Current outcome (2026-08-02): stable-toolchain design approved; implementation
-not started.** The telemetry relocation implemented on this branch removes
-recurring five-second rebuilds and lowers sustained RSS. A fixture-only Next
-`16.3.0-preview.9` composition proves that the workflow can clear the memory gate,
-but it is diagnostic evidence only. The shipped solution must keep every current
-dependency and lockfile entry unchanged, use the installed Next `16.2.11`
-toolchain, add CPU measurement to the existing profiler, and compose only existing
-runtime controls. The stable warmup-suppression control reached a 21.537% median
-peak-RSS reduction on its own, so the remaining work is a measured stable-stack
-composition rather than dependency promotion.
+**Current outcome (2026-08-02): the stable-toolchain composition is complete and
+no production memory control is selected.** Against the authoritative 8,607.89 MB
+baseline median, isolated warmup suppression peaked at 9,412.52 MB, the composed
+telemetry/warmup/embedded-scheduler arm peaked at 9,046.49 MB, and the one allowed
+lightweight-supervisor diagnostic peaked at 8,322.41 MB. Every result misses the
+fixed 6,025.52 MB ceiling. The composed and lightweight arms reduce CPU
+core-seconds by 32.79% and 30.97%, respectively, but CPU is a non-blocking co-goal
+and cannot substitute for the memory gate. Task 5 must not implement those runtime
+defaults. The next work is a separately approved, single-hypothesis source-graph
+experiment on the broad generated app and bootstrap registries; dependencies and
+the lockfile remain unchanged.
 
 This capability is intentionally separate from the monorepo profiling harness in
 `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md`. It reuses that harness through
@@ -552,38 +553,145 @@ worker-plus-scheduler processes, embedded median maximum saves 576.27 MB
 (**56.51%**) and median mean saves 304.50 MB (**44.47%**).
 
 No production source changed for the preview composition, and no dependency pin
-or lockfile change is permitted. The next stable-toolchain phase may touch only:
+or lockfile change is permitted. The authoritative stable-toolchain amendment
+below supersedes the former generic runtime boundary.
 
-| Role | Planned file boundary | Requirement |
+### Stable-toolchain composition amendment — 2026-08-02
+
+The tested hypothesis was:
+
+> Watched telemetry snapshots plus automatic authenticated route warmup and a
+> separate scheduler process cause avoidable compile invalidation, startup work,
+> and process overhead; relocating telemetry, skipping automatic warmup, and
+> embedding scheduler polling should reduce total RSS and CPU while preserving the
+> user-driven first compile and scheduler behavior.
+
+All accepted arms used Node 24.13.1, installed Next/`@next` 16.2.11 and React
+19.2.7, the exact 5,629-file seed whose canonical manifest digest is
+`27ed25b9dacd68c8b8f249086e4bb2e7b6096638e573ff99cfb75ac627a422ae`,
+and the fixed authenticated page/edit/HMR workflow. The authoritative baseline
+medians are 8,607.89 MB peak RSS, 6,643.70 MB mean RSS, 130.24 CPU core-seconds,
+72.43% mean CPU, and 876.91% peak sampled CPU. The hard memory ceiling is 6,025.52
+MB.
+
+| Accepted arm | Peak RSS | Mean RSS | CPU core-s | Mean CPU | Peak CPU | Peak RSS vs baseline | CPU core-s vs baseline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Isolated warmup suppression; original telemetry and separate scheduler/shared worker | 9,412.52 MB | 7,045.96 MB | 124.52 | 69.17% | 900.47% | +9.35% | -4.39% |
+| Telemetry relocation + warmup suppression + embedded scheduler | 9,046.49 MB | 7,452.67 MB | 87.54 | 48.91% | 927.90% | +5.10% | -32.79% |
+| Lightweight supervisor diagnostic with the composed controls | 8,322.41 MB | 6,946.07 MB | 89.90 | 49.83% | 816.89% | -3.32% | -30.97% |
+
+The isolated arm ran 180,002 ms with 173 samples, made zero automatic warmup
+requests, wrote the `warmup-skipped` ready reason, retained the original separate
+scheduler/shared-worker topology, and passed every browser/identity/audit gate.
+It increased peak and mean RSS by 804.63 MB and 402.26 MB.
+
+The composed arm ran 180,001 ms with 172 samples. It wrote two fresh telemetry
+files below `.mercato/next/module-resource-usage`, retained exactly one
+`queue worker --all --with-scheduler` and no scheduler child or separate shared
+worker, and recorded one polling start/stop plus six complete scheduler
+execute/enqueue/consume/complete cycles. The authenticated page showed marker A at
+T+74,235, marker B at T+111,674 after the T+100 edit, and the same Next identity
+through T+140,103. It reduced CPU core-seconds by 32.79% but increased peak RSS by
+438.60 MB and misses the memory ceiling by 3,020.97 MB.
+
+The one plan-authorized lightweight-supervisor arm ran 180,002 ms with 173
+samples and saved 724.08 MB peak RSS versus the composed arm. It still misses the
+ceiling by 2,296.89 MB, and using it under standard `yarn dev` would require a
+prohibited invocation/manifest change. Its first validity result was a coordinator
+predicate error, not a runtime failure: a retained reconciliation recomputed only
+the telemetry-root proof from the original launch time and two fresh telemetry
+files, then reasserted every unchanged validity gate. Both the original harness-
+error and corrected valid envelopes are retained.
+
+One warmup prelaunch and two composed attempts are withdrawn from all comparison
+math. The warmup prelaunch stopped before the dev spawn after a copied-coordinator
+seed-path error; one composed attempt had no browser action within the required
+window; and one saw marker A only after the edit. All dedicated cleanup audits
+passed.
+
+Raw reports are under
+`/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/` as
+`stable-composition-telemetry-warmup.json`,
+`stable-composition-embedded-scheduler.json`, and
+`stable-composition-lightweight-supervisor.json`; validity, browser, topology,
+scheduler, reconciliation, and audit evidence is under the sibling
+`evidence/stable-composition/` directory.
+
+#### Exact stable selection for Task 5
+
+- Selected runtime controls: **none**.
+- Selected production files: **none**.
+- Selected regression-test files: **none**.
+- New or changed environment defaults: **none**.
+- Rollback: **none required**; the runtime/source experiments were fixture-only
+  and restored.
+- Existing branch state: the previously implemented Task 3 telemetry relocation
+  remains unchanged as rebuild/sustained-memory hygiene; it is not a newly
+  selected Task 5 control and is not claimed to satisfy the peak-memory goal.
+- Parked CPU follow-up: the 30–33% CPU-work reduction from process consolidation
+  may be reconsidered only after a memory candidate exists.
+
+Phase 3 and Task 5 must not implement warmup, embedded-scheduler, or lightweight-
+supervisor defaults from this experiment. `package.json`,
+`apps/mercato/package.json`,
+`packages/create-app/template/package.json.template`, and `yarn.lock` remain
+explicit no-change gates.
+
+#### Next source-graph hypothesis — proposed, not selected
+
+The next one-variable hypothesis is that first-route Turbopack memory is dominated
+by broad generated module registries. In the accepted fixture,
+`modules.app.generated.ts` is 855,779 bytes with 586 static imports and
+`modules.bootstrap.generated.ts` is 155,026 bytes with 361 static imports: 947
+static imports combined. Additive route-scoped loaders should keep unrelated
+module entrypoints out of the initial server bootstrap and client app graphs while
+preserving the current generated filenames, `modules` and default exports, and the
+`bootstrapModules` compatibility alias.
+
+Read-only inspection establishes this bounded proposal for a separate approved
+experiment:
+
+| Role | Proposed production/test boundary | Required proof |
 | --- | --- | --- |
-| CPU sampler | `scripts/dev-memory-sampler.mjs` | Parse existing `ps` CPU-time data and aggregate the profiled descendant tree. |
-| CPU profiler/report | `scripts/profile-dev-rss.mjs` | Retain CPU samples/core-seconds beside existing RSS data without changing the CLI contract. |
-| CPU regression tests | `scripts/__tests__/dev-memory-sampler.test.mjs` and `scripts/__tests__/profile-dev-rss.test.mjs` | Prove parsing, PID churn, aggregation, and report rendering. |
-| Monorepo warmup runtime | `apps/mercato/scripts/dev.mjs` | If reconfirmed in composition, suppress automatic targeted warmup by default and preserve explicit opt-in. |
-| Template warmup runtime | `packages/create-app/template/scripts/dev-runtime.mjs` | Mirror the monorepo warmup behavior exactly. |
-| Root standalone wrapper | `scripts/dev.mjs` | Retain and verify the existing embedded-scheduler default and explicit override. |
-| Template standalone wrapper | `packages/create-app/template/scripts/dev.mjs` | Mirror the root embedded-scheduler behavior exactly. |
-| Runtime regression tests | `scripts/__tests__/dev-cache-purge.test.mjs` and `packages/create-app/src/lib/template-dev-log-files.test.ts` | Prove warmup and scheduler default/override parity without introducing a dependency change. |
+| Generator | `packages/cli/src/lib/generators/module-registry.ts` | Emit additive route-scoped loader output without removing or renaming current registries or exports. |
+| Server app/template consumers | `apps/mercato/src/bootstrap.ts`; `packages/create-app/template/src/bootstrap.ts` | Consume the scoped server loader with exact app/template parity. |
+| Client app/template consumers | `apps/mercato/src/app/start/page.tsx`; `packages/create-app/template/src/app/start/page.tsx` | Consume the scoped client loader while preserving `/start`. |
+| Generator tests | `packages/cli/src/lib/generators/__tests__/module-subset.test.ts`; `packages/cli/src/lib/generators/__tests__/structural-contracts.test.ts`; `packages/cli/src/lib/generators/__tests__/output-snapshots.test.ts` | Assert route scoping, deterministic output, and legacy filename/export compatibility. |
+| Consumer/parity tests | `apps/mercato/src/__tests__/bootstrap.test.ts`; create `packages/create-app/src/lib/template-route-scoped-registries.test.ts` | Assert server selection and exact monorepo/template wiring parity. |
 
-`package.json`, `apps/mercato/package.json`,
-`packages/create-app/template/package.json.template`, and `yarn.lock` are explicit
-no-change gates. The exact production/test subset is narrowed after the stable
-composition proves which runtime levers are load-bearing. The telemetry relocation
-already on this branch remains unchanged. Final fixture
-restoration passed fixture, Yarn-state, 8,291-file Next/@next, and 790-file cache
-manifests and restored marker B, normal warmup, Next/@next `16.2.11`, React
-`19.2.7`, no matching processes, and no listeners on 3000/4000.
+The focused RED assertions for that separate experiment are:
 
-Rollback is per control and requires no migration. Removing CPU fields from the
-profiler/sampler restores the previous RSS-only report shape while the existing
-fields and CLI remain compatible. Setting the selected warmup opt-in environment
-flag restores automatic targeted warmup; reverting the paired monorepo/template
-default checks restores the old default. Setting
-`OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER=false` preserves the separate scheduler
-topology; reverting the paired root/template wrapper defaults restores it globally.
-`OM_MODULE_RESOURCE_USAGE_DIR` continues to override the telemetry destination.
-The stable composition amendment must replace these generic descriptions with the
-exact selected controls before Phase 3 begins.
+```text
+expected the generated route-scoped server and client loaders to avoid static
+imports for unrelated module entrypoints while preserving the existing generated
+registry filenames and exports
+
+expected the monorepo app and create-app template to consume identical scoped
+registry contracts without changing /start, login, protected rendering, or HMR
+```
+
+A fixture-only arm advances to a three-run production candidate only if it passes
+the exact seed, Node, browser, scheduler, telemetry, identity, HMR, shutdown, and
+audit gates and reaches at most 6,025.52 MB peak RSS. A result above that ceiling
+rejects the hypothesis for this goal even if directionally positive. Any need to
+touch shared bootstrap internals, catch-all route contracts, generated filenames
+or exports, or a file outside this boundary requires a new architecture decision
+before editing.
+
+The fixture was restored to package hash
+`b7f1aba393d1841e2c719efeb7478d7027fcd9d22f73d01f7fc3140e52dc7c84`,
+lockfile hash
+`94cd39654752c9cfb73dce51def0475cac02d0facc137c101744f91e24a851be`,
+`scripts/dev.mjs` hash
+`78b4b94d3dd2d5d855ae001ee3b2e5849e55392764c8f5f2566838f73180cac4`,
+`scripts/dev-runtime.mjs` hash
+`e15fa5b889afc1e3b2474da92113441a9d967c1632eac71226723b4622bfa354`,
+and marker-A hash
+`8672e3cd23e43756f1a885b20724915c98110fff70a7c26da3cd756dcf516a6b`.
+Installed Next/`@next` remains 16.2.11 and React/React DOM remains 19.2.7. The
+final audit at `2026-08-02T17:53:19.403Z` found zero matching fixture, profiler,
+browser-controller, worker/scheduler processes and zero listeners on ports
+3000/4000; the worktree dependency/manifest/lockfile diff is empty.
 
 ## Data Models
 
@@ -638,6 +746,10 @@ dependencies stay aligned with `packages/create-app/template/src/modules.ts`.
 **Exit criterion:** three clean reports contain comparable RSS and CPU data, every
 functional assertion passed, and no package/lockfile changed.
 
+**Outcome:** completed. The replacement three-run cohort established medians of
+8,607.89 MB peak RSS, 130.24 CPU core-seconds, 72.43% mean CPU, and 876.91% peak
+sampled CPU from the canonical 5,629-file seed.
+
 ### Phase 2: Stable-toolchain composition
 
 1. Reconfirm automatic warmup suppression in isolation on the CPU-capable harness.
@@ -650,11 +762,18 @@ functional assertion passed, and no package/lockfile changed.
 5. Record the exact production/test file subset only after the composition proves
    which levers are load-bearing.
 
-**Exit criterion:** one stable composition is functionally valid, shows a positive
-RSS delta attributable to the selected controls, and is ready for the required
-three-run acceptance. CPU is measured and reported but cannot block this exit.
+**Outcome:** completed without selecting a memory control. The isolated and
+composed arms were functionally valid, and the one allowed lightweight-supervisor
+diagnostic was completed, but all three missed the 6,025.52 MB hard ceiling. CPU
+core-seconds improved by roughly 31–33% in the consolidated arms and are parked.
+The exact Task 5 production/test selection is `none`.
 
 ### Phase 3: Test-first production implementation
+
+**Do not enter this phase for the runtime controls above.** The stable amendment
+selected no production files or tests. Phase 3 resumes only after the separately
+approved source-graph experiment establishes a candidate that reaches the fixed
+memory ceiling and the spec is amended with its selected manifest.
 
 1. Add the focused failing assertions named by the stable composition amendment.
 2. Implement only the confirmed runtime defaults and required template mirrors.
@@ -686,10 +805,11 @@ workflows and the final fresh workflow pass; no dependency file changes; and eve
 listed command exits successfully. If the confirmed change also affects the
 monorepo dev runtime, one equivalent `yarn dev` page/HMR smoke is required.
 
-**Observed status:** the original memory baseline and root-cause inventory are
-complete. CPU instrumentation/baseline and stable-toolchain composition are not
-yet implemented. Preview runs remain historical diagnostics and cannot satisfy
-Phase 4.
+**Observed status:** the replacement RSS/CPU baseline, stable-toolchain
+composition, lightweight diagnostic, fixture restoration, and no-selection
+decision are complete. Preview runs remain historical diagnostics. Phase 3 has
+not started because no stable runtime control passed the memory gate; the next
+possible step is the separately approved source-graph experiment above.
 
 ## Risks & Impact Review
 
@@ -818,11 +938,11 @@ Phase 4.
 | `packages/create-app/AGENTS.md` | Test through Verdaccio | Compliant | Required for the baseline and candidate fixture. |
 | `packages/create-app/AGENTS.md` | Build before publishing and use build/generate/build order | Compliant | Phase 1 and Phase 4 require the exact order. |
 | `packages/create-app/AGENTS.md` | Mirror app-shell/runtime changes into the template | Compliant | Mandatory implementation constraint and explicit risk mitigation. |
-| `packages/create-app/template/AGENTS.md` | Preserve generated files and standalone dev workflow | Compliant by design | The stable candidate may change runtime defaults only; generated registry paths, login, and hot reload remain required gates. |
-| `packages/cli/AGENTS.md` | Preserve generator output and standalone contracts | Compliant | Generator output was inspected but is not modified by the selected intervention. |
+| `packages/create-app/template/AGENTS.md` | Preserve generated files and standalone dev workflow | Compliant by design | No runtime default is selected. A future source-graph experiment must preserve generated registry names/exports plus login, page rendering, and HMR. |
+| `packages/cli/AGENTS.md` | Preserve generator output and standalone contracts | Compliant | Generator output was inspected read-only. The proposed additive loader experiment explicitly preserves existing filenames and exports. |
 | `packages/shared/AGENTS.md` | Keep shared infrastructure contracts narrow and domain-independent | Compliant | CPU data is added to the repository profiling harness, not shared application contracts; `resource-usage.ts` and its public environment override remain unchanged. |
 | `BACKWARD_COMPATIBILITY.md` | Preserve stable and frozen contract surfaces | Compliant | No contract removal or rename is permitted. |
-| `packages/create-app/AGENTS.md` | Validate monorepo and Verdaccio-backed standalone environments | Pending stable candidate | Phase 4 requires both environments after the no-dependency implementation. |
+| `packages/create-app/AGENTS.md` | Validate monorepo and Verdaccio-backed standalone environments | Pending future candidate | Phase 4 requires both environments only after a source-graph candidate is selected. |
 | Data, API, commands, cache, security, and design-system rules | Apply when those surfaces change | N/A | No entity, API, mutation, cache, or product UI change is selected. |
 
 ### Internal Consistency Check
@@ -834,25 +954,25 @@ Phase 4.
 | Baseline and candidate are comparable | Pass | Fixture, dependencies, database, route, edit, settings, interval, and duration are fixed. |
 | Risks cover likely intervention families | Pass | Externalization, bootstrap ordering, dependency shortcut, and template drift are explicit. |
 | Data/API/UI sections match scope | Pass | All are N/A except browser verification of existing UI. |
-| Selected intervention has exact files, rollback, and red assertion | Pending | CPU profiler files and the allowed runtime boundary are named; the exact production/test subset is narrowed only after stable composition confirms load-bearing levers. |
+| Selected intervention has exact files, rollback, and red assertion | Pass: none selected | The stable composition misses the memory gate, so Task 5 production/test files and rollback are explicitly `none`; the next source-graph boundary and RED assertions are proposed separately, not authorized. |
 | Experiment isolates one variable | Pass | Telemetry relocation, warmup modes, process consolidation, native limits, cache modes, and compiler flags were tested in separate controlled arms. Invalid arms stopped at their first functional/compiler failure. |
 
 ### Non-Compliant Items
 
-The fixture-only preview composition cleared the historical total/class memory
-thresholds but is ineligible for production because dependency updates are
-prohibited. The stable
-Next `16.2.11` composition and CPU baseline remain pending. The branch remains a
-dev-runtime/profiling change rather than a frontend/bootstrap change, so no
-Frontend Architecture Contract is required.
+The fixture-only preview composition cleared historical memory thresholds but is
+ineligible because dependency updates are prohibited. The stable Next `16.2.11`
+composition is complete and misses the current 6,025.52 MB ceiling. No runtime
+control is selected. The proposed source-graph direction would become a frontend/
+bootstrap architecture change and therefore requires a new architecture decision
+and Frontend Architecture Contract before implementation.
 
 ### Verdict
 
-**Design approved; written-spec review pending:** implementation keeps the current
-dependency set and lockfile unchanged, establishes CPU accounting first, then
-tests stable runtime controls. The existing telemetry relocation is the only
-production code on this branch until the stable composition is confirmed and
-implemented test-first.
+**Stable runtime design rejected for memory; source-graph experiment proposed.**
+The current dependency set and lockfile remain unchanged. CPU accounting and the
+stable composition are complete, but no tested runtime control reaches the memory
+gate, so Task 5 has no authorized production manifest. The next proposal is the
+bounded, additive route-scoped registry experiment above.
 
 ## Changelog
 
@@ -885,6 +1005,12 @@ implemented test-first.
   composition, and made 30% memory reduction the hard delivery gate while parking
   further CPU work after recording the achieved delta, including an explicit
   parked follow-up when CPU regresses.
+- Completed the stable-toolchain composition against the replacement 8,607.89 MB
+  baseline: warmup suppression and the composed runtime regressed peak RSS, while
+  the lightweight diagnostic improved it by only 3.32%. Recorded `none` as the
+  exact Task 5 production/test selection, parked the verified 30–33% CPU-work
+  savings, restored and audited the fixture, and bounded the next additive route-
+  scoped registry experiment without authorizing implementation.
 
 ### Review — 2026-07-30
 
@@ -895,3 +1021,17 @@ implemented test-first.
 - **Commands**: N/A; no business mutation proposed
 - **Risks**: Passed; false savings and likely intervention hazards covered
 - **Verdict**: Approved for baseline and attribution; production amendment required
+
+### Review — 2026-08-02
+
+- **Reviewer**: Task 4 evidence and scope self-review
+- **Security**: Passed; fixture-only controls changed no authorization or data path
+- **Performance**: Passed; all accepted arms use the replacement baseline, exact
+  seed, fixed browser/HMR workflow, and retained RSS/CPU reports
+- **Compatibility**: Passed for Task 4; no package, lockfile, runtime default, or
+  generated contract changed
+- **Restoration**: Passed; exact package/lock/runtime/marker hashes and a global
+  zero-process/zero-listener audit were reverified
+- **Verdict**: Stable runtime controls rejected for the memory goal; no Task 5
+  implementation is authorized, and the bounded source-graph proposal requires a
+  separate architecture decision
