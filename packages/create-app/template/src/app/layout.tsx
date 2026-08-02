@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Script from 'next/script'
 import './globals.css'
 import '@/lib/i18n/register-dictionary-loader'
 import { AppProviders } from '@/components/AppProviders'
@@ -26,25 +27,20 @@ export default async function RootLayout({
   const noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'
   return (
     <html lang={locale} suppressHydrationWarning>
-      <head>
-        <script
-          key="om-theme-init"
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var stored = localStorage.getItem('om-theme');
-                  var theme = stored === 'dark' ? 'dark'
-                    : stored === 'light' ? 'light'
-                    : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                  if (theme === 'dark') document.documentElement.classList.add('dark');
-                } catch (e) {}
-              })();
-            `,
-          }}
-        />
-      </head>
       <body className="antialiased" suppressHydrationWarning data-gramm="false">
+        <Script id="om-theme-init" strategy="beforeInteractive">
+          {`
+            (function() {
+              try {
+                var stored = localStorage.getItem('om-theme');
+                var theme = stored === 'dark' ? 'dark'
+                  : stored === 'light' ? 'light'
+                  : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                if (theme === 'dark') document.documentElement.classList.add('dark');
+              } catch (e) {}
+            })();
+          `}
+        </Script>
         <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
           {children}
         </AppProviders>
