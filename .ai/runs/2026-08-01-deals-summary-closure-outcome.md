@@ -25,14 +25,14 @@ through the `OPEN_STATUSES` allowlist. A deal closed through `closureOutcome` th
 both predicates at once: it is summed into `pipelineValue`, counted in `activeDeals`, and
 simultaneously counted in `wonThisQuarter`. The same deal also disagrees with the
 `dashboards.analytics.pipelineSummary` widget, which since #4683 filters `closureOutcome IS NULL` in
-its default *Open deals only* scope — so the card and the chart report different numbers for the same
+its default _Open deals only_ scope — so the card and the chart report different numbers for the same
 tenant and period.
 
 ## Scope
 
-- `packages/core/src/modules/customers/api/deals/summary/route.ts` — consume the shared open-deal predicate.
-- `packages/core/src/modules/customers/lib/dealsSummaryOpenPredicate.ts` — own the SQL predicate outside the route.
-- The predicate unit test and the `TC-CRM-082` integration spec.
+- `packages/core/src/modules/customers/api/deals/summary/route.ts` — consume the summary query helper.
+- `packages/core/src/modules/customers/lib/dealsSummaryQueries.ts` — own the SQL queries outside the route.
+- The query-helper unit test and the `TC-CRM-082` integration spec.
 
 ## Non-goals
 
@@ -77,14 +77,14 @@ tenant and period.
 ### Phase 4: Review fixes
 
 - **Step 4.1** — Merge current `develop` to pick up the sales CI stabilization already landed there.
-- **Step 4.2** — Move the new SQL predicate into a module `lib/` helper per `.ai/lessons.md` and
-  test the helper directly.
+- **Step 4.2** — Move the summary SQL into a module `lib/` helper per `.ai/lessons.md` and test
+  the helper directly.
 
 ## Risks
 
 - **Wrong NULL semantics.** The obvious spelling `closure_outcome != 'won'` silently drops every open
   deal because the column is NULL for all of them. Mitigated by using `IS NULL`, by a unit assertion
-  that rejects `!=` / `<>` on that column, and by an inline comment at the definition site.
+  that rejects `!=` / `<>` on that column, and by keeping the rule in one named helper.
 - **Over-trimming the pipeline.** A tenant whose deals carry a stale `closure_outcome` alongside an
   open status would see the pipeline shrink after this change. That is the intended correction — such
   a deal is already being counted as won — and the integration test pins the expected direction.
@@ -118,4 +118,4 @@ PR: #4819
 ### Phase 4: Review fixes
 
 - [x] 4.1 Merge current `develop` to pick up the sales CI stabilization already landed there
-- [x] 4.2 Move the open-deal SQL predicate into a tested module helper
+- [x] 4.2 Move the summary SQL into a tested module helper
