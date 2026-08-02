@@ -39,8 +39,34 @@ function isTestFile(path: string): boolean {
     || path.endsWith('.spec.tsx')
 }
 
+function skipLeadingWhitespaceAndComments(source: string): number {
+  let offset = 0
+
+  while (offset < source.length) {
+    while (offset < source.length && source[offset].trim() === '') offset += 1
+
+    if (source.startsWith('//', offset)) {
+      const newline = source.indexOf('\n', offset + 2)
+      offset = newline === -1 ? source.length : newline + 1
+      continue
+    }
+
+    if (source.startsWith('/*', offset)) {
+      const commentEnd = source.indexOf('*/', offset + 2)
+      offset = commentEnd === -1 ? source.length : commentEnd + 2
+      continue
+    }
+
+    break
+  }
+
+  return offset
+}
+
 function isBrowserFile(path: string, source: string): boolean {
-  const startsWithClientDirective = /^(?:(?:\s*\/\/[^\n]*\n)|(?:\s*\/\*[\s\S]*?\*\/))*\s*['"]use client['"]/.test(source)
+  const directiveOffset = skipLeadingWhitespaceAndComments(source)
+  const startsWithClientDirective = source.startsWith("'use client'", directiveOffset)
+    || source.startsWith('"use client"', directiveOffset)
   return startsWithClientDirective
     || path.includes('/components/')
     || path.includes('/widgets/injection/')
