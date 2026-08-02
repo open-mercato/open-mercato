@@ -42,7 +42,7 @@ test.describe('TC-SALES-040: Deprecated order payment-ledger inputs', () => {
           lines: [{
             currencyCode: 'USD',
             quantity: 1,
-            name: `QA SALES-040 line ${Date.now()}`,
+            name: 'QA seed line',
             unitPriceNet: 0,
             unitPriceGross: 0,
           }],

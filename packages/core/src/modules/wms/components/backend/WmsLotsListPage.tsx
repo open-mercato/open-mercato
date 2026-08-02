@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
@@ -280,7 +281,7 @@ export default function WmsLotsListPage() {
                 totalPages: lotsQuery.data.totalPages,
                 onPageChange: setPage,
               }}
-              perspective={{ tableId: 'wms.lots.list' }}
+              perspective={{ tableId: extensionPoints.hosts.lotsTable.tableId }}
               emptyState={
                 <EmptyState
                   title={t('wms.backend.lots.empty.title', 'No lots found')}

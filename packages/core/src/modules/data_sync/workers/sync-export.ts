@@ -2,6 +2,11 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { ProgressService } from '../../progress/lib/progressService'
 import type { SyncEngine } from '../lib/sync-engine'
 import type { SyncRunService } from '../lib/sync-run-service'
+import {
+  DATA_SYNC_EXPORT_QUEUE,
+  DATA_SYNC_LOCK_DURATION_MS,
+  DATA_SYNC_MAX_STALLED_COUNT,
+} from '../lib/queue-policy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('data_sync').child({ component: 'sync-export' })
@@ -17,9 +22,11 @@ type SyncJobPayload = {
 }
 
 export const metadata: WorkerMeta = {
-  queue: 'data-sync-export',
+  queue: DATA_SYNC_EXPORT_QUEUE,
   id: 'data-sync:export',
   concurrency: 5,
+  lockDuration: DATA_SYNC_LOCK_DURATION_MS,
+  maxStalledCount: DATA_SYNC_MAX_STALLED_COUNT,
 }
 
 type HandlerContext = JobContext & {

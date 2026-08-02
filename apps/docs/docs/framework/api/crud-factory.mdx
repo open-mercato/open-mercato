@@ -439,12 +439,17 @@ Cache keys include:
 - Tenant ID
 - Selected organization ID
 - Organization scope (array of allowed org IDs)
+- Caller identity (`user:` segment — the API key id, or the user id for session callers)
 - Active-enricher signature (only when the route has enrichers active for the caller)
 
 ```ts
 // Example cache key structure
-crud|customers.customer_entity|GET|/api/customers/people|tenant:123|selectedOrg:456|scope:456,789|query:page=1&pageSize=50&search=test
+crud|customers.customer_entity|GET|/api/customers/people|tenant:123|selectedOrg:456|scope:456,789|user:abc|query:page=1&pageSize=50&search=test
 ```
+
+Entries are never shared across caller identities: `buildFilters`, interceptor
+query rewrites, and `afterList`/after-interceptor output can all vary per user,
+and the stored payload embeds them.
 
 ### Response Enrichers and the List Cache
 

@@ -1,6 +1,6 @@
 # Unified Override Domains
 
-Load this reference when `src/modules.ts` must disable or replace an installed contribution. `entry.overrides` is the only canonical app-level override umbrella. Resolve every key from generated facts or exact installed context. For keyed override maps, `null` disables a supported contribution and a typed value replaces it; AI extensions and setup hooks have the special shapes below.
+Load this reference when `src/modules.ts` must disable or replace an installed contribution. `entry.overrides` is the only canonical app-level override umbrella. Resolve every domain/key from the named module sheet's `UMES contributions` override facts first, following `fact-ref` provenance to the existing route/page/event/worker/widget/agent/tool/setup/ACL/DI/encryption facts. Use exact installed context only for one named missing fact. For keyed override maps, `null` disables a supported contribution and a typed value replaces it; AI extensions and setup hooks have the special shapes below.
 
 | Domain | Shape/key |
 |---|---|
@@ -30,6 +30,7 @@ Load this reference when `src/modules.ts` must disable or replace an installed c
 - API route methods are case-insensitive and paths normalize a leading/trailing slash; use the canonical displayed key. Disabling all methods removes the route entry.
 - Page keys name generated frontend/backend URL paths, not filesystem paths. After hiding a landing page, provide a safe accessible redirect.
 - Injection/dashboard keys are generated entry keys and may differ from widget metadata IDs. Worker keys are resolved descriptor IDs; inspect generated facts/source instead of constructing them from memory.
+- Require the generated override fact's exact `domain`, `key`, and mode (`disable-replace`, `replace`, or `additive`). A stale or `unresolved` first-party correlation is a blocker; it is not a fallback to a guessed key.
 - Keep AI extensions additive and ordered. Use agent/tool maps only for replacement or disable; do not encode an extension as a `null`-capable map entry.
 - Preserve replacement type/signature, auth/features, scope, stable ID, and observable side effects. A replacement may strengthen safety but never silently narrow a public contract.
 - Treat unknown/stale override diagnostics as failures. Run `yarn generate`, clear structural nav/module caches with the app's documented command, and verify the old contribution is absent in every bootstrap.

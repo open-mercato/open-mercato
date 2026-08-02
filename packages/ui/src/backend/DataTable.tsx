@@ -59,6 +59,7 @@ import type {
   InjectionRowActionDefinition,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { dataTableExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type {
@@ -549,6 +550,43 @@ export function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveS
     return
   }
   writeVersionedPreference(key, PERSPECTIVE_SNAPSHOT_VERSION, snapshot)
+}
+
+/**
+ * Purge every browser-local DataTable perspective snapshot and active-view cookie
+ * across all tables in this origin. Snapshots persist the unsaved/live table state
+ * (column widths, order, visibility) keyed only by `tableId`, so they are shared by
+ * every account that signs in on the same browser profile. Call this at the auth
+ * identity boundary (login) so one user's unsaved layout never carries over to a
+ * different user — including a different tenant — reusing the same browser tab (#4185).
+ */
+export function clearAllPerspectiveState(): void {
+  if (typeof window !== 'undefined') {
+    try {
+      const storage = window.localStorage
+      const staleKeys: string[] = []
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index)
+        if (key && key.startsWith(`${PERSPECTIVE_STORAGE_PREFIX}:`)) staleKeys.push(key)
+      }
+      for (const key of staleKeys) storage.removeItem(key)
+    } catch {
+      // private mode / quota errors are non-fatal
+    }
+  }
+  if (typeof document !== 'undefined') {
+    try {
+      const cookies = document.cookie ? document.cookie.split(';') : []
+      for (const cookie of cookies) {
+        const name = cookie.split('=')[0]?.trim()
+        if (name && name.startsWith(`${PERSPECTIVE_COOKIE_PREFIX}:`)) {
+          document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`
+        }
+      }
+    } catch {
+      // ignore — cookie access can throw in sandboxed contexts
+    }
+  }
 }
 
 export function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
@@ -1352,8 +1390,8 @@ export function DataTable<T>({
   }, [injectionSpotId, perspective?.tableId, extensionTableIdProp])
   const resolvedInjectionSpotId =
     injectionSpotId
-    ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
-    ?? (extensionTableIdProp ? `data-table:${extensionTableIdProp}` : null)
+    ?? (perspective?.tableId ? dataTableExtensionSpotId(perspective.tableId) : null)
+    ?? (extensionTableIdProp ? dataTableExtensionSpotId(extensionTableIdProp) : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
   const baseInjectionContext = React.useMemo(
     () => {
@@ -1376,32 +1414,32 @@ export function DataTable<T>({
     [injectionContext, perspective?.tableId, extensionTableId, title]
   )
   const headerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'header') : null),
     [resolvedInjectionSpotId]
   )
   const toolbarInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'toolbar') : null),
     [resolvedInjectionSpotId]
   )
   const searchTrailingInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:search-trailing` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'search-trailing') : null),
     [resolvedInjectionSpotId]
   )
   const footerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'footer') : null),
     [resolvedInjectionSpotId]
   )
   const { widgets: columnWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:columns` : '__disabled__:columns',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'columns') : '__disabled__:columns',
   )
   const { widgets: rowActionWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:row-actions` : '__disabled__:row-actions',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'row-actions') : '__disabled__:row-actions',
   )
   const { widgets: bulkActionWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:bulk-actions` : '__disabled__:bulk-actions',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'bulk-actions') : '__disabled__:bulk-actions',
   )
   const { widgets: filterWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:filters` : '__disabled__:filters',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'filters') : '__disabled__:filters',
   )
   const injectedColumnDefs = React.useMemo<{ def: ColumnDef<T, unknown>; placement: InjectionColumnDefinition['placement'] }[]>(() => {
     const entries: InjectionColumnDefinition[] = []

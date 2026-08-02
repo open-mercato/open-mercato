@@ -137,9 +137,19 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
   useOrganizationScopeDetail: () => ({ organizationId: 'organization-1', tenantId: 'tenant-1' }),
 }))
-jest.mock('@open-mercato/shared/lib/logger', () => ({
-  createLogger: () => ({ error: jest.fn() }),
-}))
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const createLogger = () => {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: () => logger,
+    }
+    return logger
+  }
+  return { createLogger }
+})
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
     sales: { sales_quote: 'sales:sales_quote', sales_order: 'sales:sales_order' },
