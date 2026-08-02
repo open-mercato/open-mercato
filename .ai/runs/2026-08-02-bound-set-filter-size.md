@@ -85,10 +85,10 @@ PR: _pending_
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
-- [ ] Phase 1.1 — single exported maximum with justification
-- [ ] Phase 1.2 — discriminated filter union bounding `in` / `not_in`
-- [ ] Phase 1.3 — `filterOperatorSchema` derived from the two operator groups
-- [ ] Phase 2.1 — schema edge coverage
-- [ ] Phase 2.2 — route 400 coverage
-- [ ] Phase 2.3 — OpenAPI `maxItems` coverage
+- [x] Phase 1.1 — single exported maximum with justification — 9f9090680
+- [x] Phase 1.2 — discriminated filter union bounding `in` / `not_in` — 9f9090680
+- [x] Phase 1.3 — `filterOperatorSchema` derived from the two operator groups — 9f9090680
+- [x] Phase 2.1 — schema edge coverage — 9f9090680
+- [x] Phase 2.2 — route 400 coverage — 9f9090680
+- [x] Phase 2.3 — OpenAPI `maxItems` coverage — 9f9090680
 - [ ] Phase 3.1 — validation gate, PR, review pass
