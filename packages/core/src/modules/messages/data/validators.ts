@@ -17,11 +17,6 @@ function collectDuplicateRecipientIds(
   return Array.from(duplicates)
 }
 
-const queryBooleanSchema = z.union([
-  z.string().transform(parseBooleanFlag),
-  z.boolean(),
-])
-
 function validateDefaultWithObjectsPayload(
   value: {
     type?: string
@@ -223,9 +218,9 @@ export const listMessagesSchema = z.object({
   sourceEntityType: z.string().optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
-  hasObjects: queryBooleanSchema.optional(),
-  hasAttachments: queryBooleanSchema.optional(),
-  hasActions: queryBooleanSchema.optional(),
+  hasObjects: z.string().transform(parseBooleanFlag).optional(),
+  hasAttachments: z.string().transform(parseBooleanFlag).optional(),
+  hasActions: z.string().transform(parseBooleanFlag).optional(),
   senderId: z.string().uuid().optional(),
   search: z.string().max(200).optional(),
   since: z.string().datetime().optional(),
