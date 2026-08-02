@@ -72,6 +72,8 @@ describe('module extension facts', () => {
       expect.objectContaining({ id: 'alpha.record.queried', phases: ['result-transform', 'scope-reapply'] }),
     ]))
     expect(facts.unresolved).toEqual([])
+    const hostOrder = facts.hosts.map((host) => `${host.family}\u0000${host.id}`)
+    expect(hostOrder).toEqual([...hostOrder].sort((left, right) => left.localeCompare(right)))
   })
 
   it('extracts outgoing mechanisms with kind-specific contracts and correlates targets', () => {
@@ -108,6 +110,10 @@ describe('module extension facts', () => {
         async beforeExecute() {}, async afterUndo() {},
       }]
     `)
+    write(moduleRoot, 'commands/update.ts', `
+      const updateCommand = { id: 'alpha.records.update', async execute() {} }
+      registerCommand(updateCommand)
+    `)
     write(moduleRoot, 'data/guards.ts', `
       const guard = { id: 'alpha.records.guard', targetEntity: 'alpha:record', operations: ['update', 'delete'], async validate() {}, async afterSuccess() {} }
       export const guards = [guard]
@@ -133,6 +139,7 @@ describe('module extension facts', () => {
       entityIds: new Set(['alpha:record']),
       eventIds: new Set(['alpha.record.updated']),
       apiRoutes: new Set(['/alpha/records']),
+      commandIds: new Set(['alpha.records.update']),
     }).alpha
 
     expect(correlated.contributions).toEqual(expect.arrayContaining([
@@ -146,10 +153,17 @@ describe('module extension facts', () => {
       }),
       expect.objectContaining({
         id: 'alpha.records.interceptor', kind: 'api-interceptor',
-        targets: [expect.objectContaining({ resolution: 'fact-ref' })],
+        targets: [expect.objectContaining({
+          resolution: 'fact-ref',
+          factRef: { factSection: 'apiRoutes', factKey: '/alpha/records' },
+        })],
         details: expect.objectContaining({ phases: ['before', 'after'] }),
       }),
-      expect.objectContaining({ id: 'alpha.records.command', details: expect.objectContaining({ phases: ['before-execute', 'after-undo'] }) }),
+      expect.objectContaining({
+        id: 'alpha.records.command',
+        targets: [expect.objectContaining({ factRef: { factSection: 'commands', factKey: 'alpha.records.update' } })],
+        details: expect.objectContaining({ phases: ['before-execute', 'after-undo'] }),
+      }),
       expect.objectContaining({ id: 'alpha.records.guard', details: expect.objectContaining({ optimisticLock: 'preserved' }) }),
       expect.objectContaining({ kind: 'entity-extension', details: expect.objectContaining({ linkId: 'id:record_id' }) }),
       expect.objectContaining({ id: 'alpha:record-updated', details: expect.objectContaining({ persistent: true, sync: false, priority: 10 }) }),
@@ -158,6 +172,8 @@ describe('module extension facts', () => {
       expect.objectContaining({ id: 'alpha.record.updated.browser', kind: 'browser-reaction' }),
     ]))
     expect(correlated.unresolved).toEqual([])
+    const contributionOrder = correlated.contributions.map((contribution) => `${contribution.kind}\u0000${contribution.id}`)
+    expect(contributionOrder).toEqual([...contributionOrder].sort((left, right) => left.localeCompare(right)))
   })
 
   it('renders a deterministic separate framework catalog', () => {
@@ -251,7 +267,7 @@ describe('module extension facts', () => {
       expect.objectContaining({
         id: 'alpha.alert-toast',
         kind: 'browser-reaction',
-        targets: [{ id: 'alpha.alert', resolution: 'fact-ref' }],
+        targets: [expect.objectContaining({ id: 'alpha.alert', resolution: 'fact-ref' })],
         details: expect.objectContaining({ transports: ['notification-effect'], hooks: ['useNotificationEffect'] }),
       }),
       expect.objectContaining({ id: 'dashboard:alpha.dashboard.summary', kind: 'widget', details: expect.objectContaining({ payload: 'dashboard' }) }),
@@ -267,6 +283,31 @@ describe('module extension facts', () => {
       expect.objectContaining({ id: 'workflow:alpha.approval', details: expect.objectContaining({ specialistRoute: 'workflows' }) }),
     ]))
     expect(facts.contributions.filter((fact) => fact.id === 'payment:alpha-pay')).toHaveLength(1)
+  })
+
+  it('resolves factory-built contributions and generated entity registry references', () => {
+    write(moduleRoot, 'data/enrichers.ts', `
+      function makeEnricher(targetEntity) {
+        return { id: \`alpha.image:\${targetEntity}\`, targetEntity, async enrichMany(records) { return records } }
+      }
+      const registryEnricher = { id: 'alpha.registry', targetEntity: E.alpha.record, async enrichOne(record) { return record } }
+      export const enrichers = [makeEnricher('alpha:line'), registryEnricher]
+    `)
+
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+
+    expect(facts.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'alpha.image:alpha:line', targets: [expect.objectContaining({ id: 'alpha:line' })] }),
+      expect.objectContaining({ id: 'alpha.registry', targets: [expect.objectContaining({ id: 'alpha:record' })] }),
+    ]))
   })
 
   it('reports declarations whose authoritative source no longer binds the host key', () => {
@@ -306,5 +347,56 @@ describe('module extension facts', () => {
         }],
       },
     })).toThrow('alpha:alpha.widget:data-table:alpha.missing')
+  })
+
+  it('does not trust a claimed fact reference before matching a known first-party host', () => {
+    write(moduleRoot, 'data/enrichers.ts', `
+      export const enrichers = [{
+        id: 'alpha.typo', targetEntity: 'alpha.missing', async enrichOne(record) { return record },
+      }]
+    `)
+    const surface = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [{ id: 'alpha:record' }],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+    const correlated = correlateModuleExtensionFacts({
+      surfacesByModule: { alpha: surface },
+      entityIds: new Set(['alpha:record']),
+      eventIds: new Set(),
+      apiRoutes: new Set(),
+      commandIds: new Set(),
+    })
+
+    expect(() => assertNoUnresolvedExtensionTargets(correlated)).toThrow('alpha.typo:alpha.missing')
+  })
+
+  it('rejects wildcard targets that match no known first-party contract', () => {
+    const correlated = correlateModuleExtensionFacts({
+      surfacesByModule: {
+        alpha: {
+          hosts: [],
+          contributions: [{
+            id: 'alpha.typo-pattern',
+            kind: 'command-interceptor',
+            targets: [{ id: 'alpha.typo.*', resolution: 'unresolved' }],
+            scopeContract: 'tenant-and-organization',
+            source: { path: 'commands/interceptors.ts' },
+            details: { targetCommand: 'alpha.typo.*', phases: ['before-execute'] },
+          }],
+          unresolved: [],
+        },
+      },
+      entityIds: new Set(),
+      eventIds: new Set(),
+      apiRoutes: new Set(),
+      commandIds: new Set(['alpha.records.update']),
+    })
+
+    expect(() => assertNoUnresolvedExtensionTargets(correlated)).toThrow('alpha.typo-pattern:alpha.typo.*')
   })
 })

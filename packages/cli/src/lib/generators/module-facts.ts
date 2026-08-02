@@ -6,6 +6,8 @@ import { toSnake } from '../utils'
 import {
   assertNoUnresolvedExtensionTargets,
   correlateModuleExtensionFacts,
+  extractKnownApiRouteIds,
+  extractKnownCommandIds,
   extractModuleExtensionFacts,
   renderFrameworkExtensionPointsMarkdown,
 } from './module-extension-facts'
@@ -1423,7 +1425,11 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
     surfacesByModule,
     entityIds: new Set(Object.values(factsByModule).flatMap((facts) => facts.entities.map((entity) => entity.id))),
     eventIds: new Set(Object.values(factsByModule).flatMap((facts) => facts.events.map((event) => event.id))),
-    apiRoutes: new Set(Object.values(factsByModule).flatMap((facts) => facts.apiRoutes.map((route) => route.path))),
+    apiRoutes: new Set([
+      ...Object.values(factsByModule).flatMap((facts) => facts.apiRoutes.map((route) => route.path)),
+      ...sources.flatMap((source) => extractKnownApiRouteIds(source.moduleId, source.moduleRoot)),
+    ]),
+    commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
   })
   assertNoUnresolvedExtensionTargets(correlated)
   for (const moduleId of Object.keys(factsByModule).sort((left, right) => left.localeCompare(right))) {

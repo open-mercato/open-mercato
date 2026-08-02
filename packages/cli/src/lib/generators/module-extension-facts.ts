@@ -16,6 +16,7 @@ import type {
   ModuleExtensionTargetFact,
   ModuleExtensionUnresolvedFact,
 } from '@open-mercato/shared/modules/widgets/extension-points'
+import { extractCommandIdsFromSource } from './module-registry'
 import { scanModuleDir, SCAN_CONFIGS } from './scanner'
 
 type StaticScalar = string | number | boolean | null
@@ -58,11 +59,12 @@ export interface CorrelateExtensionFactsOptions {
   entityIds: ReadonlySet<string>
   eventIds: ReadonlySet<string>
   apiRoutes: ReadonlySet<string>
+  commandIds?: ReadonlySet<string>
   contributingModuleId?: string
 }
 
 type StaticContext = {
-  initializers: Map<string, ts.Expression>
+  initializers: Map<string, ts.Expression | ts.FunctionDeclaration>
   sourceFile: ts.SourceFile
   resolving: Set<string>
 }
@@ -185,15 +187,30 @@ function propertyName(node: ts.PropertyName): string | null {
 }
 
 function buildStaticContext(file: ts.SourceFile): StaticContext {
-  const initializers = new Map<string, ts.Expression>()
+  const initializers = new Map<string, ts.Expression | ts.FunctionDeclaration>()
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       initializers.set(node.name.text, node.initializer)
+    }
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      initializers.set(node.name.text, node)
     }
     node.forEachChild(visit)
   }
   file.forEachChild(visit)
   return { initializers, sourceFile: file, resolving: new Set() }
+}
+
+function entityRegistryValue(expression: ts.PropertyAccessExpression): string | null {
+  const parts: string[] = []
+  let current: ts.Expression = expression
+  while (ts.isPropertyAccessExpression(current)) {
+    parts.unshift(current.name.text)
+    current = current.expression
+  }
+  return ts.isIdentifier(current) && current.text === 'E' && parts.length === 2
+    ? `${parts[0]}:${parts[1]}`
+    : null
 }
 
 function staticTemplate(expression: ts.TemplateExpression, context: StaticContext): string | null {
@@ -253,19 +270,22 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     })
   }
   if (ts.isObjectLiteralExpression(current)) return staticObject(current, context)
+  if (ts.isPropertyAccessExpression(current)) {
+    return entityRegistryValue(current) ?? undefined
+  }
   if (ts.isIdentifier(current)) {
     if (context.resolving.has(current.text)) return undefined
     const initializer = context.initializers.get(current.text)
     if (!initializer) return undefined
     context.resolving.add(current.text)
-    const value = staticValue(initializer, context)
+    const value = ts.isFunctionDeclaration(initializer) ? undefined : staticValue(initializer, context)
     context.resolving.delete(current.text)
     return value
   }
   if (ts.isCallExpression(current)) {
     if (ts.isIdentifier(current.expression)) {
       const callable = context.initializers.get(current.expression.text)
-      if (callable && (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable))) {
+      if (callable && (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable) || ts.isFunctionDeclaration(callable))) {
         const initializers = new Map(context.initializers)
         callable.parameters.forEach((parameter, index) => {
           if (ts.isIdentifier(parameter.name) && current.arguments[index]) {
@@ -277,8 +297,8 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
           sourceFile: context.sourceFile,
           resolving: new Set(context.resolving),
         }
-        if (ts.isExpression(callable.body)) return staticValue(callable.body, childContext)
-        const returnStatement = callable.body.statements.find(ts.isReturnStatement)
+        if (callable.body && ts.isExpression(callable.body)) return staticValue(callable.body, childContext)
+        const returnStatement = callable.body?.statements.find(ts.isReturnStatement)
         if (returnStatement?.expression) return staticValue(returnStatement.expression, childContext)
       }
     }
@@ -341,7 +361,7 @@ export function readConventionObjectArray(filePath: string, exportName: string):
   if (!file) return []
   const context = buildStaticContext(file)
   const initializer = context.initializers.get(exportName)
-  if (!initializer) return []
+  if (!initializer || ts.isFunctionDeclaration(initializer)) return []
   const value = staticValue(initializer, context)
   return Array.isArray(value) ? value.filter(isStaticObject) : []
 }
@@ -351,7 +371,7 @@ function readRootObject(filePath: string, variableName: string): StaticObject | 
   if (!file) return null
   const context = buildStaticContext(file)
   const initializer = context.initializers.get(variableName)
-  if (!initializer) return null
+  if (!initializer || ts.isFunctionDeclaration(initializer)) return null
   const value = staticValue(initializer, context)
   return isStaticObject(value) ? value : null
 }
@@ -377,15 +397,39 @@ function readCallObjectArguments(filePath: string, calleeNames: ReadonlySet<stri
 }
 
 function sortHosts(hosts: ModuleExtensionHostFact[]): ModuleExtensionHostFact[] {
-  return hosts.sort((left, right) => left.id.localeCompare(right.id) || left.key.localeCompare(right.key))
+  const sourceKey = (host: ModuleExtensionHostFact): string => host.source.kind === 'fact-ref'
+    ? `${host.source.factSection}:${host.source.factKey}`
+    : `${host.source.path}:${host.source.symbol}`
+  return hosts.sort((left, right) =>
+    left.family.localeCompare(right.family)
+    || left.id.localeCompare(right.id)
+    || sourceKey(left).localeCompare(sourceKey(right))
+    || left.key.localeCompare(right.key))
 }
 
 function sortContributions(contributions: ModuleExtensionContributionFact[]): ModuleExtensionContributionFact[] {
-  return contributions.sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind))
+  const targetKey = (contribution: ModuleExtensionContributionFact): string => contribution.targets
+    .map((entry) => entry.id)
+    .join('\u0000')
+  const sourceKey = (contribution: ModuleExtensionContributionFact): string =>
+    `${contribution.source.path}:${contribution.source.symbol ?? ''}`
+  return contributions.sort((left, right) =>
+    left.kind.localeCompare(right.kind)
+    || left.id.localeCompare(right.id)
+    || targetKey(left).localeCompare(targetKey(right))
+    || sourceKey(left).localeCompare(sourceKey(right)))
 }
 
 function target(id: string, resolution: ModuleExtensionTargetFact['resolution'] = 'unresolved'): ModuleExtensionTargetFact {
   return { id, resolution }
+}
+
+function factTarget(id: string, factSection: string, factKey = id): ModuleExtensionTargetFact {
+  return { id, resolution: 'fact-ref', factRef: { factSection, factKey } }
+}
+
+function openTarget(id: string): ModuleExtensionTargetFact {
+  return target(id)
 }
 
 function declarationSource(sourceRoot: string, symbol: string): ModuleExtensionHostFact['source'] {
@@ -594,6 +638,92 @@ function factRefHost(options: {
   }
 }
 
+function sourceFilesBelow(directory: string): string[] {
+  if (!fs.existsSync(directory)) return []
+  const files: string[] = []
+  const visit = (current: string): void => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const entryPath = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__' && entry.name !== '__integration__') visit(entryPath)
+        continue
+      }
+      if (entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name) && !/\.(?:test|spec)\./.test(entry.name)) files.push(entryPath)
+    }
+  }
+  visit(directory)
+  return files
+}
+
+function apiRouteId(moduleId: string, moduleRoot: string, filePath: string): string | null {
+  const relative = path.relative(path.join(moduleRoot, 'api'), filePath).split(path.sep).join('/')
+  if (relative === 'interceptors.ts' || relative === 'openapi.ts') return null
+  const withoutExtension = relative.replace(/\.tsx?$/, '')
+  const suffix = withoutExtension.endsWith('/route') ? withoutExtension.slice(0, -6) : withoutExtension
+  return suffix && !suffix.includes('__tests__') ? `${moduleId.replace(/_/g, '-')}/${suffix}` : null
+}
+
+function apiExtensionHostIds(moduleId: string, moduleRoot: string): { entityIds: string[]; commandIds: string[]; routeIds: string[] } {
+  const entityIds = new Set<string>()
+  const commandIds = new Set<string>()
+  const routeIds = new Set<string>()
+  for (const filePath of sourceFilesBelow(path.join(moduleRoot, 'api'))) {
+    const routeId = apiRouteId(moduleId, moduleRoot, filePath)
+    if (routeId) routeIds.add(routeId)
+    const file = sourceFile(filePath)
+    if (!file) continue
+    const context = buildStaticContext(file)
+    const visit = (node: ts.Node): void => {
+      if (ts.isPropertyAssignment(node)) {
+        const name = propertyName(node.name)
+        if (name === 'commandId') {
+          const id = stringValue(staticValue(node.initializer, context))
+          if (id) commandIds.add(id)
+        }
+        if (name === 'enrichers') {
+          const config = staticValue(node.initializer, context)
+          const entityId = isStaticObject(config) ? stringValue(config.entityId) : undefined
+          if (entityId) entityIds.add(entityId)
+        }
+      }
+      if (
+        ts.isCallExpression(node)
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === 'validateCrudMutationGuard'
+      ) {
+        const input = node.arguments[1] ? staticValue(node.arguments[1], context) : undefined
+        const entityId = isStaticObject(input) ? stringValue(input.resourceKind) : undefined
+        if (entityId) entityIds.add(entityId)
+      }
+      node.forEachChild(visit)
+    }
+    file.forEachChild(visit)
+  }
+  return {
+    entityIds: [...entityIds].sort((left, right) => left.localeCompare(right)),
+    commandIds: [...commandIds].sort((left, right) => left.localeCompare(right)),
+    routeIds: [...routeIds].sort((left, right) => left.localeCompare(right)),
+  }
+}
+
+function moduleCommandIds(moduleRoot: string, apiCommandIds: readonly string[]): string[] {
+  const commandIds = new Set(apiCommandIds)
+  for (const filePath of sourceFilesBelow(path.join(moduleRoot, 'commands'))) {
+    if (path.basename(filePath).replace(/\.(?:ts|tsx)$/, '') === 'interceptors') continue
+    for (const id of extractCommandIdsFromSource(filePath)) commandIds.add(id)
+  }
+  return [...commandIds].sort((left, right) => left.localeCompare(right))
+}
+
+export function extractKnownApiRouteIds(moduleId: string, moduleRoot: string): string[] {
+  return apiExtensionHostIds(moduleId, moduleRoot).routeIds
+}
+
+export function extractKnownCommandIds(moduleId: string, moduleRoot: string): string[] {
+  const apiHosts = apiExtensionHostIds(moduleId, moduleRoot)
+  return moduleCommandIds(moduleRoot, apiHosts.commandIds)
+}
+
 function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): ModuleExtensionHostFact[] {
   const hosts: ModuleExtensionHostFact[] = []
   for (const entity of options.entities) {
@@ -651,7 +781,20 @@ function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): Modul
       }))
     }
   }
-  return hosts
+  const apiHosts = apiExtensionHostIds(options.moduleId, options.moduleRoot)
+  for (const entityId of apiHosts.entityIds) {
+    hosts.push(factRefHost({
+      key: `api-entity.${entityId}`,
+      id: entityId,
+      moduleId: options.moduleId,
+      family: 'entity',
+      capabilities: ['response-enricher', 'query-enricher', 'mutation-guard'],
+      factSection: 'apiRoutes',
+      activation: 'host-opt-in',
+      scopeContract: 'tenant-and-organization',
+    }))
+  }
+  return sortHosts([...new Map(hosts.map((host) => [`${host.family}:${host.id}`, host])).values()])
 }
 
 function contributionBase(
@@ -767,7 +910,7 @@ function extractEnrichers(options: ExtractModuleExtensionFactsOptions): ModuleEx
       return {
         ...base,
         kind: 'response-enricher',
-        targets: [target(targetEntity, 'fact-ref')],
+        targets: [openTarget(targetEntity)],
         features: strings(entry.features),
         phases: surfaces,
         activation: queryEngine ? 'caller-opt-in' : 'host-opt-in',
@@ -807,7 +950,7 @@ function extractApiInterceptors(options: ExtractModuleExtensionFactsOptions): Mo
       return {
         ...base,
         kind: 'api-interceptor',
-        targets: [target(targetRoute, 'fact-ref')],
+        targets: [openTarget(targetRoute)],
         phases,
         features: strings(entry.features),
         details: {
@@ -843,7 +986,7 @@ function extractCommandInterceptors(options: ExtractModuleExtensionFactsOptions)
       return {
         ...base,
         kind: 'command-interceptor',
-        targets: [target(targetCommand, 'fact-ref')],
+        targets: [openTarget(targetCommand)],
         phases,
         features: strings(entry.features),
         details: { targetCommand, phases },
@@ -870,7 +1013,7 @@ function extractGuards(options: ExtractModuleExtensionFactsOptions): ModuleExten
       return {
         ...base,
         kind: 'mutation-guard',
-        targets: [target(targetEntity, 'fact-ref')],
+        targets: [openTarget(targetEntity)],
         operations,
         features: strings(entry.features),
         roundTripId: `${targetEntity}:write`,
@@ -896,7 +1039,7 @@ function extractEntityExtensions(options: ExtractModuleExtensionFactsOptions): M
       return {
         ...contribution,
         kind: 'entity-extension',
-        targets: [target(baseEntity, 'fact-ref')],
+        targets: [openTarget(baseEntity)],
         details: {
           hostEntityId: baseEntity,
           extensionEntityId: extensionEntity,
@@ -927,7 +1070,7 @@ function extractSubscribers(options: ExtractModuleExtensionFactsOptions): Module
     facts.push({
       ...contribution,
       kind: 'subscriber',
-      targets: [target(event, event.includes('*') ? 'pattern' : 'fact-ref')],
+      targets: [openTarget(event)],
       phases: sync ? ['before-or-after'] : ['async-delivery'],
       details: {
         event,
@@ -950,7 +1093,7 @@ function extractBrowserReactions(options: ExtractModuleExtensionFactsOptions): M
     return [{
       ...contribution,
       kind: 'browser-reaction' as const,
-      targets: [target(event.id, 'fact-ref')],
+      targets: [factTarget(event.id, 'events')],
       details: {
         transports,
         hooks: transports.flatMap((transport) => transport === 'client' ? ['useAppEvent', 'useOperationProgress'] : ['usePortalAppEvent']),
@@ -973,7 +1116,7 @@ function extractNotificationReactions(options: ExtractModuleExtensionFactsOption
       return {
         ...contribution,
         kind: 'browser-reaction',
-        targets: [target(notificationType, 'fact-ref')],
+        targets: [factTarget(notificationType, 'notifications')],
         features: strings(entry.features),
         placement: numberValue(entry.priority) !== undefined ? { priority: numberValue(entry.priority) } : undefined,
         details: {
@@ -1026,7 +1169,7 @@ function extractSpecializedRegistries(options: ExtractModuleExtensionFactsOption
     const fact: ModuleExtensionContributionFact = {
       ...contribution,
       kind: 'specialized-registry',
-      targets: [target(id, 'fact-ref')],
+      targets: [factTarget(id, specialistRoute)],
       source: { path: sourcePath, symbol },
       details: { registry, registryId: id, specialistRoute },
     }
@@ -1172,8 +1315,28 @@ export function correlateExtensionTarget(
 ): ModuleExtensionTargetFact {
   if (targetFact.resolution !== 'unresolved') return targetFact
   const allHosts = Object.values(options.surfacesByModule).flatMap((surface) => surface.hosts)
-  const exact = allHosts.find((host) => host.bound && (host.id === targetFact.id || host.aliases?.includes(targetFact.id)))
-  if (exact) return { id: targetFact.id, resolution: exact.resolution === 'fact-ref' ? 'fact-ref' : 'exact' }
+  if (targetFact.id.includes('*') || targetFact.id.includes('{')) {
+    const knownIds = [
+      ...allHosts.filter((host) => host.bound).map((host) => host.id),
+      ...options.entityIds,
+      ...options.eventIds,
+      ...options.apiRoutes,
+      ...(options.commandIds ?? []),
+    ]
+    if (targetFact.id === '*' || knownIds.some((knownId) => patternMatches(targetFact.id, knownId))) {
+      return { id: targetFact.id, resolution: 'pattern' }
+    }
+  }
+  const exact = allHosts.find((host) => host.bound && (
+    host.id === targetFact.id
+    || host.aliases?.includes(targetFact.id)
+    || (host.family === 'api-route' && host.id.endsWith(`/${targetFact.id}`))
+  ))
+  if (exact) {
+    return exact.source.kind === 'fact-ref'
+      ? factTarget(targetFact.id, exact.source.factSection, exact.source.factKey)
+      : { id: targetFact.id, resolution: 'exact' }
+  }
   const patterned = allHosts.find((host) => host.bound && host.resolution === 'pattern' && patternMatches(host.id, targetFact.id))
   if (patterned) return { id: targetFact.id, resolution: 'pattern' }
   const framework = allFrameworkHosts().find((host) => patternMatches(host.id, targetFact.id))
@@ -1185,13 +1348,16 @@ export function correlateExtensionTarget(
   if (options.eventIds.has(targetFact.id)) {
     return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'events', factKey: targetFact.id } }
   }
+  if (options.commandIds?.has(targetFact.id)) {
+    return factTarget(targetFact.id, 'commands')
+  }
   const route = [...options.apiRoutes].find((apiRoute) => apiRoute === targetFact.id || apiRoute.endsWith(`/${targetFact.id}`))
   if (route) return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'apiRoutes', factKey: route } }
   const ownerModule = targetModuleId(targetFact.id)
-  if (ownerModule && options.contributingModuleId && ownerModule !== options.contributingModuleId) {
+  if (ownerModule && !options.surfacesByModule[ownerModule]) {
     return { id: targetFact.id, resolution: 'optional-external', optionalOwnerPackage: `module:${ownerModule}` }
   }
-  if (ownerModule && !options.surfacesByModule[ownerModule]) {
+  if (ownerModule && options.contributingModuleId && ownerModule !== options.contributingModuleId) {
     return { id: targetFact.id, resolution: 'optional-external', optionalOwnerPackage: `module:${ownerModule}` }
   }
   return targetFact

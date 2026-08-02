@@ -57,6 +57,16 @@ describe('module-facts BC resolve guard (T2)', () => {
     expect(discovered.size).toBeGreaterThan(9)
   })
 
+  it('keeps factory-built and generated-registry enricher contributions visible', () => {
+    expect(factsByModule.sales.extensionSurfaces?.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'sales.catalog-image:sales:sales_quote_line', kind: 'response-enricher' }),
+      expect.objectContaining({ id: 'sales.catalog-image:sales:sales_order_line', kind: 'response-enricher' }),
+    ]))
+    expect(factsByModule.wms.extensionSurfaces?.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'wms.sales-order-inventory', kind: 'response-enricher' }),
+    ]))
+  })
+
   for (const source of sources) {
     const moduleId = source.moduleId
     describe(`${moduleId}`, () => {
