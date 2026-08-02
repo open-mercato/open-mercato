@@ -17,15 +17,16 @@ export const AUTH_IDENTITY_USER_STORAGE_KEY = 'om:auth:identity:user'
  * column widths carry over. Anchoring the purge to the observed server identity covers
  * every route into the backend instead of one form.
  *
- * The last-seen id is recorded without purging (no stored id means nothing to leak
- * from), so an account's own unsaved widths still survive a plain reload.
+ * Missing identity metadata is treated as a legacy browser state and purged once:
+ * snapshots may predate this marker and belong to a different account. After the
+ * marker is recorded, an account's own unsaved widths survive a plain reload.
  */
 function purgePerspectiveStateOnIdentityChange(serverUserId: string | null): void {
   if (typeof window === 'undefined' || !serverUserId) return
   try {
     const lastSeenUserId = window.localStorage.getItem(AUTH_IDENTITY_USER_STORAGE_KEY)
     if (lastSeenUserId === serverUserId) return
-    if (lastSeenUserId !== null) clearAllPerspectiveState()
+    clearAllPerspectiveState()
     window.localStorage.setItem(AUTH_IDENTITY_USER_STORAGE_KEY, serverUserId)
   } catch {
     // private mode / quota errors are non-fatal

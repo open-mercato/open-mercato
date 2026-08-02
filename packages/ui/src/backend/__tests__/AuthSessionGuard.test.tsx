@@ -162,12 +162,12 @@ describe('perspective purge at the rendered identity boundary (#4185)', () => {
     window.localStorage.clear()
   })
 
-  it('records the first observed user without discarding existing table state', () => {
+  it('purges legacy table state when no previous identity marker exists', () => {
     window.localStorage.setItem(snapshotKey, '{"columnWidths":{"name":240}}')
 
     render(<AuthSessionGuard serverUserId="user-1" />)
 
-    expect(window.localStorage.getItem(snapshotKey)).toBe('{"columnWidths":{"name":240}}')
+    expect(window.localStorage.getItem(snapshotKey)).toBeNull()
     expect(window.localStorage.getItem(AUTH_IDENTITY_USER_STORAGE_KEY)).toBe('user-1')
   })
 
