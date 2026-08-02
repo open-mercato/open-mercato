@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -471,8 +472,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection */}
-          <InjectionSpot spotId="detail:customers.company:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.company:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent company header */}
           <CompanyDetailHeader
@@ -500,7 +501,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 <CrudForm<CompanyEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="crud-form:customers.company"
+                  injectionSpotId={extensionPoints.hosts.companyForm.spotId}
                   entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
                   schema={formSchema}
                   fields={formFields}
@@ -606,7 +607,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           />
 
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog */}
           <ScheduleActivityDialog

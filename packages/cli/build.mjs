@@ -111,7 +111,7 @@ await buildPackage(packageDir, {
         coreVersion = null
       }
 
-      const { factsByModule, markdownByModule, warnings } = extractAllModuleFacts({
+      const { factsByModule, markdownByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
         sources,
         registryPath: existsSync(registryPath) ? registryPath : null,
         coreVersion,
@@ -123,6 +123,7 @@ await buildPackage(packageDir, {
         writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
       }
       writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+      writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
       for (const warning of warnings) console.warn(warning)
       console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)

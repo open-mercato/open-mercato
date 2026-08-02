@@ -1,7 +1,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
+import type { ModuleExtensionContributionFact, ModuleExtensionSurfaceFacts } from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
+import {
+  assertNoUnresolvedExtensionTargets,
+  correlateModuleExtensionFacts,
+  extractKnownApiRouteIds,
+  extractKnownCommandIds,
+  extractModuleExtensionFacts,
+  renderFrameworkExtensionPointsMarkdown,
+} from './module-extension-facts'
 
 export interface ModuleEntityFact {
   id: string
@@ -49,6 +58,8 @@ export interface ModuleEventFact {
   label?: string
   category: string | null
   entity: string | null
+  clientBroadcast?: boolean
+  portalBroadcast?: boolean
 }
 
 export interface ModuleHostTokens {
@@ -78,6 +89,7 @@ export interface ModuleFacts {
   cliCommands: ModuleCliCommandFact[]
   aiTools: ModuleAiToolFact[]
   aiAgents: ModuleAiAgentFact[]
+  extensionSurfaces?: ModuleExtensionSurfaceFacts
   warnings: string[]
 }
 
@@ -414,7 +426,11 @@ function extractEvents(eventsFilePath: string | null): ModuleEventFact[] {
       category: category ?? null,
       entity: entity ?? null,
     }
+    const clientBroadcast = readBooleanPropertyInitializer(element, 'clientBroadcast')
+    const portalBroadcast = readBooleanPropertyInitializer(element, 'portalBroadcast')
     if (label !== undefined) fact.label = label
+    if (clientBroadcast !== undefined) fact.clientBroadcast = clientBroadcast
+    if (portalBroadcast !== undefined) fact.portalBroadcast = portalBroadcast
     facts.push(fact)
   }
 
@@ -1035,6 +1051,18 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     entityIds: extractHostEntityIds(entities),
     tableIds: extractTableIds(moduleRoot),
   }
+  const extensionSurfaces = extractModuleExtensionFacts({
+    moduleId,
+    moduleRoot,
+    sourceRoot,
+    entities,
+    events,
+    apiRoutes,
+    searchEntities,
+    notifications,
+    aiTools,
+    aiAgents,
+  })
 
   return {
     module: moduleId,
@@ -1058,6 +1086,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     cliCommands,
     aiTools,
     aiAgents,
+    extensionSurfaces,
     warnings,
   }
 }
@@ -1066,6 +1095,8 @@ export interface ModuleFactsJsonEvent {
   id: string
   category: string | null
   entity: string | null
+  clientBroadcast?: boolean
+  portalBroadcast?: boolean
 }
 
 export interface ModuleFactsJsonEntry {
@@ -1089,6 +1120,7 @@ export interface ModuleFactsJsonEntry {
   cliCommands: ModuleCliCommandFact[]
   aiTools: ModuleAiToolFact[]
   aiAgents: ModuleAiAgentFact[]
+  extensionSurfaces?: ModuleExtensionSurfaceFacts
 }
 
 const EMPTY_SECTION_MARKER = '_none_'
@@ -1119,9 +1151,13 @@ function renderEntitiesSection(entities: ModuleEntityFact[]): string {
 function renderEventsSection(events: ModuleEventFact[]): string {
   const heading = `## Events  (${events.length})`
   if (events.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| ID | Category | Entity |'
-  const divider = '|---|---|---|'
-  const rows = events.map((event) => `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} |`)
+  const header = '| ID | Category | Entity | Browser transport |'
+  const divider = '|---|---|---|---|'
+  const rows = events.map((event) => {
+    const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
+      .filter((value): value is string => value !== null)
+    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} |`
+  })
   return [heading, '', header, divider, ...rows].join('\n')
 }
 
@@ -1179,7 +1215,71 @@ function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
   return ['## Host extension points', '', `- Entity IDs: ${entityIdsLine}`, `- Table IDs: ${tableIdsLine}`].join('\n')
 }
 
+function renderExtensionHostContext(host: ModuleExtensionSurfaceFacts['hosts'][number]): string {
+  return host.contextContract ?? host.runtimeContract ?? host.scopeContract ?? '—'
+}
+
+function renderExtensionHostsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const boundHosts = extensionSurfaces.hosts.filter((host) => host.bound)
+  if (boundHosts.length === 0) return `## UMES hosts\n\n${EMPTY_SECTION_MARKER}`
+  const rows = boundHosts.map((host) =>
+    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} |`,
+  )
+  return [
+    '## UMES hosts',
+    '',
+    '| ID / pattern | Family | Supports | Context | Stability |',
+    '|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function compactContributionDetails(contribution: ModuleExtensionContributionFact): string {
+  const details = contribution.details as unknown as Record<string, unknown>
+  return Object.keys(details).sort((left, right) => left.localeCompare(right)).flatMap((key) => {
+    const value = details[key]
+    if (value === undefined) return []
+    if (Array.isArray(value)) return [`${key}=${value.join(',') || 'none'}`]
+    if (value && typeof value === 'object') {
+      const nested = Object.keys(value as Record<string, unknown>).sort((left, right) => left.localeCompare(right)).map((nestedKey) => {
+        const nestedValue = (value as Record<string, unknown>)[nestedKey]
+        return `${nestedKey}:${Array.isArray(nestedValue) ? nestedValue.join(',') : String(nestedValue)}`
+      })
+      return [`${key}={${nested.join(';')}}`]
+    }
+    return [`${key}=${String(value)}`]
+  }).join('; ')
+}
+
+function renderExtensionContributionsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  if (extensionSurfaces.contributions.length === 0) return `## UMES contributions\n\n${EMPTY_SECTION_MARKER}`
+  const rows = extensionSurfaces.contributions.map((contribution) => {
+    const targets = contribution.targets.map((entry) => entry.id).join(', ')
+    const resolution = contribution.targets.map((entry) => entry.resolution).join(', ')
+    const phases = [...(contribution.phases ?? []), ...(contribution.operations ?? [])].join(', ') || '—'
+    return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} |`
+  })
+  return [
+    '## UMES contributions',
+    '',
+    '| ID | Kind | Target | Phase / operations | Contract | Resolution |',
+    '|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function renderExtensionDiagnosticsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const unbound = extensionSurfaces.hosts.filter((host) => !host.bound)
+  if (unbound.length === 0 && extensionSurfaces.unresolved.length === 0) return ''
+  const diagnostics = [
+    ...unbound.map((host) => `- unbound-helper: ${host.id}`),
+    ...extensionSurfaces.unresolved.map((entry) => `- ${entry.reason}: ${entry.key} (${entry.source.path})`),
+  ]
+  return ['## UMES diagnostics', '', ...diagnostics].join('\n')
+}
+
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
+  const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
   const sections = [
     `# ${facts.module} — module facts (generated, do not edit)`,
     renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
@@ -1203,6 +1303,12 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderHostTokensSection(facts.hostTokens),
     '',
+    renderExtensionHostsSection(extensionSurfaces),
+    '',
+    renderExtensionContributionsSection(extensionSurfaces),
+    '',
+    renderExtensionDiagnosticsSection(extensionSurfaces),
+    '',
     renderInlineListSection('## Notifications', facts.notifications),
     '',
     renderLinkedFactsSection('## CLI commands', facts.cliCommands.map((command) => ({ label: command.command, sourcePath: command.sourcePath }))),
@@ -1224,7 +1330,13 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     sourceVersion: facts.sourceVersion,
     sourceRoot: facts.sourceRoot,
     entities: facts.entities,
-    events: facts.events.map((event) => ({ id: event.id, category: event.category, entity: event.entity })),
+    events: facts.events.map((event) => ({
+      id: event.id,
+      category: event.category,
+      entity: event.entity,
+      ...(event.clientBroadcast !== undefined ? { clientBroadcast: event.clientBroadcast } : {}),
+      ...(event.portalBroadcast !== undefined ? { portalBroadcast: event.portalBroadcast } : {}),
+    })),
     aclFeatures: facts.aclFeatures,
     apiRoutes: facts.apiRoutes,
     diTokens: facts.diTokens,
@@ -1237,6 +1349,7 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     cliCommands: facts.cliCommands,
     aiTools: facts.aiTools,
     aiAgents: facts.aiAgents,
+    ...(facts.extensionSurfaces ? { extensionSurfaces: facts.extensionSurfaces } : {}),
   }
 }
 
@@ -1273,6 +1386,7 @@ export interface ExtractAllModuleFactsResult {
   factsByModule: Record<string, ModuleFacts>
   markdownByModule: Record<string, string>
   warnings: string[]
+  frameworkMarkdown: string
 }
 
 export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
@@ -1299,8 +1413,31 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
       registrySource: options.registrySource ?? null,
     })
     factsByModule[source.moduleId] = facts
-    markdownByModule[source.moduleId] = renderModuleFactsMarkdown(facts)
     warnings.push(...facts.warnings)
   }
-  return { factsByModule, markdownByModule, warnings }
+  const surfacesByModule = Object.fromEntries(
+    Object.entries(factsByModule).map(([moduleId, facts]) => [
+      moduleId,
+      facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] },
+    ]),
+  )
+  const correlated = correlateModuleExtensionFacts({
+    surfacesByModule,
+    entityIds: new Set(Object.values(factsByModule).flatMap((facts) => facts.entities.map((entity) => entity.id))),
+    eventIds: new Set(Object.values(factsByModule).flatMap((facts) => facts.events.map((event) => event.id))),
+    apiRoutes: new Set([
+      ...Object.values(factsByModule).flatMap((facts) => facts.apiRoutes.map((route) => route.path)),
+      ...sources.flatMap((source) => extractKnownApiRouteIds(source.moduleId, source.moduleRoot)),
+    ]),
+    commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
+  })
+  assertNoUnresolvedExtensionTargets(correlated)
+  for (const moduleId of Object.keys(factsByModule).sort((left, right) => left.localeCompare(right))) {
+    factsByModule[moduleId].extensionSurfaces = correlated[moduleId]
+    markdownByModule[moduleId] = renderModuleFactsMarkdown(factsByModule[moduleId])
+    warnings.push(...correlated[moduleId].unresolved.map((entry) =>
+      `[module-facts] ${moduleId} ${entry.reason}: ${entry.key} (${entry.source.path})`,
+    ))
+  }
+  return { factsByModule, markdownByModule, warnings, frameworkMarkdown: renderFrameworkExtensionPointsMarkdown() }
 }
