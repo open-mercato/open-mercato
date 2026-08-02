@@ -46,7 +46,7 @@ Rebase the app-level DI override diagnostics from PR #4298 onto the current `dev
 
 ### Phase 1: Migrate the contribution
 
-- [ ] 1.1 Port PR #4298's app-level DI fallback diagnostics and tests onto current `develop`, resolving drift around the explicit app registrar without regressing it.
+- [x] 1.1 Port PR #4298's app-level DI fallback diagnostics and tests onto current `develop`, resolving drift around the explicit app registrar without regressing it. — 65ab761aa
 
 ### Phase 2: Apply requested review changes
 
