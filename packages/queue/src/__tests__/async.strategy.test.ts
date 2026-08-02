@@ -114,6 +114,38 @@ describe('Queue - async strategy', () => {
     await queue.close()
   })
 
+  it('threads queue retry, lock-duration and stalled-job options to BullMQ', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async', {
+      attempts: 5,
+      lockDuration: 120_000,
+      maxStalledCount: 10,
+    })
+
+    await queue.enqueue({ value: 42 })
+    await queue.process(async () => {})
+
+    expect(queueAdd).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ payload: { value: 42 } }),
+      expect.objectContaining({ attempts: 5 }),
+    )
+    expect(workerCtor).toHaveBeenCalledWith(
+      'test-queue',
+      expect.any(Function),
+      expect.objectContaining({ lockDuration: 120_000, maxStalledCount: 10 }),
+    )
+  })
+
+  it('leaves BullMQ on its own lock and stall defaults when the options are unset', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async', {})
+
+    await queue.process(async () => {})
+
+    const workerOptions = workerCtor.mock.calls[0]?.[2] as Record<string, unknown>
+    expect(workerOptions).not.toHaveProperty('lockDuration')
+    expect(workerOptions).not.toHaveProperty('maxStalledCount')
+  })
+
   it('removeQueuedJobsByScope removes only queued jobs matching tenant scope', async () => {
     const removeMatching = jest.fn(async () => {})
     const removeAutoIndex = jest.fn(async () => {})

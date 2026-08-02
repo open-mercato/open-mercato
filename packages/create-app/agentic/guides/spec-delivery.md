@@ -14,7 +14,7 @@ Use this guide for a new application, multi-module feature, or other non-trivial
 
 ## Implementation phase gate
 
-- Use `om-implement-spec` for local delivery and `om-auto-implement-spec` for whole-spec PR delivery.
+- Use `om-implement-spec` for interactive local delivery and `om-auto-implement-spec` for whole-spec PR delivery. The local skill's progressive resolution, planning/progress, and report references own its exact workflow and final `Spec:` marker; it never claims PR/tracker output.
 - Only the current unblocked phase may be in progress. Parallelize independent slices inside that phase only; never start a dependent module/phase before its prerequisite exit gate passes.
 - Delegation does not bypass routing. Before any UI slice, actually invoke `om-backend-ui-design` and read `.ai/guides/backend-ui.md`; naming them in an agent prompt is not invocation. Every implementation brief names the active phase, routed guides/skills, closest reference page, canonical primitives, acceptance IDs, owned files, and validation oracle.
 - Reject raw backend tables/forms/fetch, copied component families, arbitrary values, hard-coded palette/status colors, and light-only styling unless the approved spec records a necessary exception. UI phase evidence exercises affected routes in light and dark mode and at narrow width, including loading/empty/error/conflict and keyboard behavior.

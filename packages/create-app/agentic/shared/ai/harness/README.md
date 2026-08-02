@@ -1,6 +1,8 @@
 # Agent harness evaluations
 
-`cases.json` is the 193-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+`cases.json` is the 202-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+
+UMES routing is fact-first. The additive and unified-override audit evaluations, plus their targeted cases, resolve exact/pattern hosts, outgoing contributions, correlation provenance, round-trip groups, framework-owned targets, and override domain/key/mode from the generated module sheets and `.ai/guides/framework-extension-points.md` before bounded installed source. The repository UMES umbrella spec may appear as optional source-checkout provenance; it is never required in a standalone scaffold.
 
 ```text
 yarn harness:validate --runner codex --all
@@ -16,7 +18,7 @@ yarn harness:release --runner codex --prepare-targets /absolute/empty-release-ta
 yarn harness:release --runner codex --portability-runner claude --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The primary runner owns all 193 routing cases, all 46 writable cases, and all generated-code reviews. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+The primary runner owns all 202 routing cases, all 46 writable cases, and all generative-judge runs. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
 Writable evaluation is intentionally opt-in. The expanded catalog has a 46-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
@@ -31,13 +33,13 @@ The preparer refuses the controller app, non-standalone targets, reused targets,
 
 The four generated-test cases use direct controller-resolved Jest/Playwright CLIs, never target package scripts. The target and dependencies stay read-only; Jest has no network, Playwright has loopback only, and the browser lane exposes only the exact installed headless-shell runtime. JSON reporters must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests before review evidence can be created.
 
-Generated-code review is a separate post-oracle lane, never a nested second-model call. The individual command is opt-in while developing one case; the once-per-release suite requires it for every writable case:
+The generative judge is a separate post-oracle lane, never a nested second-model call. It applies the reusable `om-judge-agent-session` workflow, the pinned `om-code-review` skill, and UI design-system references when applicable. The individual command is opt-in while developing one case; the once-per-release suite requires it for every writable case:
 
 ```text
-yarn harness:validate --runner codex --review-writable-result /absolute/controller/.ai/harness/results/<writable-result>.json --writable-root /absolute/disposable/app
+yarn harness:validate --runner codex --judge-writable-result /absolute/controller/.ai/harness/results/<writable-result>.json --writable-root /absolute/disposable/app
 ```
 
-The source must be a passing one-shot implementation result from the current harness and its final whole-target fingerprint must still match. The controller copies changed regular text files as line-numbered inert snapshots, plus its pinned installed `om-code-review` skill and bounded trusted evidence, into a temporary read-only bundle. Target package scripts, dependencies, Git data, tracker state, original source files, and the target's absolute path are not copied or supplied to the reviewer; trace-verified out-of-bundle, environment, or process inspection and any bundle or target mutation fail closed. A separate sanitized artifact records source-result, target, policy, and installed-skill hashes plus the strict verdict, findings, and report. This supplemental review uses prior controller oracle evidence and does not claim the full repository validation gate or CI passed.
+The source must be a passing one-shot implementation result from the current harness and its final whole-target fingerprint must still match. The controller copies changed regular text files as line-numbered inert snapshots, the local judge skill, its pinned installed `om-code-review` skill, and bounded trusted evidence into a temporary read-only bundle. Target package scripts, dependencies, Git data, tracker state, original source files, and the target's absolute path are not copied or supplied to the judge; trace-verified out-of-bundle, environment, or process inspection and any bundle or target mutation fail closed. A separate sanitized artifact records source-result, target, policy, and skill hashes plus fixed evidence, artifact findings, design-system assessment, the smallest harness-owner findings, strict verdicts, and both reports. The legacy `--review-writable-result` and `--review-validation-result` flags remain read-only compatibility aliases. This supplemental judge uses prior controller evidence and does not claim validation or CI that did not run.
 
 ## Live-run security boundary
 

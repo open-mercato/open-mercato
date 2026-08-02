@@ -35,10 +35,9 @@
         "AGENTS.md",
         ".ai/guides/architecture.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -104,10 +103,9 @@
     "allowedExtra": [
       ".ai/guides/extensions.md"
     ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -186,7 +184,7 @@
         ".ai/guides/architecture.md",
         ".ai/guides/contracts.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
         ".git/**"
       ]
@@ -252,10 +250,9 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -326,10 +323,9 @@
       "allowedExtra": [
         ".ai/agentic.config.json"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -363,7 +359,7 @@
     "mode": "spec",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Given an approved additive, app-owned library-management specification with separate data/API, admin UI, and event-subscriber overdue-notification phases (not a durable workflow), explain how to implement selected phases so every completed phase leaves a working app and preserves the spec contracts.",
+    "prompt": "Given an approved additive, app-owned library-management specification with separate data/API, admin UI, and event-subscriber overdue-notification phases (not a durable workflow), resolve the spec reference, present the selected phase plan for confirmation, explain how to implement it so every completed phase leaves a working app, and define the progress and final report with a stable spec reference without claiming PR automation.",
     "tags": [
       "architecture",
       "spec-pr",
@@ -392,20 +388,29 @@
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/skills/om-implement-spec/SKILL.md"
+        ".ai/skills/om-implement-spec/SKILL.md",
+        ".ai/skills/om-implement-spec/references/spec-resolution.md",
+        ".ai/skills/om-implement-spec/references/phases-and-gates.md",
+        ".ai/skills/om-implement-spec/references/planning-and-progress.md",
+        ".ai/skills/om-implement-spec/references/report-templates.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "spec-resolution",
+      "phase-execution-plan",
+      "interactive-confirmation",
       "working-phases",
-      "smallest-validation"
+      "smallest-validation",
+      "implementation-progress",
+      "stable-implementation-report",
+      "spec-reference-marker"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -487,10 +492,9 @@
       "allowedExtra": [
         ".ai/guides/contracts.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -559,10 +563,9 @@
         "src/modules.ts",
         "package.json"
     ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -635,10 +638,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-data-model-design/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -730,10 +732,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-data-model-design/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -806,10 +807,9 @@
         ".ai/guides/modules/search.md",
         ".ai/guides/modules/query_index.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -901,10 +901,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1006,10 +1005,9 @@
     "allowedExtra": [
       ".ai/guides/backend-ui.md"
     ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1081,10 +1079,9 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1174,10 +1171,9 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/guides/modules/content.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1246,10 +1242,9 @@
       ".ai/guides/modules/customer_accounts.md",
       ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1321,10 +1316,9 @@
         ".ai/guides/modules/search.md",
         ".ai/guides/modules/query_index.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1403,10 +1397,9 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1479,10 +1472,9 @@
       ".ai/guides/modules/progress.md",
       ".ai/skills/om-module-scaffold/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1566,10 +1558,9 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1636,10 +1627,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1714,10 +1704,9 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1785,10 +1774,9 @@
       "allowedExtra": [
         ".ai/guides/modules/translations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1868,10 +1856,9 @@
       "allowedExtra": [
         ".ai/guides/modules/entities.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -1939,10 +1926,9 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/extension-branches.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "decisionVocabulary": [
@@ -1984,7 +1970,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject an editable core CrudForm field across read, display, and save paths. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject an editable installed CrudForm field across read, display, and save paths. Resolve the exact bound form host and its correlated read/write/UI round trip from the named module facts before using source context; reject helper-only or unbound IDs. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2030,13 +2016,15 @@
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "bound-crud-form-host",
+      "correlated-roundtrip",
       "widget-read-write-roundtrip",
       "stable-spot-id"
     ],
@@ -2093,7 +2081,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject a DataTable column, filter, row action, bulk action, or toolbar item. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, inject a DataTable column, filter, row action, bulk action, or toolbar item. Resolve the exact bound deep table host from the named module facts before using source context, distinguish it from the non-mountable base prefix and helper-only IDs, and preserve its correlated execution guard. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2128,13 +2116,15 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "bound-data-table-host",
+      "base-prefix-not-mountable",
       "stable-table-host",
       "bulk-mutation-safety"
     ],
@@ -2189,7 +2179,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add or reorder main, settings, profile, topbar, and profile-dropdown menus. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add or reorder main, settings, profile, topbar, and profile-dropdown menus. Resolve exact framework-owned menu surface and item IDs, label keys, feature gates, and relative placement from the framework extension catalog before using source context; do not attribute them to a business module or derive IDs from memory. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2230,18 +2220,20 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/framework-extension-points.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "framework-facts-first",
+      "exact-framework-menu-host",
       "menu-injection",
       "stable-ordering"
     ],
@@ -2259,7 +2251,7 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 6,
+    "maxContextFiles": 7,
     "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 114688,
     "relatedCases": [
@@ -2304,10 +2296,9 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -2409,10 +2400,9 @@
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -2447,7 +2437,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, intercept an installed API request or response while preserving contracts. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, intercept an installed API request or response while preserving contracts. Resolve the exact route, methods, before/after phases, host activation bridge, timeout, and failure posture from the named module facts before using source context. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "interceptor-contract"
@@ -2478,13 +2468,15 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "interceptor-activation",
+      "interceptor-phases-and-failure-posture",
       "interceptor-contract",
       "scope-preservation"
     ],
@@ -2538,7 +2530,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a mutation guard with safe payload rewrite and post-success callbacks. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add a mutation guard with safe payload rewrite and post-success callbacks. Resolve the exact entity, operations, block/rewrite/after-success capabilities, and locking-preservation contract from the named module facts before using source context. Keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "mutation-guard"
@@ -2569,13 +2561,15 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "guard-operations-and-capabilities",
+      "locking-preserved",
       "mutation-guard",
       "safe-after-success"
     ],
@@ -2642,10 +2636,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -2713,10 +2706,9 @@
       ".ai/guides/contracts.md",
       ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -2751,7 +2743,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, add DOM Event Bridge progress UI to a long-running operation supplied by an installed module. Extend it through supported UMES surfaces, keep framework packages read-only, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, add DOM Event Bridge progress UI to a long-running operation supplied by an installed module. Resolve the event's client or portal broadcast fact, audience/scoping contract, and exact browser hook from the named module facts before using source context; a transport flag alone is not delivery. Extend through supported UMES surfaces, keep framework packages read-only, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2785,15 +2777,18 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/progress.md"
+        ".ai/guides/modules/progress.md",
+        ".ai/guides/modules/events.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "facts-first-event",
+      "broadcast-audience-scope",
+      "exact-browser-hook",
       "dom-event-bridge",
       "operation-progress"
     ],
@@ -2869,10 +2864,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -2945,10 +2939,9 @@
       "allowedExtra": [
         ".ai/guides/modules/auth.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3016,10 +3009,9 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/feature_toggles.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3093,10 +3085,9 @@
       "allowedExtra": [
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3172,10 +3163,9 @@
       "allowedExtra": [
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3242,10 +3232,9 @@
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/payment_gateways.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3315,10 +3304,9 @@
         ".ai/guides/modules/data_sync.md",
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3428,10 +3416,9 @@
         ".ai/guides/architecture.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3497,10 +3484,9 @@
         ".ai/guides/integrations.md",
         ".ai/skills/om-integration-builder/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3567,10 +3553,9 @@
         ".ai/guides/integrations.md",
         ".ai/skills/om-integration-builder/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3668,10 +3653,9 @@
         ".ai/skills/om-framework-context/SKILL.md",
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3740,10 +3724,9 @@
         ".ai/skills/om-framework-context/SKILL.md",
         ".ai/guides/modules/catalog.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3813,10 +3796,9 @@
       "allowedExtra": [
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3884,10 +3866,9 @@
         ".ai/guides/ai-workflows.md",
         ".ai/skills/om-create-ai-agent/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -3980,10 +3961,9 @@
       "allowedExtra": [
         ".ai/guides/modules/ai_assistant.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4048,10 +4028,9 @@
         ".ai/guides/ai-workflows.md",
         ".ai/skills/om-create-ai-agent/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4115,10 +4094,9 @@
         ".ai/skills/om-create-ai-agent/SKILL.md",
         ".ai/guides/modules/attachments.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4191,10 +4169,9 @@
       "allowedExtra": [
         ".ai/guides/contracts.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4264,10 +4241,9 @@
       "allowedExtra": [
         ".ai/guides/contracts.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4385,10 +4361,9 @@
         ".ai/guides/modules/workflows.md",
         ".ai/guides/modules/progress.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4461,10 +4436,9 @@
         ".ai/guides/architecture.md",
         ".ai/guides/modules/ai_assistant.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4533,10 +4507,9 @@
         ".ai/skills/om-troubleshooter/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4645,10 +4618,9 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4718,10 +4690,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4792,10 +4763,9 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4888,10 +4858,9 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -4985,10 +4954,9 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5059,10 +5027,9 @@
       ".ai/skills/om-troubleshooter/SKILL.md",
       ".ai/skills/om-module-scaffold/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5134,10 +5101,9 @@
         ".ai/skills/om-troubleshooter/SKILL.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5206,10 +5172,9 @@
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5279,10 +5244,9 @@
         ".ai/skills/om-troubleshooter/SKILL.md",
         ".ai/guides/modules/search.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5352,10 +5316,9 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5429,10 +5392,9 @@
       ".ai/skills/om-module-scaffold/SKILL.md",
       ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5501,10 +5463,9 @@
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5577,10 +5538,9 @@
       "allowedExtra": [
         ".ai/guides/modules/data_sync.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -5665,7 +5625,7 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/customers.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["reuse-installed-customer", "app-owned-distinct-records", "umes-roundtrip", "encrypted-pii", "optimistic-lock"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "duplicate customer (?:entity|identity|model)"],
@@ -5709,7 +5669,7 @@
         ".ai/guides/modules/customers.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["installed-customers-deals", "extension-policy", "stable-identifiers", "server-transition-validation", "conflict-surfacing"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "packages/core.{0,40}(?:write|edit|patch)", "direct ORM relationship"],
@@ -5754,7 +5714,7 @@
       ".ai/guides/modules/customers.md",
       ".ai/guides/modules/workflows.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["public-scope-derived-server-side", "idempotent-submission", "encrypted-pii", "deterministic-deduplication", "cross-module-id-link", "optional-crm", "retry-safe-handoff"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "scope.{0,30}(?:request body|payload)", "direct ORM relationship"],
@@ -5795,7 +5755,7 @@
         ".ai/guides/modules/scheduler.md",
         ".ai/guides/modules/events.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["extension-entity", "id-link", "umes-roundtrip", "typed-events", "notification-contract", "subscriber-idempotency", "optional-host"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
@@ -5831,7 +5791,7 @@
       "allowedExtra": [
         ".ai/guides/modules/currencies.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["scoped-aggregate", "currency-aware-totals", "tenant-cache-tags", "batched-enrichment", "stable-table-host"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "cache key.{0,40}(?:without|missing).{0,20}tenant"],
@@ -5867,7 +5827,7 @@
       "allowedExtra": [
         ".ai/guides/modules/currencies.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["extension-entity", "scalar-id-link", "decimal-money", "deterministic-precedence", "optimistic-lock", "cache-invalidation", "optional-host"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:float|number).{0,30}(?:price|money)"],
@@ -5904,7 +5864,7 @@
         ".ai/guides/testing-debugging.md",
         ".ai/guides/modules/audit_logs.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["command-state-machine", "separation-of-duties", "aggregate-optimistic-lock", "durable-user-task", "exactly-once-conversion", "notification-contract"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:approve|convert).{0,30}(?:direct update|persistAndFlush)"],
@@ -5938,7 +5898,7 @@
         ".ai/guides/modules/sales.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/customer_accounts.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md"
       ],
       "allowedExtra": [".ai/guides/modules/payment_gateways.md"],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["scalar-id-snapshot", "command-state-machine", "quantity-invariant", "optimistic-lock", "idempotent-refund", "portal-scope", "durable-transition"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "returned quantity.{0,30}(?:unbounded|unchecked)"],
@@ -5971,7 +5931,7 @@
         ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-integration-builder/SKILL.md", ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/payment_gateways.md", ".ai/guides/modules/sales.md", ".ai/guides/modules/data_sync.md", ".ai/guides/modules/progress.md", ".ai/guides/modules/workflows.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["data-sync-adapter", "exact-money", "deterministic-matching", "rerun-idempotency", "optimistic-lock", "exception-retention", "operation-progress"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:float|number).{0,30}(?:amount|money)", "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
@@ -6008,7 +5968,7 @@
         ".ai/guides/modules/webhooks.md",
         ".ai/guides/modules/workflows.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["provider-neutral-domain", "deterministic-carrier-rule", "retry-safe-booking", "idempotent-external-id", "event-progress", "webhook-poll-reconciliation", "optional-provider"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "provider credentials.{0,30}(?:log|plain)", "direct ORM relationship"],
@@ -6040,7 +6000,7 @@
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/customer_accounts.md", ".ai/guides/modules/sales.md", ".ai/guides/modules/notifications.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["portal-principal-scope", "org-slug", "backend-acl", "aggregate-optimistic-lock", "portal-navigation", "notification-contract", "complete-ui-states"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:customer|organization).{0,30}(?:request body|route id only)", "UI visibility.{0,30}(?:is|as) authorization"],
@@ -6076,7 +6036,7 @@
       "allowedExtra": [
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["data-sync-adapter", "stable-external-id", "scoped-cursor", "cursor-after-success", "rerun-idempotency", "deterministic-conflict-owner", "operation-progress"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "cursor.{0,30}(?:before|prior to).{0,20}success", "credentials.{0,30}(?:plain|log)"],
@@ -6100,7 +6060,7 @@
     "requiredSkills": [],
     "context": {
       "required": ["AGENTS.md", ".ai/guides/testing-debugging.md"],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["unit-regression-oracle", "tenant-organization-fixtures", "failure-injection", "focused-test-command", "honest-test-result"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:skip|todo|only).{0,30}test", "sleep|setTimeout"],
@@ -6124,7 +6084,7 @@
     "requiredSkills": ["om-integration-tests"],
     "context": {
       "required": ["AGENTS.md", ".ai/guides/testing-debugging.md"],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["self-contained-fixtures", "api-fixtures", "finally-cleanup", "scope-denial-coverage", "stale-write-conflict", "filtered-integration-run"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:demo|seeded) data", "(?:skip|todo|only).{0,30}test"],
@@ -6148,7 +6108,7 @@
     "requiredSkills": ["om-integration-tests"],
     "context": {
       "required": ["AGENTS.md", ".ai/guides/testing-debugging.md", ".ai/guides/modules/customer_accounts.md", ".ai/guides/modules/sales.md"],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["ephemeral-test-environment", "api-fixtures", "semantic-locators", "complete-ui-states", "backend-verification", "finally-cleanup"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:demo|seeded) data", "sleep|waitForTimeout", "existing browser session"],
@@ -6172,7 +6132,7 @@
     "requiredSkills": ["om-integration-tests"],
     "context": {
       "required": ["AGENTS.md", ".ai/guides/testing-debugging.md"],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["generate-first", "affected-unit-tests", "filtered-integration-tests", "full-validation-tail", "rerun-dependent-gates", "honest-test-result"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:skip|ignore|assume).{0,30}(?:failing|failed|test|gate)", "migration.{0,30}(?:apply|run locally)"],
@@ -6219,7 +6179,7 @@
         ".ai/guides/modules/dashboards.md", ".ai/guides/modules/notifications.md",
         ".ai/guides/modules/messages.md", ".ai/guides/modules/inbox_ops.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["surface-owner-map", "page-route-convention", "api-route-convention", "discovered-convention-files", "support-versus-discovery", "vector-and-ui-locale", "query-lifecycle-surfaces", "dashboard-notification-message-inbox-surfaces", "mfa-and-sudo-contributions", "integration-and-generator-surfaces", "typed-tool-versus-mcp", "mcp-opencode-code-mode", "mcp-two-tier-auth", "no-placeholder-surfaces", "generate-and-inspect"],
     "forbiddenPatterns": ["frontend/.+\\.(?:ts|tsx).{0,30}(?:canonical|create)", "api/(?:get|post|put|patch|delete)/", "data/fields\\.ts", "node_modules.{0,40}(?:write|edit|patch)"],
@@ -6236,7 +6196,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Cover response and query-engine enrichers; API interceptors, mutation guards, and the additive commands/interceptors.ts branch with stable id/targetCommand plus before/after execute and undo hooks; CrudForm and DataTable/menu/rendered widget injection including client operation filters; entity extensions; async, sync, and query-lifecycle subscribers; reactive notification handlers and DOM Event Bridge hooks; integration wizard/status/detail widgets; vector config; embedded AiChat; typed payment/shipping/currency/workflow registrations; and component props/wrappers. For each, name the smallest mechanism and specialist route, exact host-token evidence, wildcard-aware authorization and trusted scope boundary, optional-host behavior, safe block/rewrite posture, read/write/UI round trip where applicable, and verification; no interceptor may bypass the command, locking, audit, or undo, and unified replacement is wrong when additive composition works.",
+    "prompt": "Audit how a standalone app can add behavior to installed modules without replacing them. Choose the mechanism first, then resolve each exact or pattern target from one named module fact sheet, the framework extension catalog for framework-owned hosts, or a contribution's fact-ref/specialistRoute; installed source is only a bounded fallback for one named unresolved version gap. Cover response and caller-opt-in query enrichers; API interceptors, mutation guards, and additive command interceptors with execute/undo phases; every actually bound CrudForm and DataTable render, headless, lifecycle, operation-filter, and component-handle family while rejecting base-prefix/helper-only IDs; framework menus; entity extensions; async, sync, and querying/queried lifecycle subscribers; reactive notification handlers plus client/portal browser bridges and audience scope; integration UI; specialized vector, AI, payment, shipping, currency, and workflow registries; and component wrappers. For each, preserve activation, phases/operations, features, scope, placement, timeout/fallback/cache or execution-guard details, target-resolution provenance, optional-external behavior, and correlated read/write/UI roundTripId legs. Treat unresolved first-party targets as blockers, never bypass command/locking/audit/undo, and prefer additive composition over unified replacement.",
     "tags": ["umes", "extension-points", "additive", "audit"],
     "owner": {
       "kind": "skill",
@@ -6249,7 +6209,7 @@
       "required": [
         "AGENTS.md", ".ai/guides/extensions.md", ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-system-extension/references/mechanism-selector.md", ".ai/skills/om-system-extension/references/extension-branches.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md", ".ai/guides/framework-extension-points.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md",
@@ -6263,15 +6223,21 @@
         ".ai/guides/modules/events.md",
         ".ai/guides/modules/query_index.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
-    "requiredDecisions": ["additive-before-replacement", "exact-host-token", "enricher-interceptor-guard", "command-interceptor-execute-undo", "command-interceptor-acl-scope", "safe-command-block-rewrite", "query-enricher-and-subscriber", "headless-and-rendered-widgets", "client-operation-filter", "entity-extension", "event-and-notification-reaction", "dom-event-bridge", "integration-ui-specialization", "vector-ai-provider-registration", "component-wrapper", "optional-host", "roundtrip-verification"],
+    "requiredDecisions": ["additive-before-replacement", "facts-first-target-resolution", "framework-catalog-routing", "exact-pattern-fact-ref-resolution", "unresolved-first-party-blocker", "response-query-enricher-activation", "interceptor-guard-phases", "command-interceptor-execute-undo", "command-interceptor-acl-scope", "safe-command-block-rewrite", "querying-queried-caller-opt-in", "all-bound-crud-form-families", "all-bound-data-table-families", "reject-helper-only-hosts", "framework-menu-targets", "entity-extension-fact-ref", "subscriber-sync-persistent-priority", "dom-portal-audience-scope", "specialist-registry-routing", "component-wrapper-handle", "optional-external-provenance", "correlated-roundtrip-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "(?:guess|invent).{0,30}(?:spot|handle|route|entity)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 15,
-    "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 147456,
-    "relatedCases": ["OMH-025", "OMH-026", "OMH-038", "OMH-089"]
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 262144,
+    "relatedCases": ["OMH-025", "OMH-026", "OMH-038", "OMH-089"],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-07-24-standalone-ai-development-harness.md",
+        ".ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md"
+      ]
+    }
   },
   {
     "id": "OMH-089",
@@ -6280,7 +6246,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app and verify its stable IDs and replacement seams against the backward-compatibility policy. Account for all wired domains: AI agents/tools plus additive AI extensions; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; entry-scoped setup; ACL; DI; and encryption maps. State exact resolved keys (including registry entry keys and worker metadata fallback), which maps support null-disable/typed replacement, the special AI-extension and setup shapes, where global override maps may live, bootstrap/generation implications, stale-key diagnostics, security preservation, and rollback verification.",
+    "prompt": "Audit the canonical src/modules.ts entry.overrides surface for a standalone app and verify its stable IDs and replacement seams against the backward-compatibility policy. Resolve every wired domain, exact key, and disable-replace/replace/additive mode from the named module facts and their fact-ref provenance before using bounded installed context; an unresolved or stale first-party correlation is a blocker. Account for AI agents/tools plus additive AI extensions; API and backend/frontend page routes; subscribers; workers; injection, component, and dashboard widgets; notification types/handlers; API and command interceptors; enrichers; page guards; CLI; entry-scoped setup; ACL; DI; and encryption maps. Preserve registry entry keys, worker metadata fallback, null-disable/typed replacement semantics, special AI-extension/setup shapes, global-map ownership, bootstrap/generation ordering, security, stale-key diagnostics, and rollback.",
     "tags": ["umes", "unified-overrides", "all-domains", "audit"],
     "owner": {
       "kind": "skill",
@@ -6299,17 +6265,24 @@
         ".ai/guides/modules/ai_assistant.md",
         ".ai/guides/modules/dashboards.md",
         ".ai/guides/modules/events.md",
-        ".ai/guides/modules/notifications.md"
+        ".ai/guides/modules/notifications.md",
+        ".ai/guides/framework-extension-points.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
-    "requiredDecisions": ["all-eighteen-domains", "additive-ai-extensions", "stable-override-key", "resolved-widget-worker-keys", "entry-scoped-setup-shape", "null-disable", "typed-replacement", "security-preservation", "stale-key-diagnostic", "bootstrap-before-registry", "rollback-verification"],
+    "requiredDecisions": ["all-eighteen-domains", "facts-first-override-resolution", "override-fact-ref-provenance", "override-mode-from-facts", "unresolved-first-party-blocker", "additive-ai-extensions", "stable-override-key", "resolved-widget-worker-keys", "entry-scoped-setup-shape", "null-disable", "typed-replacement", "security-preservation", "stale-key-diagnostic", "bootstrap-before-registry", "rollback-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "load order.{0,30}(?:hope|accident)", "(?:weaken|remove).{0,30}(?:auth|scope|guard|lock)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 131072,
-    "relatedCases": ["OMH-029", "OMH-030", "OMH-056", "OMH-088"]
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": ["OMH-029", "OMH-030", "OMH-056", "OMH-088"],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-07-24-standalone-ai-development-harness.md",
+        ".ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md"
+      ]
+    }
   },
   {
     "id": "OMH-090",
@@ -6332,7 +6305,7 @@
         "AGENTS.md", ".ai/guides/backend-ui.md", ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md", ".ai/guides/modules/catalog.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["frontend-page-route", "explicit-auth-posture", "server-first-client-boundary", "shared-design-system", "mobile-first-responsive", "localized-state-matrix", "accessible-interaction", "browser-integration-coverage"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:hex|rgb|arbitrary).{0,30}(?:color|tailwind)", "raw fetch", "private module (?:file|import)"],
@@ -6349,7 +6322,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Add an app-owned customer support cases page to the installed portal. Use frontend/[orgSlug]/portal/**/page.tsx with sibling metadata, customer auth/features for guarded pages while preserving public-page semantics, principal-derived scope, optional nav only for the list destination, frozen portal hooks/spots/handles, portal menu injection only for links without a backing page, DataTable for the list, shared responsive and accessible components, loading/empty/not-found/denial/error/conflict/success states, wildcard-aware authorization, direct-route protection, and portal integration tests.",
+    "prompt": "Add an app-owned customer support cases page to the installed portal. Resolve exact or pattern portal hosts from the portal/customer_accounts module facts and framework-owned portal menu/chrome targets from the framework extension catalog before source context; preserve portalBroadcast audience scope and select the exact portal hook. Use frontend/[orgSlug]/portal/**/page.tsx with sibling metadata, customer auth/features for guarded pages while preserving public-page semantics, principal-derived scope, optional nav only for the list destination, frozen portal hooks/spots/handles, portal menu injection only for links without a backing page, DataTable for the list, shared responsive and accessible components, loading/empty/not-found/denial/error/conflict/success states, wildcard-aware authorization, direct-route protection, and portal integration tests.",
     "tags": [
       "frontend",
       "portal",
@@ -6392,15 +6365,19 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/guides/modules/customer_accounts.md",
-        ".ai/guides/modules/portal.md"
+        ".ai/guides/modules/portal.md",
+        ".ai/guides/framework-extension-points.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "facts-first-portal-host",
+      "framework-portal-menu-host",
+      "portal-broadcast-audience-scope",
+      "exact-portal-hook",
       "portal-route-convention",
       "portal-page-metadata",
       "public-versus-guarded-portal-auth",
@@ -6458,7 +6435,7 @@
         "AGENTS.md", ".ai/guides/backend-ui.md", ".ai/guides/testing-debugging.md", ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md", ".ai/skills/om-backend-ui-design/references/quality-states.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
     "requiredDecisions": ["shared-component-families", "semantic-tokens", "status-category-semantics", "alert-and-confirm-contract", "formfield-crudform-boundary", "brand-gradient-exception", "information-hierarchy", "responsive-translated-layout", "complete-ux-state-matrix", "keyboard-focus-accessibility", "reduced-motion", "api-ui-verification"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "(?:hex|rgb|hard-coded status|arbitrary tailwind)", "raw (?:form|fetch)", "inline SVG", "fixed desktop"],
@@ -6530,10 +6507,9 @@
       "allowedExtra": [
         ".ai/guides/testing-debugging.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -6559,7 +6535,7 @@
       "oracle.business.command"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 60416,
+    "maxInitialContextBytes": 61440,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-060",
@@ -6638,10 +6614,9 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/customers.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -6730,10 +6705,9 @@
       "allowedExtra": [
         ".ai/guides/modules/communication_channels.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -6821,10 +6795,9 @@
       "allowedExtra": [
         ".ai/guides/modules/business_rules.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -6925,10 +6898,9 @@
       ".ai/guides/modules/communication_channels.md",
       ".ai/guides/modules/scheduler.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7022,10 +6994,9 @@
         ".ai/guides/modules/planner.md",
         ".ai/guides/modules/inbox_ops.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7117,10 +7088,9 @@
         ".ai/guides/modules/notifications.md",
         ".ai/guides/modules/scheduler.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7209,10 +7179,9 @@
         ".ai/guides/modules/sales.md",
         ".ai/guides/modules/planner.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7300,10 +7269,9 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/customers.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7388,10 +7356,9 @@
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/guides/modules/customers.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7479,10 +7446,9 @@
       "allowedExtra": [
         ".ai/skills/om-data-model-design/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7577,10 +7543,9 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7672,10 +7637,9 @@
         ".ai/guides/modules/customers.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7783,10 +7747,9 @@
       "allowedExtra": [
         ".ai/guides/modules/directory.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7879,10 +7842,9 @@
         ".ai/guides/modules/sales.md",
         ".ai/guides/modules/workflows.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -7992,10 +7954,9 @@
         ".ai/guides/modules/sales.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8089,10 +8050,9 @@
       "allowedExtra": [
         ".ai/guides/modules/scheduler.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8182,10 +8142,9 @@
       "allowedExtra": [
         ".ai/guides/modules/shipping_carriers.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8284,10 +8243,9 @@
         ".ai/skills/om-build-workflow/SKILL.md",
         ".ai/guides/modules/workflows.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8309,8 +8267,8 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 10,
-    "maxInitialContextBytes": 61440,
+    "maxContextFiles": 11,
+    "maxInitialContextBytes": 65536,
     "maxTotalContextBytes": 229376,
     "relatedCases": [
       "OMH-060",
@@ -8382,10 +8340,9 @@
         ".ai/guides/modules/sales.md",
         ".ai/guides/modules/workflows.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8472,10 +8429,9 @@
         ".ai/guides/modules/customers.md",
         ".ai/guides/modules/payment_gateways.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8563,10 +8519,9 @@
         ".ai/guides/modules/customers.md",
         ".ai/guides/modules/currencies.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8651,10 +8606,9 @@
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/customers.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8768,10 +8722,9 @@
         ".ai/guides/modules/workflows.md",
         ".ai/guides/modules/scheduler.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8860,10 +8813,9 @@
         ".ai/guides/modules/catalog.md",
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -8952,10 +8904,9 @@
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9045,10 +8996,9 @@
         ".ai/guides/modules/customers.md",
         ".ai/guides/modules/currencies.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9140,10 +9090,9 @@
         ".ai/guides/modules/catalog.md",
         ".ai/guides/modules/currencies.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9166,7 +9115,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 61440,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-069",
@@ -9235,10 +9184,9 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
     ],
-    "forbidden": [
+    "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9323,10 +9271,9 @@
         ".ai/guides/modules/catalog.md",
         ".ai/guides/modules/checkout.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9440,10 +9387,9 @@
       "allowedExtra": [
         ".ai/guides/modules/catalog.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9533,10 +9479,9 @@
       "allowedExtra": [
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9625,10 +9570,9 @@
       "allowedExtra": [
         ".ai/guides/modules/scheduler.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9716,10 +9660,9 @@
       "allowedExtra": [
         ".ai/guides/modules/audit_logs.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9803,10 +9746,9 @@
         ".ai/guides/modules/query_index.md",
         ".ai/guides/modules/search.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9895,10 +9837,9 @@
         ".ai/guides/modules/catalog.md",
         ".ai/guides/modules/progress.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -9999,10 +9940,9 @@
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
         ".ai/guides/modules/catalog.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10095,10 +10035,9 @@
         ".ai/guides/modules/customers.md",
         ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10219,10 +10158,9 @@
         ".ai/guides/modules/portal.md",
         ".ai/guides/modules/auth.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10307,10 +10245,9 @@
         ".ai/guides/modules/customer_accounts.md",
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10398,10 +10335,9 @@
         ".ai/guides/modules/customer_accounts.md",
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10505,10 +10441,9 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10587,10 +10522,9 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10671,10 +10605,9 @@
         ".ai/guides/modules/catalog.md",
         ".ai/guides/modules/dashboards.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10759,10 +10692,9 @@
       ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
       ".ai/skills/om-backend-ui-design/references/quality-states.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10869,10 +10801,9 @@
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -10910,11 +10841,11 @@
     "owner":{"kind":"skill","path":".ai/skills/om-build-workflow/SKILL.md","ruleIds":["BC-02","BC-05","BC-07","BC-10"]},
     "expectedRouter":{"required":["module-data","umes","ai-workflow"],"allowedExtra":["architecture"]},
     "requiredSkills":["om-module-scaffold","om-system-extension","om-build-workflow"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/customers.md",".ai/guides/modules/workflows.md"],"allowedExtra":[".ai/guides/modules/sales.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/customers.md",".ai/guides/modules/workflows.md"],"allowedExtra":[".ai/guides/modules/sales.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["durable-user-task","separation-of-duties","mutation-guards","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","requireRoles"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":9,"maxInitialContextBytes":50176,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
+    "maxContextFiles":9,"maxInitialContextBytes":53248,"maxTotalContextBytes":147456,"relatedCases":["OMH-053","OMH-074","OMH-077"]
   },
   {
     "id": "OMH-140",
@@ -10979,10 +10910,9 @@
         ".ai/guides/modules/integrations.md",
         ".ai/guides/modules/scheduler.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11046,7 +10976,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-build-workflow/SKILL.md","ruleIds":["BC-02","BC-05","BC-07","BC-09","BC-10"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes","ai-workflow"],"allowedExtra":["integration"]},
     "requiredSkills":["om-module-scaffold","om-backend-ui-design","om-system-extension","om-build-workflow"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/workflows.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/ai-workflows.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/workflows.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["command-state-machine","workflow-output-path","durable-user-task","subscriber-idempotency","quantity-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","direct ORM relationship"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11060,7 +10990,7 @@
     "expectedRouter":{"required":["module-data"],"allowedExtra":["umes","framework-context"]},
     "requiredSkills":["om-module-scaffold"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",".ai/guides/modules/scheduler.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",".ai/guides/modules/scheduler.md",".ai/guides/modules/customers.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["worker-idempotency","host-scope-contract","renewal-timezone-dst-policy","restart-safe-schedule"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","setTimeout\\("],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11073,7 +11003,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-create-ai-agent/SKILL.md","ruleIds":["BC-02","BC-05","BC-07","BC-11"]},
     "expectedRouter":{"required":["ai-workflow"],"allowedExtra":["module-data"]},
     "requiredSkills":["om-create-ai-agent"],
-    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/guides/modules/customers.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["typed-agent","tool-acl-scope","lead-score-evidence","read-only-ai-boundary"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:create|update|delete).{0,30}(?:tool|record)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11124,10 +11054,9 @@
         ".ai/skills/om-create-ai-agent/SKILL.md",
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11190,7 +11119,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-create-ai-agent/SKILL.md","ruleIds":["BC-02","BC-05","BC-07","BC-11"]},
     "expectedRouter":{"required":["ai-workflow"],"allowedExtra":["module-data","backend-ui","umes"]},
     "requiredSkills":["om-create-ai-agent"],
-    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-create-ai-agent/references/attachments-and-overrides.md",".ai/guides/modules/attachments.md",".ai/guides/modules/catalog.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-create-ai-agent/references/attachments-and-overrides.md",".ai/guides/modules/attachments.md",".ai/guides/modules/catalog.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["artifact-authorization","encrypted-storage","cleanup","draft-only-ai-output"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","public (?:bucket|attachment|url)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11246,10 +11175,9 @@
       "allowedExtra": [
         ".ai/guides/architecture.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11275,8 +11203,8 @@
       "oracle.artifacts",
       "oracle.business.ai-safe-agent"
     ],
-    "maxContextFiles": 4,
-    "maxInitialContextBytes": 32768,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-051"
@@ -11308,7 +11236,7 @@
     "expectedRouter":{"required":["ai-workflow","umes"],"allowedExtra":["architecture","framework-context","module-data"]},
     "requiredSkills":["om-create-ai-agent","om-system-extension"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
-    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/guides/extensions.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/ai_assistant.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/guides/extensions.md",".ai/skills/om-create-ai-agent/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/ai_assistant.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["supported-ai-override","stable-agent-id","null-disable","security-preservation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","delete.{0,40}(?:installed|built-in)","new (?:agent|tool) id"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11321,7 +11249,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-build-workflow/SKILL.md","ruleIds":["BC-02","BC-05","BC-07","BC-09"]},
     "expectedRouter":{"required":["ai-workflow"],"allowedExtra":["module-data","backend-ui","umes"]},
     "requiredSkills":["om-build-workflow"],
-    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/workflows.md",".ai/guides/modules/progress.md"],"allowedExtra":[".ai/guides/modules/ai_assistant.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/ai-workflows.md",".ai/skills/om-build-workflow/SKILL.md",".ai/guides/modules/workflows.md",".ai/guides/modules/progress.md"],"allowedExtra":[".ai/guides/modules/ai_assistant.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["event-progress","widget-progress","workflow-resume-checkpoint","workflow-cancellation-boundary","subscriber-idempotency"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","poll.{0,20}(?:every|setInterval)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11370,10 +11298,9 @@
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11496,10 +11423,9 @@
         ".ai/guides/modules/checkout.md",
         ".ai/guides/modules/webhooks.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11616,10 +11542,9 @@
       "allowedExtra": [
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11694,7 +11619,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-08"]},
     "expectedRouter":{"required":["integration","module-data","umes"],"allowedExtra":["architecture"]},
     "requiredSkills":["om-integration-builder","om-data-model-design","om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["decimal-money","tax-jurisdiction-snapshot","tax-outage-policy"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:float|number).{0,20}(?:amount|tax|money)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11762,10 +11687,9 @@
       "allowedExtra": [
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11832,7 +11756,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05"]},
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","umes","debugging"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/webhooks.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/webhooks.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","tenant-scope"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","signature.{0,30}(?:skip|optional|disabled)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11845,11 +11769,11 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05","BC-07"]},
     "expectedRouter":{"required":["integration","module-data","backend-ui","umes"],"allowedExtra":["ai-workflow"]},
     "requiredSkills":["om-integration-builder","om-module-scaffold","om-backend-ui-design","om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/webhooks.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/modules/webhooks.md"],"allowedExtra":[".ai/guides/modules/integrations.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["webhook-signature","typed-events","subscriber-idempotency","outbound-delivery-status"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":12,"maxInitialContextBytes":63488,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
+    "maxContextFiles":12,"maxInitialContextBytes":65536,"maxTotalContextBytes":147456,"relatedCases":["OMH-018","OMH-043"]
   },
   {
     "id": "OMH-156",
@@ -11893,10 +11817,9 @@
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/catalog.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -11956,7 +11879,7 @@
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","umes","ai-workflow","framework-context"]},
     "requiredSkills":["om-integration-builder"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/attachments.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/skills/om-framework-context/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/attachments.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/skills/om-framework-context/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["artifact-authorization","encrypted-storage","cleanup","short-lived-download-url","attachment-scope-both-or-neither","check-attachment-access"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","public (?:bucket|object|url)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11969,7 +11892,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-05"]},
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/integrations.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/integrations.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["encrypted-credentials","oauth-single-flight-refresh","health-retry-redaction"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:secret|token|credential).{0,20}(?:console|log|plain.?text)","refresh.{0,30}(?:without|no).{0,20}lock"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11982,7 +11905,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-02","BC-04","BC-09"]},
     "expectedRouter":{"required":["integration"],"allowedExtra":["debugging"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["cursor-commit-after-success","bounded-pagination","graphql-rate-limit-backoff","rerun-idempotency"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","cursor.{0,30}(?:before|prior to).{0,30}success","unbounded (?:loop|pagination|retry)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -11995,7 +11918,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-03","BC-04","BC-08"]},
     "expectedRouter":{"required":["integration"],"allowedExtra":["module-data","umes"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/catalog.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/guides/modules/data_sync.md",".ai/guides/extensions.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/catalog.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/guides/modules/data_sync.md",".ai/guides/extensions.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["provider-variant","preserve-mode","deterministic-mapping"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","always (?:global|website|store)","(?:float|number).{0,20}(?:price|money)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12008,7 +11931,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-13"]},
     "expectedRouter":{"required":["integration","testing"],"allowedExtra":["architecture","framework-context"]},
     "requiredSkills":["om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/testing-debugging.md",".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/integrations.md",".ai/guides/testing-debugging.md",".ai/skills/om-integration-builder/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["provider-package","published-path-test","peer-version-compatibility","compiled-package-paths"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:copy|vendor).{0,30}node_modules","(?:skip|todo|only).{0,30}test"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12021,7 +11944,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-integration-builder/SKILL.md","ruleIds":["BC-01","BC-03","BC-04","BC-12"]},
     "expectedRouter":{"required":["architecture","integration","framework-context"],"allowedExtra":["debugging"]},
     "requiredSkills":["om-integration-builder","om-framework-context"],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-framework-context/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/integrations.md",".ai/skills/om-integration-builder/SKILL.md",".ai/skills/om-framework-context/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["installed-version","bounded-source-search","superseded-phase","safe-deprecation","rollback-verification"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","delete.{0,40}(?:first|immediately|all)","assume.{0,30}(?:installed|version|capability)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12034,7 +11957,7 @@
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-05"]},
     "expectedRouter":{"required":["testing"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":[],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/modules/sales.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/modules/sales.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["unit-regression-oracle","failure-injection","focused-test-command","honest-test-result","separation-of-duties"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:skip|todo|only).{0,30}test","mock.{0,30}(?:the assertion|everything)"] ,
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden","writable.allowed-paths","oracle.artifacts","oracle.business.test-authoring"],
@@ -12050,7 +11973,7 @@
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-05","BC-10"]},
     "expectedRouter":{"required":["testing"],"allowedExtra":["module-data","debugging"]},
     "requiredSkills":["om-integration-tests"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/modules/customers.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["self-contained-fixtures","api-fixtures","finally-cleanup","scope-denial-coverage","stale-write-conflict","filtered-integration-run"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:demo|seeded) data","(?:skip|todo|only).{0,30}test"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden","writable.allowed-paths","oracle.artifacts","oracle.business.test-authoring"],
@@ -12105,10 +12028,9 @@
         ".ai/guides/modules/customer_accounts.md",
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -12172,7 +12094,7 @@
     "owner":{"kind":"guide","path":".ai/guides/testing-debugging.md","ruleIds":["BC-01","BC-02","BC-04","BC-05","BC-09"]},
     "expectedRouter":{"required":["integration","testing"],"allowedExtra":["debugging"]},
     "requiredSkills":["om-integration-tests"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/guides/modules/payment_gateways.md"],"allowedExtra":[".ai/skills/om-integration-builder/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/guides/modules/payment_gateways.md"],"allowedExtra":[".ai/skills/om-integration-builder/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["ephemeral-test-environment","payment-idempotency","failure-injection","health-retry-redaction","honest-test-result"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:real|live).{0,30}(?:provider|payment|credential)","(?:skip|todo|only).{0,30}test"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12185,7 +12107,7 @@
     "owner":{"kind":"root","path":"AGENTS.md","ruleIds":["BC-01"]},
     "expectedRouter":{"required":["spec-pr"],"allowedExtra":[]},
     "requiredSkills":["om-spec-writing"],
-    "context":{"required":["AGENTS.md",".ai/agentic.config.json"],"allowedExtra":[".ai/guides/architecture.md",".ai/guides/contracts.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/agentic.config.json"],"allowedExtra":[".ai/guides/architecture.md",".ai/guides/contracts.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["cohesive-phases","integration-coverage","working-phases","spec-assumption-register"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:phase|stage).{0,40}(?:broken|non-working|placeholder)","(?:skip|omit).{0,30}(?:test|coverage)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12193,13 +12115,13 @@
   },
   {
     "id":"OMH-168","title":"Implement selected purchasing-plan stages while keeping the application working","family":"architecture","mode":"spec","evaluationKind":"routing","risk":"medium",
-    "prompt":"Implement only phases two and three of the approved purchasing plan, preserve the agreed boundaries, and leave the application working after each phase.",
+    "prompt":"Resolve the approved purchasing specification, implement only phases two and three, preserve the agreed boundaries, and leave the application working after each phase. Confirm the selected phase plan before coding, then report progress, validation, review, and the stable spec reference without pretending that local delivery opened a pull request.",
     "tags":["business-language","spec-implementation","purchasing"],
     "owner":{"kind":"skill","path":".ai/skills/om-implement-spec/SKILL.md","ruleIds":["BC-01","BC-03"]},
     "expectedRouter":{"required":["spec-pr"],"allowedExtra":["module-data","backend-ui","ai-workflow"]},
     "requiredSkills":["om-implement-spec"],
-    "context":{"required":["AGENTS.md",".ai/skills/om-implement-spec/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["working-phases","smallest-validation","selected-phase-boundary","preserve-spec-contracts"],
+    "context":{"required":["AGENTS.md",".ai/skills/om-implement-spec/SKILL.md",".ai/skills/om-implement-spec/references/spec-resolution.md",".ai/skills/om-implement-spec/references/phases-and-gates.md",".ai/skills/om-implement-spec/references/planning-and-progress.md",".ai/skills/om-implement-spec/references/report-templates.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},
+    "requiredDecisions":["spec-resolution","phase-execution-plan","interactive-confirmation","working-phases","smallest-validation","selected-phase-boundary","preserve-spec-contracts","implementation-progress","stable-implementation-report","spec-reference-marker"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","implement (?:all|remaining) phases","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":114688,"relatedCases":["OMH-006"]
@@ -12211,11 +12133,11 @@
     "owner":{"kind":"skill","path":".ai/skills/om-auto-create-pr/SKILL.md","ruleIds":["BC-01","BC-02","BC-05","BC-07","BC-10"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes","testing","spec-pr"],"allowedExtra":["ai-workflow"]},
     "requiredSkills":["om-module-scaffold","om-data-model-design","om-backend-ui-design","om-system-extension","om-auto-create-pr"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/guides/testing-debugging.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-auto-create-pr/SKILL.md",".ai/guides/modules/customers.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["public-scope-derived-server-side","idempotent-submission","deterministic-deduplication","optional-crm","delivery-route-preserves-task-routes","smallest-validation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","git (?:add|commit).{0,20}(?:--all|-a)","(?:skip|omit).{0,30}(?:validation|test)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":11,"maxInitialContextBytes":61440,"maxTotalContextBytes":196608,"relatedCases":["OMH-005","OMH-073"]
+    "maxContextFiles":11,"maxInitialContextBytes":65536,"maxTotalContextBytes":196608,"relatedCases":["OMH-005","OMH-073"]
   },
   {
     "id":"OMH-170","title":"Review a stock-reservation pull request for actionable problems only","family":"architecture","mode":"review","evaluationKind":"routing","risk":"medium",
@@ -12224,7 +12146,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-auto-review-pr/SKILL.md","ruleIds":["BC-01"]},
     "expectedRouter":{"required":["spec-pr"],"allowedExtra":[]},
     "requiredSkills":["om-auto-review-pr","om-code-review"],
-    "context":{"required":["AGENTS.md",".ai/skills/om-auto-review-pr/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/skills/om-auto-review-pr/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["review-evidence","actionable-findings","review-no-implementation","risk-priority-classification"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:looks good|seems fine).{0,40}(?:without|no).{0,20}evidence","git (?:commit|push|merge)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12275,10 +12197,9 @@
       "allowedExtra": [
         ".ai/guides/modules/search.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -12381,10 +12302,9 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-module-scaffold/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -12446,7 +12366,7 @@
     "expectedRouter":{"required":["architecture","debugging","integration","testing"],"allowedExtra":["module-data","framework-context"]},
     "requiredSkills":["om-troubleshooter","om-integration-builder"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/webhooks.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/guides/modules/shipping_carriers.md",".ai/skills/om-framework-context/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/webhooks.md"],"allowedExtra":[".ai/guides/modules/integrations.md",".ai/guides/modules/shipping_carriers.md",".ai/skills/om-framework-context/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["webhook-signature","replay-protection","subscriber-idempotency","atomic-inbox-claim","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","catch.{0,40}(?:ignore|swallow)","(?:random|timestamp).{0,20}idempotency"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12459,7 +12379,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-troubleshooter/SKILL.md","ruleIds":["BC-02","BC-04","BC-09"]},
     "expectedRouter":{"required":["debugging","integration"],"allowedExtra":["testing"]},
     "requiredSkills":["om-troubleshooter","om-integration-builder"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/data_sync.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/integrations.md",".ai/skills/om-troubleshooter/SKILL.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/data_sync.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["cursor-after-success","transient-retry","rerun-idempotency","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","cursor.{0,30}(?:before|prior to).{0,30}success","catch.{0,40}(?:ignore|swallow)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12472,7 +12392,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-troubleshooter/SKILL.md","ruleIds":["BC-01","BC-06","BC-07"]},
     "expectedRouter":{"required":["debugging","backend-ui"],"allowedExtra":["testing"]},
     "requiredSkills":["om-troubleshooter"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/backend-ui.md",".ai/skills/om-troubleshooter/SKILL.md"],"allowedExtra":[".ai/skills/om-backend-ui-design/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/guides/backend-ui.md",".ai/skills/om-troubleshooter/SKILL.md"],"allowedExtra":[".ai/skills/om-backend-ui-design/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["hydration-parity","locale-source","unit-regression-oracle"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","suppressHydrationWarning","catch.{0,40}(?:ignore|swallow)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12486,7 +12406,7 @@
     "expectedRouter":{"required":["backend-ui","debugging"],"allowedExtra":["testing","umes"]},
     "requiredSkills":["om-backend-ui-design","om-troubleshooter"],
     "optionalSkills":[{"id":"om-system-extension","route":"umes"}],
-    "context":{"required":["AGENTS.md",".ai/guides/backend-ui.md",".ai/guides/testing-debugging.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-backend-ui-design/references/quality-states.md",".ai/skills/om-troubleshooter/SKILL.md"],"allowedExtra":[".ai/guides/modules/sales.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/backend-ui.md",".ai/guides/testing-debugging.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-backend-ui-design/references/quality-states.md",".ai/skills/om-troubleshooter/SKILL.md"],"allowedExtra":[".ai/guides/modules/sales.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["semantic-tokens","alert-and-confirm-contract","complete-ux-state-matrix","keyboard-focus-accessibility","api-ui-verification"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:hex|rgb|hard-coded status|arbitrary tailwind)","window\\.confirm","raw (?:form|fetch)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12499,7 +12419,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/references/mechanism-selector.md","ruleIds":["BC-01","BC-03","BC-04","BC-12"]},
     "expectedRouter":{"required":["architecture","module-data","umes"],"allowedExtra":["backend-ui","framework-context"]},
     "requiredSkills":["om-data-model-design","om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-system-extension/references/mechanism-selector.md",".ai/skills/om-system-extension/references/extension-branches.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-system-extension/references/mechanism-selector.md",".ai/skills/om-system-extension/references/extension-branches.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/skills/om-help/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["extension-mechanism","additive-before-replacement","extension-entity","eject-last","loyalty-field-versus-history"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","direct ORM relationship","eject.{0,20}(?:first|immediately|default)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12513,7 +12433,7 @@
     "expectedRouter":{"required":["framework-context"],"allowedExtra":["architecture","umes"]},
     "requiredSkills":["om-framework-context"],
     "optionalSkills":[{"id":"om-system-extension","route":"umes"}],
-    "context":{"required":["AGENTS.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/architecture.md",".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
+    "context":{"required":["AGENTS.md",".ai/skills/om-framework-context/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/architecture.md",".ai/guides/extensions.md",".ai/skills/om-help/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
     "requiredDecisions":["installed-version","bounded-source-search","facts-first","read-only-framework-context"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","assume.{0,30}(?:event|permission|route|version)","(?:load|read).{0,20}all (?:packages|modules|source)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12521,30 +12441,30 @@
   },
   {
     "id":"OMH-179","title":"Show loyalty points in customer responses without copying customer records","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"medium",
-    "prompt":"Show each customer's current loyalty-points balance in customer API results while keeping the existing customer data as the source of truth and avoiding a duplicate balance that could go stale.",
+    "prompt":"Show each customer's current loyalty-points balance in customer list and detail API results while keeping the existing customer data as the source of truth. Resolve the dotted target entity, host-route opt-in, list/detail surfaces, timeout/fallback/cache posture, and correlation provenance from the customers module facts before source context; do not duplicate customer records or invent a target.",
     "tags":["business-language","response-enrichment","loyalty"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-04"]},
     "expectedRouter":{"required":["umes"],"allowedExtra":["module-data","framework-context"]},
     "requiredSkills":["om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/guides/contracts.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["scoped-enricher","batched-enrichment","exact-host-token","no-host-record-mutation"],
+    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/guides/contracts.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
+    "requiredDecisions":["facts-first-target","enricher-host-opt-in","enricher-list-detail-posture","scoped-enricher","batched-enrichment","exact-host-token","no-host-record-mutation"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)","(?:copy|duplicate).{0,20}customer (?:entity|record|table)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":6,"maxInitialContextBytes":40960,"maxTotalContextBytes":114688,"relatedCases":["OMH-025","OMH-088"]
   },
   {
     "id":"OMH-180","title":"Add preferred contact time to the existing customer form with full round trip","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Add preferred contact time to the existing customer form and make entering, displaying, changing, clearing, and reloading the value work correctly.",
+    "prompt":"Add preferred contact time to the existing customer form and make entering, displaying, changing, clearing, and reloading the value work correctly. Resolve the exact bound CrudForm base/header/fields or lifecycle host and shared roundTripId from the customers module facts before source context; reject helper-only or unbound field builders.",
     "tags":["business-language","form-extension","customer"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-06","BC-07","BC-08"]},
     "expectedRouter":{"required":["module-data","backend-ui","umes"],"allowedExtra":["testing","framework-context"]},
     "requiredSkills":["om-data-model-design","om-backend-ui-design","om-system-extension"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/guides/backend-ui.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/skills/om-framework-context/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["widget-read-write-roundtrip","stable-spot-id","clear-null","optimistic-lock","translation-keys"],
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/guides/backend-ui.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/guides/modules/customers.md"],"allowedExtra":[".ai/skills/om-framework-context/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
+    "requiredDecisions":["facts-first-target","bound-crud-form-host","correlated-roundtrip","reject-helper-only-host","widget-read-write-roundtrip","stable-spot-id","clear-null","optimistic-lock","translation-keys"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","raw (?:form|fetch)","hard-coded user-facing","direct ORM relationship"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
-    "maxContextFiles":8,"maxInitialContextBytes":49152,"maxTotalContextBytes":131072,"relatedCases":["OMH-024","OMH-026","OMH-061"]
+    "maxContextFiles":8,"maxInitialContextBytes":53248,"maxTotalContextBytes":131072,"relatedCases":["OMH-024","OMH-026","OMH-061"]
   },
   {
     "id": "OMH-181",
@@ -12553,7 +12473,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Add an order-risk filter and a bulk review action to the existing orders table, enforcing permission and version checks for every selected row.",
+    "prompt": "Add an order-risk filter and a bulk review action to the existing orders table, enforcing permission and version checks for every selected row. Resolve the exact bound DataTable filter and bulk-action targets, deep table ID, execution guard, and correlation provenance from the sales module facts before source context; do not use the base prefix or helper-only IDs as mounts.",
     "tags": [
       "business-language",
       "table-extension",
@@ -12604,13 +12524,16 @@
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/sales.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
+      "facts-first-target",
+      "bound-data-table-host",
+      "base-prefix-not-mountable",
+      "correlated-execution-guard",
       "stable-table-host",
       "bulk-mutation-safety",
       "wildcard-acl",
@@ -12667,27 +12590,27 @@
   },
   {
     "id":"OMH-182","title":"Block order cancellation after dispatch across every entry point","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing route, method, request, response, and error schemas.",
+    "prompt":"Block order cancellation after dispatch even when someone calls the API directly, while preserving the existing route, method, request, response, and error schemas. Resolve the sales guard host entity, update operation, block capability, optimistic-lock preservation, and fact-ref provenance from the sales module facts before source context.",
     "tags":["business-language","mutation-guard","orders"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-05","BC-08"]},
     "expectedRouter":{"required":["umes"],"allowedExtra":["module-data","backend-ui","debugging","framework-context"]},
     "requiredSkills":["om-system-extension"],
     "optionalSkills":[{"id":"om-framework-context","route":"framework-context"}],
-    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"allowedExtra":[".ai/skills/om-framework-context/SKILL.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["mutation-guard","backend-consistency","status-invariant"],
+    "context":{"required":["AGENTS.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md",".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"],"allowedExtra":[".ai/skills/om-framework-context/SKILL.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
+    "requiredDecisions":["facts-first-target","guard-operations-and-capabilities","locking-preserved","mutation-guard","backend-consistency","status-invariant"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","UI only","(?:skip|bypass).{0,30}(?:guard|permission|lock)","rewrite.{0,30}(?:all|entire).{0,20}(?:body|query)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":8,"maxInitialContextBytes":65536,"maxTotalContextBytes":114688,"relatedCases":["OMH-031","OMH-032","OMH-038"]
   },
   {
     "id":"OMH-183","title":"Award loyalty points after payment while tolerating an absent sales feature","family":"umes","mode":"one-shot","evaluationKind":"routing","risk":"high",
-    "prompt":"Award loyalty points after a payment completes, avoid awarding the same points twice, and keep the application working when sales is not installed.",
+    "prompt":"Award loyalty points after a payment completes, avoid awarding the same points twice, and keep the application working when sales is not installed. Resolve the event/subscriber fact reference, sync/persistent/priority posture, and optional-external target provenance from the named payment and sales module facts before source context.",
     "tags":["business-language","event-reaction","optional-feature"],
     "owner":{"kind":"skill","path":".ai/skills/om-system-extension/SKILL.md","ruleIds":["BC-02","BC-03","BC-04","BC-05","BC-09"]},
     "expectedRouter":{"required":["module-data","umes"],"allowedExtra":["integration","ai-workflow"]},
     "requiredSkills":["om-module-scaffold","om-system-extension"],
-    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/modules/payment_gateways.md"],"forbidden":[".env*",".git/**","node_modules/**"]},
-    "requiredDecisions":["typed-events","subscriber-idempotency","optional-host","safe-degradation","cross-module-id-link"],
+    "context":{"required":["AGENTS.md",".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-module-scaffold/SKILL.md",".ai/skills/om-system-extension/SKILL.md",".ai/guides/modules/sales.md"],"allowedExtra":[".ai/guides/modules/payment_gateways.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**"]},
+    "requiredDecisions":["facts-first-event","subscriber-delivery-posture","optional-external-provenance","typed-events","subscriber-idempotency","optional-host","safe-degradation","cross-module-id-link"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","direct ORM relationship","(?:require|assume).{0,20}sales.{0,20}(?:installed|enabled)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
     "maxContextFiles":7,"maxInitialContextBytes":49152,"maxTotalContextBytes":131072,"relatedCases":["OMH-018","OMH-034"]
@@ -12699,7 +12622,7 @@
     "owner":{"kind":"skill","path":".ai/skills/om-evolve-harness/SKILL.md","ruleIds":["BC-01","BC-14"]},
     "expectedRouter":{"required":["testing","debugging"],"allowedExtra":["architecture","module-data"]},
     "requiredSkills":["om-evolve-harness"],
-    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/skills/om-evolve-harness/SKILL.md",".ai/skills/om-evolve-harness/references/case-workflow.md",".ai/skills/om-evolve-harness/references/owner-selection.md"],"forbidden":[".env*",".git/**","node_modules/**",".ai/harness/results/**"]},
+    "context":{"required":["AGENTS.md",".ai/guides/testing-debugging.md",".ai/skills/om-evolve-harness/SKILL.md",".ai/skills/om-evolve-harness/references/case-workflow.md",".ai/skills/om-evolve-harness/references/owner-selection.md"],"warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*",".git/**",".ai/harness/results/**"]},
     "requiredDecisions":["sanitized-failure-evidence","semantic-case-deduplication","failing-case-first","single-knowledge-owner","versioned-before-after-evidence"],
     "forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:raw|full).{0,20}(?:transcript|prompt|model output)","(?:secret|token|credential|environment value)","(?:load|read).{0,20}all (?:packages|modules|source)"],
     "validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],
@@ -12712,7 +12635,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, create a complete app-owned book library module in one shot. The seeded library index is only an incomplete fixture: replace it with working implementation files, not a manifest or contract describing files to add later. Follow every routed API/domain, module-surface, verification, integrity/concurrency, sensitive-data, CRUD-surface, and page/navigation procedure before coding; specialist procedures add to the complete module procedure rather than replacing it. Register it from @app and put the Books page source under src/modules/library/backend/books/** so its localized /backend/library/books list is visible in the main sidebar with the canonical /create child route. Provide a controlled-search DataTable with an obvious add-book link and guarded edit/delete row actions, plus CrudForm create/edit flows that load, save, clear, and reload custom fields through the documented collector. Add scoped entities, validators, migration snapshot, per-method ACL metadata, stable library.books.view/manage features, and setup default grants. Implement and register command-only create/update/delete with optimistic locking, atomic multi-phase writes, audit/undo, and post-commit event/cache/index effects. Declare encryption maps and use the framework's scoped decryption helpers. Add safe search/index configuration with deterministic reindex convergence. Publish stable aligned entity IDs, DataTable/CrudForm extension IDs, and an intentional API enricher host so UMES widgets, interceptors, and guards can extend it later. Put visible copy in module i18n, run generation, and add focused Jest command/undo tests under commands/__tests__; do not edit installed or generated framework files and do not apply migrations.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, create a complete app-owned book library module in one shot. The seeded library index is only an incomplete fixture: replace it with working implementation files, not a manifest or contract describing files to add later. Follow every routed API/domain, module-surface, verification, integrity/concurrency, sensitive-data, CRUD-surface, and page/navigation procedure before coding; specialist procedures add to the complete module procedure rather than replacing it. Register it from @app and put the Books page source under src/modules/library/backend/books/** so its localized /backend/library/books list is visible in the main sidebar with the canonical /create child route. Provide a controlled-search DataTable with an obvious add-book link and guarded edit/delete row actions, plus CrudForm create/edit flows that load, save, clear, and reload custom fields through the documented collector. Add scoped entities, validators, migration snapshot, per-method ACL metadata, stable library.books.view/manage features, and setup default grants. Implement and register command-only create/update/delete with optimistic locking, atomic multi-phase writes, audit/undo, and post-commit event/cache/index effects. Declare encryption maps and use the framework's scoped decryption helpers. Add safe search/index configuration with deterministic reindex convergence. Publish stable aligned entity IDs, DataTable/CrudForm extension IDs, and an intentional API enricher host so UMES widgets, interceptors, and guards can extend it later. Put visible copy in module i18n, ensure every literal library.* UI or navigation key resolves to a non-empty value in en.json and every sibling locale you emit, run generation, and add focused Jest command/undo tests under commands/__tests__; do not edit installed or generated framework files and do not apply migrations.",
     "tags": ["module", "complete-vertical-slice", "book-library", "backend-ui", "umes", "writable"],
     "owner": {
       "kind": "skill",
@@ -12752,7 +12675,7 @@
         ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**", ".mercato/generated/**"]
     },
     "requiredDecisions": [
       "app-module-registration",
@@ -12850,7 +12773,7 @@
         ".ai/skills/om-module-scaffold/references/module-surfaces.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**", ".mercato/generated/**"]
     },
     "requiredDecisions": [
       "di-cache-service",
@@ -12915,7 +12838,7 @@
         ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**", ".mercato/generated/**"]
     },
     "requiredDecisions": [
       "module-queue-factory",
@@ -13005,10 +12928,9 @@
         ".ai/skills/om-module-scaffold/references/planning.md",
         ".ai/skills/om-module-scaffold/references/data-and-migrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -13117,10 +13039,9 @@
         ".ai/skills/om-integration-builder/references/sync-and-files.md",
         ".ai/guides/modules/integrations.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -13224,10 +13145,9 @@
         ".ai/skills/om-system-extension/references/mechanism-selector.md",
         ".ai/skills/om-system-extension/references/read-write-roundtrip.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -13324,10 +13244,9 @@
         ".ai/guides/modules/workflows.md"
       ],
       "allowedExtra": [],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
       ]
     },
     "requiredDecisions": [
@@ -13418,7 +13337,7 @@
         ".ai/skills/om-system-extension/references/extension-branches.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [".env*", ".git/**", "node_modules/**", ".mercato/generated/**"]
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**", ".mercato/generated/**"]
     },
     "requiredDecisions": [
       "trusted-scope-only",
@@ -13564,10 +13483,9 @@
         ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
-      "forbidden": [
+      "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
         ".git/**",
-        "node_modules/**",
         ".mercato/generated/**"
       ]
     },
@@ -13656,5 +13574,14 @@
       "OMH-026",
       "OMH-185"
     ]
-  }
+  },
+  {"id":"OMH-194","title":"Let operations own order cancellation reasons without a new module","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium","prompt":"In a freshly scaffolded standalone Open Mercato app, order cancellation reasons are a hard-coded list in application code, and operations staff want to add, rename, and retire reasons themselves per organization without waiting for a developer release. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for managing versus reading those values, and identify the smallest relevant validation. Do not introduce a new application module before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","editable-value-lists"],"owner":{"kind":"facts","path":".ai/guides/modules/dictionaries.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["module-data","umes","backend-ui","framework-context"]},"requiredSkills":["om-help"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-help/SKILL.md",".ai/guides/modules/dictionaries.md"],"allowedExtra":[".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-system-extension/references/mechanism-selector.md",".ai/skills/om-data-model-design/SKILL.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","tenant-scope","acl-features","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-177"]},
+  {"id":"OMH-195","title":"Give a partner system unattended revocable API access","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"high","prompt":"In a freshly scaffolded standalone Open Mercato app, a partner warehouse system must call the application API unattended, with no interactive login, and the operations team must be able to revoke that access immediately without disturbing staff sessions. Decide the smallest safe design against what the installed modules already provide, state the access-control posture and how the credential is stored and revoked, keep tenant and organization boundaries intact, and identify the smallest relevant validation. Do not design a bespoke token mechanism before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","unattended-access"],"owner":{"kind":"facts","path":".ai/guides/modules/api_keys.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["module-data","integration","framework-context","umes"]},"requiredSkills":["om-help"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-help/SKILL.md",".ai/guides/modules/api_keys.md"],"allowedExtra":[".ai/guides/contracts.md",".ai/guides/integrations.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-system-extension/references/mechanism-selector.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","acl-features","tenant-scope","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-194"]},
+  {"id":"OMH-196","title":"Let administrators retune module thresholds without a redeploy","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium","prompt":"In a freshly scaffolded standalone Open Mercato app, a delivery module keeps its operational thresholds in environment variables, so every change to a cut-off time or a batch size needs a redeploy. Administrators want to retune those values per organization at runtime, and support staff must be able to read them without being able to change them. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for reading versus changing those values, and identify the smallest relevant validation. Do not introduce a new settings table or configuration module before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","runtime-settings"],"owner":{"kind":"facts","path":".ai/guides/modules/configs.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["module-data","umes","framework-context","backend-ui"]},"requiredSkills":["om-help"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-help/SKILL.md",".ai/guides/modules/configs.md"],"allowedExtra":[".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-system-extension/SKILL.md",".ai/skills/om-system-extension/references/mechanism-selector.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","tenant-scope","acl-features","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-194"]},
+  {"id":"OMH-197","title":"Give each team its own saved list view without a bespoke preferences store","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium","prompt":"In a freshly scaffolded standalone Open Mercato app, every team reworks the same customer list filters and column choices at the start of each shift. They want to keep their own named views, and each role should open a sensible default view without configuring anything. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for using a view versus setting a role default, and identify the smallest relevant validation. Do not build a bespoke user-preferences store before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","saved-views"],"owner":{"kind":"facts","path":".ai/guides/modules/perspectives.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["backend-ui","module-data","umes","framework-context"]},"requiredSkills":["om-help"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-help/SKILL.md",".ai/guides/modules/perspectives.md"],"allowedExtra":[".ai/guides/backend-ui.md",".ai/guides/extensions.md",".ai/skills/om-backend-ui-design/SKILL.md",".ai/skills/om-system-extension/references/mechanism-selector.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","tenant-scope","acl-features","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-194"]},
+  {"id":"OMH-198","title":"Track shared company assets and their history without a new module","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium","prompt":"In a freshly scaffolded standalone Open Mercato app, the operations team tracks shared company assets — vans, measuring tools, loaner laptops — in a spreadsheet. They want them grouped by kind, labelled with their own tags, searchable, commented on, and carrying a readable history of what happened to each one. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing versus managing those records, and identify the smallest relevant validation. Do not scaffold a new asset-tracking module before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","asset-tracking"],"owner":{"kind":"facts","path":".ai/guides/modules/resources.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["module-data","backend-ui","umes","framework-context"]},"requiredSkills":["om-help"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-help/SKILL.md",".ai/guides/modules/resources.md"],"allowedExtra":[".ai/guides/contracts.md",".ai/guides/extensions.md",".ai/skills/om-data-model-design/SKILL.md",".ai/skills/om-system-extension/references/mechanism-selector.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","tenant-scope","acl-features","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-194"]},
+  {"id":"OMH-199","title":"Load a supplier spreadsheet in bulk without a hand-written parser","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium","prompt":"In a freshly scaffolded standalone Open Mercato app, a supplier sends a monthly spreadsheet and back-office staff retype several hundred rows by hand. They want to upload that file themselves and have the rows loaded, with a record of who uploaded what and whether the load succeeded. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing an upload versus running one, and identify the smallest relevant validation. Do not write a bespoke spreadsheet parser or upload endpoint before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","bulk-import"],"owner":{"kind":"facts","path":".ai/guides/modules/sync_excel.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["integration","module-data","framework-context","umes"]},"requiredSkills":["om-integration-builder"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/sync_excel.md"],"allowedExtra":[".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/modules/data_sync.md",".ai/skills/om-help/SKILL.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","tenant-scope","acl-features","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-195"]},
+  {"id":"OMH-200","title":"Charge cards through the installed payment provider rather than a bespoke client","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"high","prompt":"In a freshly scaffolded standalone Open Mercato app, the business has a Stripe account and wants to start charging cards at checkout this week. Decide the smallest safe design against what the installed modules already provide, say where a payment provider belongs in a standalone app and how it is turned on for this one, state the access-control posture for viewing versus configuring it and how the provider credential is held, keep tenant and organization boundaries intact, and identify the smallest relevant validation. Do not write a bespoke provider client or a new payments module before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","payment-provider"],"owner":{"kind":"facts","path":".ai/guides/modules/gateway_stripe.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["integration","module-data","framework-context","umes"]},"requiredSkills":["om-integration-builder"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/gateway_stripe.md"],"allowedExtra":[".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/modules/payment_gateways.md",".ai/skills/om-help/SKILL.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","app-module-activation","acl-features","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-195"]},
+  {"id":"OMH-201","title":"Pull product data from the PIM the business already runs without a new connector","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium","prompt":"In a freshly scaffolded standalone Open Mercato app, the merchandising team maintains product data in Akeneo and wants it to reach this application on a schedule instead of being copied over by hand. Decide the smallest safe design against what the installed modules already provide, say how that capability is turned on for this application, keep tenant and organization boundaries intact, and identify the smallest relevant validation. Do not design a bespoke connector, mapping layer, or import endpoint before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","pim-sync"],"owner":{"kind":"facts","path":".ai/guides/modules/sync_akeneo.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["integration","module-data","framework-context","umes"]},"requiredSkills":["om-integration-builder"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-integration-builder/SKILL.md",".ai/guides/modules/sync_akeneo.md"],"allowedExtra":[".ai/guides/integrations.md",".ai/guides/contracts.md",".ai/guides/modules/data_sync.md",".ai/skills/om-help/SKILL.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","app-module-activation","tenant-scope","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-195"]},
+  {"id":"OMH-202","title":"Keep stock counts per warehouse honest and hold goods for confirmed orders without a new module","family":"architecture","mode":"analysis","evaluationKind":"routing","risk":"medium","prompt":"In a freshly scaffolded standalone Open Mercato app, the operations team keeps stock for two storage sites in a spreadsheet: how much of each product sits in which aisle, how much is already promised to confirmed orders, and what has been received, moved, or counted since the last check. They also want a heads-up when an item drops below the level they consider safe. Decide the smallest safe design against what the installed modules already provide, say how that capability is turned on for this application, keep tenant and organization boundaries intact, state the access-control posture for viewing counts versus adjusting them, and identify the smallest relevant validation. Do not model your own stock, location, or reservation tables before establishing whether an installed module already owns this capability.","tags":["architecture","module-facts","reuse-installed","stock-on-hand"],"owner":{"kind":"facts","path":".ai/guides/modules/wms.md","ruleIds":["BC-01","BC-04"]},"expectedRouter":{"required":["architecture"],"allowedExtra":["module-data","backend-ui","umes","framework-context"]},"requiredSkills":["om-help"],"context":{"required":["AGENTS.md",".ai/guides/architecture.md",".ai/skills/om-help/SKILL.md",".ai/guides/modules/wms.md"],"allowedExtra":[".ai/guides/contracts.md",".ai/guides/modules/catalog.md",".ai/guides/modules/sales.md",".ai/skills/om-data-model-design/SKILL.md"],"warn":["node_modules/@open-mercato/*/src/**"],"forbidden":[".env*",".git/**"]},"requiredDecisions":["facts-first","app-module-activation","tenant-scope","acl-features","smallest-validation"],"forbiddenPatterns":["node_modules.{0,40}(?:write|edit|patch)","(?:tenant|organization).{0,30}(?:unscoped|scope optional)"],"validators":["catalog.schema","owner.reference","skills.reference","router.contract","context.budget","context.forbidden","patterns.forbidden"],"maxContextFiles":11,"maxInitialContextBytes":57344,"maxTotalContextBytes":147456,"relatedCases":["OMH-002","OMH-194"]}
 ]

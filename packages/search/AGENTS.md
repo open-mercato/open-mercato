@@ -541,7 +541,7 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `OM_SEARCH_ENABLE_PARTIAL` | When trading `search_tokens` size for prefix matching | Default: `true`. Prefix/partial expansion for tokens (Meilisearch unaffected); increases `search_tokens` size ~5–6×. **Token strategy only** |
 | `OM_SEARCH_HASH_ALGO` | When choosing the token hash algorithm | Default: `sha256` (accepts `sha1`, `md5`). **Token strategy only** |
 | `OM_SEARCH_STORE_RAW_TOKENS` | Almost never — debugging tokenization only | Default: `false`. Stores plaintext token alongside the hash — **security-sensitive**, retains plaintext of otherwise-hashed values. **Token strategy only** |
-| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field names, merged with built-in `password,token,secret,hash`. **Token strategy only** |
+| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field-name substrings, merged with built-in `password,token,secret,hash`; prefix an entry with `entityType@` to scope it to one entity. Applies to per-field tokens and aggregate `search_text`; reindex affected entities after changes. **Token strategy only** |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
 | `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 

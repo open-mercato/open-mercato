@@ -29,7 +29,8 @@
       "om-spec-writing",
       "om-auto-fix-pr",
       "om-close-fixed-issues",
-      "om-verify-in-repo"
+      "om-verify-in-repo",
+      "om-pr-autopilot"
     ]
   },
   "tiers": {
@@ -38,6 +39,7 @@
       "skills": [
         "om-ds-guardian",
         "om-backend-ui-design",
+        "om-mockup-prototype",
         "om-implement-spec",
         "om-pre-implement-spec",
         "om-smart-test",
@@ -48,6 +50,7 @@
         "om-create-ai-agent",
         "om-help",
         "om-refresh-standalone-harness",
+        "om-judge-agent-session",
         "om-share-this-session"
       ]
     },

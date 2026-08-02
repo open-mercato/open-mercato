@@ -14,34 +14,10 @@ import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { getModules } from '@open-mercato/shared/lib/i18n/server'
-import { assertEntityAclForRequest } from '../lib/entityAcl'
+import { assertEntityAclForRequest, getDeclaredCustomEntityRestriction } from '../lib/entityAcl'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('entities').child({ component: 'records' })
-
-let declaredCustomEntityRestricted: Map<string, boolean> | null = null
-function loadDeclaredCustomEntities(): Map<string, boolean> {
-  if (declaredCustomEntityRestricted === null) {
-    try {
-      const mods = getModules() as Array<{ customEntities?: Array<{ id?: string; accessRestricted?: boolean }> }>
-      const map = new Map<string, boolean>()
-      for (const mod of mods ?? []) {
-        for (const spec of mod?.customEntities ?? []) {
-          if (spec?.id) map.set(spec.id, spec.accessRestricted === true)
-        }
-      }
-      // Cache even when empty so we don't rebuild on every request (and fall back
-      // to the DB lookup unnecessarily). Only a thrown getModules() leaves it null
-      // so a genuinely-uninitialized registry is retried.
-      declaredCustomEntityRestricted = map
-    } catch {}
-  }
-  return declaredCustomEntityRestricted ?? new Map<string, boolean>()
-}
-function isDeclaredCustomEntity(entityId: string): boolean {
-  return loadDeclaredCustomEntities().has(entityId)
-}
 
 type RecordsEntityScope = { tenantId: string | null; organizationId: string | null }
 
@@ -86,8 +62,8 @@ type RecordsEntityClassification = { kind: RecordsEntityKind; restricted: boolea
 // or an active `custom_entities` registration is authoritative.
 async function classifyRecordsEntity(em: any, entityId: string, scope: RecordsEntityScope): Promise<RecordsEntityClassification> {
   if (isOrmBackedSystemEntityId(em, entityId)) return { kind: 'system', restricted: false }
-  const declared = loadDeclaredCustomEntities()
-  if (declared.has(entityId)) return { kind: 'custom', restricted: declared.get(entityId) === true }
+  const declaredRestriction = getDeclaredCustomEntityRestriction(entityId)
+  if (declaredRestriction !== undefined) return { kind: 'custom', restricted: declaredRestriction }
   try {
     const { CustomEntity } = await import('../data/entities')
     // Restriction is decided from the row that applies to THIS caller's scope so
