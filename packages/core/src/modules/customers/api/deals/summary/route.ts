@@ -10,6 +10,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
 import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
 import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
+import { buildOpenDealPredicate } from '../../../lib/dealsSummaryOpenPredicate'
 import {
   computeDelta,
   convertSumsToBase,
@@ -196,18 +197,7 @@ export async function GET(req: Request) {
   const orgPlaceholders = orgFilterIds.map(() => '?').join(',')
   const scopeWhere = `tenant_id = ? AND organization_id IN (${orgPlaceholders}) AND deleted_at IS NULL`
   const scopeValues: Array<string | number | null> = [effectiveTenantId, ...orgFilterIds]
-  const openPlaceholders = OPEN_STATUSES.map(() => '?').join(',')
-  // A deal is closed when EITHER `status` OR `closure_outcome` says so. The CRUD API accepts
-  // `closureOutcome` on its own (`data/validators.ts`), so a deal can hold `status = 'open'` and
-  // `closure_outcome = 'won'` at the same time. The won/lost queries below already read both
-  // columns, so the open predicate must read both too — otherwise one deal comes back as active
-  // pipeline AND won inside a single response.
-  //
-  // `IS NULL` rather than `!= 'won'`: `closure_outcome` is nullable and every open deal holds NULL
-  // there, so a `!=` comparison evaluates to NULL and would drop every open deal instead of the
-  // closed ones. This matches the `closureOutcome IS NULL` filter the dashboards pipeline-summary
-  // widget applies, so the card and the chart count the same deals.
-  const openDealsWhere = `status IN (${openPlaceholders}) AND closure_outcome IS NULL`
+  const openDealsPredicate = buildOpenDealPredicate(OPEN_STATUSES)
 
   // 1) Open pipeline: per (stage, currency) sums + open-deal owner per row, so we can
   //    derive pipeline value (per stage + converted total) and the open owner set in one pass.
@@ -219,9 +209,9 @@ export async function GET(req: Request) {
         COUNT(*) AS count,
         owner_user_id
       FROM customer_deals
-      WHERE ${scopeWhere} AND ${openDealsWhere}
+      WHERE ${scopeWhere} AND ${openDealsPredicate.clause}
       GROUP BY pipeline_stage, UPPER(COALESCE(value_currency, '')), owner_user_id`,
-    [...scopeValues, ...OPEN_STATUSES],
+    [...scopeValues, ...openDealsPredicate.values],
   )
 
   // 2) Open-deal value created in the current vs previous quarter (pipeline inflow delta).
@@ -233,14 +223,14 @@ export async function GET(req: Request) {
         COALESCE(SUM(value_amount) FILTER (WHERE created_at >= ? AND created_at < ?), 0) AS previous_total,
         COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS previous_count
       FROM customer_deals
-      WHERE ${scopeWhere} AND ${openDealsWhere}
+      WHERE ${scopeWhere} AND ${openDealsPredicate.clause}
       GROUP BY UPPER(COALESCE(value_currency, ''))`,
     [
       currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
       currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
       previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
       previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
-      ...scopeValues, ...OPEN_STATUSES,
+      ...scopeValues, ...openDealsPredicate.values,
     ],
   )
 
@@ -295,13 +285,11 @@ export async function GET(req: Request) {
   )
 
   // Overdue open deals (id set) + stuck deals (id set) → union count for "need attention".
-  // "Need attention" is a slice of the active-deal card, so it carries the same `closure_outcome`
-  // guard as the pipeline queries: a deal closed through `closure_outcome` alone must not be
-  // reported as needing attention while it is also being counted as won.
+  const overdueDealsPredicate = buildOpenDealPredicate(['open'])
   const overdueRows: Array<{ id: string }> = await connection.execute<Array<{ id: string }>>(
     `SELECT id FROM customer_deals
-      WHERE ${scopeWhere} AND status = 'open' AND closure_outcome IS NULL AND expected_close_at IS NOT NULL AND expected_close_at < CURRENT_DATE`,
-    [...scopeValues],
+      WHERE ${scopeWhere} AND ${overdueDealsPredicate.clause} AND expected_close_at IS NOT NULL AND expected_close_at < CURRENT_DATE`,
+    [...scopeValues, ...overdueDealsPredicate.values],
   )
   // `fetchStuckDealIds` is single-org; run it for every org in scope so multi-org callers don't
   // undercount stuck deals (the aggregates above already span every org in `orgFilterIds`).
@@ -312,17 +300,14 @@ export async function GET(req: Request) {
   const stuckIdSet = new Set<string>()
   for (const list of stuckIdLists) for (const id of list) stuckIdSet.add(id)
 
-  // The stuck-deal query does not filter status, so a stuck id can be a won/lost/closed deal.
-  // "Need attention" is an active-deal metric — intersect with the open set (open status AND no
-  // recorded closure outcome) so terminal deals never inflate the count.
   let openStuckIds: string[] = []
   if (stuckIdSet.size > 0) {
     const stuckIdValues = Array.from(stuckIdSet)
     const stuckPlaceholders = stuckIdValues.map(() => '?').join(',')
     const openStuckRows: Array<{ id: string }> = await connection.execute<Array<{ id: string }>>(
       `SELECT id FROM customer_deals
-        WHERE ${scopeWhere} AND ${openDealsWhere} AND id IN (${stuckPlaceholders})`,
-      [...scopeValues, ...OPEN_STATUSES, ...stuckIdValues],
+        WHERE ${scopeWhere} AND ${openDealsPredicate.clause} AND id IN (${stuckPlaceholders})`,
+      [...scopeValues, ...openDealsPredicate.values, ...stuckIdValues],
     )
     openStuckIds = openStuckRows.map((row) => row.id)
   }

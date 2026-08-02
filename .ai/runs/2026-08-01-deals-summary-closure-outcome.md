@@ -30,8 +30,9 @@ tenant and period.
 
 ## Scope
 
-- `packages/core/src/modules/customers/api/deals/summary/route.ts` — the open-deal predicate only.
-- Its unit test file and the `TC-CRM-082` integration spec.
+- `packages/core/src/modules/customers/api/deals/summary/route.ts` — consume the shared open-deal predicate.
+- `packages/core/src/modules/customers/lib/dealsSummaryOpenPredicate.ts` — own the SQL predicate outside the route.
+- The predicate unit test and the `TC-CRM-082` integration spec.
 
 ## Non-goals
 
@@ -73,6 +74,12 @@ tenant and period.
 - **Step 3.2** — Open the PR against `develop`, put the allowlist question to the maintainer in the
   description, run the review pass, and report the label set the account cannot apply.
 
+### Phase 4: Review fixes
+
+- **Step 4.1** — Merge current `develop` to pick up the sales CI stabilization already landed there.
+- **Step 4.2** — Move the new SQL predicate into a module `lib/` helper per `.ai/lessons.md` and
+  test the helper directly.
+
 ## Risks
 
 - **Wrong NULL semantics.** The obvious spelling `closure_outcome != 'won'` silently drops every open
@@ -107,3 +114,8 @@ PR: #4819
 - [x] 3.1 Run the full validation gate — 82deeaf81 (green except three pre-existing/environmental
       `yarn test` clusters, each reproduced independently of this change; detailed in the PR body)
 - [x] 3.2 Open the PR, raise the allowlist question, review and report labels — #4819
+
+### Phase 4: Review fixes
+
+- [x] 4.1 Merge current `develop` to pick up the sales CI stabilization already landed there
+- [x] 4.2 Move the open-deal SQL predicate into a tested module helper
