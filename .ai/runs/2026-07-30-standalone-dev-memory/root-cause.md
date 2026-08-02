@@ -22,9 +22,9 @@ not the final root cause or an accepted 30% peak candidate.
 
 A later fixture-only composition combined that telemetry fix with Next
 `16.3.0-preview.9`, suppressed automatic targeted warmup, and the existing
-embedded-scheduler mechanism. Its three valid single-browser-pass runs reduced
-median total peak by **41.878%** and median maximum `next-turbopack` by
-**33.485%**, passing both fixed ceilings with material headroom. This is accepted
+embedded-scheduler mechanism. Its globally audited replacement runs reduced
+median total peak by **44.753182%** and median maximum `next-turbopack` by
+**38.023580%**, passing both fixed ceilings with material headroom. This is accepted
 measurement evidence, not an authorized production change: C5 was omitted, and
 the preview pins plus runtime/template defaults remain behind the approval
 boundary below.
@@ -367,74 +367,74 @@ no earlier C5/scheduler saving is assumed additive.
 
 ### Fixture-only composed acceptance candidate
 
-The final composition retained the telemetry relocation already implemented on
-this branch and changed only the disposable fixture for the other variables:
+The final fixture-only composition retained the branch telemetry fix and added
+Next/`@next/env`/Darwin ARM64 SWC `16.3.0-preview.9`, React/React DOM `19.2.7`,
+temporary targeted-warmup suppression, and
+`OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER=true`. **C5 was omitted** because its
+exact temporary patch was not preserved; no C5 saving is treated as additive.
 
-- `next`, `@next/env`, and `@next/swc-darwin-arm64` were
-  `16.3.0-preview.9`; React and React DOM remained `19.2.7`;
-- every dev, profiler, and browser command was pinned to Node `24.13.1`;
-- automatic targeted warmup was suppressed through the temporary fixture-only
-  `OM_DEV_WARMUP_MODE=suppressed` control;
-- `OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER=true` produced one
-  `queue worker --all --with-scheduler` process and no `scheduler start` child;
-- **C5 was omitted.** Its exact temporary patch state was not preserved, so this
-  experiment neither composes it nor assumes its earlier savings are additive.
+The first composition ledger was re-audited after a reviewer found worker PID
+18017 surviving from run 3 until 2026-08-02. It is not acceptance evidence:
 
-Each accepted run cloned the same verified 50-file preview seed, ran the external
-profiler for `180000` ms at a `1000` ms interval, performed exactly one Node 24
-login/protected-probe/A-to-B browser workflow, and shut down the complete tree.
-Run 2 is retained only as directional evidence and excluded from every acceptance
-calculation because an stdin-timing correction caused more than one browser pass.
+| Run | Disposition | Reason |
+| --- | --- | --- |
+| 1 | Superseded | Graceful log existed, but not the later required bounded global process/listener audit. |
+| 2 | Invalid | More than one browser pass after an stdin-timing correction. |
+| 3 | Invalid | Embedded worker PID 18017 survived beyond profiler completion. |
+| 4 | Invalid | Environment was contaminated by the surviving run-3 worker. |
+| 5 | Accepted | Clean pre-audit; one browser pass; full profile; clean post-audit. |
+| 6 | Accepted | Clean pre-audit; one browser pass; full profile; clean post-audit. |
+| 7 | Accepted | Clean pre-audit; one browser pass; full profile; clean post-audit. |
 
-| Accepted run | Raw profiler report | Successful samples / configured window | Peak total | Mean total | Maximum `next-turbopack` | Embedded worker max / mean | Login / auth / probe / HMR |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat1.json` | 173 / 180 s | 6,194.01 MB | 5,042.54 MB | 5,475.26 MB | 527.09 / 370.98 MB | 1.081 / 1.848 / 2.621 / 2.298 s |
-| 3 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat3.json` | 168 / 180 s | 5,841.84 MB | 4,890.01 MB | 5,101.92 MB | 377.50 / 311.27 MB | 0.286 / 0.663 / 0.506 / 14.873 s |
-| 4 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat4.json` | 173 / 180 s | 5,867.10 MB | 5,110.18 MB | 5,260.37 MB | 446.52 / 442.58 MB | 0.367 / 1.139 / 2.716 / 8.343 s |
-| **Median** | — | — | **5,867.10 MB** | **5,042.54 MB** | **5,260.37 MB** | **446.52 / 370.98 MB** | — |
+Runs 5–7 each cloned the verified 50-file preview seed and ran `180000` ms at a
+`1000` ms interval. Before every start, a global audit proved zero matching
+fixture/dev/profiler/browser/worker/scheduler processes and no listeners on ports
+3000/4000. After `Ctrl-C`, logs showed scheduler polling stopped and the embedded
+worker closed; a bounded audit then proved the same global zero state before the
+next run. Retained audit and executable-path proofs are under
+`.mercato/dev-rss/evidence/clean-composed-reruns/`.
 
-The artifact prefix for every relative path in this section is
-`/private/tmp/open-mercato-standalone-memory-baseline/`. Matching single-pass
-browser JSON files are under `.mercato/dev-rss/browser/` with the same run labels.
-Run 3 has 168 successful samples because process-tree sampling took longer on
-several iterations; the report still declares the full `180000` ms window and its
-UTC timestamps span 183.037 seconds. Runs 1 and 4 span 180.001 and 180.002 seconds.
+| Run | Profiler report | Samples | Peak total | Mean total | Maximum `next-turbopack` | Worker max / mean | Login / auth / probe / HMR |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat5.json` | 173 | 5,333.13 MB | 3,641.38 MB | 4,394.88 MB | 450.84 / 345.69 MB | 0.375 / 1.393 / 2.954 / 10.337 s |
+| 6 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat6.json` | 173 | 5,945.74 MB | 4,797.10 MB | 4,901.43 MB | 443.45 / 441.17 MB | 0.951 / 1.885 / 2.626 / 11.842 s |
+| 7 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat7.json` | 173 | 5,576.89 MB | 5,028.49 MB | 4,944.89 MB | 383.75 / 380.25 MB | 1.100 / 1.855 / 2.369 / 12.858 s |
+| **Median** | — | — | **5,576.89 MB** | **4,797.10 MB** | **4,901.43 MB** | **443.45 / 380.25 MB** | — |
 
-The accepted median is 4,227.40 MB (**41.878%**) below the fixed 10,094.50 MB
-total comparator and passes the 7,066.15 MB ceiling by 1,199.05 MB. The median
-maximum `next-turbopack` is 2,648.17 MB (**33.485%**) below the 7,908.54 MB
-class comparator and passes the 5,535.978 MB ceiling by 275.608 MB. Relative to
-the preview-only diagnostic median, composition lowers total peak by another
-1,180.57 MB and the class maximum by 504.37 MB.
+The artifact prefix is `/private/tmp/open-mercato-standalone-memory-baseline/`;
+matching single-pass browser JSON uses the same labels under
+`.mercato/dev-rss/browser/`. The launch ledgers retain `lsof` text-executable
+proof that each profiler used Node `24.13.1`; browser JSON and process listings
+independently prove Node 24 for the browser and dev topology. Each run retained
+one `queue worker --all --with-scheduler`, no scheduler child, login HTTP 200,
+protected A-to-B rendering, repeated schedule execute/enqueue/complete/consume
+lifecycles, and only the two expected pre-login feature-check 401s.
 
-Process samples and raw logs independently prove the topology and behavior. Each
-run has one embedded worker and no scheduler child. Multiple schedules repeatedly
-progressed through execution, target-queue enqueue, schedule completion, queue
-consumption, and job completion. Clean shutdown logs show the scheduler polling
-engine stopped and the shared worker closed successfully. Every browser artifact
-reports Node `v24.13.1`, login HTTP 200, protected marker A, and observed marker B;
-the only failed responses are the two expected pre-login feature checks returning
-401.
+The accepted total median is 4,517.61 MB (**44.753182%**) below 10,094.50 MB and
+passes the 7,066.15 MB ceiling by 1,489.26 MB. The class median is 3,007.11 MB
+(**38.023580%**) below 7,908.54 MB and passes 5,535.978 MB by 634.548 MB. Against
+the preview-only separate worker-plus-scheduler topology, median maximum falls
+1,019.72→443.45 MB (576.27 MB / **56.51%**) and median mean falls
+684.75→380.25 MB (304.50 MB / **44.47%**).
 
-The direct topology comparison uses the same command-level definition across the
-three preview-only and three accepted composed reports. The preview-only median
-maximum of the separate worker plus scheduler was 1,019.72 MB; the embedded-worker
-median maximum is 446.52 MB, a 573.20 MB (**56.21%**) saving. Their median means
-are 684.75 and 370.98 MB, a 313.76 MB (**45.82%**) saving.
+#### Approval-gated implementation ledger
 
-Production work remains unstarted and requires approval for this exact scope:
+No production code was changed for this composition. Approval is required for:
 
-1. pin the preview dependency set and update the applicable manifests/lockfile
-   (`package.json`, `apps/mercato/package.json`,
-   `packages/create-app/template/package.json.template`, and `yarn.lock`);
-2. make standalone automatic targeted warmup suppressed by default while retaining
-   an explicit opt-in override, with the required root/template runtime mirror;
-3. mirror the embedded-scheduler default already present in the monorepo dev
-   wrapper into `packages/create-app/template/scripts/dev.mjs`;
-4. retain the telemetry relocation already implemented on this branch.
+| Role | Exact file | Planned change / gate |
+| --- | --- | --- |
+| Dependency pin | `package.json` | Pin approved Next preview version. |
+| Dependency pin | `apps/mercato/package.json` | Mirror app Next pin. |
+| Dependency pin | `packages/create-app/template/package.json.template` | Mirror scaffold Next pin. |
+| Lockfile | `yarn.lock` | Resolve the approved preview dependency set. |
+| Warmup runtime | `packages/create-app/template/scripts/dev-runtime.mjs` | Suppress automatic targeted warmup by default; preserve explicit opt-in. |
+| Root wrapper contract | `scripts/dev.mjs` | Retain/verify embedded-scheduler default and explicit override behavior. |
+| Template wrapper | `packages/create-app/template/scripts/dev.mjs` | Mirror the root embedded-scheduler default and explicit override. |
+| Regression test | `scripts/__tests__/dev-cache-purge.test.mjs` | Assert root/template wrapper default and override parity. |
+| Regression test | `packages/create-app/src/lib/template-dev-log-files.test.ts` | Assert template warmup default/opt-in and embedded topology wiring. |
+| Dependency gate | `packages/create-app/src/lib/template-dependency-drift.test.ts` | Verify app/template Next pins cannot drift. |
 
-No runtime source, production manifest, or lockfile was edited for this composed
-experiment.
+The telemetry relocation already implemented on this branch remains unchanged.
 
 ## Restoration audit
 
@@ -451,6 +451,9 @@ All 790 original Turbopack cache hashes passed their retained SHA-256 manifest.
 The preserved fixture manifest, the separate Yarn-state hash, and all 8,291
 Next/@next file hashes also passed. Installed versions are again Next,
 `@next/env`, and Darwin ARM64 SWC `16.2.11`, with React/React DOM `19.2.7`.
+The final global audit at `2026-08-02T13:49:06Z` found no matching fixture
+processes and no listeners on ports 3000/4000; its retained ledger is
+`.mercato/dev-rss/evidence/clean-composed-reruns/final-restoration-audit.txt`.
 The original accumulated cache, Node 24 suppression seed, A2 Node 25 warm seed,
 and invalid compiler caches remain separate; none was promoted into the restored
 working cache.

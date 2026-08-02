@@ -459,56 +459,60 @@ That preview-only result did not authorize production promotion. The completed
 fixture-only composition and its remaining approval boundary are recorded below;
 no earlier C5/scheduler saving is assumed additive.
 
-#### Composed fixture acceptance — 2026-08-02
+#### Composed fixture acceptance — corrected 2026-08-02
 
-The approved fixture-only follow-up composed the branch telemetry fix, Next/
-`@next/env`/Darwin ARM64 SWC `16.3.0-preview.9`, React/React DOM `19.2.7`,
-suppressed automatic targeted warmup, and
-`OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER=true`. **C5 was omitted** because its
-exact temporary patch was not preserved; no additive C5 saving is claimed.
+The fixture combined the branch telemetry fix, Next/`@next/env`/Darwin ARM64 SWC
+`16.3.0-preview.9`, React/React DOM `19.2.7`, suppressed automatic targeted
+warmup, and `OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER=true`. **C5 was omitted**;
+its prior saving is not assumed additive.
 
-Accepted reports are relative to
-`/private/tmp/open-mercato-standalone-memory-baseline/`:
+Runs 1–4 are not acceptance evidence. Run 2 had multiple browser passes; run 3's
+worker PID 18017 survived beyond the profile; run 4 was contaminated by that
+worker; and run 1 lacks the later required bounded global post-stop audit. Clean
+replacement runs 5–7 each have: a verified exact seed clone; zero-process/zero-
+listener pre-audit; one browser pass; a full `180000` ms profile; one embedded
+worker and no scheduler child; repeated scheduler lifecycle; graceful shutdown;
+and a bounded zero-process/zero-listener post-audit.
 
-| Run | Profiler report | Samples / configured window | Peak total | Mean total | Maximum `next-turbopack` | Embedded worker max / mean |
-| --- | --- | --- | ---: | ---: | ---: | ---: |
-| 1 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat1.json` | 173 / 180 s | 6,194.01 MB | 5,042.54 MB | 5,475.26 MB | 527.09 / 370.98 MB |
-| 3 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat3.json` | 168 / 180 s | 5,841.84 MB | 4,890.01 MB | 5,101.92 MB | 377.50 / 311.27 MB |
-| 4 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat4.json` | 173 / 180 s | 5,867.10 MB | 5,110.18 MB | 5,260.37 MB | 446.52 / 442.58 MB |
-| **Median** | — | — | **5,867.10 MB** | **5,042.54 MB** | **5,260.37 MB** | **446.52 / 370.98 MB** |
+| Run | Profiler report | Samples | Peak total | Mean total | Maximum `next-turbopack` | Worker max / mean |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 5 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat5.json` | 173 | 5,333.13 MB | 3,641.38 MB | 4,394.88 MB | 450.84 / 345.69 MB |
+| 6 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat6.json` | 173 | 5,945.74 MB | 4,797.10 MB | 4,901.43 MB | 443.45 / 441.17 MB |
+| 7 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat7.json` | 173 | 5,576.89 MB | 5,028.49 MB | 4,944.89 MB | 383.75 / 380.25 MB |
+| **Median** | — | — | **5,576.89 MB** | **4,797.10 MB** | **4,901.43 MB** | **443.45 / 380.25 MB** |
 
-Run 2 (`experiment-preview9-node24-suppressed-embedded-scheduler-repeat2.json`)
-is directional only and excluded because its HMR stdin correction caused multiple
-browser passes. Runs 1, 3, and 4 each have one matching browser JSON under
-`.mercato/dev-rss/browser/`, Node `v24.13.1`, login HTTP 200, protected A-to-B
-rendering, and HMR. Run 3's 168 successful samples are not a truncated profile:
-its configured duration is `180000` ms and report timestamps span 183.037 seconds.
+All relative paths use prefix
+`/private/tmp/open-mercato-standalone-memory-baseline/`. Matching browser JSON is
+under `.mercato/dev-rss/browser/`; audit and profiler-executable proofs are under
+`.mercato/dev-rss/evidence/clean-composed-reruns/`. The retained `lsof` records
+prove every profiler used Node `24.13.1`; browser JSON and topology listings prove
+the same for browser and dev processes.
 
-The accepted median total peak is 4,227.40 MB (**41.878%**) below the fixed
-10,094.50 MB comparator and 1,199.05 MB below its ceiling. The class median is
-2,648.17 MB (**33.485%**) below 7,908.54 MB and 275.608 MB below its ceiling.
-Topology proofs show one `queue worker --all --with-scheduler` and no scheduler
-child. Repeated raw logs prove schedule execution, enqueue, schedule completion,
-queue consumption/job completion, and clean scheduler/worker shutdown.
+The total median is 4,517.61 MB (**44.753182%**) below 10,094.50 MB and passes its
+ceiling by 1,489.26 MB. The class median is 3,007.11 MB (**38.023580%**) below
+7,908.54 MB and passes its ceiling by 634.548 MB. Relative to preview-only separate
+worker-plus-scheduler processes, embedded median maximum saves 576.27 MB
+(**56.51%**) and median mean saves 304.50 MB (**44.47%**).
 
-Against the preview-only separate scheduler-plus-worker topology, command-level
-median maximum fell from 1,019.72 to 446.52 MB (573.20 MB / **56.21%** saved),
-and median mean fell from 684.75 to 370.98 MB (313.76 MB / **45.82%** saved).
+No production source changed. The approval-gated implementation ledger is:
 
-No production source or manifest changed for this composition. Production work
-requires approval for the following exact scope:
+| Role | Exact file | Required change / gate |
+| --- | --- | --- |
+| Pins | `package.json` | Pin approved Next preview. |
+| Pins | `apps/mercato/package.json` | Mirror app pin. |
+| Pins | `packages/create-app/template/package.json.template` | Mirror scaffold pin. |
+| Lock | `yarn.lock` | Resolve approved preview set. |
+| Warmup | `packages/create-app/template/scripts/dev-runtime.mjs` | Default suppression with explicit opt-in. |
+| Root wrapper | `scripts/dev.mjs` | Retain/verify embedded default and override. |
+| Template wrapper | `packages/create-app/template/scripts/dev.mjs` | Mirror embedded default and override. |
+| Regression | `scripts/__tests__/dev-cache-purge.test.mjs` | Root/template wrapper parity. |
+| Regression | `packages/create-app/src/lib/template-dev-log-files.test.ts` | Warmup and embedded wiring. |
+| Dependency gate | `packages/create-app/src/lib/template-dependency-drift.test.ts` | App/template pin parity. |
 
-- preview pins and lockfile changes in `package.json`, `apps/mercato/package.json`,
-  `packages/create-app/template/package.json.template`, and `yarn.lock`;
-- standalone targeted warmup suppressed by default with an explicit opt-in
-  override and the required root/template runtime mirror;
-- the embedded-scheduler default already present in `scripts/dev.mjs` mirrored to
-  `packages/create-app/template/scripts/dev.mjs`;
-- the telemetry relocation already implemented on this branch retained unchanged.
-
-After measurement, the fixture was restored exactly: marker B, normal warmup,
-Next/@next `16.2.11`, React/React DOM `19.2.7`, no experiment processes, and passing
-fixture, Yarn-state, 8,291-file Next/@next, and 790-file cache SHA-256 manifests.
+The telemetry relocation already on this branch remains unchanged. Final fixture
+restoration passed fixture, Yarn-state, 8,291-file Next/@next, and 790-file cache
+manifests and restored marker B, normal warmup, Next/@next `16.2.11`, React
+`19.2.7`, no matching processes, and no listeners on 3000/4000.
 
 ## Data Models
 
@@ -755,10 +759,10 @@ relocation is production code on this branch.
 
 ### 2026-08-02
 
-- Added the three-run fixture-only composed acceptance set (runs 1/3/4), excluded
-  the multi-browser run 2, recorded embedded scheduler lifecycle/topology savings,
-  documented C5 omission and exact restoration, and defined the production
-  manifest/runtime/template approval boundary.
+- Corrected the composed acceptance ledger after discovering a surviving run-3
+  worker: withdrew runs 1–4, added globally audited clean runs 5–7, recomputed
+  medians, retained Node 24 profiler proofs and exact restoration audits, and
+  enumerated the approval-gated production and regression-test files.
 
 ### Review — 2026-07-30
 
