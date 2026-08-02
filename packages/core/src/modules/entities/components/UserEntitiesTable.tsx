@@ -1,6 +1,7 @@
 
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
@@ -96,7 +97,7 @@ export default function UserEntitiesTable() {
       sortable
       sorting={sorting}
       onSortingChange={setSorting}
-      perspective={{ tableId: 'entities.user.list' }}
+      perspective={{ tableId: extensionPoints.hosts.userEntitiesTable.tableId }}
       emptyState={(
         <ListEmptyState
           entityName={t('entities.user.table.title', 'User Entities')}

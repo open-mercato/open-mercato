@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -256,7 +257,7 @@ export default function WebhooksListPage() {
             setFilterValues({})
             setPage(1)
           }}
-          perspective={{ tableId: 'webhooks.list' }}
+          perspective={{ tableId: extensionPoints.hosts.webhooksTable.tableId }}
           rowActions={(row) => {
             const items = [
               {
