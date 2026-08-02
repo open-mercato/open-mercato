@@ -148,8 +148,11 @@ describe('app-level DI override hook (@/di)', () => {
     mockAppDiRegister.mockImplementation(() => {
       throw new Error('boom from app di')
     })
-    const container = await createRequestContainer()
-    expect(container).toBeDefined()
+    const firstContainer = await createRequestContainer()
+    const secondContainer = await createRequestContainer()
+    expect(firstContainer).toBeDefined()
+    expect(secondContainer).toBeDefined()
+    expect(mockAppDiRegister).toHaveBeenCalledTimes(2)
     expect(mockWarn).toHaveBeenCalledTimes(1)
     const [message, fields] = mockWarn.mock.calls[0]
     expect(String(message)).toContain('register()')
@@ -160,8 +163,11 @@ describe('app-level DI override hook (@/di)', () => {
     mockAppDiRegister.mockImplementation(async () => {
       throw new Error('async boom from app di')
     })
-    const container = await createRequestContainer()
-    expect(container).toBeDefined()
+    const firstContainer = await createRequestContainer()
+    const secondContainer = await createRequestContainer()
+    expect(firstContainer).toBeDefined()
+    expect(secondContainer).toBeDefined()
+    expect(mockAppDiRegister).toHaveBeenCalledTimes(2)
     expect(mockWarn).toHaveBeenCalledTimes(1)
   })
 })

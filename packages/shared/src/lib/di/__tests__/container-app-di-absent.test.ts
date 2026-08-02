@@ -110,8 +110,30 @@ describe('app-level DI override hook when @/di is absent', () => {
   })
 
   it('creates the container without warning', async () => {
-    const container = await createRequestContainer()
-    expect(container).toBeDefined()
+    const firstContainer = await createRequestContainer()
+    const secondContainer = await createRequestContainer()
+    expect(firstContainer).toBeDefined()
+    expect(secondContainer).toBeDefined()
     expect(mockWarn).not.toHaveBeenCalled()
+  })
+
+  it('warns once when @/di fails because a nested app alias is missing', async () => {
+    const nestedAliasError = Object.assign(new Error("Cannot find module '@/di/helpers'"), {
+      code: 'MODULE_NOT_FOUND',
+    })
+    jest.doMock('@/di', () => {
+      throw nestedAliasError
+    }, { virtual: true })
+
+    const firstContainer = await createRequestContainer()
+    const secondContainer = await createRequestContainer()
+
+    expect(firstContainer).toBeDefined()
+    expect(secondContainer).toBeDefined()
+    expect(mockWarn).toHaveBeenCalledTimes(1)
+    expect(mockWarn).toHaveBeenCalledWith(
+      'App-level DI override module (@/di) failed to load; its registrations are skipped',
+      { err: nestedAliasError },
+    )
   })
 })
