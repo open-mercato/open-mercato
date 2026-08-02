@@ -95,6 +95,11 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { clearAllPerspectiveState, PERSPECTIVE_COOKIE_PREFIX, PERSPECTIVE_STORAGE_PREFIX } from './perspectiveState'
+
+// Re-exported so `@open-mercato/ui/backend/DataTable` stays the published import
+// path for the purge (BACKWARD_COMPATIBILITY: import paths are a contract surface).
+export { clearAllPerspectiveState }
 
 const logger = createLogger('ui').child({ component: 'DataTable' })
 
@@ -470,8 +475,6 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
   return sections
 }
 
-const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
-const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
 
 // Bounds for user-driven column resizing (#1835). Widths outside this range are
 // clamped so a persisted/dragged value can never collapse a column to nothing or
