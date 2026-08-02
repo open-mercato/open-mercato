@@ -1045,6 +1045,14 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
 
+## Cross-module query precedent is not permission to copy storage coupling
+
+**Context**: Dashboard and customer analytics independently queried the currencies module's table to resolve base currency, so disabling or changing that optional module broke consumers outside its ownership boundary.
+
+**Rule**: Put peer-module table access behind a DI service owned by the source module. Optional consumers should resolve a narrow local interface fail-soft, distinguish missing and ambiguous data, and include disabled-module coverage. Treat an existing cross-module raw SQL query as coupling to retire, not a pattern to repeat.
+
+**Applies to**: optional module integrations, analytics enrichments, and any consumer that reads another module's tables or persistence details.
+
 ## Keep fallible document preparation outside encryption guards
 
 **Context**: Query-index aggregation and encryption shared an empty catch, so a configuration failure could skip encryption and let a plaintext document continue to persistence.
