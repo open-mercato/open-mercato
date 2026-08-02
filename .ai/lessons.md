@@ -1060,3 +1060,5 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
 
 **Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
+
+- 2026-08-02 · create-app test gate: macOS containment can block dynamically linked Homebrew Node through `libuv` and cascade into false timeouts → prepend the bundled self-contained Node runtime to `PATH`.
