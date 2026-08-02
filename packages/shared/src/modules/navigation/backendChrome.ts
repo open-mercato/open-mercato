@@ -47,6 +47,19 @@ export type BackendChromeBrand = {
   } | null
 }
 
+/**
+ * The organization the current request is scoped to, resolved server-side.
+ *
+ * Distinct from `brand`, which is a *branding* channel and only populates when the organization has a
+ * logo configured. This is always present when a single organization is in scope, so UI can label
+ * "you are viewing: <name>" without a second round trip. `null` under an all-organizations selection,
+ * when no organization is in scope, or when the lookup fails.
+ */
+export type BackendChromeCurrentOrganization = {
+  id: string
+  name: string
+}
+
 export type BackendChromePayload = {
   groups: BackendChromeNavGroup[]
   settingsSections: BackendChromeSectionGroup[]
@@ -56,4 +69,5 @@ export type BackendChromePayload = {
   grantedFeatures: string[]
   roles: string[]
   brand?: BackendChromeBrand | null
+  currentOrganization?: BackendChromeCurrentOrganization | null
 }

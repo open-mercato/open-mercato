@@ -11,6 +11,9 @@ import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/
 import { resolveDateRange } from '@open-mercato/ui/backend/date-range'
 import type { DatePeriodOption } from '../../api/dashboard/widgets/helpers'
 import { resolveWidgetScope, type WidgetScopeContext } from '@open-mercato/core/modules/dashboards/lib/widgetScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 const WIDGET_CACHE_TTL = 120_000
 const WIDGET_CACHE_SEGMENT_TTL = 86_400_000
@@ -155,7 +158,7 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
             return NextResponse.json(cached)
           }
         } catch (err) {
-          console.debug('[widget-cache] read failed', err)
+          logger.debug('widget-cache read failed', { err })
         }
       }
 
@@ -198,7 +201,7 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
             { ttl: WIDGET_CACHE_SEGMENT_TTL, tags: ['widget-data'] },
           ))
         } catch (err) {
-          console.debug('[widget-cache] write failed', err)
+          logger.debug('widget-cache write failed', { err })
         }
       }
 
@@ -207,7 +210,7 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
       if (isCrudHttpError(err)) {
         return NextResponse.json(err.body, { status: err.status })
       }
-      console.error(`${config.errorPrefix} failed`, err)
+      logger.error('dashboard widget route failed', { errorPrefix: config.errorPrefix, err })
       return NextResponse.json(
         { error: translate(`${config.errorPrefix}.error`, config.openApi.errorFallback) },
         { status: 500 },

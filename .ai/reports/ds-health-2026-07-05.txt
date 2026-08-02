@@ -1,0 +1,76 @@
+=== DESIGN SYSTEM HEALTH CHECK ===
+Date: 2026-07-05
+
+--- Hardcoded Status Colors ---
+  Count: 380 (target: 0)
+
+--- Arbitrary Text Sizes ---
+  Count: 66 (target: 1)
+
+--- Deprecated Notice Usage ---
+  Notice imports: 1 (target: 0)
+  ErrorNotice imports: 2 (target: 0)
+
+--- Legacy Alert variant API ---
+  Legacy Alert variant usages: 119 (target: 0)
+
+--- Arbitrary Z-Index ---
+  Arbitrary z-index usages: 5 (target: 0)
+
+--- Inline SVG ---
+  Files with inline SVG: 27 (target: 0)
+
+--- Raw fetch() in Backend ---
+  Raw fetch files: 2 (target: 0)
+
+--- Empty State Coverage ---
+  Pages with empty state: 44 / 179 (24%)
+
+--- Loading State Coverage ---
+  Pages with loading state: 111 / 179 (62%)
+
+--- Semantic Token Adoption ---
+  Semantic token usages: 872
+
+=== END REPORT ===
+
+=== PER-MODULE BREAKDOWN (top offenders first) ===
+| module | colors | text | svg-files | pages-no-empty | total |
+|--------|--------|------|-----------|----------------|-------|
+| workflows | 71 | 0 | 2 | 9 | 82 |
+| staff | 11 | 18 | 0 | 14 | 43 |
+| customers | 0 | 21 | 3 | 8 | 32 |
+| auth | 21 | 0 | 1 | 9 | 31 |
+| ent:security | 21 | 0 | 0 | 9 | 30 |
+| catalog | 18 | 2 | 0 | 9 | 29 |
+| business_rules | 18 | 0 | 0 | 6 | 24 |
+| inbox_ops | 19 | 0 | 0 | 3 | 22 |
+| entities | 0 | 0 | 0 | 9 | 9 |
+| messages | 6 | 0 | 0 | 3 | 9 |
+| sales | 0 | 0 | 0 | 9 | 9 |
+| integrations | 3 | 0 | 3 | 2 | 8 |
+| ent:record_locks | 5 | 0 | 0 | 1 | 6 |
+| ent:sso | 3 | 0 | 0 | 3 | 6 |
+| payment_gateways | 5 | 0 | 0 | 1 | 6 |
+| planner | 4 | 0 | 0 | 2 | 6 |
+| attachments | 2 | 0 | 1 | 2 | 5 |
+| currencies | 0 | 0 | 0 | 5 | 5 |
+| directory | 0 | 0 | 0 | 5 | 5 |
+| feature_toggles | 0 | 0 | 0 | 5 | 5 |
+| customer_accounts | 0 | 0 | 0 | 4 | 4 |
+| resources | 0 | 0 | 0 | 3 | 3 |
+| configs | 0 | 0 | 0 | 2 | 2 |
+| data_sync | 0 | 0 | 0 | 2 | 2 |
+| dictionaries | 1 | 0 | 0 | 1 | 2 |
+| portal | 0 | 0 | 2 | 0 | 2 |
+| shipping_carriers | 1 | 0 | 0 | 1 | 2 |
+| api_docs | 0 | 0 | 0 | 1 | 1 |
+| api_keys | 0 | 0 | 0 | 1 | 1 |
+| audit_logs | 0 | 0 | 0 | 1 | 1 |
+| communication_channels | 0 | 0 | 0 | 1 | 1 |
+| ent:system_status_overlays | 1 | 0 | 0 | 0 | 1 |
+| notifications | 0 | 0 | 0 | 1 | 1 |
+| query_index | 0 | 0 | 0 | 1 | 1 |
+| translations | 0 | 0 | 0 | 1 | 1 |
+
+Suggested next module: highest total above.

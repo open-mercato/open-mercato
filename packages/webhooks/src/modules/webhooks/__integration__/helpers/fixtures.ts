@@ -103,6 +103,24 @@ export function buildMockInboundUrl(endpointId = 'mock_inbound'): string {
   return `${BASE_URL}/api/webhooks/inbound/${endpointId}`;
 }
 
+// The mock inbound adapter (issue #2707) authenticates either an HMAC-SHA256 signature
+// over the raw body (x-mock-webhook-signature) or a static shared-secret token
+// (x-mock-webhook-token). Outbound delivery tests must use the static token because the
+// delivery body is generated server-side and cannot be pre-signed into customHeaders.
+// The secret mirrors the app process env (CI exports MOCK_INBOUND_WEBHOOK_SECRET to both).
+export const MOCK_INBOUND_TOKEN_HEADER = 'x-mock-webhook-token';
+
+export const MOCK_INBOUND_WEBHOOK_SECRET =
+  process.env.MOCK_INBOUND_WEBHOOK_SECRET?.trim() || 'open-mercato-mock-dev-inbound-webhook-secret';
+
+export function mockInboundAuthHeaders(): Record<string, string> {
+  return { [MOCK_INBOUND_TOKEN_HEADER]: MOCK_INBOUND_WEBHOOK_SECRET };
+}
+
+export function mockInboundInvalidAuthHeaders(): Record<string, string> {
+  return { [MOCK_INBOUND_TOKEN_HEADER]: 'not-the-mock-inbound-secret' };
+}
+
 export async function createWebhookFixture(
   request: APIRequestContext,
   token: string,

@@ -4,9 +4,14 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { findEntityIdsBySearchTokens, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
+import { E } from '#generated/entities.ids.generated'
 import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy, type InboxProposalCategory } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'proposals' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
@@ -44,7 +49,24 @@ export async function GET(req: Request) {
       }
     }
     if (query.search) {
-      where.summary = { $ilike: `%${escapeLikePattern(query.search)}%` }
+      // `summary` is covered by the inbox_ops encryption map, so an ILIKE alone
+      // compares the pattern against ciphertext and matches nothing once
+      // encryption is on. Union it with the token index, which stores hashes of
+      // the plaintext. Issue #2990.
+      const searchOr: FilterQuery<InboxProposal>[] = [
+        { summary: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+      ]
+      const tokenMatch = await findEntityIdsBySearchTokens({
+        db: ctx.em.getKysely<SearchTokenDatabase>(),
+        entityType: E.inbox_ops.inbox_proposal,
+        query: query.search,
+        fields: ['summary'],
+        scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      })
+      if (tokenMatch.matched && tokenMatch.ids.length) {
+        searchOr.push({ id: { $in: tokenMatch.ids } })
+      }
+      where.$or = searchOr
     }
 
     const offset = (query.page - 1) * query.pageSize
@@ -109,7 +131,7 @@ export async function GET(req: Request) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('[inbox_ops:proposals] Error listing proposals:', err)
+    logger.error('Failed to list proposals', { err })
     return NextResponse.json({ error: 'Failed to list proposals' }, { status: 500 })
   }
 }

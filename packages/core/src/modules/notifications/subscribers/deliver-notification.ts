@@ -11,6 +11,9 @@ import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../auth/data/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('notifications').child({ component: 'deliver' })
 
 export const metadata = {
   event: NOTIFICATION_EVENTS.CREATED,
@@ -18,12 +21,8 @@ export const metadata = {
   id: 'notifications:deliver',
 }
 
-const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
-
-function debug(...args: unknown[]): void {
-  if (DEBUG) {
-    console.log('[notifications]', ...args)
-  }
+function debug(message: string, ...details: unknown[]): void {
+  logger.debug(message, details.length ? { details } : undefined)
 }
 
 type NotificationCreatedPayload = {
@@ -173,7 +172,7 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
       }
 
       try {
-        debug('sending email', { to: recipient.email, from: deliveryConfig.strategies.email.from, subject })
+        debug('sending email', { recipientUserId: notification.recipientUserId })
         await sendEmail({
           to: recipient.email,
           subject,
@@ -188,7 +187,7 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
           }),
         })
       } catch (error) {
-        console.error('[notifications] email delivery failed', error)
+        logger.error('Email delivery failed', { err: error })
       }
     }
 
@@ -216,15 +215,11 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
           t,
         })
       } catch (error) {
-        console.error(`[notifications] delivery strategy failed (${strategy.id})`, error)
+        logger.error('Delivery strategy failed', { strategyId: strategy.id, err: error })
       }
     }
   } catch (err) {
-    console.error('[notifications:deliver] Failed to deliver notification:', {
-      notificationId: payload.notificationId,
-      recipientUserId: notification.recipientUserId,
-      error: err instanceof Error ? err.message : String(err),
-    })
+    logger.error('Failed to deliver notification', { notificationId: payload.notificationId, recipientUserId: notification.recipientUserId, err })
     throw err
   }
 

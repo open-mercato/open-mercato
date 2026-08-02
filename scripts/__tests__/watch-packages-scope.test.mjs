@@ -45,7 +45,7 @@ test('runConsolidatedWatch honors OM_WATCH_SCOPE=env and tracks only the listed 
 
     assert.deepEqual(packages.map((p) => p.shortLabel).sort(), ['alpha', 'charlie'])
     assert.ok(
-      logs.some((line) => line.includes('watch scope: env')),
+      logs.some((line) => /watch scope: \S+ env\b/.test(line)),
       `expected watch scope log, got: ${logs.join('\n')}`,
     )
   } finally {

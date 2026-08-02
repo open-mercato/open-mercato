@@ -1,7 +1,9 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { registerGlobalEventTap } from '@open-mercato/events/bus'
+import { registerCrossProcessEventListener, registerGlobalEventTap } from '@open-mercato/events/bus'
 import { exampleTag } from '../openapi'
 
 type CapturedEvent = {
@@ -13,6 +15,7 @@ type CapturedEvent = {
 const CAPTURED_EVENTS_KEY = '__exampleCapturedQaEvents__'
 const CAPTURE_TAP_KEY = '__exampleCapturedQaEventsTap__'
 const MAX_CAPTURED_EVENTS = 200
+const QA_EVENTS_FILE_ENV = 'OM_QA_EVENTS_FILE'
 
 const querySchema = z.object({
   event: z.string().trim().optional(),
@@ -30,24 +33,85 @@ function getCapturedEventsStore(): CapturedEvent[] {
   return created
 }
 
+function getCapturedEventsFilePath(): string {
+  const configured = process.env[QA_EVENTS_FILE_ENV]?.trim()
+  return configured || path.join(process.cwd(), '.mercato', 'qa-events.jsonl')
+}
+
+function readPersistedEvents(): CapturedEvent[] {
+  try {
+    const filePath = getCapturedEventsFilePath()
+    if (!fs.existsSync(filePath)) return []
+    return fs.readFileSync(filePath, 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as CapturedEvent]
+        } catch {
+          return []
+        }
+      })
+      .slice(-MAX_CAPTURED_EVENTS)
+  } catch {
+    return []
+  }
+}
+
+function appendPersistedEvent(event: CapturedEvent): void {
+  try {
+    const filePath = getCapturedEventsFilePath()
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.appendFileSync(filePath, `${JSON.stringify(event)}\n`, 'utf8')
+  } catch {
+    // QA capture must never break the event bus.
+  }
+}
+
+function replacePersistedEvents(events: CapturedEvent[]): void {
+  try {
+    const filePath = getCapturedEventsFilePath()
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    const serialized = events
+      .slice(-MAX_CAPTURED_EVENTS)
+      .map((event) => JSON.stringify(event))
+      .join('\n')
+    fs.writeFileSync(filePath, serialized ? `${serialized}\n` : '', 'utf8')
+  } catch {
+    // QA cleanup is best-effort.
+  }
+}
+
+function captureEvent(event: string, payload: unknown): void {
+  const normalizedPayload = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : {}
+  const capturedEvent = {
+    event,
+    payload: normalizedPayload,
+    capturedAt: new Date().toISOString(),
+  }
+  const store = getCapturedEventsStore()
+  store.push(capturedEvent)
+  if (store.length > MAX_CAPTURED_EVENTS) {
+    store.splice(0, store.length - MAX_CAPTURED_EVENTS)
+  }
+  appendPersistedEvent(capturedEvent)
+}
+
 function ensureCaptureTap(): void {
   const globalScope = globalThis as Record<string, unknown>
   if (globalScope[CAPTURE_TAP_KEY] === true) return
   globalScope[CAPTURE_TAP_KEY] = true
 
   registerGlobalEventTap((event, payload) => {
-    const normalizedPayload = payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? payload as Record<string, unknown>
-      : {}
-    const store = getCapturedEventsStore()
-    store.push({
-      event,
-      payload: normalizedPayload,
-      capturedAt: new Date().toISOString(),
-    })
-    if (store.length > MAX_CAPTURED_EVENTS) {
-      store.splice(0, store.length - MAX_CAPTURED_EVENTS)
-    }
+    captureEvent(event, payload)
+  })
+
+  registerCrossProcessEventListener((envelope) => {
+    if (envelope.originPid === process.pid) return
+    captureEvent(envelope.event, envelope.payload)
   })
 }
 
@@ -76,7 +140,7 @@ export async function GET(request: Request) {
     prefix: url.searchParams.get('prefix') ?? undefined,
   })
 
-  const items = getCapturedEventsStore().filter((event) => {
+  const items = readPersistedEvents().filter((event) => {
     if (!matchesScope(event, auth)) return false
     if (query.event && event.event !== query.event) return false
     if (query.prefix && !event.event.startsWith(query.prefix)) return false
@@ -99,6 +163,7 @@ export async function DELETE(request: Request) {
       store.splice(index, 1)
     }
   }
+  replacePersistedEvents(readPersistedEvents().filter((event) => !matchesScope(event, auth)))
 
   return Response.json({ ok: true })
 }

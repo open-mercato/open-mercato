@@ -3,6 +3,9 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'tenant-encryption' })
 
 export type EncryptedFieldRule = {
   field: string
@@ -42,8 +45,7 @@ function cacheKey(key: MapCacheKey): string {
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(`${event} [tenant-encryption]`, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }
@@ -334,12 +336,26 @@ export class TenantDataEncryptionService {
     this.kms.invalidateDek?.(tenantId)
   }
 
+  /**
+   * Lists the fields an encryption map marks as encrypted at rest.
+   *
+   * `isEnabled()` folds the environment toggle together with KMS health, so by default an
+   * unhealthy KMS reports "nothing is encrypted" — which is safe for write paths but wrong for
+   * readers that must decide whether a stored column holds ciphertext. `ignoreRuntimeHealth`
+   * answers the on-disk question instead: it consults the map even when the KMS cannot currently
+   * resolve a DEK, so callers can fail closed rather than treat ciphertext as plaintext (#4622).
+   */
   async getEncryptedFieldNames(
     entityId: string,
     tenantId: string | null | undefined,
-    organizationId?: string | null
+    organizationId?: string | null,
+    options?: { ignoreRuntimeHealth?: boolean }
   ): Promise<string[]> {
-    if (!this.isEnabled()) return []
+    if (options?.ignoreRuntimeHealth) {
+      if (!isTenantDataEncryptionEnabled()) return []
+    } else if (!this.isEnabled()) {
+      return []
+    }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
     const fields = new Set(normalizeEncryptedFieldNames(map?.fields))
     if (organizationId == null) {

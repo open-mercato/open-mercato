@@ -43,6 +43,16 @@ The DI registrar exposes a singleton `moduleConfigService` with the following su
 
 Every call automatically resolves the request-scoped `EntityManager` and the configured cache strategy (memory/Redis/sqlite/JSON). Consumers can safely call these helpers from APIs, subscribers, or CLIs without managing transactions or cache keys manually.
 
+## Admin diagnostics
+
+The configs module also owns operational diagnostics under **Backend → Configuration**:
+
+- `/backend/config/system-status` shows read-only runtime configuration, profiling, cache, and query-index flags.
+- `/backend/config/cache` shows cache statistics and development/operations cache controls.
+- `/backend/config/module-telemetry` shows module resource usage grouped into time buckets and startup/running stages.
+
+Module telemetry is collected in-process for API routes, event subscribers, queue workers, and explicit `withModuleResourceUsage` wrappers. Buckets are currently 5 minutes, carry their own `bucketIntervalMs`, and are visible only on the local instance through the admin view.
+
 ## Default seeding & automation
 
 - `yarn mercato configs restore-defaults` seeds module defaults. The command runs automatically during `mercato init` after database migrations complete.

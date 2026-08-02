@@ -6,6 +6,9 @@ import type {
 import type { AwilixContainer } from 'awilix'
 import { ScheduledJob } from '../data/entities.js'
 import type { BullMQSchedulerService } from '../services/bullmqSchedulerService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'sync' })
 
 /**
  * MikroORM Event Subscriber for ScheduledJob
@@ -56,7 +59,7 @@ export class ScheduledJobSubscriber implements EventSubscriber<ScheduledJob> {
           this.bullmqService = this.container.resolve<BullMQSchedulerService>('bullmqSchedulerService')
         }
       } catch (error) {
-        console.warn('[scheduler:sync] Could not resolve BullMQSchedulerService:', error)
+        logger.warn('Could not resolve BullMQSchedulerService', { err: error })
       }
     }
 
@@ -102,25 +105,25 @@ export class ScheduledJobSubscriber implements EventSubscriber<ScheduledJob> {
             if (schedule.isEnabled && !schedule.deletedAt) {
               // Skip nextRunAt update since we're in afterFlush - it's already persisted
               await bullmqService.register(schedule, { skipNextRunUpdate: true })
-              console.log(`[scheduler:sync] Synced ${changeSet.type} to BullMQ: ${schedule.name}`)
+              logger.info('Synced schedule to BullMQ', { changeType: changeSet.type, scheduleId: schedule.id, scheduleName: schedule.name })
             } else {
               // Disabled or soft-deleted - remove from BullMQ
               await bullmqService.unregister(schedule.id)
-              console.log(`[scheduler:sync] Removed from BullMQ: ${schedule.name}`)
+              logger.info('Removed schedule from BullMQ', { scheduleId: schedule.id, scheduleName: schedule.name })
             }
           } else if (changeSet.type === 'delete') {
             // Hard delete - remove from BullMQ
             await bullmqService.unregister(schedule.id)
-            console.log(`[scheduler:sync] Removed from BullMQ (deleted): ${schedule.id}`)
+            logger.info('Removed deleted schedule from BullMQ', { scheduleId: schedule.id })
           }
         } catch (error) {
           // Don't throw - we don't want to break the transaction
           // BullMQ sync is best-effort, DB is source of truth
-          console.error(`[scheduler:sync] Failed to sync with BullMQ:`, {
+          logger.error('Failed to sync with BullMQ', {
             scheduleId: schedule.id,
             scheduleName: schedule.name,
             changeType: changeSet.type,
-            error: error instanceof Error ? error.message : String(error),
+            err: error,
           })
         }
       }

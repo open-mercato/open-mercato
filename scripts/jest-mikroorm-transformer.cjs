@@ -10,6 +10,21 @@
 // any other `import.meta.*` access with safe CommonJS stubs before delegating
 // to ts-jest.
 
+// TypeScript 7 is a native (Go) compiler and no longer ships the JavaScript
+// programmatic API ts-jest needs to transpile test files (`require('typescript')`
+// resolves to a stub exporting only `version`). ts-jest hard-imports `typescript`
+// in several internal paths, so the `compiler` option alone is not enough. Redirect
+// `typescript` to the JS-based TypeScript installed under the `typescript-js` npm
+// alias for the whole test process, while the native `typescript` stays the
+// typecheck/build compiler. Drop once ts-jest supports the native TS 7 API
+// (tracked with the CLI `typescript-js` alias).
+const Module = require('module')
+const originalResolveFilename = Module._resolveFilename
+Module._resolveFilename = function (request, ...rest) {
+  if (request === 'typescript') request = 'typescript-js'
+  return originalResolveFilename.call(this, request, ...rest)
+}
+
 const { TsJestTransformer } = require('ts-jest')
 
 const IMPORT_META_RESOLVE_RE = /import\.meta\.resolve\(/g

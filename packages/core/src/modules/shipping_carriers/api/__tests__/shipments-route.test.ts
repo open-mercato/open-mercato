@@ -9,8 +9,15 @@ import { ShipmentIdempotencyConflictError } from '@open-mercato/core/modules/shi
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({ readJsonSafe: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback: string) => fallback,
+    t: (_key: string, fallback: string) => fallback,
+  })),
+}))
 
 const createShipment = jest.fn()
+let consoleErrorSpy: jest.SpyInstance
 
 function validPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -26,9 +33,14 @@ function validPayload(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
   ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: 'tenant_1', orgId: 'org_1' })
   ;(createRequestContainer as jest.Mock).mockResolvedValue({ resolve: () => ({ createShipment }) })
   ;(readJsonSafe as jest.Mock).mockResolvedValue(validPayload({ idempotencyKey: 'idem-1' }))
+})
+
+afterEach(() => {
+  consoleErrorSpy.mockRestore()
 })
 
 describe('POST /api/shipping-carriers/shipments idempotency contract', () => {

@@ -238,7 +238,7 @@ describe('component replacement', () => {
     expect(screen.queryByText('low:picked')).toBeNull()
     expect(screen.getByText('high:picked')).toBeInTheDocument()
     expect(warnSpy).toHaveBeenCalledWith(
-      `[UMES] Multiple replacements registered for "${componentId}". Highest-priority replacement is applied.`,
+      expect.stringContaining(`Multiple replacements registered; highest-priority replacement is applied component=useRegisteredComponent componentId=${componentId}`),
     )
     warnSpy.mockRestore()
   })

@@ -4,6 +4,26 @@ import { describe, test, expect, beforeEach, jest } from '@jest/globals'
 import { createAuthMock, createMockCache, createMockContainer, createMockEntityManager } from './test-helpers'
 import * as ruleEngine from '../../lib/rule-engine'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 const mockGetAuthFromRequest = createAuthMock()
 const mockEm = createMockEntityManager()
 const mockCache = createMockCache()
@@ -374,7 +394,8 @@ describe('Business Rules API - /api/business_rules/rules', () => {
 
       mockEm.create.mockReturnValue({ id: '523e4567-e89b-12d3-a456-426614174007', ...newRule })
       mockEm.flush.mockRejectedValue(rawDbError)
-      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+      mockLogger.error.mockClear()
+      const consoleError = mockLogger.error
 
       const request = new Request('http://localhost:3000/api/business_rules/rules', {
         method: 'POST',
@@ -494,7 +515,8 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       mockEm.flush.mockRejectedValue(
         new Error('update "business_rules" set "condition_expression" = $1 - null value violates not-null constraint')
       )
-      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+      mockLogger.error.mockClear()
+      const consoleError = mockLogger.error
 
       const request = new Request('http://localhost:3000/api/business_rules/rules', {
         method: 'PUT',

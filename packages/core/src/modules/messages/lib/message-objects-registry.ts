@@ -1,5 +1,8 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
 import defaultTypes from '../message-objects'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages')
 
 const registry = new Map<string, MessageObjectTypeDefinition>()
 
@@ -26,7 +29,7 @@ export function registerMessageObjectTypes(
   for (const type of types) {
     const key = getKey(type.module, type.entityType)
     if (registry.has(key)) {
-      console.warn(`[messages] Message object type "${key}" is already registered, overwriting`)
+      logger.warn('Message object type already registered, overwriting', { key })
     }
     registry.set(key, type)
   }

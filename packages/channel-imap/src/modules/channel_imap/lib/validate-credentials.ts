@@ -9,6 +9,9 @@ import {
   getSmtpClient,
 } from './smtp-client'
 import { INSECURE_TRANSPORT_MESSAGE, isInsecureTransportAllowed } from './transport'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('channel_imap')
 
 /**
  * Validate IMAP+SMTP credentials by attempting a live LOGIN on both servers.
@@ -87,7 +90,7 @@ function classifyAuthError(error: unknown, fallback: string): string {
   // (banners, internal hostnames) back to the client. Log the full original
   // message server-side for diagnostics instead.
   const message = error instanceof Error ? error.message : String(error ?? '')
-  console.warn('[internal] channel_imap credential validation failed:', message)
+  logger.warn('Credential validation failed', { message })
   if (/auth|login|credentials|535|454|530/i.test(message)) {
     return 'Authentication rejected by the server. Check the username and password.'
   }

@@ -1,12 +1,28 @@
 import type { AwilixContainer } from 'awilix'
 import { registerMutationGuards } from '../mutation-guard-store'
-import type { MutationGuard } from '../mutation-guard-registry'
+import { bridgeLegacyGuard, type MutationGuard } from '../mutation-guard-registry'
 import { runRouteMutationGuards, toRegistryMutationOperation } from '../route-mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+const loggerWarn = createLogger('shared').warn as jest.Mock
 
 type Registrations = Record<string, unknown>
 
 function makeContainer(registrations: Registrations = {}): AwilixContainer {
   return {
+    hasRegistration: (name: string) => Object.prototype.hasOwnProperty.call(registrations, name),
     resolve: (name: string) => {
       if (Object.prototype.hasOwnProperty.call(registrations, name)) return registrations[name]
       throw new Error(`[test] no registration for ${name}`)
@@ -146,7 +162,7 @@ describe('runRouteMutationGuards', () => {
   })
 
   it('swallows afterSuccess callback errors so a committed write still succeeds', async () => {
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    loggerError.mockClear()
     const guard = makeGuard({
       id: 'throwing-after-guard',
       validate: jest.fn().mockResolvedValue({ ok: true, shouldRunAfterSuccess: true }),
@@ -164,7 +180,7 @@ describe('runRouteMutationGuards', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('expected passed result')
     await expect(result.runAfterSuccess()).resolves.toBeUndefined()
-    expect(consoleError).toHaveBeenCalled()
+    expect(loggerError).toHaveBeenCalledWith('Mutation guard afterSuccess failed', expect.objectContaining({ guardId: 'throwing-after-guard' }))
   })
 
   it('skips feature-gated guards when the caller lacks the feature', async () => {
@@ -256,5 +272,25 @@ describe('runRouteMutationGuards', () => {
     if (result.ok) throw new Error('expected blocked result')
     expect(result.errorStatus).toBe(409)
     expect(result.errorBody).toEqual({ error: 'locked' })
+  })
+
+  it('warns only once when the registered legacy guard cannot be resolved', () => {
+    delete (globalThis as Record<string, unknown>).__openMercatoCrudMutationGuardResolutionWarningEmitted__
+    loggerWarn.mockClear()
+    const resolutionError = new Error('Could not resolve scopedEm')
+    const container = {
+      hasRegistration: () => true,
+      resolve: () => {
+        throw resolutionError
+      },
+    } as unknown as AwilixContainer
+
+    expect(bridgeLegacyGuard(container)).toBeNull()
+    expect(bridgeLegacyGuard(container)).toBeNull()
+    expect(loggerWarn).toHaveBeenCalledTimes(1)
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'CRUD mutation guard service could not be resolved; the legacy guard bridge is disabled',
+      { err: resolutionError },
+    )
   })
 })

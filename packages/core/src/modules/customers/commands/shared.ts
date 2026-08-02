@@ -1,10 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
@@ -44,7 +47,7 @@ export async function requireCustomerEntity(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
-  if (!entity) throw new CrudHttpError(404, { error: message })
+  if (!entity) throw notFound(message)
   if (kind && entity.kind !== kind) {
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
   }
@@ -77,7 +80,7 @@ export async function requireTimelineParentEntity(
   if (deal) {
     throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
   }
-  throw new CrudHttpError(404, { error: 'Customer not found' })
+  throw notFound('Customer not found')
 }
 
 export async function syncEntityTags(
@@ -152,6 +155,7 @@ const DICTIONARY_KINDS = new Set([
   'temperature',
   'renewal_quarter',
   'person_company_role',
+  'interaction_status',
 ])
 
 const CUSTOM_DICTIONARY_KIND_PATTERN = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
@@ -268,7 +272,7 @@ async function emitQueryIndexEvents(
   try {
     bus = ctx.container.resolve<EventBus>('eventBus')
   } catch (err) {
-    console.warn('[customers.commands.shared] eventBus resolve failed; skipping query index events', err)
+    logger.warn('eventBus resolve failed; skipping query index events', { component: 'commands.shared', err })
     bus = null
   }
   if (!bus) return
@@ -294,7 +298,7 @@ async function emitQueryIndexEvents(
           },
         )
         .catch((err) => {
-          console.warn('[customers.commands.shared] query index emitEvent failed', entry, err)
+          logger.warn('Query index emitEvent failed', { component: 'commands.shared', entry, err })
           return undefined
         }),
     ),

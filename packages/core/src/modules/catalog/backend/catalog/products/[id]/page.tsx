@@ -138,6 +138,9 @@ import {
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
 import { SendObjectMessageDialog } from "@open-mercato/ui/backend/messages/SendObjectMessageDialog.tsx";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 type ProductResponse = {
   items?: Array<Record<string, unknown>>;
@@ -509,12 +512,12 @@ export default function EditCatalogProductPage({
           }
           setVariantMediaGroups(groups);
         } catch (err) {
-          console.error("catalog.variants.media.fetch failed", err);
+          logger.error('catalog.variants.media.fetch failed', { err });
           setVariantMediaGroups([]);
         }
       })();
     } catch (err) {
-      console.error("catalog.variants.fetch failed", err);
+      logger.error('catalog.variants.fetch failed', { err });
       setVariants([]);
       setVariantMediaGroups([]);
     }
@@ -540,7 +543,7 @@ export default function EditCatalogProductPage({
           thumbnailUrl: item.thumbnailUrl ?? undefined,
         }));
       } catch (err) {
-        console.error("attachments.fetch failed", err);
+        logger.error('attachments.fetch failed', { err });
         return [];
       }
     },
@@ -566,7 +569,7 @@ export default function EditCatalogProductPage({
             .filter((item): item is TaxRateSummary => item !== null),
         );
       } catch (err) {
-        console.error("sales.tax-rates.fetch failed", err);
+        logger.error('sales.tax-rates.fetch failed', { err });
         setTaxRates([]);
       }
     };
@@ -776,7 +779,7 @@ export default function EditCatalogProductPage({
         }
         await loadVariants(productId!);
       } catch (err) {
-        console.error("catalog.products.edit.load failed", err);
+        logger.error('catalog.products.edit.load failed', { err });
         if (!cancelled) {
           const message =
             err instanceof Error && err.message
@@ -814,7 +817,7 @@ export default function EditCatalogProductPage({
           setPriceKinds(summaries);
         }
       } catch (err) {
-        console.error("catalog.price-kinds.fetch failed", err);
+        logger.error('catalog.price-kinds.fetch failed', { err });
         if (!cancelled) {
           setPriceKinds([]);
         }
@@ -1347,7 +1350,7 @@ export default function EditCatalogProductPage({
             );
           }
         } catch (err) {
-          console.error("catalog.products.edit.offers.delete", err);
+          logger.error('catalog.products.edit.offers.delete', { err });
           throw createCrudFormError(
             t(
               "catalog.products.edit.offers.deleteError",
@@ -1889,7 +1892,7 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         setSchemaTemplates([]);
       }
     } catch (err) {
-      console.error("catalog.option-schemas.list failed", err);
+      logger.error('catalog.option-schemas.list failed', { err });
       setSchemaTemplates([]);
     } finally {
       setSchemaLoading(false);
@@ -1917,7 +1920,7 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         void loadSchemas();
       } catch (err) {
         if (surfaceRecordConflict(err, t)) { void loadSchemas(); return; }
-        console.error("catalog.option-schemas.delete failed", err);
+        logger.error('catalog.option-schemas.delete failed', { err });
       }
     },
     [loadSchemas, schemaTemplates, t],
@@ -2310,7 +2313,7 @@ function ProductVariantsSection({
         onVariantDeleted(variant.id);
       } catch (err) {
         if (surfaceRecordConflict(err, t)) return;
-        console.error("catalog.products.edit.variants.delete", err);
+        logger.error('catalog.products.edit.variants.delete', { err });
         flash(
           t("catalog.variants.form.deleteError", "Failed to delete variant."),
           "error",
@@ -2359,7 +2362,7 @@ function ProductVariantsSection({
       );
       if (onVariantsReload) await onVariantsReload();
     } catch (err) {
-      console.error("catalog.products.edit.variantList.generate", err);
+      logger.error('catalog.products.edit.variantList.generate', { err });
       flash(
         t(
           "catalog.products.edit.variantList.generateError",
@@ -3324,7 +3327,7 @@ function SaveSchemaDialog({
       await onSubmit(name);
       onOpenChange(false);
     } catch (err) {
-      console.error("schema.save.failed", err);
+      logger.error('schema.save.failed', { err });
     } finally {
       setSaving(false);
     }

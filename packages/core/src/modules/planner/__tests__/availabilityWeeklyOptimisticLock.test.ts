@@ -64,6 +64,13 @@ function makeEm(ruleSet: RuleSetStub | null) {
   return em
 }
 
+function makeDataEngine() {
+  return {
+    markOrmEntityChange: jest.fn(),
+    flushOrmEntityChanges: jest.fn(async () => {}),
+  }
+}
+
 function makeCtx(em: ReturnType<typeof makeEm>, headerValue: string | null) {
   const headers = new Headers()
   if (headerValue != null) headers.set(OPTIMISTIC_LOCK_HEADER_NAME, headerValue)
@@ -71,10 +78,12 @@ function makeCtx(em: ReturnType<typeof makeEm>, headerValue: string | null) {
     method: 'POST',
     headers,
   })
+  const dataEngine = makeDataEngine()
   return {
     container: {
       resolve: (key: string) => {
         if (key === 'em') return em
+        if (key === 'dataEngine') return dataEngine
         throw new Error(`Unexpected resolve(${key})`)
       },
     },

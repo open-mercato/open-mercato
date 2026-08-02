@@ -44,6 +44,9 @@ import {
   type OptimisticLockConflictBody,
 } from './optimistic-lock-headers'
 import { getAllOptimisticLockReaders } from './optimistic-lock-store'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'optimistic-lock' })
 
 export type OptimisticLockConfig =
   | { mode: 'off' }
@@ -194,12 +197,7 @@ export function createGenericOptimisticLockReader(
       // misconfig filtering on a column the table lacks), which silently disables
       // locking for `resourceKind`. Log loudly so the misconfig is visible.
       // Control flow stays fail-open (return null) to honor the no-500 contract.
-      // eslint-disable-next-line no-console
-      console.error(
-        `[optimistic-lock] reader query failed for resourceKind="${resourceKind}" — optimistic locking is DISABLED for this entity until fixed. ` +
-          `Most likely a softDeleteField/tenantField/orgField filters on a column the table does not have.`,
-        err,
-      )
+      logger.error('Reader query failed — optimistic locking is DISABLED for this entity until fixed; most likely a softDeleteField/tenantField/orgField filters on a column the table does not have', { resourceKind, err })
       return null
     }
   }
@@ -350,8 +348,7 @@ export function createOptimisticLockGuardService(
 
     if (currentIso === expectedIso) {
       if (debugEnabled) {
-        // eslint-disable-next-line no-console
-        console.log('[optimistic-lock] match', {
+        logger.info('Optimistic lock match', {
           resourceKind: input.resourceKind,
           resourceId: input.resourceId,
           operation: input.operation,
@@ -363,8 +360,7 @@ export function createOptimisticLockGuardService(
     }
 
     if (debugEnabled) {
-      // eslint-disable-next-line no-console
-      console.log('[optimistic-lock] CONFLICT', {
+      logger.info('Optimistic lock conflict', {
         resourceKind: input.resourceKind,
         resourceId: input.resourceId,
         operation: input.operation,

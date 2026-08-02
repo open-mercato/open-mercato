@@ -95,6 +95,8 @@ export function AddressesSection({
                 ? record.postalCode
                 : null,
             country: typeof record.country === 'string' ? record.country : null,
+            latitude: typeof record.latitude === 'number' && Number.isFinite(record.latitude) ? record.latitude : null,
+            longitude: typeof record.longitude === 'number' && Number.isFinite(record.longitude) ? record.longitude : null,
             isPrimary:
               typeof record.is_primary === 'boolean'
                 ? record.is_primary
@@ -242,6 +244,7 @@ export function AddressesSection({
       dataAdapter={dataAdapter}
       addressTypesAdapter={addressTypesAdapter}
       loadFormat={loadFormat}
+      showCoordinateFields
     />
   )
 }

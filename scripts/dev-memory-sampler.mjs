@@ -148,7 +148,7 @@ export function readCgroupMemory(cgroupRoot = '/sys/fs/cgroup') {
 }
 
 async function runPsSnapshot(execFileImpl = execFileAsync) {
-  const { stdout } = await execFileImpl('ps', ['-A', '-o', 'pid=,ppid=,rss=,command='], {
+  const { stdout } = await execFileImpl('ps', ['-A', '-o', 'pid=,ppid=,rss=,args='], {
     maxBuffer: 16 * 1024 * 1024,
   })
   return parsePsOutput(stdout)

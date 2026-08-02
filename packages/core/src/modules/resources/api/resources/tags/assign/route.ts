@@ -17,6 +17,9 @@ import {
   resourcesResourceTagAssignmentSchema,
   type ResourcesResourceTagAssignmentInput,
 } from '../../../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('resources').child({ component: 'tags' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['resources.manage_resources'] },
@@ -110,7 +113,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('resources.resourceTags.assign failed', err)
+    logger.error('Tag assign failed', { err })
     return NextResponse.json({ error: translate('resources.resources.tags.updateError', 'Failed to update tags.') }, { status: 400 })
   }
 }

@@ -3,6 +3,8 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   buildMockInboundUrl,
+  mockInboundAuthHeaders,
+  mockInboundInvalidAuthHeaders,
   createWebhookFixture,
   deleteWebhookIfExists,
   getDeliveryDetail,
@@ -20,9 +22,7 @@ test.describe('TC-WEBHOOK-002: Webhook delivery lifecycle', () => {
         name: `Webhook Delivery ${Date.now()}`,
         url: buildMockInboundUrl(),
         subscribedEvents: ['catalog.product.created'],
-        customHeaders: {
-          'x-mock-webhook-signature': 'valid',
-        },
+        customHeaders: mockInboundAuthHeaders(),
       });
       webhookId = created.id;
 
@@ -86,9 +86,7 @@ test.describe('TC-WEBHOOK-002: Webhook delivery lifecycle', () => {
         name: `Webhook Retry ${Date.now()}`,
         url: buildMockInboundUrl(),
         subscribedEvents: ['catalog.product.updated'],
-        customHeaders: {
-          'x-mock-webhook-signature': 'invalid',
-        },
+        customHeaders: mockInboundInvalidAuthHeaders(),
       });
       webhookId = created.id;
 
@@ -116,9 +114,7 @@ test.describe('TC-WEBHOOK-002: Webhook delivery lifecycle', () => {
       const updateResponse = await apiRequest(request, 'PUT', `/api/webhooks/${created.id}`, {
         token,
         data: {
-          customHeaders: {
-            'x-mock-webhook-signature': 'valid',
-          },
+          customHeaders: mockInboundAuthHeaders(),
         },
       });
       expect(updateResponse.status()).toBe(200);

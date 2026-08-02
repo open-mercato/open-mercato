@@ -18,6 +18,9 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },
@@ -88,7 +91,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.settings.document-numbers.get failed', err)
+    logger.error('sales.settings.document-numbers.get failed', { err })
     return NextResponse.json(
       { error: translate('sales.settings.errors.load_failed', 'Failed to load sales settings') },
       { status: 400 }
@@ -158,7 +161,7 @@ export async function PUT(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.settings.document-numbers.put failed', err)
+    logger.error('sales.settings.document-numbers.put failed', { err })
     return NextResponse.json(
       { error: translate('sales.settings.errors.save_failed', 'Failed to save sales settings') },
       { status: 400 }

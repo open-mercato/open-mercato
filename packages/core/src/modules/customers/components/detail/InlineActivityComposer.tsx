@@ -10,6 +10,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { ActivityTypeSelector, type ActivityType } from './ActivityTypeSelector'
 import { MiniWeekCalendar } from './MiniWeekCalendar'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -150,7 +153,7 @@ export function InlineActivityComposer({
       calendarRefreshRef.current?.()
       onActivityCreated?.()
     } catch (error) {
-      console.error('customers.inlineActivityComposer.save failed', error)
+      logger.error('customers.inlineActivityComposer.save failed', { err: error })
       flash(t('customers.activityComposer.error', 'Failed to save activity'), 'error')
     } finally {
       setSaving(false)

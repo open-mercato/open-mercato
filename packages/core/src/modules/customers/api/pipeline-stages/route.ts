@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { CustomerPipelineStage, CustomerDictionaryEntry } from '../../data/entities'
@@ -23,6 +24,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const PIPELINE_STAGE_RESOURCE_KIND = 'customers.pipelineStage'
 
@@ -56,15 +60,16 @@ async function buildContext(
 
 export async function GET(req: Request) {
   try {
-    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
-    if (!organizationId || !tenantId) {
+    const { ctx, tenantId, translate } = await buildContext(req)
+    if (!tenantId) {
       return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
+    const orgFilter = resolveOrganizationScopeFilter(ctx.organizationScope, ctx.auth)
     const url = new URL(req.url)
     const pipelineId = url.searchParams.get('pipelineId')
 
     const em = (ctx.container.resolve('em') as EntityManager)
-    const where: Record<string, unknown> = { organizationId, tenantId }
+    const where: Record<string, unknown> = { tenantId, ...orgFilter.where }
     if (pipelineId) where.pipelineId = pipelineId
 
     const stages = await em.find(CustomerPipelineStage, where, { orderBy: { order: 'ASC' } })
@@ -72,8 +77,8 @@ export async function GET(req: Request) {
     const stageLabels = stages.map((s) => s.label.trim().toLowerCase())
     const dictEntries = stageLabels.length
       ? await em.find(CustomerDictionaryEntry, {
-          organizationId,
           tenantId,
+          ...orgFilter.where,
           kind: 'pipeline_stage',
           normalizedValue: { $in: stageLabels },
         })
@@ -101,7 +106,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages GET failed', err)
+    logger.error('customers.pipeline-stages GET failed', { err })
     return NextResponse.json({ error: 'Failed to load pipeline stages' }, { status: 500 })
   }
 }
@@ -169,7 +174,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages POST failed', err)
+    logger.error('customers.pipeline-stages POST failed', { err })
     return NextResponse.json({ error: 'Failed to create pipeline stage' }, { status: 400 })
   }
 }
@@ -237,7 +242,7 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages PUT failed', err)
+    logger.error('customers.pipeline-stages PUT failed', { err })
     return NextResponse.json({ error: 'Failed to update pipeline stage' }, { status: 400 })
   }
 }
@@ -290,7 +295,7 @@ export async function DELETE(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages DELETE failed', err)
+    logger.error('customers.pipeline-stages DELETE failed', { err })
     return NextResponse.json({ error: 'Failed to delete pipeline stage' }, { status: 400 })
   }
 }

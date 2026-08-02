@@ -12,9 +12,13 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'profile' })
 
 const profileResponseSchema = z.object({
   email: z.string().email(),
+  name: z.string().nullable().optional(),
   roles: z.array(z.string()),
 })
 
@@ -103,9 +107,14 @@ export async function GET(req: Request) {
     if (!user) {
       return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
     }
-    return NextResponse.json({ email: String(user.email), roles: auth.roles ?? [] })
+    const displayName = typeof user.name === 'string' ? user.name.trim() : ''
+    return NextResponse.json({
+      email: String(user.email),
+      name: displayName.length > 0 ? displayName : null,
+      roles: auth.roles ?? [],
+    })
   } catch (err) {
-    console.error('auth.profile.load failed', err)
+    logger.error('Profile load failed', { err })
     return NextResponse.json({ error: translate('auth.profile.form.errors.load', 'Failed to load profile.') }, { status: 400 })
   }
 }
@@ -193,7 +202,7 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('auth.profile.update failed', err)
+    logger.error('Profile update failed', { err })
     return NextResponse.json({ error: translate('auth.profile.form.errors.save', 'Failed to update profile.') }, { status: 400 })
   }
 }
@@ -204,7 +213,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get current profile',
-      description: 'Returns the email address for the signed-in user.',
+      description: 'Returns the email address, display name, and roles for the signed-in user. The display name is null when unset.',
       responses: [
         { status: 200, description: 'Profile payload', schema: profileResponseSchema },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },

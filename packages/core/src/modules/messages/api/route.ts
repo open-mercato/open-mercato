@@ -14,6 +14,8 @@ import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { applyMessageParticipantScope } from '../lib/participantScope'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
@@ -164,11 +166,7 @@ async function buildMessageListIdFilter(input: ListMessagesInput, ctx: CrudCtx):
       joinRecipient()
       break
     case 'all':
-      joinRecipient()
-      q = q.where((eb: any) => eb.or([
-        eb('m.sender_user_id', '=', userId),
-        eb('r.message_id', 'is not', null),
-      ]))
+      q = applyMessageParticipantScope(q, userId)
       break
     default: {
       const unsupportedFolder: never = input.folder
@@ -470,6 +468,28 @@ export async function POST(req: Request) {
     }
   }
 
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: null,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
     input: {
       ...input,
@@ -493,6 +513,16 @@ export async function POST(req: Request) {
   attachOperationMetadataHeader(response, logEntry, {
     resourceKind: 'messages.message',
     resourceId: messageId,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: messageId,
+    operation: 'create',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }

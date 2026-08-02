@@ -13,6 +13,9 @@ import {
 } from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type NewCustomersKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'new-customers-kpi' })
 
 async function fetchNewCustomersData(settings: NewCustomersKpiSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
@@ -62,7 +65,7 @@ const NewCustomersKpiWidget: React.FC<DashboardWidgetComponentProps<NewCustomers
         setTrend(undefined)
       }
     } catch (err) {
-      console.error('Failed to load new customers KPI data', err)
+      logger.error('Failed to load new customers KPI data', { err })
       setError(t('dashboards.analytics.widgets.newCustomersKpi.error', 'Failed to load data'))
     } finally {
       setLoading(false)

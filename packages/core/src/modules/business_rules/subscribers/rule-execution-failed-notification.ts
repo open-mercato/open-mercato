@@ -2,6 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('business_rules').child({ component: 'rule-execution-failed-notification' })
 
 export const metadata = {
   event: 'business_rules.rule.execution_failed',
@@ -45,6 +48,6 @@ export default async function handle(payload: RuleExecutionFailedPayload, ctx: R
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[business_rules:rule-execution-failed-notification] Failed to create notification:', err)
+    logger.error('Failed to create notification', { err })
   }
 }

@@ -13,6 +13,9 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowInstance, WorkflowEvent } from '../../../../data/entities'
 import { workflowEventRowSchema, paginationSchema } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -105,7 +108,7 @@ export async function GET(
       },
     })
   } catch (error) {
-    console.error('Error getting workflow events:', error)
+    logger.error('Error getting workflow events', { err: error })
     return NextResponse.json(
       { error: 'Failed to get workflow events' },
       { status: 500 }

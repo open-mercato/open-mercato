@@ -3,6 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { createEventBus } from '@open-mercato/events/index'
+import {
+  getModuleResourceUsageReport,
+  resetModuleResourceUsage,
+} from '@open-mercato/shared/lib/modules/resource-usage'
 
 function readJson(p: string) { return JSON.parse(fs.readFileSync(p, 'utf8')) }
 
@@ -14,8 +18,10 @@ describe('Event bus', () => {
     process.chdir(tmp)
     delete process.env.QUEUE_STRATEGY
     delete process.env.EVENTS_STRATEGY
+    resetModuleResourceUsage()
   })
   afterEach(() => {
+    resetModuleResourceUsage()
     process.chdir(origCwd)
     try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {}
   })
@@ -116,6 +122,22 @@ describe('Event bus', () => {
     expect(calls).toHaveLength(2)
     expect(calls[0]).toEqual({ value: 1 })
     expect(calls[1]).toEqual({ value: 2 })
+  })
+
+  test('module subscribers are attributed in resource usage telemetry', async () => {
+    const bus = createEventBus({ resolve: ((name: string) => name) as any })
+
+    bus.registerModuleSubscribers([
+      { id: 'customers:subscribers:test', moduleId: 'customers', event: 'customers.person.created', handler: () => undefined },
+    ])
+
+    await bus.emit('customers.person.created', { value: 1 })
+
+    const report = getModuleResourceUsageReport()
+    expect(report.modules).toHaveLength(1)
+    expect(report.modules[0].moduleId).toBe('customers')
+    expect(report.modules[0].surfaces[0].surface).toBe('subscriber')
+    expect(report.modules[0].topOperations[0].operation).toBe('customers.person.created -> customers:subscribers:test')
   })
 
   test('non-persistent events are not queued', async () => {

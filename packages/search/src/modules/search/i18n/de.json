@@ -17,6 +17,8 @@
   "search.api.errors.recreateFailed": "Fehler beim Neuerstellen der Vektortabelle mit neuer Dimension.",
   "search.api.errors.reindexFailed": "Neuindizierung fehlgeschlagen.",
   "search.api.errors.reindexInProgress": "Eine Neuindizierung wird bereits durchgeführt.",
+  "search.api.errors.scopedQueueCancelFailed": "Die eingereihten Reindexierungsaufträge konnten nicht abgebrochen werden.",
+  "search.api.errors.scopedQueueCancelUnavailable": "Die bereichsbezogene Warteschlangenstornierung ist nicht verfügbar.",
   "search.api.errors.searchFailed": "Suchvorgang fehlgeschlagen.",
   "search.api.errors.serviceUnavailable": "Suchdienst ist nicht verfügbar.",
   "search.api.errors.strategyUnavailable": "Angeforderte Suchstrategie ist nicht verfügbar.",
