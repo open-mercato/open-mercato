@@ -57,6 +57,7 @@ import {
   isCrudCacheEnabled,
   normalizeIdentifierValue,
   normalizeTagSegment,
+  pickFirstIdentifier,
   resolveCrudCache,
 } from './cache'
 import { deriveCrudSegmentTag } from './cache-stats'
@@ -915,6 +916,12 @@ function buildCrudCacheKey(
     `tenant:${normalizeTagSegment(ctx.auth?.tenantId ?? null)}`,
     `selectedOrg:${normalizeTagSegment(ctx.selectedOrganizationId ?? null)}`,
     `scope:${scopeSegment}`,
+    // List payloads can vary per caller identity beyond tenant/org scope:
+    // buildFilters may narrow by ctx.auth (e.g. ?mine=true), before-interceptor
+    // query rewrites are feature-gated per user, and afterList/after-interceptor
+    // output is embedded in the stored payload — so entries MUST be partitioned
+    // per actor (API key or user), never shared across identities.
+    `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
     `query:${serializeSearchParams(url.searchParams)}`,
   ]
   // The cached list payload already embeds enricher output (enrichment runs before
@@ -2140,6 +2147,31 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
+        // Mutation guard registry — command path (mirrors the direct create branch)
+        const createCmdUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: createCmdAllGuards } = collectAndRunGuards(ctx.container)
+        let createCmdGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        if (createCmdAllGuards.length && ctx.auth.tenantId) {
+          const guardResult = await runMutationGuards(createCmdAllGuards, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: null,
+            operation: 'create',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            mutationPayload: input && typeof input === 'object' ? (input as Record<string, unknown>) : null,
+          }, { userFeatures: createCmdUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+          }
+          if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+            input = { ...input as Record<string, unknown>, ...guardResult.modifiedPayload }
+          }
+          createCmdGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+        }
+
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -2182,6 +2214,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 201
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        const commandResultId = pickFirstIdentifier(
+          (result as Record<string, unknown> | null | undefined)?.id,
+          (resolvedPayload as Record<string, unknown> | null | undefined)?.id,
+        )
+        if (createCmdGuardAfterCallbacks.length && ctx.auth.tenantId && commandResultId) {
+          await runGuardAfterSuccessCallbacks(createCmdGuardAfterCallbacks, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: commandResultId,
+            operation: 'create',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+        }
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -2422,6 +2470,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const updateUserFeatures = await resolveUserFeatures(ctx)
         const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
         let cmdUpdateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        // Commands whose mapInput wraps the payload (e.g. `{ body }`) intentionally
+        // null candidateId and OPT OUT of row-level guards, leaving the command-level
+        // optimistic-lock check as the sole guard — a documented contract, see
+        // apps/docs/docs/framework/data-integrity/concurrency-locking.mdx.
         if (updateAllGuards.length && ctx.auth.tenantId && candidateId) {
           const guardResult = await runMutationGuards(updateAllGuards, {
             tenantId: ctx.auth.tenantId,
