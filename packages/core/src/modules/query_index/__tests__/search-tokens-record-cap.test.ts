@@ -52,6 +52,17 @@ describe('buildSearchTokenRows limits', () => {
     expect(rows).toHaveLength(4)
   })
 
+  test('continues past duplicate array tokens until the distinct field budget is full', () => {
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-duplicate-prefix',
+      doc: { tags: ['alpha beta', 'alpha beta gamma delta'] },
+      config: { ...baseConfig, storeRawTokens: true, maxTokensPerField: 4 },
+    })
+
+    expect(rows.map((row) => row.token)).toEqual(['alpha', 'beta', 'gamma', 'delta'])
+  })
+
   test('preserves tokens when the document stays within the limits', () => {
     const rows = buildSearchTokenRows({
       entityType: 'messages:message',

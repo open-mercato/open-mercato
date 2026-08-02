@@ -7,6 +7,8 @@ type AutoReindexHarness = {
   scheduleAutoReindex: (entity: string, options: QueryOptions) => void
 }
 
+const AUTO_REINDEX_SCHEDULED_AT_KEY = Symbol.for('@open-mercato/query-index/auto-reindex-scheduled-at')
+
 function buildEngine(emitEvent: jest.Mock): AutoReindexHarness {
   const engine = new HybridQueryEngine(
     {} as EntityManager,
@@ -14,6 +16,20 @@ function buildEngine(emitEvent: jest.Mock): AutoReindexHarness {
     () => ({ emitEvent }),
   )
   return engine as unknown as AutoReindexHarness
+}
+
+function buildIsolatedEngine(emitEvent: jest.Mock): AutoReindexHarness {
+  let engine: AutoReindexHarness | null = null
+  jest.isolateModules(() => {
+    const { HybridQueryEngine: IsolatedHybridQueryEngine } = jest.requireActual<typeof import('../lib/engine')>('../lib/engine')
+    engine = new IsolatedHybridQueryEngine(
+      {} as EntityManager,
+      {} as BasicQueryEngine,
+      () => ({ emitEvent }),
+    ) as unknown as AutoReindexHarness
+  })
+  if (!engine) throw new Error('[internal] Failed to construct isolated query engine')
+  return engine
 }
 
 async function flushScheduledEvent(): Promise<void> {
@@ -26,11 +42,13 @@ describe('scheduleAutoReindex debounce', () => {
   const originalEnabled = process.env.SCHEDULE_AUTO_REINDEX
 
   beforeEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[AUTO_REINDEX_SCHEDULED_AT_KEY]
     process.env.SCHEDULE_AUTO_REINDEX = 'true'
     process.env.OM_QUERY_INDEX_AUTO_REINDEX_DEBOUNCE_MS = '30000'
   })
 
   afterEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[AUTO_REINDEX_SCHEDULED_AT_KEY]
     jest.restoreAllMocks()
     if (originalDebounce === undefined) delete process.env.OM_QUERY_INDEX_AUTO_REINDEX_DEBOUNCE_MS
     else process.env.OM_QUERY_INDEX_AUTO_REINDEX_DEBOUNCE_MS = originalDebounce
@@ -58,6 +76,19 @@ describe('scheduleAutoReindex debounce', () => {
 
     buildEngine(firstEmit).scheduleAutoReindex('messages:message', options)
     buildEngine(secondEmit).scheduleAutoReindex('messages:message', options)
+    await flushScheduledEvent()
+
+    expect(firstEmit).toHaveBeenCalledTimes(1)
+    expect(secondEmit).not.toHaveBeenCalled()
+  })
+
+  test('shares debounce state across duplicated module instances', async () => {
+    const firstEmit = jest.fn().mockResolvedValue(undefined)
+    const secondEmit = jest.fn().mockResolvedValue(undefined)
+    const options = { tenantId: 'debounce-modules', organizationId: 'organization-1' }
+
+    buildIsolatedEngine(firstEmit).scheduleAutoReindex('messages:message', options)
+    buildIsolatedEngine(secondEmit).scheduleAutoReindex('messages:message', options)
     await flushScheduledEvent()
 
     expect(firstEmit).toHaveBeenCalledTimes(1)

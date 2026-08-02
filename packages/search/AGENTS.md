@@ -542,6 +542,9 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `OM_SEARCH_HASH_ALGO` | When choosing the token hash algorithm | Default: `sha256` (accepts `sha1`, `md5`). **Token strategy only** |
 | `OM_SEARCH_STORE_RAW_TOKENS` | Almost never — debugging tokenization only | Default: `false`. Stores plaintext token alongside the hash — **security-sensitive**, retains plaintext of otherwise-hashed values. **Token strategy only** |
 | `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field-name substrings, merged with built-in `password,token,secret,hash`; prefix an entry with `entityType@` to scope it to one entity. Applies to per-field tokens and aggregate `search_text`; reindex affected entities after changes. **Token strategy only** |
+| `OM_SEARCH_MAX_FIELD_CHARS` | When bounding large searchable values | Default: `20000`. Maximum input characters considered per field value before splitting or prefix expansion; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_MAX_TOKENS_PER_FIELD` | When bounding token fan-out for one field | Default: `5000`. Maximum distinct token rows across all values of one field; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_MAX_TOKENS_PER_RECORD` | When bounding token fan-out for one record | Default: `20000`. Maximum token rows across all fields in one indexed record; `0` disables the limit. **Token strategy only** |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
 | `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 

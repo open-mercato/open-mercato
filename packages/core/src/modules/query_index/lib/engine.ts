@@ -33,9 +33,22 @@ const logger = createLogger('query_index').child({ component: 'engine' })
 const DECRYPT_CONCURRENCY = 8
 const AUTO_REINDEX_DEBOUNCE_DEFAULT_MS = 30_000
 const AUTO_REINDEX_DEBOUNCE_MAX_SCOPES = 10_000
-const autoReindexScheduledAt = new Map<string, number>()
+const AUTO_REINDEX_SCHEDULED_AT_KEY = Symbol.for('@open-mercato/query-index/auto-reindex-scheduled-at')
+
+type GlobalWithAutoReindexSchedule = typeof globalThis & {
+  [AUTO_REINDEX_SCHEDULED_AT_KEY]?: Map<string, number>
+}
+
+function getAutoReindexScheduledAt(): Map<string, number> {
+  const globalScope = globalThis as GlobalWithAutoReindexSchedule
+  if (!globalScope[AUTO_REINDEX_SCHEDULED_AT_KEY]) {
+    globalScope[AUTO_REINDEX_SCHEDULED_AT_KEY] = new Map<string, number>()
+  }
+  return globalScope[AUTO_REINDEX_SCHEDULED_AT_KEY]
+}
 
 function markAutoReindexScheduled(key: string, debounceMs: number, now: number): boolean {
+  const autoReindexScheduledAt = getAutoReindexScheduledAt()
   const previous = autoReindexScheduledAt.get(key)
   if (previous !== undefined && now - previous < debounceMs) return false
 

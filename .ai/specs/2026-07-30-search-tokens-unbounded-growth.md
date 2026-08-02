@@ -103,9 +103,11 @@ source-compatible. Missing fields resolve to the safe defaults above.
 - Shared tokenizer unit tests cover input truncation, bounded prefix collection,
   legacy configs without limit fields, and explicit limit disabling.
 - Query-index unit tests cover record-wide limits, array-valued field limits,
-  and ordinary documents below the limits.
+  repeated leading tokens across array values, and ordinary documents below the
+  limits.
 - Auto-reindex unit tests cover repeated requests, independent engine instances,
-  distinct scopes, and expiry of the debounce window.
+  duplicated module instances, distinct scopes, and expiry of the debounce
+  window.
 - No API or UI path changes, so route-level integration and manual UI QA are not
   applicable. The affected behavior is isolated to pure token construction and
   event scheduling and is covered at unit level.
@@ -140,5 +142,8 @@ source-compatible. Missing fields resolve to the safe defaults above.
 
 ## Changelog
 
+- 2026-08-02: Added regression coverage for distinct array-field token budgets
+  and duplicated module instances, and completed the canonical environment
+  setting references.
 - 2026-08-01: Replaced #4685 with the index-free debounce and token-limit subset,
   retaining credit to @rajanbor and documenting #4790 as complementary read-path work.

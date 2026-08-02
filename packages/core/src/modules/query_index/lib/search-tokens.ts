@@ -106,8 +106,9 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
     for (const text of values) {
       if (tokens.length >= recordLimit || fieldTokenCount >= fieldLimit) break
       const remainingLimit = Math.min(recordLimit - tokens.length, fieldLimit - fieldTokenCount)
-      const tokenConfig = Number.isFinite(remainingLimit)
-        ? { ...config, maxTokensPerField: remainingLimit }
+      const candidateLimit = fieldTokenCount + remainingLimit
+      const tokenConfig = Number.isFinite(candidateLimit)
+        ? { ...config, maxTokensPerField: candidateLimit }
         : config
       const { tokens: textTokens, hashes } = tokenizeText(text, tokenConfig)
       for (let i = 0; i < textTokens.length; i += 1) {
