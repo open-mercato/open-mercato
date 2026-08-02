@@ -49,7 +49,13 @@ interface BullMQModule {
   Worker: new <T>(
     name: string,
     processor: (job: { id?: string; data: T; attemptsMade: number }) => Promise<void>,
-    opts: { connection: ConnectionOptions; concurrency: number; telemetry?: unknown }
+    opts: {
+      connection: ConnectionOptions
+      concurrency: number
+      telemetry?: unknown
+      lockDuration?: number
+      maxStalledCount?: number
+    }
   ) => BullWorkerInterface
 }
 
@@ -116,6 +122,9 @@ export function createAsyncQueue<T = unknown>(
 ): Queue<T> {
   const connection = resolveConnection(options?.connection)
   const concurrency = options?.concurrency ?? 1
+  const attempts = options?.attempts ?? 3
+  const lockDuration = options?.lockDuration
+  const maxStalledCount = options?.maxStalledCount
   const logger = packageLogger.child({ queue: name })
 
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
@@ -196,7 +205,7 @@ export function createAsyncQueue<T = unknown>(
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
       removeOnFail: 1000,
-      attempts: 3,
+      attempts,
       backoff: { type: 'exponential', delay: 1000 },
     })
 
@@ -230,6 +239,8 @@ export function createAsyncQueue<T = unknown>(
         connection,
         concurrency,
         ...(telemetry ? { telemetry } : {}),
+        ...(lockDuration !== undefined ? { lockDuration } : {}),
+        ...(maxStalledCount !== undefined ? { maxStalledCount } : {}),
       }
     )
 
@@ -243,6 +254,16 @@ export function createAsyncQueue<T = unknown>(
       const jobWithId = job as { id?: string } | undefined
       const error = err as Error
       logger.error('Job failed', { jobId: jobWithId?.id, err: error })
+    })
+
+    // A stalled job is redelivered under the same id while the previous worker
+    // may still be running it, so this is the signal that a handler is about to
+    // be executed twice. BullMQ's docs require surfacing it: without this line
+    // duplicate processing is invisible.
+    bullWorker.on('stalled', (jobId) => {
+      logger.warn('Job stalled and will be redelivered — the handler may run concurrently with a previous delivery', {
+        jobId: typeof jobId === 'string' ? jobId : null,
+      })
     })
 
     bullWorker.on('error', (err) => {

@@ -20,6 +20,10 @@ export type WorkerRunnerOptions<T = unknown> = {
   connection?: AsyncQueueOptions['connection']
   /** Number of concurrent jobs to process */
   concurrency?: number
+  /** How long a job lock is held before the job counts as stalled, in ms. */
+  lockDuration?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. */
+  maxStalledCount?: number
   /** Whether to set up graceful shutdown handlers */
   gracefulShutdown?: boolean
   /** If true, don't block - return immediately after starting processing (for multi-queue mode) */
@@ -145,6 +149,8 @@ export async function runWorker<T = unknown>(
     handler,
     connection,
     concurrency = 1,
+    lockDuration,
+    maxStalledCount,
     gracefulShutdown = true,
     background = false,
     strategy: strategyOption,
@@ -168,6 +174,8 @@ export async function runWorker<T = unknown>(
   const queue = createQueue<T>(queueName, strategy, {
     connection,
     concurrency,
+    lockDuration,
+    maxStalledCount,
   })
 
   // Set up graceful shutdown
