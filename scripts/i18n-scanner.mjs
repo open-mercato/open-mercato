@@ -6,7 +6,9 @@
  */
 
 // Pattern 1: Direct t('key') / translate('key') calls.
-const DIRECT_CALL_PATTERN = /(?<![a-zA-Z_])(?:t|translate)\(\s*(['"])([a-zA-Z0-9_.]+)\1/g
+// The `d` flag exposes per-group offsets so a multiline call can be reported at the
+// line of its key argument rather than the line of the opening `t(`.
+const DIRECT_CALL_PATTERN = /(?<![a-zA-Z_])(?:t|translate)\(\s*(['"])([a-zA-Z0-9_.]+)\1/dg
 
 // Pattern 2a: Indirect key properties — labelKey: 'key', titleKey: 'key', etc.
 const KEY_PROPERTY_PATTERN = /[a-zA-Z]*[Kk]ey['"]?\s*[:=]\s*(['"])([a-zA-Z0-9_.]+)\1/g
@@ -42,49 +44,79 @@ export function buildPrefixIndex(allTranslationKeys) {
   return index
 }
 
+function buildLineStarts(text) {
+  const starts = [0]
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') starts.push(i + 1)
+  }
+  return starts
+}
+
+function lineNumberAt(lineStarts, offset) {
+  let low = 0
+  let high = lineStarts.length - 1
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    if (lineStarts[middle] <= offset) {
+      low = middle
+    } else {
+      high = middle - 1
+    }
+  }
+  return low + 1
+}
+
+/**
+ * Scans the whole text rather than line by line, so a `t()` call whose key
+ * argument sits on a following line is detected like a single-line one. The
+ * patterns already allow whitespace between `t(` and the key; only the per-line
+ * split prevented that whitespace from ever being a newline (#4666).
+ *
+ * `direct` marks refs that came from a real `t()` / `translate()` call. Only
+ * those may be reported as missing keys — indirect matches (key-ish properties,
+ * bare dotted literals) are counted as usage but are validated against known
+ * keys, so an unknown literal there is just an ordinary string.
+ */
 export function scanText(text, allTranslationKeys, { file = '<inline>' } = {}) {
   const keySet = allTranslationKeys instanceof Set
     ? allTranslationKeys
     : new Set(allTranslationKeys)
   const prefixIndex = buildPrefixIndex(keySet)
-  const lines = text.split('\n')
+  const lineStarts = buildLineStarts(text)
   const refs = []
   let dynamicCount = 0
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const lineNumber = i + 1
+  for (const match of text.matchAll(DIRECT_CALL_PATTERN)) {
+    const keyOffset = match.indices?.[2]?.[0] ?? match.index
+    refs.push({ key: match[2], file, line: lineNumberAt(lineStarts, keyOffset), direct: true })
+  }
 
-    for (const match of line.matchAll(DIRECT_CALL_PATTERN)) {
-      refs.push({ key: match[2], file, line: lineNumber })
+  for (const match of text.matchAll(KEY_PROPERTY_PATTERN)) {
+    const candidate = match[2]
+    if (keySet.has(candidate)) {
+      refs.push({ key: candidate, file, line: lineNumberAt(lineStarts, match.index), direct: false })
     }
+  }
 
-    for (const match of line.matchAll(KEY_PROPERTY_PATTERN)) {
-      const candidate = match[2]
-      if (keySet.has(candidate)) {
-        refs.push({ key: candidate, file, line: lineNumber })
-      }
+  for (const match of text.matchAll(DOTTED_LITERAL_PATTERN)) {
+    const candidate = match[2]
+    if (keySet.has(candidate)) {
+      refs.push({ key: candidate, file, line: lineNumberAt(lineStarts, match.index), direct: false })
     }
+  }
 
-    for (const match of line.matchAll(DOTTED_LITERAL_PATTERN)) {
-      const candidate = match[2]
-      if (keySet.has(candidate)) {
-        refs.push({ key: candidate, file, line: lineNumber })
-      }
+  for (const match of text.matchAll(TEMPLATE_PREFIX_PATTERN)) {
+    const prefix = match[1]
+    const expanded = prefixIndex.get(prefix)
+    if (!expanded) continue
+    const line = lineNumberAt(lineStarts, match.index)
+    for (const key of expanded) {
+      refs.push({ key, file, line, direct: false })
     }
+  }
 
-    for (const match of line.matchAll(TEMPLATE_PREFIX_PATTERN)) {
-      const prefix = match[1]
-      const expanded = prefixIndex.get(prefix)
-      if (!expanded) continue
-      for (const key of expanded) {
-        refs.push({ key, file, line: lineNumber })
-      }
-    }
-
-    for (const _ of line.matchAll(DYNAMIC_CALL_PATTERN)) {
-      dynamicCount++
-    }
+  for (const _ of text.matchAll(DYNAMIC_CALL_PATTERN)) {
+    dynamicCount++
   }
 
   return { refs, dynamicCount }

@@ -388,10 +388,15 @@ function calculateSmartLayout(
     const { id, level } = queue.shift()!
     const currentLevel = levels.get(id)
 
-    // Take the maximum level (longest path)
-    if (currentLevel === undefined || level > currentLevel) {
-      levels.set(id, level)
-    }
+    // Only propagate when this path improves the node's level (longest path).
+    // Without this guard a cyclic graph (renegotiation/revision loops) keeps
+    // re-enqueuing children forever and freezes the browser (script timeout).
+    if (currentLevel !== undefined && level <= currentLevel) continue
+    levels.set(id, level)
+
+    // Safety cap: in a DAG a node's level is bounded by the node count; a
+    // higher value means we are walking a cycle, so stop descending.
+    if (level > steps.length) continue
 
     const children = outgoing.get(id) || []
     for (const child of children) {

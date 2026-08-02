@@ -13,7 +13,7 @@ import {
 } from '../../../routeHelpers'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
+  POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
 }
 
 export async function POST(req: Request) {

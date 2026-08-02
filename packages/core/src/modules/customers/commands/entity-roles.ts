@@ -2,7 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -345,7 +345,7 @@ const updateEntityRoleCommand: CommandHandler<EntityRoleUpdateInput, { roleId: s
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!role) {
-      throw new CrudHttpError(404, { error: 'Role not found' })
+      throw notFound('Role not found')
     }
 
     role.userId = parsed.userId
@@ -448,7 +448,7 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!role) {
-      throw new CrudHttpError(404, { error: 'Role not found' })
+      throw notFound('Role not found')
     }
 
     role.deletedAt = new Date()

@@ -5,6 +5,9 @@ import Link from 'next/link'
 import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -16,6 +19,7 @@ import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
+import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { useInteractions, type InteractionCreatePayload } from './hooks/useInteractions'
 import { mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
 
@@ -66,11 +70,18 @@ function sortTaskSummaries(tasks: TodoLinkSummary[]): TodoLinkSummary[] {
   })
 }
 
+const STATUS_BADGE_VARIANTS = new Set<StatusBadgeVariant>(['success', 'warning', 'error', 'info', 'neutral'])
+
+function coerceStatusBadgeVariant(tone: ReturnType<typeof mapDictionaryColorToTone>): StatusBadgeVariant {
+  return tone && STATUS_BADGE_VARIANTS.has(tone as StatusBadgeVariant) ? (tone as StatusBadgeVariant) : 'neutral'
+}
+
 function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, unknown> | undefined {
   if (!task) return undefined
   const values: Record<string, unknown> = {
     title: task.title ?? '',
     is_done: task.isDone ?? false,
+    status: task.status ?? 'planned',
     description: task.description ?? '',
     priority: task.priority ?? '',
     scheduledAt: task.dueAt ?? '',
@@ -114,6 +125,10 @@ export function TasksSection({
     [runGuardedMutation],
   )
 
+  const scopeVersion = useOrganizationScopeVersion()
+  const statusDictionary = useCustomerDictionary('interaction-statuses', scopeVersion)
+  const statusMap = statusDictionary.data?.map ?? null
+
   // Legacy path: usePersonTasks (default)
   const legacyResult = usePersonTasks({ entityId, initialTasks })
 
@@ -136,7 +151,7 @@ export function TasksSection({
         entityId,
         interactionType: 'task',
         title: payload.base.title,
-        status: payload.base.is_done ? 'done' : 'planned',
+        status: payload.base.status ?? (payload.base.is_done ? 'done' : 'planned'),
         priority: payload.base.priority ?? null,
         body: payload.base.description ?? null,
         scheduledAt: payload.base.scheduledAt ?? null,
@@ -151,7 +166,7 @@ export function TasksSection({
     async (task: TodoLinkSummary, payload: TaskFormPayload) => {
       await canonicalResult.updateInteraction(task.todoId, {
         title: payload.base.title,
-        status: payload.base.is_done ? 'done' : 'planned',
+        status: payload.base.status ?? (payload.base.is_done ? 'done' : 'planned'),
         priority: payload.base.priority ?? null,
         body: payload.base.description ?? null,
         scheduledAt: payload.base.scheduledAt ?? null,
@@ -482,6 +497,16 @@ export function TasksSection({
                           >
                             {title}
                           </span>
+                          {task.status ? (
+                            <StatusBadge
+                              variant={coerceStatusBadgeVariant(
+                                mapDictionaryColorToTone(statusMap?.[task.status]?.color ?? null),
+                              )}
+                              dot
+                            >
+                              {statusMap?.[task.status]?.label ?? task.status}
+                            </StatusBadge>
+                          ) : null}
                         </span>
                       }
                       timestamp={task.createdAt}
@@ -593,6 +618,7 @@ export function TasksSection({
         onSubmit={handleDialogSubmit}
         isSubmitting={isMutating}
         contextMessage={dialogContextMessage}
+        useCanonicalInteractions={useCanonicalInteractions}
       />
     </div>
   )

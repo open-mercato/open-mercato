@@ -1,5 +1,9 @@
 import { type Kysely, sql } from 'kysely'
-import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
+import {
+  isSearchFieldBlocklisted,
+  resolveSearchConfig,
+  type SearchConfig,
+} from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -62,13 +66,18 @@ function collectTextValues(value: unknown): string[] {
   return []
 }
 
-function shouldIndexField(field: string, value: unknown, config: SearchConfig): boolean {
+function shouldIndexField(
+  field: string,
+  value: unknown,
+  config: SearchConfig,
+  entityType: string | null,
+): boolean {
   if (typeof value !== 'string' && !Array.isArray(value)) return false
   const lower = field.toLowerCase()
   if (lower === 'id' || lower.endsWith('_id') || lower.endsWith('.id')) return false
   if (lower.endsWith('_at')) return false
   if (['created_at', 'updated_at', 'deleted_at', 'tenant_id', 'organization_id'].includes(lower)) return false
-  if (config.blocklistedFields.some((blocked) => lower.includes(blocked))) return false
+  if (isSearchFieldBlocklisted(field, entityType, config)) return false
   const values = collectTextValues(value)
   if (!values.length) return false
   return values.some((text) => tokenizeText(text, config).tokens.length > 0)
@@ -87,7 +96,7 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
   }
 
   for (const [field, rawValue] of Object.entries(params.doc)) {
-    if (!shouldIndexField(field, rawValue, config)) continue
+    if (!shouldIndexField(field, rawValue, config, params.entityType)) continue
     const values = collectTextValues(rawValue)
     const seen = new Set<string>()
     for (const text of values) {

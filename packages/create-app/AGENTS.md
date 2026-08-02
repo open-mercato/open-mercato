@@ -157,7 +157,19 @@ The `agentic/` directory contains standalone-app-specific AI coding tool configu
 packages/create-app/agentic/
 ├── shared/                      # Always generated (AGENTS.md, .ai/ structure)
 │   ├── AGENTS.md.template       # {{PROJECT_NAME}} placeholder substitution
-│   └── ai/specs/                # Spec templates for standalone apps
+│   ├── scripts/
+│   │   ├── install-skills.mjs  # Node installer; owns canonical skill discovery, pins, integrity, and refresh
+│   │   ├── install-skills.sh   # Compatibility wrapper for existing direct callers; automatic paths use Node
+│   │   ├── framework-context.mjs # Exact installed source/AGENTS resolver
+│   │   └── *-agent-harness*.mjs # Deterministic, live, writable, review, and release gates
+│   └── ai/
+│       ├── agentic.config.json  # Standalone agentic config (baseBranch auto → tracker default-branch, tracker github, validation, labels off)
+│       ├── trackers/github.md   # GitHub tracker descriptor (copied verbatim from the monorepo)
+│       ├── skills/
+│       │   ├── tiers.json       # Local tier manifest + external open-mercato/skills subset
+│       │   ├── tiers.schema.json
+│       │   └── om-*/            # Local skills + repo-local OVERRIDE folders (SKILL.md only) for external auto-* skills
+│       └── specs/               # Spec templates for standalone apps
 ├── claude-code/                 # Claude Code tool config
 │   ├── CLAUDE.md.template       # {{PROJECT_NAME}} placeholder substitution
 │   ├── settings.json            # PostToolUse hook registration
@@ -173,9 +185,22 @@ packages/create-app/agentic/
     └── mcp.json.example
 ```
 
+### Skills Mixin (external open-mercato/skills + local overrides)
+
+Scaffolded apps combine repo-local standalone knowledge with a dependency-closed subset of shared delivery skills. Both the create-app wizard and CLI `agentic:init` invoke `scripts/install-skills.mjs` through `process.execPath` after generating the harness. Installation is best-effort at setup time: local skills remain usable when the pinned external archive is unavailable, and the user can retry with `yarn install-skills`. `--skip-agentic-setup` / `--agents none` skips agentic generation entirely. `OM_SKIP_EXTERNAL_SKILLS=1` or `--no-external` installs only selected local tiers.
+
+- **`agentic/shared/ai/skills/tiers.json`** — declares the default `core` local tier, opt-in `automation` and versioned `migration` tiers, the selected agents to ignore, and matching explicit external tiers. The external block pins the exact `open-mercato/skills` commit, selected skill names, dependency closure, and SHA-256 content hash for every available skill. The default external `core` tier is the minimal daily set; loop/issue/release-maintenance workflows belong to the opt-in `automation` tier. External names MUST NOT also appear in local tiers; when adding one, update its tier assignment, complete dependency closure, and hash in the manifest.
+- **`agentic/shared/scripts/install-skills.mjs`** — cross-platform Node 24 installer and sole owner of skill discovery layout. It validates the manifest before writing, selects the external tiers matching `--with`/`--tiers`/`--all`, downloads the exact external commit, validates the archive as a regular-file-only tree, and copies only the integrity-pinned `skills/<name>` directories without executing repository or package-runner code. It verifies every hidden staged copy, atomically activates the entire verified external set with all-set rollback, and records `.agents/skills/.om-external-ownership.json` only after every activation succeeds. Re-runs are idempotent for the same pins. Unknown real directories are preserved/refused; stale, modified, or unverifiable external copies are moved to `.agents/skills-quarantine/` instead of being silently trusted or deleted. External installation happens before local links are reconciled.
+- **Discovery layout and flags** — `.agents/skills/<name>` is canonical. Local skills are managed links into `.ai/skills/`; verified external skills are real canonical directories. Claude Code receives per-skill links under `.claude/skills/`; Codex and Cursor read `.agents/skills/` directly. Legacy harness-owned links are swept safely while user-owned paths are preserved. Supported options are `--with <csv>`, `--tiers <csv>`, `--all`, `--legacy-links`, `--ignore-agents <csv>`, `--no-external`, `--list`, and `--clean`; the tier selectors are mutually exclusive. `--legacy-links` additionally exposes Claude and Codex links. The generated package script invokes the Node file directly; `install-skills.sh` remains only a thin compatibility wrapper.
+- **Repo-local override folders** — `om-auto-create-pr`, `om-auto-continue-pr`, `om-auto-implement-spec`, `om-auto-review-pr`, and `om-auto-fix-issue` ship slim standalone override `SKILL.md` files (default-branch discovery, opt-in labels, `src/modules/…` layout, and spec-readiness/no-remote behavior where applicable). The installed external skill reads the same-name file as additional repo context; the installer never links that local folder over the verified external copy. `om-prepare-test-env` likewise ships a knowledge-only standalone extension for the cross-platform mercato CLI ephemeral runner, probe contract, and teardown. Generated `test-env-*` entrypoints are machine-bound and gitignored; never commit them. Do not add a same-name folder for another external skill unless it has a concrete standalone delta.
+- **`agentic/shared/ai/agentic.config.json` + `ai/trackers/github.md`** — the repo-specific agentic settings and tracker descriptor the external skills read. The tracker is copied verbatim from the monorepo (keep its `attach-image-evidence` operation).
+
+Both generators recursively emit the same `agentic/` source tree: `src/setup/tools/shared.ts` for the create-app wizard and `packages/cli/src/lib/agentic-setup.ts` for `mercato agentic:init`. They use the same deterministic text/binary copy contract, placeholder handling, module-row injection, agent selection, and generated ownership manifest. `--update-harness` refreshes unchanged owned assets, preserves locally modified or unknown files, and writes `.incoming` candidates for conflicts; `--force` replaces exact generated targets but never unrelated user files. Both package builds clear and repopulate `dist/agentic` so removed assets cannot survive as stale output. Keep recursive generation, ownership semantics, and tests in parity whenever the source tree changes.
+
 ### When to Update `agentic/`
 
 - When module conventions change (entity lifecycle, migration workflow, `yarn generate` behavior)
+- When the local skill set or the external open-mercato/skills subset changes (update `tiers.json`, both copy pipelines, and the overlay test)
 - When adding new auto-discovery paths or module files
 - When changing CLI commands that standalone apps use
 - When the entity-migration hook logic needs adjustment

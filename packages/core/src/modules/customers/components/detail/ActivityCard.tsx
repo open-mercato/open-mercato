@@ -10,6 +10,7 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
+import { isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { ActivityAiActions } from './ActivityAiActions'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -200,7 +201,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
           </div>
 
           <div className="flex items-center gap-1.5">
-            {activity.status === 'planned' ? (
+            {isOpenInteractionStatus(activity.status) ? (
               <Button
                 type="button"
                 variant="default"

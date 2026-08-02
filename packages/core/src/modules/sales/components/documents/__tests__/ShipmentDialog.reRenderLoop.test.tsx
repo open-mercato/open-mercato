@@ -14,7 +14,7 @@
  * NOT re-fire on every render.
  */
 import * as React from 'react'
-import { act, render } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { ShipmentDialog } from '../ShipmentDialog'
 
 jest.setTimeout(20000)
@@ -98,11 +98,27 @@ jest.mock('@open-mercato/ui/primitives/switch', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/inputs', () => ({
-  LookupSelect: ({ value, onChange }: any) => (
-    <select value={value ?? ''} onChange={(event) => onChange?.(event.target.value || null)}>
-      <option value="">Select</option>
-    </select>
-  ),
+  LookupSelect: ({ value, onChange, fetchItems }: any) => {
+    const ReactLib = require('react')
+    const [items, setItems] = ReactLib.useState([])
+    ReactLib.useEffect(() => {
+      let cancelled = false
+      fetchItems().then((next: any[]) => {
+        if (!cancelled) setItems(next)
+      })
+      return () => {
+        cancelled = true
+      }
+    }, [fetchItems])
+    return (
+      <select value={value ?? ''} onChange={(event) => onChange?.(event.target.value || null)}>
+        <option value="">Select</option>
+        {items.map((item: any) => (
+          <option key={item.id} value={item.id}>{item.title}</option>
+        ))}
+      </select>
+    )
+  },
 }))
 
 // CrudForm receives `key={formResetKey}` from ShipmentDialog, so every time the
@@ -121,11 +137,11 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => {
           throw new Error('[test] ShipmentDialog bootstrap effect re-render loop detected')
         }
       }, [])
+      const addressField = fields.find((field: any) => field.id === 'shipmentAddressId')
+      const AddressField = addressField?.component
       return (
         <form>
-          {fields.map((field: any) => (
-            <div key={field.id ?? field.name} data-testid={`crud-field-${field.id ?? field.name}`} />
-          ))}
+          {AddressField ? <AddressField value="" setValue={() => {}} /> : null}
         </form>
       )
     },
@@ -206,5 +222,52 @@ describe('ShipmentDialog re-render stability (issue #3529)', () => {
     // bumped `formResetKey`, remounting the form once per pass. With stable
     // `baseAddressOptions`, none of those rerenders should remount the form.
     expect(crudFormMountCount).toBe(baselineMounts)
+  })
+
+  it('loads a document address once and returns the freshly loaded option to the lookup', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/sales/document-addresses?')) {
+        return {
+          ok: true,
+          result: {
+            items: [{
+              id: 'document-address-1',
+              name: 'Warehouse',
+              address_line1: '10 Shipping Lane',
+              city: 'Portland',
+              postal_code: '97201',
+              country: 'US',
+            }],
+          },
+        }
+      }
+      return { ok: true, result: { items: [] } }
+    })
+
+    render(
+      <ShipmentDialog
+        open
+        mode="create"
+        shipment={null}
+        lines={baseLines}
+        orderId="order-with-additional-address"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        computeAvailable={computeAvailable}
+        shippingAddressSnapshot={null}
+        onClose={noop}
+        onSaved={noopAsync}
+      />,
+    )
+
+    expect(await screen.findByRole('option', { name: 'Warehouse' })).toBeInTheDocument()
+    await waitFor(() => {
+      const addressRequests = mockApiCall.mock.calls.filter(([url]) =>
+        String(url).startsWith('/api/sales/document-addresses?'),
+      )
+      expect(addressRequests).toHaveLength(1)
+    })
+    expect(crudFormMountCount).toBe(2)
   })
 })

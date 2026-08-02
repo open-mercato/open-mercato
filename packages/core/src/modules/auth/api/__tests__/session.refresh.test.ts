@@ -2,6 +2,7 @@
 import { GET, POST } from '@open-mercato/core/modules/auth/api/session/refresh'
 
 const refreshFromSessionToken = jest.fn()
+const signJwt = jest.fn(() => 'jwt-token')
 const originalAppUrl = process.env.APP_URL
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -19,7 +20,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
-  signJwt: () => 'jwt-token',
+  signJwt: (...args: unknown[]) => signJwt(...(args as [])),
 }))
 
 jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
@@ -97,6 +98,56 @@ describe('/api/auth/session/refresh', () => {
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe('https://demo.openmercato.com/backend')
     expect(refreshFromSessionToken).toHaveBeenCalledWith('refresh-token')
+  })
+
+  it('GET mints scope claims as null, never the string "null", when the user has no tenant or organization', async () => {
+    refreshFromSessionToken.mockResolvedValue({
+      user: { id: 'user-1', tenantId: null, organizationId: null, email: 'admin@acme.com' },
+      roles: ['admin'],
+    })
+
+    await GET(new Request('https://demo.openmercato.com/api/auth/session/refresh?redirect=%2Fbackend', {
+      headers: { cookie: 'session_token=refresh-token' },
+    }))
+
+    expect(signJwt).toHaveBeenCalledTimes(1)
+    expect(signJwt.mock.calls[0][0]).toMatchObject({ tenantId: null, orgId: null })
+  })
+
+  it('POST mints scope claims as null, never the string "null", when the user has no tenant or organization', async () => {
+    refreshFromSessionToken.mockResolvedValue({
+      user: { id: 'user-1', tenantId: null, organizationId: null, email: 'admin@acme.com' },
+      roles: ['admin'],
+    })
+
+    await POST(new Request('http://localhost/api/auth/session/refresh', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken: 'refresh-token' }),
+    }))
+
+    expect(signJwt).toHaveBeenCalledTimes(1)
+    expect(signJwt.mock.calls[0][0]).toMatchObject({ tenantId: null, orgId: null })
+  })
+
+  it('keeps forwarding concrete tenant and organization ids as strings', async () => {
+    refreshFromSessionToken.mockResolvedValue({
+      user: { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', email: 'admin@acme.com' },
+      roles: ['admin'],
+      session: { id: 'session-1' },
+    })
+
+    await GET(new Request('https://demo.openmercato.com/api/auth/session/refresh?redirect=%2Fbackend', {
+      headers: { cookie: 'session_token=refresh-token' },
+    }))
+
+    expect(signJwt.mock.calls[0][0]).toMatchObject({
+      sub: 'user-1',
+      sid: 'session-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      roles: ['admin'],
+    })
   })
 
   it('POST clears cookies when refresh token is invalid', async () => {

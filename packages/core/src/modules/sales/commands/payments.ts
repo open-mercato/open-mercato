@@ -3,7 +3,7 @@
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
@@ -346,7 +346,7 @@ const createPaymentCommand: CommandHandler<
       )
       ensureSameScope(order, input.organizationId, input.tenantId)
       if (order.deletedAt) {
-        throw new CrudHttpError(404, { error: 'sales.payments.order_not_found' })
+        throw notFound('sales.payments.order_not_found')
       }
       // Guard the parent order's aggregate version (Gap A): a payment mutation
       // recalculates the order totals, so a stale parent must 409 before we touch it.

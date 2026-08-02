@@ -57,7 +57,9 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
 
 const logger = createLogger('sales')
 
@@ -101,6 +103,7 @@ export type SalesDocumentFormValues = {
   shippingAddressDraft?: AddressDraft
   billingAddressDraft?: AddressDraft
   comments?: string | null
+  lines?: SalesOrderLineDraft[]
 } & Record<string, unknown>
 
 type InboxPreFill = {
@@ -168,6 +171,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     async (values: PersonFormValues) => {
       setSaving(true)
       try {
+        const addresses = Array.isArray(values.addresses) ? values.addresses : []
         const payload = buildPersonPayload(values, organizationId)
         const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload, {
           errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
@@ -177,6 +181,51 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
           (result && typeof result.id === 'string' && result.id) ||
           null
         if (!id) throw new Error('Missing customer id')
+        if (addresses.length) {
+          const normalize = (value?: string | null) => {
+            if (typeof value !== 'string') return undefined
+            const trimmed = value.trim()
+            return trimmed.length ? trimmed : undefined
+          }
+          for (const entry of addresses) {
+            const normalizedLine1 = normalize(entry.addressLine1)
+            if (!normalizedLine1) continue
+            const body: Record<string, unknown> = {
+              entityId: id,
+              ...(organizationId ? { organizationId } : {}),
+              addressLine1: normalizedLine1,
+              isPrimary: entry.isPrimary ?? false,
+            }
+            const name = normalize(entry.name)
+            if (name !== undefined) body.name = name
+            const purpose = normalize(entry.purpose)
+            if (purpose !== undefined) body.purpose = purpose
+            const line2 = normalize(entry.addressLine2)
+            if (line2 !== undefined) body.addressLine2 = line2
+            const buildingNumber = normalize(entry.buildingNumber)
+            if (buildingNumber !== undefined) body.buildingNumber = buildingNumber
+            const flatNumber = normalize(entry.flatNumber)
+            if (flatNumber !== undefined) body.flatNumber = flatNumber
+            const city = normalize(entry.city)
+            if (city !== undefined) body.city = city
+            const region = normalize(entry.region)
+            if (region !== undefined) body.region = region
+            const postalCode = normalize(entry.postalCode)
+            if (postalCode !== undefined) body.postalCode = postalCode
+            const country = normalize(entry.country)
+            if (country !== undefined) body.country = country.toUpperCase()
+            if (typeof entry.latitude === 'number') body.latitude = entry.latitude
+            if (typeof entry.longitude === 'number') body.longitude = entry.longitude
+            try {
+              await createCrud('customers/addresses', body)
+            } catch (addressErr) {
+              const message =
+                (addressErr instanceof Error && addressErr.message ? addressErr.message : null) ||
+                t('customers.people.detail.addresses.error')
+              flash(message, 'error')
+            }
+          }
+        }
         const displayName =
           typeof values.displayName === 'string' && values.displayName.trim().length
             ? values.displayName.trim()
@@ -758,6 +807,8 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
 
 export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
   const [channels, setChannels] = React.useState<ChannelOption[]>([])
@@ -1128,7 +1179,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         />
       ),
     },
-    {
+    ...(channelsEnabled ? [{
       id: 'channelId',
       label: t('sales.documents.form.channel', 'Sales channel'),
       type: 'custom',
@@ -1150,7 +1201,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           selectedHintLabel={(id) => t('sales.documents.form.channel.selected', 'Selected channel: {{id}}', { id })}
         />
       ),
-    },
+    } satisfies CrudField] : []),
     {
       id: 'shippingAddressSection',
       label: '',
@@ -1257,21 +1308,30 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       type: 'textarea',
     },
     {
-      id: 'infoNote',
+      id: 'lines',
       label: '',
       type: 'custom',
-      component: () => (
-        <div className="rounded-lg border bg-muted/50 p-3 text-sm text-muted-foreground">
-          {t('sales.documents.form.nextStep', 'After creation you will add items, prices, and fulfillment details.')}
-        </div>
-      ),
+      component: ({ value, error, values, setValue }) => values?.documentKind === 'order' ? (
+        <SalesOrderDraftLines
+          currencyCode={typeof values.currencyCode === 'string' ? values.currencyCode : defaultCurrency}
+          organizationId={organizationId ?? null}
+          tenantId={tenantId ?? null}
+          lines={Array.isArray(value) ? value as SalesOrderLineDraft[] : []}
+          error={error}
+          onChange={(lines) => setValue(lines)}
+        />
+      ) : null,
     },
   ], [
     addressFormat,
     addressOptions,
     addressesError,
     addressesLoading,
+    channelsEnabled,
     currencyLabels,
+    defaultCurrency,
+    organizationId,
+    tenantId,
     fetchCurrencyOptions,
     loadAddresses,
     loadChannels,
@@ -1289,12 +1349,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       fields: [],
       component: (ctx) => <CustomerGroupComponent {...ctx} t={t} customers={customers} setCustomers={setCustomers} customerQuerySetter={customerQuerySetter} loadAddresses={loadAddresses} loadCustomers={loadCustomers} fetchCustomerEmail={fetchCustomerEmail} resetAddressFormState={resetAddressFormState} />,
     },
-    { id: 'channels-comments', title: '', column: 1, fields: ['channelId', 'comments'] },
+    { id: 'channels-comments', title: '', column: 1, fields: channelsEnabled ? ['channelId', 'comments'] : ['comments'] },
     { id: 'currency', title: '', column: 2, fields: ['currencyCode'] },
+    { id: 'lines', title: '', column: 1, fields: ['lines'] },
     { id: 'shipping', title: '', column: 2, fields: ['shippingAddressSection'] },
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
   ], [
+    channelsEnabled,
     customers,
     fetchCustomerEmail,
     loadAddresses,
@@ -1311,6 +1373,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       channelId: inboxPreFill?.channelId || undefined,
       customerEntityId: inboxPreFill?.customerEntityId || undefined,
       comments: inboxPreFill?.comments || undefined,
+      lines: (inboxPreFill?.lineItems ?? []).map((item, index) => {
+        const unitPrice = Number(item.unitPrice ?? item.unitPriceGross ?? item.unitPriceNet ?? 0)
+        const quantity = Number(item.quantity ?? 1)
+        return createSalesOrderLineDraft({
+          kind: item.kind || (item.productId ? 'product' : 'service'),
+          productId: typeof item.productId === 'string' ? item.productId : undefined,
+          productVariantId: typeof item.productVariantId === 'string' ? item.productVariantId : undefined,
+          name: item.productName || item.name || `Line ${index + 1}`,
+          quantity: Number.isFinite(quantity) ? quantity : 1,
+          currencyCode: inboxPreFill?.currencyCode || defaultCurrency,
+          unitPriceNet: Number.isFinite(unitPrice) ? unitPrice : 0,
+          unitPriceGross: Number.isFinite(unitPrice) ? unitPrice : 0,
+          metadata: item.productId ? undefined : { customLine: true, lineMode: 'custom' },
+        })
+      }),
       useCustomShipping: false,
       useCustomBilling: false,
       sameAsShipping: true,
@@ -1348,6 +1425,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       }
       if (documentKind === 'order') {
         payload.orderNumber = documentNumber
+        const lines = Array.isArray(base.lines) ? base.lines : []
+        if (lines.length === 0) {
+          const message = t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')
+          throw createCrudFormError(message, { lines: message })
+        }
+        payload.lines = lines.map((line) => {
+          const {
+            orderId: _orderId,
+            quoteId: _quoteId,
+            organizationId: _organizationId,
+            tenantId: _tenantId,
+            ...linePayload
+          } = line.payload
+          return { ...linePayload, currencyCode: linePayload.currencyCode || payload.currencyCode }
+        })
       } else {
         payload.quoteNumber = documentNumber
       }

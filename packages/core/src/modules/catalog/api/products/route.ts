@@ -585,7 +585,7 @@ async function decorateProductsAfterList(
             ],
           }
         : { product: { $in: productIds } };
-    const priceRows = await findWithDecryption(
+    const priceRows = await findWithDecryption<CatalogProductPrice>(
       em,
       CatalogProductPrice,
       { ...priceWhere, ...scope },
@@ -802,6 +802,9 @@ const crud = makeCrudRoute({
   },
   indexer: {
     entityType: E.catalog.catalog_product,
+  },
+  enrichers: {
+    entityId: E.catalog.catalog_product,
   },
   list: {
     schema: listSchema,

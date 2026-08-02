@@ -189,5 +189,9 @@
   "configs.systemStatus.variables.queryIndexWarmupThrottleMs.label": "Warmup-Drosselfenster",
   "configs.systemStatus.variables.scheduleAutoReindex.description": "Automatisch Query-Index-Neuindizierungsaufträge bei Lücken planen.",
   "configs.systemStatus.variables.scheduleAutoReindex.label": "Automatische Neuindizierung",
-  "configs.systemStatus.viewDocs": "Dokumentation anzeigen"
+  "configs.systemStatus.viewDocs": "Dokumentation anzeigen",
+  "configs.upgrades.attachmentsOrgReconcile.cta": "Anhang-Organisationen abgleichen",
+  "configs.upgrades.attachmentsOrgReconcile.loading": "Anhang-Organisationen werden abgeglichen…",
+  "configs.upgrades.attachmentsOrgReconcile.message": "Version {{version}} behebt Anhänge, die unter der falschen Organisation gespeichert wurden. Führen Sie den Abgleich aus, um vorhandene Anhänge in die Organisation des zugehörigen Datensatzes zu verschieben.",
+  "configs.upgrades.attachmentsOrgReconcile.success": "Anhang-Organisationen abgeglichen."
 }

@@ -82,6 +82,45 @@ describe('auth server integrity checks', () => {
     expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, auth)
   })
 
+  it('reports a transient DB failure as "error", never "invalid" (issue #4176 — no mass logout)', async () => {
+    const { resolveAuthFromRequestDetailed, resolveAuthFromCookiesDetailed } = await import('@open-mercato/shared/lib/auth/server')
+    const auth = {
+      sub: '11111111-1111-4111-8111-111111111111',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+      orgId: '33333333-3333-4333-8333-333333333333',
+      roles: [],
+    }
+
+    verifyJwt.mockReturnValue(auth)
+    // A DB blip / pool exhaustion / timeout throws from the canonical lookup.
+    resolveCanonicalStaffAuthContext.mockRejectedValue(new Error('connection pool exhausted'))
+
+    const request = new Request('https://example.test/api/test', {
+      headers: { cookie: 'auth_token=jwt-token' },
+    })
+
+    await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'error' })
+
+    cookieStore.get.mockImplementation((name: string) => {
+      if (name === 'auth_token') return { value: 'jwt-token' }
+      return undefined
+    })
+    await expect(resolveAuthFromCookiesDetailed()).resolves.toEqual({ auth: null, status: 'error' })
+  })
+
+  it('still reports a genuinely bad token as "invalid" when it throws during verify', async () => {
+    const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+    verifyJwt.mockImplementation(() => {
+      throw new Error('malformed token')
+    })
+
+    const request = new Request('https://example.test/api/test', {
+      headers: { cookie: 'auth_token=jwt-token' },
+    })
+
+    await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'invalid' })
+  })
+
   it('replaces stale JWT roles with canonical roles from the database', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const jwtAuth = {

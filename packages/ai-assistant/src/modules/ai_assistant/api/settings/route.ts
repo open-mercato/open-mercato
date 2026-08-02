@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
@@ -6,7 +7,9 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { findApiKeyBySecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import {
   OPEN_CODE_PROVIDER_IDS,
   OPEN_CODE_PROVIDERS,
@@ -157,7 +160,7 @@ export async function GET(req: NextRequest) {
     const providerName = registryProvider?.name ?? fallbackOpenCodeProvider?.name ?? providerId
     const defaultProviderModel = registryProvider?.defaultModel ?? fallbackOpenCodeProvider?.defaultModel ?? ''
     const configuredModelHint = env.OM_AI_MODEL?.trim() || env.OPENCODE_MODEL?.trim() || defaultProviderModel
-    const fallbackModelWithProvider = `${providerId}/${configuredModelHint}`
+    const fallbackModelWithProvider = joinProviderModel(providerId, configuredModelHint)
     const apiKeyConfigured = registryProvider
       ? registryProvider.isConfigured(env)
       : fallbackOpenCodeProvider
@@ -169,8 +172,26 @@ export async function GET(req: NextRequest) {
         ? getOpenCodeProviderConfiguredEnvKey(fallbackOpenCodeProviderId)
         : null
 
-    // Check if MCP_SERVER_API_KEY is configured (required for MCP authentication)
-    const mcpKeyConfigured = !!process.env.MCP_SERVER_API_KEY?.trim()
+    // Check if the MCP API key is configured (required for MCP authentication):
+    // either directly via MCP_SERVER_API_KEY or via the shared key file that
+    // the containerized mcp service provisions (MCP_SERVER_API_KEY_FILE).
+    // The file variant is validated against the api_keys table — the file
+    // outlives DB resets and key deletion, so mere existence would report a
+    // green badge while OpenCode -> MCP auth is actually broken.
+    const mcpKeyFilePath = process.env.MCP_SERVER_API_KEY_FILE?.trim()
+    let mcpKeyConfigured = !!process.env.MCP_SERVER_API_KEY?.trim()
+    if (!mcpKeyConfigured && mcpKeyFilePath && existsSync(mcpKeyFilePath)) {
+      try {
+        const fileSecret = readFileSync(mcpKeyFilePath, 'utf8').trim()
+        if (fileSecret.startsWith('omk_')) {
+          const keyContainer = await createRequestContainer()
+          const keyEm = keyContainer.resolve<EntityManager>('em')
+          mcpKeyConfigured = !!(await findApiKeyBySecret(keyEm, fileSecret))
+        }
+      } catch {
+        mcpKeyConfigured = false
+      }
+    }
 
     // Phase 4a: resolve tenant override row and per-agent resolution matrix
     let tenantOverride: {
@@ -434,7 +455,7 @@ export async function GET(req: NextRequest) {
         id: providerId,
         name: providerName,
         model: resolvedDefault
-          ? `${resolvedDefault.providerId}/${resolvedDefault.modelId}`
+          ? joinProviderModel(resolvedDefault.providerId, resolvedDefault.modelId)
           : fallbackModelWithProvider,
         defaultModel: defaultProviderModel,
         envKey: displayEnvKey,
