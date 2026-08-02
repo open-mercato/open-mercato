@@ -27,7 +27,7 @@ Issue: #4729
 | 3 | 3.1 | Add failure-first spec-first routing, emission, link, and budget tests | dispatch:standard | done | ae728abcf |
 | 3 | 3.2 | Add the emitted spec-first instruction and planning-skill decision route | dispatch:standard | done | 3d591a4b7 |
 | 3 | 3.3 | Synchronize spec-first harness cases, validators, lanes, counts, and docs | dispatch:capable | done | 3a264dce4 |
-| 4 | 4.1 | Add the inert reference module inventory, progressive map, shell, and preset guards | dispatch:capable | todo | — |
+| 4 | 4.1 | Add the inert reference module inventory, progressive map, shell, and preset guards | dispatch:capable | done | self:step-4.1 |
 | 4 | 4.2 | Add scoped reference data, ACL, setup, migration, snapshot, DI, and CLI surfaces | dispatch:capable | todo | — |
 | 4 | 4.3 | Add guarded CRUD, commands, links, locking, undo, events, search, and enrichers | dispatch:capable | todo | — |
 | 4 | 4.4 | Add export/import, cache, queue/progress, notifications, and browser events | dispatch:capable | todo | — |

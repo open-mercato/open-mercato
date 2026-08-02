@@ -67,3 +67,7 @@
 - Result: 89/89 evaluator tests, 86 companion harness tests with four platform-specific skips, 7/7 final spec-first tests, create-app typecheck, JSON/script syntax, diff checks, and the clean-HEAD knowledge-change controller passed.
 - UI: skipped because Phase 3 changed emitted instructions and harness contracts only, with no rendered surface.
 - Decision: reconciled the stale checkpoint-2 handoff and normalized the interrupted local Step 3.3 autosave without rewriting remote history.
+
+## 2026-08-02T15:28:00Z — Step 4.1 delegation
+
+- Delegation: dispatched a capable executor to add the finite inert `reference_module` inventory, bounded progressive documentation, compilable metadata shell, and source-present/registration-absent preset guards.
