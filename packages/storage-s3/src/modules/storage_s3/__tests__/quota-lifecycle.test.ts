@@ -4,6 +4,7 @@ const mockPutObject = jest.fn(async () => {})
 const mockDelete = jest.fn(async () => {})
 const mockGetSignedUrl = jest.fn(async () => 'https://s3.test/signed')
 const mockListObjects = jest.fn(async () => ({ files: [], truncated: false }))
+const mockScheduleRecovery = jest.fn(async () => {})
 
 jest.mock('../lib/s3-driver', () => ({
   S3StorageDriver: jest.fn().mockImplementation(() => ({
@@ -34,6 +35,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
         return { resolve: jest.fn(async () => ({ bucket: 'bucket', region: 'us-east-1' })) }
       }
       if (key === 'attachmentQuotaService') return mockQuotaService
+      if (key === 'storageS3QuotaRecoveryScheduler') return mockScheduleRecovery
       return null
     },
   })),
@@ -77,6 +79,22 @@ describe('storage_s3 quota lifecycle', () => {
       'lease-1',
       3,
     )
+    expect(mockScheduleRecovery).toHaveBeenCalledWith({
+      reservationId: 'reservation-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, expect.any(Number))
+  })
+
+  it('releases multipart capacity when durable recovery cannot be scheduled', async () => {
+    mockScheduleRecovery.mockRejectedValueOnce(new Error('queue unavailable'))
+    const { POST } = await import('../api/post/storage-providers/s3/upload')
+
+    const response = await POST(multipartRequest())
+
+    expect(response.status).toBe(500)
+    expect(mockQuotaService.release).toHaveBeenCalledWith('reservation-1', 'lease-1')
+    expect(mockPutObject).not.toHaveBeenCalled()
   })
 
   it('reserves exact bytes before generating a signed upload URL', async () => {

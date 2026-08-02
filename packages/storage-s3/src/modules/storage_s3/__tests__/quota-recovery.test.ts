@@ -15,6 +15,7 @@ jest.mock('../lib/quota-recovery-queue', () => ({
 }))
 
 import handle from '../workers/quota-recovery'
+import { S3StorageDriver } from '../lib/s3-driver'
 
 function reservation(status: 'storing' | 'recovering') {
   return {
@@ -58,12 +59,24 @@ describe('storage_s3 quota recovery', () => {
       },
     }
 
-    await handle({ payload: { reservationId: current.id }, id: 'job-1' } as never, ctx as never)
+    const payload = {
+      reservationId: current.id,
+      tenantId: current.tenantId,
+      organizationId: current.organizationId,
+    }
+    await handle({ payload, id: 'job-1' } as never, ctx as never)
 
+    expect(quotaService.getReservation).toHaveBeenCalledWith(current.id, {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(S3StorageDriver).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    }))
     expect(mockScheduleRecovery).toHaveBeenCalledWith(
-      current.id,
+      { ...payload, absenceCheck: 1 },
       expect.any(Number),
-      1,
     )
     expect(quotaService.release).not.toHaveBeenCalled()
   })

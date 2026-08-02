@@ -69,11 +69,14 @@ export async function POST(req: Request) {
   if (operation === 'upload') {
     const { resolve } = await createRequestContainer()
     let attachmentQuotaService: AttachmentQuotaService | null = null
-    let recoveryScheduler: ((reservationId: string, delayMs: number) => Promise<void>) | null = null
+    let recoveryScheduler: ((
+      payload: { reservationId: string; tenantId: string; organizationId: string },
+      delayMs: number,
+    ) => Promise<void>) | null = null
     try {
       attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
       recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as (
-        reservationId: string,
+        payload: { reservationId: string; tenantId: string; organizationId: string },
         delayMs: number,
       ) => Promise<void>
     } catch {
@@ -102,9 +105,12 @@ export async function POST(req: Request) {
         uploadTokenHash: createHash('sha256').update(compatibilityToken).digest('hex'),
         ttlMs: expiresIn * 1000,
       })
-      if (recoveryScheduler) {
-        await recoveryScheduler(reservation.id, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
-      }
+      if (!recoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
+      await recoveryScheduler({
+        reservationId: reservation.id,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+      }, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
       const url = new URL(`/api/storage-providers/s3/signed-upload/${compatibilityToken}`, req.url).toString()
       return NextResponse.json({ url, expiresAt, reservationId: reservation.id })
     } catch (error) {

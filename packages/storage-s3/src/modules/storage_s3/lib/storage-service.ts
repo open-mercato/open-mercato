@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { S3StorageDriver } from './s3-driver'
 import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 import { resolveAttachmentMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
@@ -58,7 +58,10 @@ type S3Config = {
   secretAccessKey?: string
   sessionToken?: string
   quotaService?: AttachmentQuotaService
-  quotaRecoveryScheduler?: (reservationId: string, delayMs: number) => Promise<void>
+  quotaRecoveryScheduler?: (
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>
   pathPrefix?: string
   organizationId?: string | null
   tenantId?: string | null
@@ -66,14 +69,6 @@ type S3Config = {
 
 function sanitizeSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
-}
-
-function buildKey(namespace: string, scope: TenantScope, fileName: string): string {
-  const orgSeg = scope.organizationId ? `org_${scope.organizationId}` : 'org_shared'
-  const tenantSeg = scope.tenantId ? `tenant_${scope.tenantId}` : 'tenant_shared'
-  const uniqueSuffix = randomUUID().replace(/-/g, '').slice(0, 12)
-  const safeName = sanitizeSegment(fileName || 'file')
-  return `${sanitizeSegment(namespace)}/${orgSeg}/${tenantSeg}/${Date.now()}_${uniqueSuffix}_${safeName}`
 }
 
 export interface StorageService {
@@ -97,7 +92,12 @@ export function createStorageService(config: S3Config): StorageService {
 
   return {
     async upload({ namespace, fileName, buffer, contentType, scope }): Promise<StorageResult> {
-      const storagePath = buildKey(namespace, scope, fileName)
+      const storagePath = driver.prepareStoragePath({
+        partitionCode: sanitizeSegment(namespace),
+        orgId: scope.organizationId,
+        tenantId: scope.tenantId,
+        fileName,
+      })
       assertS3KeyScopedToTenant(storagePath, scope, pathPrefix)
       let reservation = null as Awaited<ReturnType<AttachmentQuotaService['reserve']>> | null
       let storageStarted = false
@@ -122,8 +122,11 @@ export function createStorageService(config: S3Config): StorageService {
         }
         if (reservation) {
           if (!quotaRecoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
-          await quotaRecoveryScheduler(
-            reservation.id,
+          await quotaRecoveryScheduler({
+            reservationId: reservation.id,
+            tenantId: scope.tenantId!,
+            organizationId: scope.organizationId!,
+          },
             Math.max(1_000, reservation.expiresAt.getTime() - Date.now()),
           )
           await quotaService!.beginStorage(reservation.id, reservation.leaseToken)
@@ -213,7 +216,11 @@ export function createStorageService(config: S3Config): StorageService {
             ttlMs: expiresIn * 1000,
           })
           if (!quotaRecoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
-          await quotaRecoveryScheduler(reservation.id, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
+          await quotaRecoveryScheduler({
+            reservationId: reservation.id,
+            tenantId: scope.tenantId!,
+            organizationId: scope.organizationId!,
+          }, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
           const url = `/api/storage-providers/s3/signed-upload/${compatibilityToken}`
           return { url, expiresAt, reservationId: reservation.id }
         } catch (error) {

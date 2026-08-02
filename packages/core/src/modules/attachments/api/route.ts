@@ -321,11 +321,14 @@ export async function POST(req: Request) {
   const em = container.resolve('em') as EntityManager
   const dataEngine = container.resolve('dataEngine')
   let attachmentQuotaService: AttachmentQuotaService | null = null
-  let attachmentQuotaRecoveryScheduler: ((reservationId: string, delayMs: number) => Promise<void>) | null = null
+  let attachmentQuotaRecoveryScheduler: ((
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>) | null = null
   try {
     attachmentQuotaService = container.resolve('attachmentQuotaService') as AttachmentQuotaService
     attachmentQuotaRecoveryScheduler = container.resolve('attachmentQuotaRecoveryScheduler') as (
-      reservationId: string,
+      payload: { reservationId: string; tenantId: string; organizationId: string },
       delayMs: number,
     ) => Promise<void>
   } catch {
@@ -455,12 +458,12 @@ export async function POST(req: Request) {
         storagePath: preparedStoragePath!,
         partitionCode: partition.code,
       })
-      if (attachmentQuotaRecoveryScheduler) {
-        await attachmentQuotaRecoveryScheduler(
-          quotaReservation.id,
-          Math.max(1_000, quotaReservation.expiresAt.getTime() - Date.now()),
-        )
-      }
+      if (!attachmentQuotaRecoveryScheduler) throw new Error('Attachment quota recovery is unavailable.')
+      await attachmentQuotaRecoveryScheduler({
+        reservationId: quotaReservation.id,
+        tenantId,
+        organizationId: orgId,
+      }, Math.max(1_000, quotaReservation.expiresAt.getTime() - Date.now()))
       if (typeof attachmentQuotaService.beginStorage === 'function') {
         await attachmentQuotaService.beginStorage(quotaReservation.id, quotaReservation.leaseToken)
       }

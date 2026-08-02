@@ -57,6 +57,7 @@ const mockDataEngine = {
 }
 
 let mockAttachmentQuotaService: any = null
+const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -64,6 +65,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (k === 'em') return mockEm
       if (k === 'dataEngine') return mockDataEngine
       if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
+      if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
       return null
     },
   }),
@@ -146,6 +148,7 @@ describe('attachments API', () => {
     delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockAttachmentQuotaService = null
+    mockAttachmentQuotaRecoveryScheduler.mockClear()
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
@@ -263,7 +266,11 @@ describe('attachments API', () => {
           throw Object.assign(new Error('quota exceeded'), { code: 'quota_exceeded' })
         }
         pendingBytes += bytes
-        return { id: `reservation-${pendingBytes}` }
+        return {
+          id: `reservation-${pendingBytes}`,
+          leaseToken: `lease-${pendingBytes}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        }
       }),
       markStored: jest.fn(async () => {}),
       completeAttachment: jest.fn(async () => { pendingBytes = 0 }),

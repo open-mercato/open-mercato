@@ -61,7 +61,7 @@ async function readTenantStorageUsageBytes(
   do {
     const page = await driver.listObjects('', 1000, continuationToken)
     for (const file of page.files) {
-      if (file.key.startsWith('uploads/') && isS3KeyScopedToTenant(file.key, orgId, tenantId)) {
+      if (isS3KeyScopedToTenant(file.key, orgId, tenantId)) {
         totalBytes += file.size
       }
     }
@@ -136,11 +136,14 @@ export async function POST(req: Request) {
 
   const { resolve } = await createRequestContainer()
   let attachmentQuotaService: AttachmentQuotaService | null = null
-  let recoveryScheduler: ((reservationId: string, delayMs: number) => Promise<void>) | null = null
+  let recoveryScheduler: ((
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>) | null = null
   try {
     attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
     recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as (
-      reservationId: string,
+      payload: { reservationId: string; tenantId: string; organizationId: string },
       delayMs: number,
     ) => Promise<void>
   } catch {
@@ -163,9 +166,12 @@ export async function POST(req: Request) {
         storageDriver: 's3',
         storagePath: key,
       })
-      if (recoveryScheduler) {
-        await recoveryScheduler(reservation.id, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
-      }
+      if (!recoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
+      await recoveryScheduler({
+        reservationId: reservation.id,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+      }, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
       await attachmentQuotaService.beginStorage(reservation.id, reservation.leaseToken)
     } catch (error) {
       if (reservation) {

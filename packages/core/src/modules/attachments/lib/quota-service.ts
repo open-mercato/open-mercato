@@ -34,6 +34,37 @@ export type AttachmentQuotaReservationRecord = {
   expiresAt: Date | null
 }
 
+type AttachmentQuotaReservationRow = {
+  id: string
+  tenant_id: string
+  organization_id: string
+  reserved_bytes: unknown
+  actual_bytes: unknown | null
+  status: AttachmentQuotaReservationRecord['status']
+  source: AttachmentQuotaSource
+  storage_driver: string
+  partition_code: string | null
+  storage_path: string
+  lease_token: string
+  upload_token_hash: string | null
+  expires_at: Date | string | null
+  created_at: Date
+  updated_at: Date
+}
+
+type AttachmentUsageRow = {
+  id: string
+  tenant_id: string
+  storage_driver: string
+  storage_path: string
+  file_size: unknown
+}
+
+type AttachmentQuotaDatabase = {
+  attachments: AttachmentUsageRow
+  attachment_quota_reservations: AttachmentQuotaReservationRow
+}
+
 export class AttachmentQuotaError extends Error {
   constructor(
     public readonly code:
@@ -70,7 +101,7 @@ function changedRow(result: unknown): boolean {
   return false
 }
 
-function mapReservationRow(row: any): AttachmentQuotaReservationRecord {
+function mapReservationRow(row: AttachmentQuotaReservationRow): AttachmentQuotaReservationRecord {
   return {
     id: String(row.id),
     tenantId: String(row.tenant_id),
@@ -85,7 +116,7 @@ function mapReservationRow(row: any): AttachmentQuotaReservationRecord {
     leaseToken: String(row.lease_token),
     uploadTokenHash: row.upload_token_hash == null ? null : String(row.upload_token_hash),
     expiresAt: row.expires_at == null ? null : new Date(row.expires_at),
-  } as AttachmentQuotaReservationRecord
+  }
 }
 
 export class AttachmentQuotaService {
@@ -111,7 +142,7 @@ export class AttachmentQuotaService {
 
     try {
       await this.em.transactional(async (tx) => {
-        const db = tx.getKysely<any>() as any
+        const db = tx.getKysely<AttachmentQuotaDatabase>()
         await sql`select pg_advisory_xact_lock(hashtextextended(${`attachment-quota:${input.tenantId}`}, 0))`.execute(db)
 
         const attachmentUsage = await db
@@ -171,7 +202,7 @@ export class AttachmentQuotaService {
   }
 
   async completeAttachment(id: string, leaseToken: string, manager: EntityManager = this.em): Promise<void> {
-    const db = manager.getKysely<any>() as any
+    const db = manager.getKysely<AttachmentQuotaDatabase>()
     const result = await db
       .deleteFrom('attachment_quota_reservations')
       .where('id', '=', id)
@@ -186,7 +217,7 @@ export class AttachmentQuotaService {
     if (!Number.isSafeInteger(actualBytes) || actualBytes < 0) {
       throw new AttachmentQuotaError('quota_accounting_unavailable', 'Actual bytes must be a non-negative safe integer.')
     }
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     const result = await db
       .updateTable('attachment_quota_reservations')
       .set({ status: 'committed', actual_bytes: actualBytes, expires_at: null, upload_token_hash: null, updated_at: new Date() })
@@ -200,7 +231,7 @@ export class AttachmentQuotaService {
   }
 
   async release(id: string, leaseToken?: string): Promise<void> {
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     let query = db
       .deleteFrom('attachment_quota_reservations')
       .where('id', '=', id)
@@ -214,7 +245,7 @@ export class AttachmentQuotaService {
     storageDriver: string
     storagePath: string
   }): Promise<void> {
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     await db
       .deleteFrom('attachment_quota_reservations')
       .where('tenant_id', '=', input.tenantId)
@@ -225,7 +256,7 @@ export class AttachmentQuotaService {
   }
 
   async findPendingByUploadTokenHash(uploadTokenHash: string): Promise<AttachmentQuotaReservationRecord | null> {
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     const row = await db
       .selectFrom('attachment_quota_reservations')
       .selectAll()
@@ -241,7 +272,7 @@ export class AttachmentQuotaService {
     uploadTokenHash: string,
     ttlMs = DEFAULT_RESERVATION_TTL_MS,
   ): Promise<AttachmentQuotaReservationRecord | null> {
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     const leaseToken = randomUUID()
     const row = await db
       .updateTable('attachment_quota_reservations')
@@ -259,18 +290,27 @@ export class AttachmentQuotaService {
     return row ? mapReservationRow(row) : null
   }
 
-  async getReservation(id: string): Promise<AttachmentQuotaReservationRecord | null> {
-    const db = this.em.getKysely<any>() as any
+  async getReservation(
+    id: string,
+    scope: { tenantId: string; organizationId: string },
+  ): Promise<AttachmentQuotaReservationRecord | null> {
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     const row = await db
       .selectFrom('attachment_quota_reservations')
       .selectAll()
       .where('id', '=', id)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
       .executeTakeFirst()
     return row ? mapReservationRow(row) : null
   }
 
-  async claimExpired(id: string, recoveryTtlMs = DEFAULT_RESERVATION_TTL_MS): Promise<AttachmentQuotaReservationRecord | null> {
-    const db = this.em.getKysely<any>() as any
+  async claimExpired(
+    id: string,
+    scope: { tenantId: string; organizationId: string },
+    recoveryTtlMs = DEFAULT_RESERVATION_TTL_MS,
+  ): Promise<AttachmentQuotaReservationRecord | null> {
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     const leaseToken = randomUUID()
     const row = await db
       .updateTable('attachment_quota_reservations')
@@ -281,6 +321,8 @@ export class AttachmentQuotaService {
         updated_at: new Date(),
       })
       .where('id', '=', id)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
       .where('status', 'in', ['reserved', 'storing', 'stored', 'recovering'])
       .where('expires_at', '<=', new Date())
       .returningAll()
@@ -289,7 +331,7 @@ export class AttachmentQuotaService {
   }
 
   async commitRecoveredStandalone(id: string, leaseToken: string, actualBytes: number): Promise<void> {
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     const result = await db
       .updateTable('attachment_quota_reservations')
       .set({ status: 'committed', actual_bytes: actualBytes, expires_at: null, upload_token_hash: null, updated_at: new Date() })
@@ -314,7 +356,7 @@ export class AttachmentQuotaService {
         throw new AttachmentQuotaError('quota_accounting_unavailable', 'Standalone storage accounting returned an invalid size.')
       }
     }
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     for (let offset = 0; offset < uniqueObjects.length; offset += 500) {
       const batch = uniqueObjects.slice(offset, offset + 500)
       const paths = batch.map((object) => object.path)
@@ -327,7 +369,7 @@ export class AttachmentQuotaService {
         .where('storage_driver', '=', input.storageDriver)
         .where('storage_path', 'in', paths)
         .execute()
-      const attachmentPaths = new Set(attachmentRows.map((row: any) => String(row.storage_path)))
+      const attachmentPaths = new Set(attachmentRows.map((row) => String(row.storage_path)))
 
       const ledgerRows = await db
         .selectFrom('attachment_quota_reservations')
@@ -336,11 +378,11 @@ export class AttachmentQuotaService {
         .where('storage_driver', '=', input.storageDriver)
         .where('storage_path', 'in', paths)
         .execute()
-      const ledgerPaths = new Set(ledgerRows.map((row: any) => String(row.storage_path)))
+      const ledgerPaths = new Set(ledgerRows.map((row) => String(row.storage_path)))
 
       const doubleCountedPaths = ledgerRows
-        .filter((row: any) => row.status === 'committed' && attachmentPaths.has(String(row.storage_path)))
-        .map((row: any) => String(row.storage_path))
+        .filter((row) => row.status === 'committed' && attachmentPaths.has(String(row.storage_path)))
+        .map((row) => String(row.storage_path))
       if (doubleCountedPaths.length > 0) {
         await db
           .deleteFrom('attachment_quota_reservations')
@@ -382,7 +424,7 @@ export class AttachmentQuotaService {
     to: AttachmentQuotaReservationRecord['status'],
     extra: Record<string, unknown> = {},
   ): Promise<void> {
-    const db = this.em.getKysely<any>() as any
+    const db = this.em.getKysely<AttachmentQuotaDatabase>()
     const result = await db
       .updateTable('attachment_quota_reservations')
       .set({ status: to, updated_at: new Date(), ...extra })

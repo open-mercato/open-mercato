@@ -20,14 +20,18 @@ export default async function handle(
   ctx: HandlerContext,
 ): Promise<void> {
   const quotaService = ctx.resolve<AttachmentQuotaService>('attachmentQuotaService')
-  const record = await quotaService.getReservation(job.payload.reservationId)
+  const scope = {
+    tenantId: job.payload.tenantId,
+    organizationId: job.payload.organizationId,
+  }
+  const record = await quotaService.getReservation(job.payload.reservationId, scope)
   if (!record || record.status === 'committed') return
   if (record.expiresAt && record.expiresAt.getTime() > Date.now()) {
-    await scheduleStorageS3QuotaRecovery(record.id, record.expiresAt.getTime() - Date.now())
+    await scheduleStorageS3QuotaRecovery(job.payload, record.expiresAt.getTime() - Date.now())
     return
   }
 
-  const claimed = await quotaService.claimExpired(record.id)
+  const claimed = await quotaService.claimExpired(record.id, scope)
   if (!claimed) return
   try {
     const credentialsService = ctx.resolve<IntegrationCredentialsService>('integrationCredentialsService')
@@ -36,17 +40,22 @@ export default async function handle(
       organizationId: claimed.organizationId,
     })
     if (!credentials) throw new Error('S3 integration is not configured for quota recovery.')
-    const driver = new S3StorageDriver(credentials)
+    const driver = new S3StorageDriver({
+      ...credentials,
+      organizationId: claimed.organizationId,
+      tenantId: claimed.tenantId,
+    })
 
     if (claimed.source === 'storage_s3_signed') {
       const listed = await driver.listObjects(claimed.storagePath, 1)
       const object = listed.files.find((file) => file.key === claimed.storagePath)
       if (!object) {
         if (record.status === 'storing' && (job.payload.absenceCheck ?? 0) === 0 && claimed.expiresAt) {
-          await scheduleStorageS3QuotaRecovery(
-            claimed.id,
+          await scheduleStorageS3QuotaRecovery({
+            ...job.payload,
+            absenceCheck: 1,
+          },
             claimed.expiresAt.getTime() - Date.now(),
-            1,
           )
           return
         }
@@ -66,7 +75,7 @@ export default async function handle(
     await quotaService.release(claimed.id, claimed.leaseToken)
   } catch (error) {
     if (claimed.expiresAt) {
-      await scheduleStorageS3QuotaRecovery(claimed.id, claimed.expiresAt.getTime() - Date.now())
+      await scheduleStorageS3QuotaRecovery(job.payload, claimed.expiresAt.getTime() - Date.now())
     }
     throw error
   }

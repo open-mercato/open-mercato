@@ -12,23 +12,36 @@ export const metadata: WorkerMeta = {
 
 type HandlerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
 
+type AttachmentLookupDatabase = {
+  attachments: {
+    id: string
+    tenant_id: string
+    storage_driver: string
+    storage_path: string
+  }
+}
+
 export default async function handle(
   job: QueuedJob<AttachmentQuotaRecoveryJob>,
   ctx: HandlerContext,
 ): Promise<void> {
   const quotaService = ctx.resolve<AttachmentQuotaService>('attachmentQuotaService')
-  const record = await quotaService.getReservation(job.payload.reservationId)
+  const scope = {
+    tenantId: job.payload.tenantId,
+    organizationId: job.payload.organizationId,
+  }
+  const record = await quotaService.getReservation(job.payload.reservationId, scope)
   if (!record || record.status === 'committed') return
   if (record.expiresAt && record.expiresAt.getTime() > Date.now()) {
-    await scheduleAttachmentQuotaRecovery(record.id, record.expiresAt.getTime() - Date.now())
+    await scheduleAttachmentQuotaRecovery(job.payload, record.expiresAt.getTime() - Date.now())
     return
   }
 
-  const claimed = await quotaService.claimExpired(record.id)
+  const claimed = await quotaService.claimExpired(record.id, scope)
   if (!claimed) return
   try {
     const em = ctx.resolve<EntityManager>('em')
-    const existingAttachment = await (em.getKysely<any>() as any)
+    const existingAttachment = await em.getKysely<AttachmentLookupDatabase>()
       .selectFrom('attachments')
       .select('id')
       .where('tenant_id', '=', claimed.tenantId)
@@ -48,7 +61,7 @@ export default async function handle(
     await quotaService.release(claimed.id, claimed.leaseToken)
   } catch (error) {
     if (claimed.expiresAt) {
-      await scheduleAttachmentQuotaRecovery(claimed.id, claimed.expiresAt.getTime() - Date.now())
+      await scheduleAttachmentQuotaRecovery(job.payload, claimed.expiresAt.getTime() - Date.now())
     }
     throw error
   }

@@ -74,7 +74,10 @@ export function register(container: AppContainer) {
       ({ integrationCredentialsService, attachmentQuotaService, storageS3QuotaRecoveryScheduler }: {
         integrationCredentialsService: IntegrationCredentialsService
         attachmentQuotaService: AttachmentQuotaService
-        storageS3QuotaRecoveryScheduler: (reservationId: string, delayMs: number) => Promise<void>
+        storageS3QuotaRecoveryScheduler: (
+          payload: { reservationId: string; tenantId: string; organizationId: string },
+          delayMs: number,
+        ) => Promise<void>
       }) => {
         // StorageService factory — builds the service lazily using credentials
         // resolved from the Integration Marketplace per request.
