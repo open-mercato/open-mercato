@@ -60,3 +60,10 @@
 - Resume point: 3.3 (source: Tasks table; `HANDOFF.md` predates the landed 3.1 and 3.2 commits and is stale)
 - PR head SHA: `3d591a4b7`
 - Recovery: the interrupted Step 3.3 work is preserved in the local unpushed CEZ autosave commit `82c6002d1`; it will be validated and normalized before Phase 4 begins.
+
+## 2026-08-02T15:26:12Z — checkpoint 3
+
+- Steps: 3.1..3.3 (`ae728abcf..3a264dce4`).
+- Result: 89/89 evaluator tests, 86 companion harness tests with four platform-specific skips, 7/7 final spec-first tests, create-app typecheck, JSON/script syntax, diff checks, and the clean-HEAD knowledge-change controller passed.
+- UI: skipped because Phase 3 changed emitted instructions and harness contracts only, with no rendered surface.
+- Decision: reconciled the stale checkpoint-2 handoff and normalized the interrupted local Step 3.3 autosave without rewriting remote history.
