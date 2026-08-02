@@ -8,6 +8,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import {
   __reload,
   AUTH_IDENTITY_STORAGE_KEY,
+  AUTH_IDENTITY_USER_STORAGE_KEY,
   AuthSessionGuard,
   notifyAuthIdentityChange,
 } from '../AuthSessionGuard'
@@ -146,5 +147,56 @@ describe('notifyAuthIdentityChange', () => {
     notifyAuthIdentityChange()
     expect(setItemSpy).toHaveBeenCalledWith(AUTH_IDENTITY_STORAGE_KEY, expect.any(String))
     setItemSpy.mockRestore()
+  })
+})
+
+describe('perspective purge at the rendered identity boundary (#4185)', () => {
+  const snapshotKey = 'om_table_perspective_snapshot:customers-companies'
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { ok: true } } as never)
+  })
+
+  afterEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('records the first observed user without discarding existing table state', () => {
+    window.localStorage.setItem(snapshotKey, '{"columnWidths":{"name":240}}')
+
+    render(<AuthSessionGuard serverUserId="user-1" />)
+
+    expect(window.localStorage.getItem(snapshotKey)).toBe('{"columnWidths":{"name":240}}')
+    expect(window.localStorage.getItem(AUTH_IDENTITY_USER_STORAGE_KEY)).toBe('user-1')
+  })
+
+  it('keeps a returning user\'s unsaved widths across a reload', () => {
+    window.localStorage.setItem(AUTH_IDENTITY_USER_STORAGE_KEY, 'user-1')
+    window.localStorage.setItem(snapshotKey, '{"columnWidths":{"name":240}}')
+
+    render(<AuthSessionGuard serverUserId="user-1" />)
+
+    expect(window.localStorage.getItem(snapshotKey)).toBe('{"columnWidths":{"name":240}}')
+  })
+
+  it('purges perspective state when the backend renders for a different user', () => {
+    window.localStorage.setItem(AUTH_IDENTITY_USER_STORAGE_KEY, 'user-1')
+    window.localStorage.setItem(snapshotKey, '{"columnWidths":{"name":240}}')
+
+    render(<AuthSessionGuard serverUserId="user-2" />)
+
+    expect(window.localStorage.getItem(snapshotKey)).toBeNull()
+    expect(window.localStorage.getItem(AUTH_IDENTITY_USER_STORAGE_KEY)).toBe('user-2')
+  })
+
+  it('does nothing when the shell renders without an authenticated user', () => {
+    window.localStorage.setItem(AUTH_IDENTITY_USER_STORAGE_KEY, 'user-1')
+    window.localStorage.setItem(snapshotKey, '{"columnWidths":{"name":240}}')
+
+    render(<AuthSessionGuard serverUserId={null} />)
+
+    expect(window.localStorage.getItem(snapshotKey)).toBe('{"columnWidths":{"name":240}}')
+    expect(window.localStorage.getItem(AUTH_IDENTITY_USER_STORAGE_KEY)).toBe('user-1')
   })
 })
