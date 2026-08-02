@@ -354,6 +354,9 @@ function buildRegistryConfig(registryUrl: string): string {
   configLines.push('npmScopes:')
   configLines.push('  open-mercato:')
   configLines.push(`    npmRegistryServer: "${registryUrl}"`)
+  // Verdaccio packages are published immediately before standalone tests run.
+  // Scope settings use Yarn's default age gate unless it is overridden here.
+  configLines.push('    npmMinimalAgeGate: 0')
 
   return configLines.join('\n')
 }
