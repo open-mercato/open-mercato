@@ -52,6 +52,10 @@
       "types": "./src/lib/logger/index.ts",
       "default": "./dist/lib/logger/index.js"
     },
+    "./lib/search/tokenLookup": {
+      "types": "./src/lib/search/tokenLookup.ts",
+      "default": "./dist/lib/search/tokenLookup.js"
+    },
     "./modules/generators": {
       "types": "./src/modules/generators/index.ts",
       "default": "./dist/modules/generators/index.js"

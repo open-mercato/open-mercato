@@ -200,13 +200,51 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
         data: { id: orderId, comment: 'QA history action entry' },
       });
 
-      // 3. Create a note → produces a 'comment' entry (SalesNote, source: 'note')
+      // 3. Create and update a line → produces an action with a concise changed-fields summary
+      const lineCreate = await apiRequest(page.request, 'POST', '/api/sales/order-lines', {
+        token,
+        data: {
+          orderId,
+          currencyCode: 'USD',
+          name: 'QA history line',
+          quantity: 1,
+          unitPriceNet: 10,
+          unitPriceGross: 10,
+        },
+      });
+      expect(lineCreate.ok(), `Failed to create order line: ${lineCreate.status()}`).toBeTruthy();
+      const lineCreateBody = (await lineCreate.json()) as { id?: string };
+      expect(lineCreateBody.id, 'Order line id is required').toBeTruthy();
+
+      const lineUpdate = await apiRequest(page.request, 'PUT', '/api/sales/order-lines', {
+        token,
+        data: { id: lineCreateBody.id, orderId, quantity: 2, currencyCode: 'USD' },
+      });
+      expect(lineUpdate.ok(), `Failed to update order line: ${lineUpdate.status()}`).toBeTruthy();
+
+      const historyResponse = await apiRequest(
+        page.request,
+        'GET',
+        `/api/sales/document-history?kind=order&id=${encodeURIComponent(orderId)}`,
+        { token },
+      );
+      expect(historyResponse.ok(), `Failed to load order history: ${historyResponse.status()}`).toBeTruthy();
+      const historyBody = (await historyResponse.json()) as {
+        items?: Array<{ metadata?: { commandId?: string; changedFields?: string[] } }>;
+      };
+      const lineUpdateHistory = historyBody.items?.find(
+        (entry) => entry.metadata?.commandId === 'sales.orders.lines.upsert'
+          && entry.metadata.changedFields?.includes('quantity'),
+      );
+      expect(lineUpdateHistory, 'History should expose the changed quantity field').toBeTruthy();
+
+      // 4. Create a note → produces a 'comment' entry (SalesNote, source: 'note')
       await apiRequest(page.request, 'POST', '/api/sales/notes', {
         token,
         data: { contextType: 'order', contextId: orderId, body: 'QA test history comment' },
       });
 
-      // 4. Update order status → produces a 'status' entry via command-bus before/after snapshots
+      // 5. Update order status → produces a 'status' entry via command-bus before/after snapshots
       const statusListRes = await apiRequest(page.request, 'GET', '/api/sales/order-statuses?pageSize=5', { token });
       const statusList = statusListRes.ok()
         ? ((await statusListRes.json()) as { items?: Array<{ id: string }> })
@@ -240,6 +278,7 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
       // Wait for at least one timeline entry to be visible
       await expect(page.locator('[data-testid="timeline-entry"]').first()).toBeVisible({ timeout: WIDGET_LOAD_TIMEOUT });
       await expect(page.getByText(/No history entries yet/i)).toHaveCount(0);
+      await expect(page.getByText('Changed fields: Quantity', { exact: true })).toBeVisible();
 
       // --- Verify all 4 filter options are present ---
       await filterButton.click();

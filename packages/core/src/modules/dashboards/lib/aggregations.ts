@@ -97,54 +97,56 @@ export type BuildAggregationQueryOptions = {
   registry: AnalyticsRegistry
 }
 
-export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
-  const { registry } = options
-  const config = registry.getEntityTypeConfig(options.entityType)
-  if (!config) return null
+export type ResolvedGroupExpression = {
+  expression: string
+  /** Column the group expression reads from — the encryption map is keyed by this. */
+  dbColumn: string
+  /** JSONB path below `dbColumn`, when the groupBy field used path notation. */
+  jsonPath: string | null
+}
 
-  const metricMapping = registry.getFieldMapping(options.entityType, options.metric.field)
-  if (!metricMapping) return null
+/**
+ * Resolves the SQL expression a groupBy field maps to, together with the underlying column so
+ * callers can decide whether the source is encrypted at rest before grouping over it (#4622).
+ */
+export function resolveGroupExpression(
+  registry: AnalyticsRegistry,
+  entityType: string,
+  groupBy: { field: string; granularity?: DateGranularity },
+): ResolvedGroupExpression | null {
+  const groupMapping = registry.getFieldMapping(entityType, groupBy.field)
 
-  const params: unknown[] = []
-
-  const tableName = config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
-  const aggregateExpr = buildAggregateExpression(options.metric.aggregate, metricMapping.dbColumn)
-
-  let selectClause = `SELECT ${aggregateExpr} AS value`
-  let groupByClause = ''
-  let orderByClause = ''
-  let limitClause = ''
-
-  if (options.groupBy) {
-    let groupMapping = registry.getFieldMapping(options.entityType, options.groupBy.field)
-    let groupExpr: string | null = null
-
-    // Handle JSONB path notation (e.g., shippingAddressSnapshot.region)
-    if (!groupMapping && options.groupBy.field.includes('.')) {
-      const [baseField, ...pathParts] = options.groupBy.field.split('.')
-      const baseMapping = registry.getFieldMapping(options.entityType, baseField)
-      if (baseMapping?.type === 'jsonb') {
-        groupExpr = buildJsonbFieldExpression(baseMapping.dbColumn, pathParts.join('.'))
-      }
-    } else if (groupMapping) {
-      if (groupMapping.type === 'timestamp' && options.groupBy.granularity) {
-        groupExpr = buildDateTruncExpression(groupMapping.dbColumn, options.groupBy.granularity)
-      } else {
-        groupExpr = groupMapping.dbColumn
-      }
-    }
-
-    if (groupExpr) {
-      selectClause = `SELECT ${groupExpr} AS group_key, ${aggregateExpr} AS value`
-      groupByClause = `GROUP BY ${groupExpr}`
-      orderByClause = `ORDER BY value DESC`
-
-      if (options.groupBy.limit && options.groupBy.limit > 0) {
-        limitClause = `LIMIT ${Math.min(options.groupBy.limit, 100)}`
-      }
+  // Handle JSONB path notation (e.g., shippingAddressSnapshot.region)
+  if (!groupMapping && groupBy.field.includes('.')) {
+    const [baseField, ...pathParts] = groupBy.field.split('.')
+    const baseMapping = registry.getFieldMapping(entityType, baseField)
+    if (baseMapping?.type !== 'jsonb') return null
+    const jsonPath = pathParts.join('.')
+    return {
+      expression: buildJsonbFieldExpression(baseMapping.dbColumn, jsonPath),
+      dbColumn: baseMapping.dbColumn,
+      jsonPath,
     }
   }
 
+  if (!groupMapping) return null
+
+  if (groupMapping.type === 'timestamp' && groupBy.granularity) {
+    return {
+      expression: buildDateTruncExpression(groupMapping.dbColumn, groupBy.granularity),
+      dbColumn: groupMapping.dbColumn,
+      jsonPath: null,
+    }
+  }
+
+  return { expression: groupMapping.dbColumn, dbColumn: groupMapping.dbColumn, jsonPath: null }
+}
+
+function buildWhereClause(
+  options: Pick<BuildAggregationQueryOptions, 'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'>,
+): { clause: string; params: unknown[] } {
+  const { registry } = options
+  const params: unknown[] = []
   const whereClauses: string[] = []
 
   whereClauses.push(`tenant_id = ?`)
@@ -215,11 +217,123 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
     }
   }
 
-  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+  return { clause: whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '', params }
+}
 
-  const sql = [selectClause, `FROM ${tableName}`, whereClause, groupByClause, orderByClause, limitClause]
+function resolveTableName(config: EntityTypeConfig): string {
+  return config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
+}
+
+export type BuildDistinctCurrencyQueryOptions = Pick<
+  BuildAggregationQueryOptions,
+  'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'
+>
+
+/**
+ * Builds the query that reads the distinct per-row currencies of the rows an aggregation
+ * would sum, over exactly the same tenant/organization scope, date range and filters.
+ * Returns `null` when the entity declares no `currencyField`, which means its amounts are
+ * not per-row denominated and there is nothing to verify (#4676).
+ */
+export function buildDistinctCurrencyQuery(
+  options: BuildDistinctCurrencyQueryOptions,
+): AggregationQuery | null {
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
+  if (!config?.currencyField) return null
+
+  const currencyMapping = registry.getFieldMapping(options.entityType, config.currencyField)
+  if (!currencyMapping || !isSafeIdentifier(currencyMapping.dbColumn)) return null
+
+  const where = buildWhereClause(options)
+  const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyMapping.dbColumn}), ''))`
+  const sql = [
+    `SELECT DISTINCT ${normalizedCurrencyExpression} AS code`,
+    `FROM ${resolveTableName(config)}`,
+    where.clause,
+    'LIMIT 2',
+  ]
     .filter(Boolean)
     .join(' ')
 
-  return { sql, params }
+  return { sql, params: where.params }
+}
+
+export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
+  if (!config) return null
+
+  const metricMapping = registry.getFieldMapping(options.entityType, options.metric.field)
+  if (!metricMapping) return null
+
+  const tableName = resolveTableName(config)
+  const aggregateExpr = buildAggregateExpression(options.metric.aggregate, metricMapping.dbColumn)
+
+  let selectClause = `SELECT ${aggregateExpr} AS value`
+  let groupByClause = ''
+  let orderByClause = ''
+  let limitClause = ''
+
+  if (options.groupBy) {
+    const resolved = resolveGroupExpression(registry, options.entityType, options.groupBy)
+
+    if (resolved) {
+      selectClause = `SELECT ${resolved.expression} AS group_key, ${aggregateExpr} AS value`
+      groupByClause = `GROUP BY ${resolved.expression}`
+      // NULLS LAST is stated explicitly (PostgreSQL defaults DESC to NULLS FIRST) so a group limit
+      // keeps the highest-value buckets instead of the empty ones, and so the application-side
+      // encrypted path can mirror the same ordering (#4622).
+      orderByClause = `ORDER BY value DESC NULLS LAST`
+
+      if (options.groupBy.limit && options.groupBy.limit > 0) {
+        limitClause = `LIMIT ${Math.min(options.groupBy.limit, 100)}`
+      }
+    }
+  }
+
+  const where = buildWhereClause(options)
+
+  const sql = [selectClause, `FROM ${tableName}`, where.clause, groupByClause, orderByClause, limitClause]
+    .filter(Boolean)
+    .join(' ')
+
+  return { sql, params: where.params }
+}
+
+export type BuildGroupSourceRowsQueryOptions = Omit<BuildAggregationQueryOptions, 'groupBy'> & {
+  /** Column holding the (encrypted) group source, resolved via `resolveGroupExpression`. */
+  groupColumn: string
+  /** Hard cap on scanned rows; callers fetch `rowLimit + 1` to detect overflow. */
+  rowLimit: number
+}
+
+/**
+ * Builds a per-row query for group sources that cannot be grouped in SQL because the column is
+ * encrypted at rest. Returns the raw group source alongside the metric value so the caller can
+ * decrypt, then aggregate in application code (#4622).
+ */
+export function buildGroupSourceRowsQuery(options: BuildGroupSourceRowsQueryOptions): AggregationQuery | null {
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
+  if (!config) return null
+
+  const metricMapping = registry.getFieldMapping(options.entityType, options.metric.field)
+  if (!metricMapping) return null
+
+  if (!isSafeIdentifier(options.groupColumn)) {
+    throw new Error(`Invalid group column: ${options.groupColumn}`)
+  }
+
+  const where = buildWhereClause(options)
+  const sql = [
+    `SELECT ${options.groupColumn} AS group_source, ${metricMapping.dbColumn} AS metric_value`,
+    `FROM ${resolveTableName(config)}`,
+    where.clause,
+    `LIMIT ${Math.max(1, Math.floor(options.rowLimit)) + 1}`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return { sql, params: where.params }
 }

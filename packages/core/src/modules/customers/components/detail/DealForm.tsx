@@ -15,6 +15,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { DEAL_DESCRIPTION_MAX_LENGTH } from '../../data/validators'
 import { DictionarySelectField } from '../formConfig'
 import { createDictionarySelectLabels } from './utils'
 import { E } from '#generated/entities.ids.generated'
@@ -263,7 +264,10 @@ const schema = z.object({
       'customers.people.detail.deals.expectedCloseInvalid',
     )
     .optional(),
-  description: z.string().max(4000, 'customers.people.detail.deals.descriptionTooLong').optional(),
+  description: z
+    .string()
+    .max(DEAL_DESCRIPTION_MAX_LENGTH, 'customers.people.detail.deals.descriptionTooLong')
+    .optional(),
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()

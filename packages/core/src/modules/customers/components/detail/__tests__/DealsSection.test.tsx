@@ -128,6 +128,29 @@ describe('DealsSection', () => {
     })
   })
 
+  it('clamps a long deal description so one card cannot flood the page', async () => {
+    const description = Array.from({ length: 200 }, (_, index) => `Call note line ${index}`).join('\n')
+    readApiResultOrThrowMock.mockResolvedValueOnce({
+      items: [makeDeal({ description })],
+      totalPages: 1,
+    })
+
+    renderWithProviders(
+      <DealsSection
+        scope={{ kind: 'person', entityId: 'person-1' }}
+        addActionLabel="Add deal"
+        emptyLabel="—"
+        emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+      />,
+    )
+
+    const article = (await screen.findByText('Test Deal')).closest('article')!
+    const paragraph = Array.from(article.querySelectorAll('p')).find(
+      (element) => element.textContent === description,
+    )
+    expect(paragraph?.className).toContain('line-clamp-3')
+  })
+
   it('calls updateCrud to unlink deal from person (not deleteCrud)', async () => {
     readApiResultOrThrowMock.mockResolvedValueOnce({
       items: [makeDeal()],

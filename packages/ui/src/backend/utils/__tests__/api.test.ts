@@ -95,6 +95,20 @@ describe('apiFetch', () => {
     )
   })
 
+  it('attaches requiredFeatures to ForbiddenError so callers can name the missing permission', async () => {
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
+      createMockResponse(403, {
+        error: 'Forbidden',
+        requiredFeatures: ['wms.manage_locations'],
+      }),
+    )
+
+    const rejection = await apiFetch('/api/wms/locations').catch((error: unknown) => error)
+    expect(rejection).toBeInstanceOf(ForbiddenError)
+    expect((rejection as ForbiddenError).requiredFeatures).toEqual(['wms.manage_locations'])
+    expect((rejection as ForbiddenError).status).toBe(403)
+  })
+
   it('throws ForbiddenError when ACL hints are missing', async () => {
     const response = createMockResponse(403, {
       error: 'Forbidden',
