@@ -115,7 +115,12 @@ export function canReadEntityMetadata(args: {
   acl: { isSuperAdmin?: boolean; features?: readonly string[] }
 }): boolean {
   const requirement = resolveEntityAclRequirement(args.entityId)
-  if (requirement?.platformOnly) return false
+  if (requirement?.platformOnly) {
+    return Boolean(args.acl.isSuperAdmin) && authorizeFeatures(requirement.view, {
+      grantedFeatures: args.acl.features ?? [],
+      unrestricted: true,
+    })
+  }
   if (canReadAllEntityMetadata(args.acl)) return true
   if (args.isCustomEntity) {
     const requiredFeatures = ['entities.records.view']
@@ -127,7 +132,7 @@ export function canReadEntityMetadata(args: {
       unrestricted: Boolean(args.acl.isSuperAdmin),
     })
   }
-  if (!requirement) return false
+  if (!requirement) return Boolean(args.acl.isSuperAdmin)
   return authorizeFeatures(requirement.view, {
     grantedFeatures: args.acl.features ?? [],
     unrestricted: Boolean(args.acl.isSuperAdmin),

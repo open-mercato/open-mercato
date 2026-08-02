@@ -111,6 +111,22 @@ describe('canReadEntityMetadata', () => {
     expect(canReadEntityMetadata({ entityId: 'directory:tenant', isCustomEntity: false, acl })).toBe(false)
     expect(canReadEntityMetadata({ entityId: 'some_module:unmapped', isCustomEntity: false, acl })).toBe(false)
   })
+
+  test('preserves superadmin access to platform-only metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'directory:tenant',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: true, features: ['*'] },
+    })).toBe(true)
+  })
+
+  test('preserves superadmin access to unmapped system metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'some_module:unmapped',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: true, features: ['*'] },
+    })).toBe(true)
+  })
 })
 
 describe('assertEntityAclForRequest', () => {
