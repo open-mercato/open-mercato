@@ -1733,19 +1733,31 @@ export function DataTable<T>({
     })
   }, [table, mergedColumns])
 
-  const initialVisibilityApplied = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
+  // Columns carrying `meta.hidden` must start hidden. This used to run once, guarded by a
+  // boolean ref -- but custom-field definitions arrive asynchronously, so on the first render
+  // there are no `cf_*` columns yet: the loop found nothing, and the guard was raised anyway.
+  // Once the definitions landed the effect never ran again, leaving fields declared with
+  // `listVisible: false` visible in the table.
+  // The symptom looked random because it depended on cache state: a hard page load showed the
+  // hidden columns, while client-side navigation (definitions already cached) did not.
+  // Tracking the set of columns already auto-hidden fixes the race and keeps the original
+  // intent: each column is auto-hidden exactly once, so a column the user re-enables is not
+  // force-hidden again on a later pass. A stored perspective still wins outright.
+  const autoHiddenApplied = React.useRef<Set<string>>(new Set())
   React.useEffect(() => {
-    if (initialVisibilityApplied.current) return
+    if (mergedInitialSettings?.columnVisibility) return
     const hidden: VisibilityState = {}
     table.getAllLeafColumns().forEach((column) => {
       const hiddenMeta = (column.columnDef as any)?.meta?.hidden
-      if (hiddenMeta) hidden[column.id] = false
+      if (hiddenMeta && !autoHiddenApplied.current.has(column.id)) {
+        hidden[column.id] = false
+        autoHiddenApplied.current.add(column.id)
+      }
     })
     if (Object.keys(hidden).length) {
       setColumnVisibility((prev) => ({ ...hidden, ...prev }))
     }
-    initialVisibilityApplied.current = true
-  }, [table, mergedColumns])
+  }, [table, mergedColumns, mergedInitialSettings])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
     const visibility: Record<string, boolean> = {}
