@@ -30,10 +30,14 @@ function ensureBuilt() {
   buildComplete = true
 }
 
-test('build emits the customers fact-sheet and the combined module-facts.json (T5)', () => {
+test('build emits customers facts and the framework extension catalog (T5)', () => {
   ensureBuilt()
   assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
+  assert.ok(
+    fs.existsSync(join(guidesDir, 'framework-extension-points.md')),
+    'framework extension catalog should exist',
+  )
   const facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.json'), 'utf8'))
   assert.ok(facts.customers, 'module-facts.json should contain the customers entry')
   assert.equal(
@@ -67,6 +71,10 @@ test('build emits the customers fact-sheet and the combined module-facts.json (T
   assert.match(markdown, /## AI tools \/ MCP capabilities/)
   assert.match(markdown, /## AI agents/)
   assert.match(markdown, /\.\.\/\.\.\/\.\.\/node_modules\/@open-mercato\/core\/src\/modules\/customers/)
+
+  const frameworkMarkdown = fs.readFileSync(join(guidesDir, 'framework-extension-points.md'), 'utf8')
+  assert.match(frameworkMarkdown, /^# Framework extension points/m)
+  assert.match(frameworkMarkdown, /menu/i)
 })
 
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {

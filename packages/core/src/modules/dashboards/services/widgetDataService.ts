@@ -21,6 +21,7 @@ import {
   type AggregateFunction,
   type DateGranularity,
   buildAggregationQuery,
+  buildDistinctCurrencyQuery,
   buildGroupSourceRowsQuery,
   resolveGroupExpression,
 } from '../lib/aggregations'
@@ -33,6 +34,9 @@ import {
   parseExactDecimal,
 } from '../lib/exactDecimal'
 import type { AnalyticsRegistry } from './analyticsRegistry'
+import type { BaseCurrencyResolver } from '../lib/optionalBaseCurrency'
+
+const logger = createLogger('dashboards').child({ component: 'widget-data-service' })
 
 const WIDGET_DATA_CACHE_TTL = 120_000
 const WIDGET_DATA_SEGMENT_TTL = 86_400_000
@@ -46,8 +50,6 @@ const WIDGET_DATA_SEGMENT_KEY = 'widget-data:__segment__'
 const ENCRYPTED_GROUP_SCAN_LIMIT = 20_000
 
 const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
-
-const logger = createLogger('dashboards').child({ component: 'widget-data' })
 
 export class WidgetDataValidationError extends Error {
   constructor(message: string) {
@@ -213,6 +215,7 @@ export type WidgetDataResponse = {
   metadata: {
     fetchedAt: string
     recordCount: number
+    currency?: string | null
   }
 }
 
@@ -226,6 +229,7 @@ export type WidgetDataServiceOptions = {
   scope: WidgetDataScope
   registry: AnalyticsRegistry
   cache?: CacheStrategy
+  baseCurrencyResolver?: BaseCurrencyResolver
 }
 
 export class WidgetDataService {
@@ -233,12 +237,15 @@ export class WidgetDataService {
   private scope: WidgetDataScope
   private registry: AnalyticsRegistry
   private cache?: CacheStrategy
+  private baseCurrencyResolver?: BaseCurrencyResolver
+  private baseCurrencyPromise?: Promise<string | null>
 
   constructor(options: WidgetDataServiceOptions) {
     this.em = options.em
     this.scope = options.scope
     this.registry = options.registry
     this.cache = options.cache
+    this.baseCurrencyResolver = options.baseCurrencyResolver
   }
 
   private buildCacheKey(request: WidgetDataRequest): string {
@@ -278,11 +285,15 @@ export class WidgetDataService {
 
     const shouldFetchComparison = Boolean(comparisonRange && request.dateRange)
 
-    const [mainResult, comparisonResult] = await Promise.all([
+    const aggregatedRanges =
+      shouldFetchComparison && comparisonRange ? [dateRangeResolved, comparisonRange] : [dateRangeResolved]
+
+    const [mainResult, comparisonResult, currency] = await Promise.all([
       this.executeQuery(request, dateRangeResolved),
       shouldFetchComparison && comparisonRange
         ? this.executeQuery(request, comparisonRange)
         : Promise.resolve<{ value: number | null; data: WidgetDataItem[] } | undefined>(undefined),
+      this.resolveCurrencyLabel(request, aggregatedRanges),
     ])
 
     const response: WidgetDataResponse = {
@@ -291,6 +302,7 @@ export class WidgetDataService {
       metadata: {
         fetchedAt: now.toISOString(),
         recordCount: mainResult.data.length || (mainResult.value !== null ? 1 : 0),
+        currency,
       },
     }
 
@@ -317,6 +329,99 @@ export class WidgetDataService {
     }
 
     return response
+  }
+
+  /**
+   * Resolves the currency the response may be labelled with. The base currency of the
+   * scope is only half the answer: it describes how the organizations are configured, not
+   * what the aggregated rows are actually denominated in. A PLN-based organization holding
+   * both PLN and EUR orders would otherwise sum them and present the total as PLN (#4676),
+   * so the base currency survives only when every aggregated row carries exactly that code.
+   *
+   * The check is deliberately conservative — anything it cannot prove resolves to `null`
+   * and the widgets render an explicitly unlabelled number, which is recoverable, while a
+   * confident wrong label is not.
+   */
+  private async resolveCurrencyLabel(
+    request: WidgetDataRequest,
+    aggregatedRanges: Array<{ start: Date; end: Date } | undefined>,
+  ): Promise<string | null> {
+    const baseCurrency = await this.resolveBaseCurrency()
+    if (!baseCurrency) return null
+
+    try {
+      for (const range of aggregatedRanges) {
+        const uniform = await this.rowsShareCurrency(request, range, baseCurrency)
+        if (!uniform) return null
+      }
+      return baseCurrency
+    } catch (err) {
+      logger.warn('Row-currency uniformity check failed; leaving the amount unlabelled', {
+        err,
+        entityType: request.entityType,
+      })
+      return null
+    }
+  }
+
+  /**
+   * Reads the distinct per-row currencies of the rows one aggregation range would sum.
+   * Entities that declare no `currencyField` carry no per-row currency to contradict the
+   * base one, so they pass. An empty range has nothing to mislabel and also passes.
+   *
+   * A missing currency cannot prove the row uses the scope's base currency, so it fails
+   * closed just like a conflicting code. An empty range has no row to mislabel and passes.
+   */
+  private async rowsShareCurrency(
+    request: WidgetDataRequest,
+    dateRange: { start: Date; end: Date } | undefined,
+    expectedCode: string,
+  ): Promise<boolean> {
+    const query = buildDistinctCurrencyQuery({
+      entityType: request.entityType,
+      dateRange: dateRange && request.dateRange ? { field: request.dateRange.field, ...dateRange } : undefined,
+      filters: request.filters,
+      scope: this.scope,
+      registry: this.registry,
+    })
+
+    if (!query) return true
+
+    const rows = await this.em.getConnection().execute(query.sql, query.params)
+    const resultRows = (Array.isArray(rows) ? rows : []) as Array<Record<string, unknown>>
+
+    const recordedCodes = new Set<string>()
+    for (const row of resultRows) {
+      const code = typeof row.code === 'string' ? row.code.trim().toUpperCase() : ''
+      if (!code) return false
+      recordedCodes.add(code)
+    }
+
+    if (recordedCodes.size === 0) return true
+    if (recordedCodes.size > 1) return false
+    return recordedCodes.has(expectedCode)
+  }
+
+  /**
+   * Resolves the base currency of the current scope so money widgets can label amounts
+   * with the tenant's own currency instead of a hard-coded default (#4620). The lookup
+   * is soft: a scope spanning organizations with different base currencies, a missing
+   * base currency, or an unavailable currencies module all resolve to `null`, and the
+   * widgets then render unlabelled numbers rather than a wrong currency.
+   */
+  private resolveBaseCurrency(): Promise<string | null> {
+    if (!this.baseCurrencyPromise) {
+      const organizationIds = [...new Set(this.scope.organizationIds ?? [])]
+      if (!this.baseCurrencyResolver || organizationIds.length === 0) {
+        this.baseCurrencyPromise = Promise.resolve(null)
+      } else {
+        this.baseCurrencyPromise = this.baseCurrencyResolver
+          .resolveBaseCurrency({ tenantId: this.scope.tenantId, organizationIds })
+          .then((result) => result.status === 'resolved' ? result.code : null)
+          .catch(() => null)
+      }
+    }
+    return this.baseCurrencyPromise
   }
 
   private validateRequest(request: WidgetDataRequest): void {
@@ -824,6 +929,7 @@ export function createWidgetDataService(
   scope: WidgetDataScope,
   registry: AnalyticsRegistry,
   cache?: CacheStrategy,
+  baseCurrencyResolver?: BaseCurrencyResolver,
 ): WidgetDataService {
-  return new WidgetDataService({ em, scope, registry, cache })
+  return new WidgetDataService({ em, scope, registry, cache, baseCurrencyResolver })
 }

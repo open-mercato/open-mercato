@@ -224,6 +224,41 @@ function resolveTableName(config: EntityTypeConfig): string {
   return config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
 }
 
+export type BuildDistinctCurrencyQueryOptions = Pick<
+  BuildAggregationQueryOptions,
+  'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'
+>
+
+/**
+ * Builds the query that reads the distinct per-row currencies of the rows an aggregation
+ * would sum, over exactly the same tenant/organization scope, date range and filters.
+ * Returns `null` when the entity declares no `currencyField`, which means its amounts are
+ * not per-row denominated and there is nothing to verify (#4676).
+ */
+export function buildDistinctCurrencyQuery(
+  options: BuildDistinctCurrencyQueryOptions,
+): AggregationQuery | null {
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
+  if (!config?.currencyField) return null
+
+  const currencyMapping = registry.getFieldMapping(options.entityType, config.currencyField)
+  if (!currencyMapping || !isSafeIdentifier(currencyMapping.dbColumn)) return null
+
+  const where = buildWhereClause(options)
+  const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyMapping.dbColumn}), ''))`
+  const sql = [
+    `SELECT DISTINCT ${normalizedCurrencyExpression} AS code`,
+    `FROM ${resolveTableName(config)}`,
+    where.clause,
+    'LIMIT 2',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return { sql, params: where.params }
+}
+
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
   const { registry } = options
   const config = registry.getEntityTypeConfig(options.entityType)

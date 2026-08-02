@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/sales/extension-points";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
@@ -165,7 +166,7 @@ export function SalesDocumentItemsSection({
   );
 
   const { widgets: allColumnWidgets } = useInjectionDataWidgets(
-    "data-table:sales.order.items:columns",
+    extensionPoints.hosts.orderItemColumns.spotId,
   );
   const columnWidgets = kind === "order" ? allColumnWidgets : [];
   const injectedColumns = React.useMemo<InjectionColumnDefinition[]>(() => {

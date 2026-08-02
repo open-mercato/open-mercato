@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts'
 import {
   DateRangeSelect,
@@ -13,7 +13,8 @@ import {
 } from '@open-mercato/ui/backend/date-range'
 import { DEFAULT_SETTINGS, hydrateSettings, type AovKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencyWithDecimals } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'aov-kpi' })
@@ -43,11 +44,14 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [value, setValue] = React.useState<number | null>(null)
   const [trend, setTrend] = React.useState<KpiTrend | undefined>(undefined)
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency, '--', locale), [currency, locale])
 
   const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
@@ -57,6 +61,7 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
     try {
       const data = await fetchAovData(hydrated, fetchWidgetData)
       setValue(data.value)
+      setCurrency(data.metadata?.currency ?? null)
       if (data.comparison) {
         setTrend({
           value: data.comparison.change,
@@ -114,7 +119,8 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
       comparisonLabel={comparisonLabel}
       loading={loading}
       error={error}
-      formatValue={formatCurrencyWithDecimals}
+      formatValue={money.formatWithDecimals}
+      footer={<UnlabelledAmountNotice currency={currency} loading={loading} error={error} />}
       headerAction={
         <InlineDateRangeSelect
           value={hydrated.dateRange}

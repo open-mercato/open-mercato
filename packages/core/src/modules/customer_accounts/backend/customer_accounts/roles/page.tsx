@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customer_accounts/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -213,7 +214,7 @@ export default function CustomerRolesPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customer_accounts.admin.roles.searchPlaceholder', 'Search roles...')}
-          perspective={{ tableId: 'customer_accounts.admin.roles' }}
+          perspective={{ tableId: extensionPoints.hosts.rolesTable.tableId }}
           emptyState={(
             <ListEmptyState
               entityName={t('customer_accounts.admin.roles.title', 'Customer Roles')}
