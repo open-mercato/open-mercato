@@ -2,6 +2,8 @@
 
 `cases.json` is the 202-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
+UMES routing is fact-first. The additive and unified-override audit evaluations, plus their targeted cases, resolve exact/pattern hosts, outgoing contributions, correlation provenance, round-trip groups, framework-owned targets, and override domain/key/mode from the generated module sheets and `.ai/guides/framework-extension-points.md` before bounded installed source. The repository UMES umbrella spec may appear as optional source-checkout provenance; it is never required in a standalone scaffold.
+
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009

@@ -333,7 +333,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onCheckedChange={(v) => setMarketingConsent(v === true)}
                 />
                 <span>
-                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from CT Tornado by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
+                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from Open Mercato sp. z o.o. by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
                     .split(/{termsLink}|{privacyLink}/)
                     .map((part, i, arr) => (
                       <span key={i}>

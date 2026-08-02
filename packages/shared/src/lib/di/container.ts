@@ -224,9 +224,14 @@ export async function createRequestContainer(): Promise<AppContainer> {
       createCommandOptimisticLockGuardService(),
     ).scoped(),
   })
-  // Allow modules to override/extend
-  for (const reg of diRegistrars) {
-    try { reg?.(container) } catch {}
+  // Allow modules to override/extend. Fail-open by design (one broken module's
+  // di.ts must not take down every request container), but never silently: the
+  // module's services would otherwise vanish with no trace until an unrelated
+  // Awilix resolution error surfaces much later.
+  for (const [registrarIndex, reg] of diRegistrars.entries()) {
+    try { reg?.(container) } catch (error) {
+      logger.error('Module DI registrar failed', { registrarIndex, err: error })
+    }
   }
   // Core bootstrap (cache, event bus, encryption subscriber/KMS, module subscribers)
   // Phase 5 — process-scoped once-guard. The first request runs the full
