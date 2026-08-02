@@ -16,10 +16,14 @@ import type {
   ModuleExtensionTargetFact,
   ModuleExtensionUnresolvedFact,
 } from '@open-mercato/shared/modules/widgets/extension-points'
+import { scanModuleDir, SCAN_CONFIGS } from './scanner'
 
 type StaticScalar = string | number | boolean | null
 type StaticValue = StaticScalar | StaticValue[] | { [key: string]: StaticValue }
 type StaticObject = { [key: string]: StaticValue }
+type SpecializedRegistry = Extract<ModuleExtensionContributionFact, {
+  kind: 'specialized-registry'
+}>['details']['registry']
 
 export interface ExtensionFactEntityRef {
   id: string
@@ -350,6 +354,26 @@ function readRootObject(filePath: string, variableName: string): StaticObject | 
   if (!initializer) return null
   const value = staticValue(initializer, context)
   return isStaticObject(value) ? value : null
+}
+
+function readCallObjectArguments(filePath: string, calleeNames: ReadonlySet<string>): Array<{
+  callee: string
+  value: StaticObject
+}> {
+  const file = sourceFile(filePath)
+  if (!file) return []
+  const context = buildStaticContext(file)
+  const result: Array<{ callee: string; value: StaticObject }> = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && calleeNames.has(node.expression.text)) {
+      const firstArgument = node.arguments[0]
+      const value = firstArgument ? staticValue(firstArgument, context) : undefined
+      if (isStaticObject(value)) result.push({ callee: node.expression.text, value })
+    }
+    node.forEachChild(visit)
+  }
+  file.forEachChild(visit)
+  return result
 }
 
 function sortHosts(hosts: ModuleExtensionHostFact[]): ModuleExtensionHostFact[] {
@@ -936,6 +960,32 @@ function extractBrowserReactions(options: ExtractModuleExtensionFactsOptions): M
   })
 }
 
+function extractNotificationReactions(options: ExtractModuleExtensionFactsOptions): ModuleExtensionContributionFact[] {
+  return extractObjectConvention({
+    module: options,
+    relativePath: 'notifications.handlers.ts',
+    exportName: 'notificationHandlers',
+    build(entry, sourcePath, index) {
+      const notificationType = stringValue(entry.notificationType)
+      if (!notificationType) return null
+      const id = stringValue(entry.id) ?? `${options.moduleId}.notification-handler.${index}`
+      const contribution = contributionBase(id, sourcePath, 'notificationHandlers')
+      return {
+        ...contribution,
+        kind: 'browser-reaction',
+        targets: [target(notificationType, 'fact-ref')],
+        features: strings(entry.features),
+        placement: numberValue(entry.priority) !== undefined ? { priority: numberValue(entry.priority) } : undefined,
+        details: {
+          transports: ['notification-effect'],
+          hooks: ['useNotificationEffect'],
+          audienceScopeContract: 'tenant-organization-user-role-and-customer',
+        },
+      }
+    },
+  })
+}
+
 function extractComponentOverrides(options: ExtractModuleExtensionFactsOptions): ModuleExtensionContributionFact[] {
   return extractObjectConvention({
     module: options,
@@ -966,22 +1016,120 @@ function extractSpecializedRegistries(options: ExtractModuleExtensionFactsOption
   const facts: ModuleExtensionContributionFact[] = []
   const add = (
     id: string,
-    registry: 'notification' | 'search' | 'ai',
+    registry: SpecializedRegistry,
     sourcePath: string,
     specialistRoute: string,
+    symbol = id,
   ): void => {
-    const contribution = contributionBase(`${registry}:${id}`, sourcePath, id)
-    facts.push({
+    const contributionId = `${registry}:${id}`
+    const contribution = contributionBase(contributionId, sourcePath, id)
+    const fact: ModuleExtensionContributionFact = {
       ...contribution,
       kind: 'specialized-registry',
       targets: [target(id, 'fact-ref')],
+      source: { path: sourcePath, symbol },
       details: { registry, registryId: id, specialistRoute },
-    })
+    }
+    const existingIndex = facts.findIndex((entry) => entry.id === contributionId)
+    if (existingIndex >= 0) facts[existingIndex] = fact
+    else facts.push(fact)
   }
   for (const id of options.notifications ?? []) add(id, 'notification', path.posix.join(options.sourceRoot, 'notifications.ts'), 'notifications')
   for (const id of options.searchEntities) add(id, 'search', path.posix.join(options.sourceRoot, 'search.ts'), 'search')
   for (const tool of options.aiTools ?? []) add(tool.name, 'ai', tool.sourcePath, 'aiTools')
   for (const agent of options.aiAgents ?? []) add(agent.id, 'ai', agent.sourcePath, 'aiAgents')
+
+  const vectorPath = conventionPath(options.moduleRoot, 'vector.ts')
+  if (vectorPath) {
+    const vectorConfig = readRootObject(vectorPath, 'vectorConfig') ?? readRootObject(vectorPath, 'config')
+    const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, vectorPath)
+    if (vectorConfig && Array.isArray(vectorConfig.entities)) {
+      for (const entity of vectorConfig.entities) {
+        if (!isStaticObject(entity)) continue
+        const entityId = stringValue(entity.entityId)
+        if (entityId) add(entityId, 'vector', sourcePath, 'vector', 'vectorConfig')
+      }
+    }
+  }
+
+  const integrationPath = conventionPath(options.moduleRoot, 'integration.ts')
+  if (integrationPath) {
+    const integration = readRootObject(integrationPath, 'integration')
+    const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, integrationPath)
+    const integrationId = integration ? stringValue(integration.id) : undefined
+    if (integrationId) add(integrationId, 'integration', sourcePath, 'integrations', 'integration')
+    const providerKey = integration ? stringValue(integration.providerKey) : undefined
+    const category = integration ? stringValue(integration.category) : undefined
+    const categoryRegistry = category === 'payment' ? 'payment'
+      : category === 'shipping' ? 'shipping'
+        : category === 'currency' ? 'currency'
+          : null
+    if (providerKey && categoryRegistry) {
+      const specialistRoute = categoryRegistry === 'payment' ? 'paymentGateways'
+        : categoryRegistry === 'shipping' ? 'shippingCarriers'
+          : 'currencies'
+      add(providerKey, categoryRegistry, sourcePath, specialistRoute, 'integration.providerKey')
+    }
+  }
+
+  const workflowsPath = conventionPath(options.moduleRoot, 'workflows.ts')
+  if (workflowsPath) {
+    const config = readRootObject(workflowsPath, 'workflowsConfig')
+    const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, workflowsPath)
+    if (config && Array.isArray(config.workflows)) {
+      for (const workflow of config.workflows) {
+        if (!isStaticObject(workflow)) continue
+        const workflowId = stringValue(workflow.workflowId)
+        if (workflowId) add(workflowId, 'workflow', sourcePath, 'workflows', 'workflowsConfig')
+      }
+    }
+  }
+
+  const diPath = conventionPath(options.moduleRoot, 'di.ts')
+  if (diPath) {
+    const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, diPath)
+    const registrations = readCallObjectArguments(diPath, new Set([
+      'registerPaymentGatewayDescriptor',
+      'registerShippingAdapter',
+      'registerCurrencyProvider',
+    ]))
+    for (const registration of registrations) {
+      const registry = registration.callee === 'registerPaymentGatewayDescriptor' ? 'payment'
+        : registration.callee === 'registerShippingAdapter' ? 'shipping'
+          : 'currency'
+      const registryId = stringValue(registration.value.providerKey)
+        ?? stringValue(registration.value.key)
+        ?? stringValue(registration.value.id)
+      if (!registryId) continue
+      const specialistRoute = registry === 'payment' ? 'paymentGateways'
+        : registry === 'shipping' ? 'shippingCarriers'
+          : 'currencies'
+      add(registryId, registry, sourcePath, specialistRoute, registration.callee)
+    }
+  }
+
+  const dashboardRoots = { appBase: path.join(options.moduleRoot, '__app__'), pkgBase: options.moduleRoot }
+  for (const widgetFile of scanModuleDir(dashboardRoots, SCAN_CONFIGS.dashboardWidgets)) {
+    const filePath = path.join(options.moduleRoot, 'widgets', 'dashboard', widgetFile.relPath)
+    const widget = readRootObject(filePath, 'widget')
+    const metadata = widget && isStaticObject(widget.metadata) ? widget.metadata : null
+    if (!metadata) continue
+    const widgetId = stringValue(metadata.id)
+    if (!widgetId) continue
+    const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
+    const contribution = contributionBase(`dashboard:${widgetId}`, sourcePath, 'widget.metadata')
+    facts.push({
+      ...contribution,
+      kind: 'widget',
+      targets: [target(`dashboard:${widgetId}`)],
+      features: strings(metadata.features),
+      details: {
+        payload: 'dashboard',
+        registryKey: widgetId,
+        executionGuard: strings(metadata.features).length > 0 ? 'both' : 'host',
+      },
+    })
+  }
   return facts
 }
 
@@ -997,6 +1145,7 @@ export function extractModuleExtensionFacts(options: ExtractModuleExtensionFacts
     ...extractEntityExtensions(options),
     ...extractSubscribers(options),
     ...extractBrowserReactions(options),
+    ...extractNotificationReactions(options),
     ...extractComponentOverrides(options),
     ...extractSpecializedRegistries(options),
   ])

@@ -203,6 +203,72 @@ describe('module extension facts', () => {
     ])
   })
 
+  it('projects dashboard, notification, integration, vector, provider, and workflow registries', () => {
+    write(moduleRoot, 'notifications.handlers.ts', `
+      export const notificationHandlers = [{
+        id: 'alpha.alert-toast', notificationType: 'alpha.alert', features: ['alpha.view'], priority: 80,
+        handle() {},
+      }]
+    `)
+    write(moduleRoot, 'integration.ts', `
+      export const integration = { id: 'alpha_gateway', category: 'payment', providerKey: 'alpha-pay' }
+      export const integrations = [integration]
+    `)
+    write(moduleRoot, 'vector.ts', `
+      export const vectorConfig = { entities: [{ entityId: 'alpha:record' }] }
+      export default vectorConfig
+    `)
+    write(moduleRoot, 'workflows.ts', `
+      const approval = defineWorkflow({ workflowId: 'alpha.approval', steps: [], transitions: [] })
+      export const workflowsConfig = createWorkflowsModuleConfig({ moduleId: 'alpha', workflows: [approval] })
+    `)
+    write(moduleRoot, 'di.ts', `
+      export function register() {
+        registerPaymentGatewayDescriptor({ providerKey: 'alpha-pay', label: 'Alpha Pay' })
+        registerShippingAdapter({ providerKey: 'alpha-ship' })
+        registerCurrencyProvider({ id: 'alpha-rates' })
+      }
+    `)
+    write(moduleRoot, 'widgets/dashboard/summary/widget.ts', `
+      const widget = { metadata: { id: 'alpha.dashboard.summary', features: ['alpha.view'] }, Widget() {} }
+      export default widget
+    `)
+
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: ['alpha:record'],
+      notifications: ['alpha.alert'],
+      aiTools: [{ name: 'alpha_lookup', sourcePath: 'node_modules/pkg/src/modules/alpha/ai-tools.ts' }],
+      aiAgents: [{ id: 'alpha_agent', sourcePath: 'node_modules/pkg/src/modules/alpha/ai-agents.ts' }],
+    })
+
+    expect(facts.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'alpha.alert-toast',
+        kind: 'browser-reaction',
+        targets: [{ id: 'alpha.alert', resolution: 'fact-ref' }],
+        details: expect.objectContaining({ transports: ['notification-effect'], hooks: ['useNotificationEffect'] }),
+      }),
+      expect.objectContaining({ id: 'dashboard:alpha.dashboard.summary', kind: 'widget', details: expect.objectContaining({ payload: 'dashboard' }) }),
+      expect.objectContaining({ id: 'integration:alpha_gateway', details: expect.objectContaining({ specialistRoute: 'integrations' }) }),
+      expect.objectContaining({ id: 'notification:alpha.alert', details: expect.objectContaining({ registry: 'notification' }) }),
+      expect.objectContaining({ id: 'search:alpha:record', details: expect.objectContaining({ registry: 'search' }) }),
+      expect.objectContaining({ id: 'vector:alpha:record', details: expect.objectContaining({ registry: 'vector' }) }),
+      expect.objectContaining({ id: 'ai:alpha_lookup', details: expect.objectContaining({ specialistRoute: 'aiTools' }) }),
+      expect.objectContaining({ id: 'ai:alpha_agent', details: expect.objectContaining({ specialistRoute: 'aiAgents' }) }),
+      expect.objectContaining({ id: 'payment:alpha-pay', source: expect.objectContaining({ symbol: 'registerPaymentGatewayDescriptor' }) }),
+      expect.objectContaining({ id: 'shipping:alpha-ship', details: expect.objectContaining({ specialistRoute: 'shippingCarriers' }) }),
+      expect.objectContaining({ id: 'currency:alpha-rates', details: expect.objectContaining({ specialistRoute: 'currencies' }) }),
+      expect.objectContaining({ id: 'workflow:alpha.approval', details: expect.objectContaining({ specialistRoute: 'workflows' }) }),
+    ]))
+    expect(facts.contributions.filter((fact) => fact.id === 'payment:alpha-pay')).toHaveLength(1)
+  })
+
   it('reports declarations whose authoritative source no longer binds the host key', () => {
     write(moduleRoot, 'extension-points.ts', `
       export const extensionPoints = defineModuleExtensionPoints({
