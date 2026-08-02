@@ -92,6 +92,7 @@ describe('payment gateway webhook route security', () => {
     ;(getWebhookHandler as jest.Mock).mockReturnValue({
       handler,
       readSessionIdHint: jest.fn(),
+      maxBodyBytes: 1024 * 1024,
     })
     const request = new Request('http://localhost/api/payment_gateways/webhook/stripe', {
       method: 'POST',
@@ -104,6 +105,24 @@ describe('payment gateway webhook route security', () => {
     expect(response.status).toBe(413)
     expect(handler).not.toHaveBeenCalled()
     expect(findWithDecryption).not.toHaveBeenCalled()
+  })
+
+  test('preserves the legacy body reader when the provider does not opt into a limit', async () => {
+    ;(getWebhookHandler as jest.Mock).mockReturnValue({
+      handler: jest.fn(),
+      readSessionIdHint: jest.fn(() => null),
+    })
+    const request = new Request('http://localhost/api/payment_gateways/webhook/stripe', {
+      method: 'POST',
+      headers: { 'content-length': String(1024 * 1024 + 1) },
+      body: '{}',
+    })
+    const textSpy = jest.spyOn(request, 'text')
+
+    const response = await POST(request, { params: { provider: 'stripe' } })
+
+    expect(response.status).toBe(401)
+    expect(textSpy).toHaveBeenCalledTimes(1)
   })
 
   test('does not reflect verifier exception details to unauthenticated callers', async () => {

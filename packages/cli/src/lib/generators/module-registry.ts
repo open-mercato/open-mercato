@@ -224,6 +224,8 @@ type SerializableWorkerMetadata = {
   id?: string
   queue?: string
   concurrency?: number
+  lockDuration?: number
+  maxStalledCount?: number
 }
 
 type PageMetadataManifestLoadResult = {
@@ -1155,7 +1157,7 @@ function collectStringArrayElements(expr: ts.Expression, stringConstants: Map<st
   return values
 }
 
-function extractCommandIdsFromSource(sourcePath: string): string[] {
+export function extractCommandIdsFromSource(sourcePath: string): string[] {
   const sourceText = fs.readFileSync(sourcePath, 'utf8')
   const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const ids = new Set<string>()
@@ -1553,6 +1555,8 @@ function normalizeWorkerMetadata(raw: unknown): SerializableWorkerMetadata | nul
   if (typeof source.id === 'string' && source.id.length > 0) normalized.id = source.id
   if (typeof source.queue === 'string' && source.queue.length > 0) normalized.queue = source.queue
   if (typeof source.concurrency === 'number') normalized.concurrency = source.concurrency
+  if (typeof source.lockDuration === 'number') normalized.lockDuration = source.lockDuration
+  if (typeof source.maxStalledCount === 'number') normalized.maxStalledCount = source.maxStalledCount
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -2055,7 +2059,7 @@ function processWorkers(discovered: DiscoveredWorker[]): string[] {
   for (const { id, importPath, metadata } of discovered) {
     const workerId = metadata.id ?? id
     workers.push(
-      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
+      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}${metadata.lockDuration === undefined ? '' : `, lockDuration: ${toLiteral(metadata.lockDuration)}`}${metadata.maxStalledCount === undefined ? '' : `, maxStalledCount: ${toLiteral(metadata.maxStalledCount)}`}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
     )
   }
   return workers
@@ -2730,6 +2734,8 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
         { name: 'id', value: workerId },
         { name: 'queue', value: metadata.queue },
         { name: 'concurrency', value: metadata.concurrency ?? 1 },
+        ...(metadata.lockDuration === undefined ? [] : [{ name: 'lockDuration', value: metadata.lockDuration }]),
+        ...(metadata.maxStalledCount === undefined ? [] : [{ name: 'maxStalledCount', value: metadata.maxStalledCount }]),
         {
           name: 'handler',
           value: callExpression(identifier('createLazyModuleWorker'), [
@@ -3059,6 +3065,10 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       if (fields) fieldsImportName = fields.importName
     }
 
+    const integrationExports = integrationImportName
+      ? `(${integrationImportName} as unknown as { integrations?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]; integration?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition; bundles?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]; bundle?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle })`
+      : null
+
     // 13. Pages: backend
     {
       const beApp = path.join(roots.appBase, 'backend')
@@ -3167,8 +3177,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
     runtimeModuleDecls.push(`{
       id: ${toLiteral(modId)},
@@ -3185,8 +3195,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
   }
 

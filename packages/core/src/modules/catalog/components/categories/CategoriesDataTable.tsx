@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/catalog/extension-points'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -232,7 +233,7 @@ export default function CategoriesDataTable() {
           setPage(1)
         }}
         sortable={false}
-        perspective={{ tableId: 'catalog.categories.list' }}
+        perspective={{ tableId: extensionPoints.hosts.categoriesTable.tableId }}
         rowActions={(row) => (
           canManage ? (
             <RowActions

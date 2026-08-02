@@ -1412,9 +1412,9 @@ The initial rollout did not modify the `inbox_ops` webhook handler. The 2026-07-
 ### 2026-07-10 Request-Body Hardening
 
 - Existing webhook URLs, methods, signature inputs, success responses, and provider adapter contracts remain unchanged.
-- Oversized generic, payment, shipping, communication-channel, Gmail Pub/Sub, and InboxOps webhook requests add an early `413` response before verification or parsing.
+- Oversized generic, opt-in payment, shipping, communication-channel, Gmail Pub/Sub, and InboxOps webhook requests add an early `413` response before verification or parsing.
 - `readBoundedRequestBody`, `WebhookBodyTooLargeError`, and limit-resolution exports are additive shared-library contracts.
-- `OM_WEBHOOK_MAX_BODY_BYTES` defaults generic/provider routes to 1 MiB. InboxOps inherits it when configured, supports `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` as a source-specific override, and otherwise preserves its prior 2 MiB ceiling.
+- `OM_WEBHOOK_MAX_BODY_BYTES` defaults globally bounded routes to 1 MiB. Payment gateway registrations preserve legacy reads unless they opt into `maxBodyBytes`, following `.ai/specs/2026-08-01-payment-gateway-webhook-body-limits.md`. InboxOps inherits the global value when configured, supports `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` as a source-specific override, and otherwise preserves its prior 2 MiB ceiling.
 - This is a deliberate additive security response; no deprecation bridge or data migration is required.
 
 ---

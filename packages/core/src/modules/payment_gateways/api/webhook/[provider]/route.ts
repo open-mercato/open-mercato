@@ -45,7 +45,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
   let rawBody: string
   try {
-    rawBody = await readBoundedRequestBody(req)
+    rawBody = registration.maxBodyBytes === undefined
+      ? await req.text()
+      : await readBoundedRequestBody(req, { maxBytes: registration.maxBodyBytes })
   } catch (error) {
     if (error instanceof WebhookBodyTooLargeError) {
       return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 })
