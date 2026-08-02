@@ -105,7 +105,7 @@ cross-org read (TC-NOTIF-007) and the stale-negative list that outlives TC-WMS-0
 
 ### Phase 6: DataTable column-width session scoping
 
-- [x] 6.1 Establish the root cause of TC-CRM-087 and land the fix — ba0e82436 (purge anchored to the rendered identity, not the login form's client handler)
+- [x] 6.1 Establish the root cause of TC-CRM-087 and land the fix — ba0e82436 + 9f5290bcf (purge anchored to the rendered identity, including a one-time cleanup of unmarked legacy browser state)
 
 ### Phase 7: Catalog SEO helper i18n save-block
 
