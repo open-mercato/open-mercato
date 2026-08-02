@@ -89,4 +89,4 @@ PR: #4810
 - [x] 4.2 Expand OMH-088/OMH-089 and targeted harness cases. — 0d62b3a07
 - [x] 4.3 Add optional UMES spec provenance coverage. — 0d62b3a07
 - [x] 4.4 Add optional UMES guidance links. — 0d62b3a07
-- [ ] 4.5 Update contracts/docs and pass focused/full validation.
+- [x] 4.5 Update contracts/docs and pass focused/full validation. — d39d8ed0d
