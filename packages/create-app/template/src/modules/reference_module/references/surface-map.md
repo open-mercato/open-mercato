@@ -37,17 +37,32 @@ The registry source exists, but no built-in preset contains an entry for `refere
 
 The stable source-only entity bridge lives in [entity-id.ts](../data/entity-id.ts). The module remains disabled; role grants apply during initial setup only after activation, and existing roles require `yarn mercato auth sync-role-acls` after ACL changes.
 
+## Implemented guarded workflow
+
+| Capabilities | Exact source |
+|---|---|
+| `api.crud-factory`, `api.openapi`, `api.query-engine` | [task route](../api/tasks/route.ts) |
+| `api.interceptors` | [API interceptors](../api/interceptors.ts) |
+| `commands.write`, `commands.undo`, `commands.optimistic-lock` | [task commands](../commands/tasks.ts) |
+| `commands.interceptors` | [command interceptors](../commands/interceptors.ts) |
+| `guards.mutation` | [mutation guards](../data/guards.ts) |
+| `enrichers.response`, `query.enrichment` | [batched due-state enricher](../data/enrichers.ts) |
+| `events.typed` | [events.ts](../events.ts) |
+| `search.index` | [search.ts](../search.ts) |
+
+The CRUD factory owns scoped list/create/update/delete calls. Detail, restore, and link routes reuse the same command IDs, registry guards, version headers, and safe operation metadata; optional host lookups use only Query Engine IDs and encrypted display snapshots.
+
 ## Planned local reference coverage
 
 The following IDs are frozen and use `coverageKind: reference`, but their rollout is `planned`. Their exact future file paths and single owners are recorded in the [inventory](./surface-inventory.json). The paths do not exist yet; later steps must replace `planned` with `implemented` only when real code and a caller/test land.
 
 ### APIs, commands, guards, and enrichment
 
-`api.crud-factory`, `api.openapi`, `api.query-engine`, `api.import`, `api.export`, `api.interceptors`, `commands.write`, `commands.undo`, `commands.interceptors`, `commands.optimistic-lock`, `guards.mutation`, `enrichers.response`, `query.enrichment`
+`api.import`, `api.export`
 
 ### Events, search, cache, queues, and notifications
 
-`events.typed`, `events.subscriber`, `events.dom-bridge`, `search.index`, `cache.read`, `cache.invalidation`, `queue.worker`, `progress.job`, `notifications.type`, `notifications.renderer`, `notifications.handler`
+`events.subscriber`, `events.dom-bridge`, `cache.read`, `cache.invalidation`, `queue.worker`, `progress.job`, `notifications.type`, `notifications.renderer`, `notifications.handler`
 
 ### Backend UI and extension hosts
 

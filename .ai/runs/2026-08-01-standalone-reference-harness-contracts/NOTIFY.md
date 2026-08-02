@@ -76,3 +76,8 @@
 
 - Delegation: added the tenant/organization-scoped task, polymorphic link, and finite undo-snapshot foundations with strict validators, custom-field and extension metadata, encryption maps, ACL/default-grant setup, idempotent seeds, migration/snapshot, DI, and CLI registration; 7/7 focused reference tests and both create-app and scoped template typechecks passed.
 - Environment: targeted ESLint could not start because the linked dependency state lacks `eslint-config-next/core-web-vitals`; no lint finding was emitted, and the configured full gate remains responsible for retrying lint after dependencies are restored.
+
+## 2026-08-02T16:52:01Z — Step 4.3 complete
+
+- Delegation: added fail-closed CRUD and link routes, command-backed writes, mutation and command/API guards, optimistic locking, finite one-use undo snapshots, typed events, safe search indexing, scoped OpenAPI, Query Engine filtering, and batched time-sensitive enrichers; 11/11 focused reference tests and create-app typecheck passed, with zero `reference_module` diagnostics in the template-wide compiler output.
+- Environment: the template-wide compiler still reports pre-existing generated-registry, classic-example, and test-global diagnostics outside `reference_module`; targeted ESLint remains unavailable because the linked dependency state lacks `eslint-config-next/core-web-vitals`, so the configured full gate must retry lint after dependencies are restored.

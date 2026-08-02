@@ -22,7 +22,7 @@ This directory is the canonical local teaching module for standalone Open Mercat
 
 ## Rollout state
 
-The [metadata shell](./index.ts), [scoped data model](./data/entities.ts), ACL/setup, migration/snapshot, DI, CLI, inventory, and source-present/registration-absent contract are implemented. Entries still marked `planned` in the inventory name exact files that later implementation phases will add. They are not claims of current local coverage, and there are no empty discovery placeholders.
+The [metadata shell](./index.ts), [scoped data model](./data/entities.ts), ACL/setup, migration/snapshot, DI, CLI, [guarded CRUD and commands](./commands/tasks.ts), [typed events](./events.ts), [search](./search.ts), interceptors, guards, and batched enrichment are implemented. Entries still marked `planned` in the inventory name exact files that later implementation phases will add. They are not claims of current local coverage, and there are no empty discovery placeholders.
 
 ## Copy and enable deliberately
 
