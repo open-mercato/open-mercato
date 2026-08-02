@@ -219,7 +219,9 @@ export class OtlpProvider implements TelemetryProvider {
       // spans sample at the configured ratio.
       sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(env.samplingRatio) }),
       spanProcessors: this.options.spanProcessors ?? [new BatchSpanProcessor(new OTLPTraceExporter())],
-      logRecordProcessors: this.options.logRecordProcessors ?? [new BatchLogRecordProcessor(new OTLPLogExporter())],
+      logRecordProcessors: this.options.logRecordProcessors ?? [
+        new BatchLogRecordProcessor({ exporter: new OTLPLogExporter() }),
+      ],
       metricReaders: this.options.metricReaders ?? [
         new PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() }),
       ],

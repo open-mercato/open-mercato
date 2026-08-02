@@ -39,7 +39,7 @@ beforeAll(async () => {
   resetTelemetryEnvCache()
   provider = new OtlpProvider({
     spanProcessors: [new SimpleSpanProcessor(spanExporter)],
-    logRecordProcessors: [new SimpleLogRecordProcessor(logExporter)],
+    logRecordProcessors: [new SimpleLogRecordProcessor({ exporter: logExporter })],
     metricReaders: [metricReader],
     instrumentations: [], // pure facade behaviour — pg/undici patching is OTEL's own code
   })
