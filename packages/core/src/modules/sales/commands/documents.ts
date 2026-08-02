@@ -7066,6 +7066,14 @@ const orderLineDeleteCommand: CommandHandler<
           "Document not found or inaccessible.",
         ));
     }
+    if (filtered.length === 0) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          "sales.documents.items.errorDeleteLast",
+          "An order must contain at least one line item.",
+        ),
+      });
+    }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapOrderLineEntityToSnapshot(line),
       statusEntryId: line.statusEntryId ?? null,

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/sales/extension-points";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
@@ -165,7 +166,7 @@ export function SalesDocumentItemsSection({
   );
 
   const { widgets: allColumnWidgets } = useInjectionDataWidgets(
-    "data-table:sales.order.items:columns",
+    extensionPoints.hosts.orderItemColumns.spotId,
   );
   const columnWidgets = kind === "order" ? allColumnWidgets : [];
   const injectedColumns = React.useMemo<InjectionColumnDefinition[]>(() => {
@@ -833,6 +834,7 @@ export function SalesDocumentItemsSection({
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
+                          aria-label={t('ui.actions.edit', 'Edit')}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleEdit(item);
@@ -840,17 +842,25 @@ export function SalesDocumentItemsSection({
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDelete(item);
-                          }}
+                        <span
+                          title={kind === 'order' && items.length === 1
+                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                            : undefined}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            aria-label={t('ui.actions.delete', 'Delete')}
+                            disabled={kind === 'order' && items.length === 1}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDelete(item);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </span>
                       </div>
                     </td>
                   </tr>
