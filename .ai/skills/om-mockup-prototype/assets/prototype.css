@@ -1,25 +1,20 @@
-/* Warstwa interaktywna nad mockupami: tryb klikalny + tryb komentarzy.
-   Trzyma się tokenów DS, żeby narzędzia recenzenta nie wyglądały jak obcy element. */
+/* Interactive prototype controls use the same tokens as the rendered screens. */
 
-/* ── Tryb klikalny ──────────────────────────────────────────────── */
-/* Hotspot = element z data-goto="<id-ekranu>" */
+/* Click-through mode */
 .proto-click [data-goto] { cursor: pointer; }
 .proto-click [data-goto]:hover {
   outline: 2px solid var(--accent-indigo);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
-/* Podpowiedź: pokaż wszystkie klikalne miejsca naraz */
 .proto-hints [data-goto] {
   outline: 2px dashed color-mix(in srgb, var(--accent-indigo) 60%, transparent);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
-/* Element bez przejścia — sygnał, że w prototypie to jeszcze nie działa */
 .proto-hints .frame button:not([data-goto]),
 .proto-hints .frame a:not([data-goto]) { opacity: 0.55; }
 
-/* Błysk po wejściu na ekran — potwierdza, że nawigacja zadziałała */
 @keyframes proto-flash {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-indigo) 55%, transparent); }
   100% { box-shadow: 0 0 0 0.75rem transparent; }
@@ -27,7 +22,7 @@
 .screen.proto-arrived .frame { animation: proto-flash 600ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .screen.proto-arrived .frame { animation: none; } }
 
-/* ── Tryb prezentacji: jeden ekran naraz, bez chrome'u dokumentu ─── */
+/* Presentation mode */
 body.proto-focus .doc-head,
 body.proto-focus .screen-meta,
 body.proto-focus .notes { display: none; }
@@ -42,32 +37,34 @@ body.proto-focus .frame { box-shadow: none; border: 0; }
 }
 body.proto-focus .proto-back { display: inline-flex; }
 
-/* ── Tryb komentarzy ────────────────────────────────────────────── */
+/* Comment mode */
 .proto-comment .frame * { cursor: crosshair; }
 .proto-comment .frame *:hover { outline: 2px solid var(--accent-indigo); outline-offset: 1px; }
 .anno-target-active { outline: 2px solid var(--accent-indigo) !important; outline-offset: 1px; }
 
-/* ── Pinezka ────────────────────────────────────────────────────── */
-.anno-host { position: relative; }
+/* Pins live in a separate frame overlay, never inside interactive targets. */
+.frame { position: relative; }
+.anno-pin-layer {
+  position: absolute; inset: 0; z-index: var(--z-index-dropdown);
+  pointer-events: none;
+}
 .anno-pin {
-  position: absolute; top: -0.5rem; right: -0.5rem;
-  z-index: var(--z-index-dropdown);
+  position: absolute;
   min-width: 1.25rem; height: 1.25rem; padding: 0 0.25rem;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 9999px; cursor: pointer;
+  border: 0; border-radius: 9999px; cursor: pointer; pointer-events: auto;
   background: var(--accent-indigo); color: var(--accent-indigo-foreground);
   font-family: var(--font-geist-sans); font-size: 0.6875rem; font-weight: 700;
   box-shadow: var(--shadow-sm);
 }
 .anno-pin:hover { filter: brightness(1.1); }
 .anno-pin.resolved { background: var(--status-success-icon); }
-.anno-pin.unsaved { background: var(--status-warning-icon); color: #fff; }
+.anno-pin.unsaved { background: var(--status-warning-icon); color: var(--background); }
 .anno-hidden .anno-pin { display: none; }
 
-/* ── Panel wątków ───────────────────────────────────────────────── */
+/* Review panel */
 .anno-panel {
   position: fixed; top: 0; right: 0; bottom: 0; width: 24rem; max-width: 92vw;
-  /* Ponad wszystkim w mockupie — także ponad pływającymi paskami akcji wewnątrz ramki. */
   z-index: var(--z-index-top);
   background: var(--background); border-left: 1px solid var(--border);
   box-shadow: var(--shadow-xl);
@@ -75,8 +72,6 @@ body.proto-focus .proto-back { display: inline-flex; }
 }
 .anno-panel.open { display: flex; }
 
-/* Dokument zwęża się zamiast chować pod panelem — inaczej recenzent
-   komentuje element, którego nie widzi. */
 @media (min-width: 64rem) {
   body.anno-open { padding-right: 24rem; }
   body.anno-open .doc-toolbar { padding-right: calc(1.5rem + 24rem); }
@@ -125,7 +120,6 @@ body.proto-focus .proto-back { display: inline-flex; }
   background: color-mix(in oklab, var(--muted) 30%, transparent);
 }
 
-/* Wątki, których kotwica zniknęła po edycji mockupu — nigdy nie znikają po cichu */
 .anno-orphans {
   border: 1px solid var(--status-warning-border); background: var(--status-warning-bg);
   color: var(--status-warning-text); border-radius: var(--radius-lg); padding: 0.75rem;
@@ -139,7 +133,7 @@ body.proto-focus .proto-back { display: inline-flex; }
   border-radius: var(--radius-md); padding: 0.5rem 0.75rem;
 }
 
-/* ── Pasek narzędzi ─────────────────────────────────────────────── */
+/* Toolbar */
 .proto-toolbar { display: flex; align-items: center; gap: 0.375rem; margin-left: auto; }
 .anno-count {
   display: inline-flex; align-items: center; justify-content: center;
@@ -148,4 +142,8 @@ body.proto-focus .proto-back { display: inline-flex; }
   font-size: 0.625rem; font-weight: 700;
 }
 
-@media print { .anno-panel, .anno-pin, .doc-toolbar, .proto-back { display: none !important; } }
+.proto-toast {
+  position: fixed; right: 1rem; bottom: 1rem; z-index: var(--z-index-toast);
+}
+
+@media print { .anno-panel, .anno-pin-layer, .doc-toolbar, .proto-back { display: none !important; } }

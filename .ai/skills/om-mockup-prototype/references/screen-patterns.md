@@ -1,17 +1,12 @@
-# Anatomia ekranów backendu — ściąga dla prototypów
+# Backend screen anatomy for prototypes
 
-Struktury wyprowadzone z realnych komponentów (`packages/ui/src/backend/`, moduł `customers`).
-Kopiuj stąd zamiast zgadywać — prototyp, który różni się układem od produkcji, wprowadza
-recenzentów w błąd i generuje uwagi do rzeczy, które i tak wyglądają inaczej.
+These structures come from the real backend components under `packages/ui/src/backend/`, using `customers` as the reference module. Copy them instead of guessing. A prototype that differs from production layout misleads reviewers.
 
-Odpowiedniki tych struktur w czystym CSS są już w `components.css` / `screens.css` szablonu.
-Ta ściąga tłumaczy **dlaczego** tak, i co łatwo pomylić.
+The template implements these structures in `components.css` and `screens.css`. This reference explains the important details and common mistakes.
 
----
+## Application shell — `AppShell.tsx`
 
-## Powłoka aplikacji — `AppShell.tsx`
-
-```
+```text
 grid lg:grid-cols-[240px_1fr]   (collapsed: [80px_1fr])
 ├── aside   border-r py-4 px-3
 └── div     flex min-h-svh flex-col
@@ -20,134 +15,116 @@ grid lg:grid-cols-[240px_1fr]   (collapsed: [80px_1fr])
     └── footer  border-t px-4 py-3 flex justify-end gap-4
 ```
 
-**Cztery pułapki, na które łatwo się nabrać:**
+Four easy mistakes:
 
-1. **Breadcrumby są w topbarze, nie w treści strony.** `PageHeader` ich nie zawiera — trafiają tam przez `ApplyBreadcrumb` lub manifest trasy. Pierwszy element to zawsze ikona domu linkująca do `/backend`.
-2. **Pasek aktywnej pozycji nawigacji wychodzi poza padding.** `<span class="absolute left-[-12px] top-2 w-1 h-5 rounded-r bg-foreground">`, a kontener ma `-ml-3 pl-3`, żeby było to możliwe. Bez tego aktywna pozycja wygląda inaczej niż w produkcji.
-3. **Nagłówek grupy w nawigacji to `text-xs font-medium uppercase tracking-wider text-muted-foreground/70`** — nie `text-overline`.
-4. **Sidebar ma własną wyszukiwarkę** pod logo (SearchInput `h-9`), niezależną od tej w topbarze.
+1. Breadcrumbs belong in the top bar, not the page body. `PageHeader` does not contain them; `ApplyBreadcrumb` or the route manifest supplies them. The first item is a home icon linking to `/backend`.
+2. The active-navigation rail extends outside the padding. Its span uses `absolute left-[-12px] top-2 w-1 h-5 rounded-r bg-foreground`, while the container uses `-ml-3 pl-3`.
+3. A navigation-group heading uses `text-xs font-medium uppercase tracking-wider text-muted-foreground/70`, not `text-overline`.
+4. The sidebar has its own `h-9` SearchInput below the logo, independent of global search in the top bar.
 
-Logo: 40×40 `rounded-full` + nazwa, w bloku `p-3 rounded-xl hover:bg-muted`.
+The logo is a 40×40 `rounded-full` mark plus the name inside `p-3 rounded-xl hover:bg-muted`.
 
-Prawa strona topbara, w tej kolejności: status badges → akcje wstrzykiwane → AI dot → wyszukiwarka globalna → przełącznik organizacji → integracje → ustawienia → wiadomości → dzwonek → profil.
+Top-bar right-side order: status badges → injected actions → AI dot → global search → organization switcher → integrations → settings → messages → bell → profile.
 
----
+## Page scaffolding — `Page.tsx`
 
-## Scaffolding strony — `Page.tsx`
-
-```
+```text
 Page       → div.space-y-6
 PageHeader → flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between
              h1.text-xl.sm:text-2xl.font-semibold.leading-tight
              p.text-sm.text-muted-foreground.mt-1
-             div.flex.flex-wrap.items-center.gap-2   ← akcje
+             div.flex.flex-wrap.items-center.gap-2
 PageBody   → div.space-y-4
 ```
 
-**Tytuł strony jest `font-semibold`, nie `font-bold`.** To najczęstszy błąd przy odtwarzaniu z pamięci.
+The page title uses `font-semibold`, not `font-bold`.
 
----
+## DataTable list layout
 
-## DataTable — układ listy
+On list pages, the title and primary action belong in the table-card header rather than `PageHeader`.
 
-Kluczowe: **na stronach listowych tytuł i akcja główna są w nagłówku karty tabeli, a nie w `PageHeader`.**
-
-```
+```text
 div.rounded-lg.border.bg-card
-├── div.px-4.py-3.border-b                     ← nagłówek
+├── div.px-4.py-3.border-b
 │   ├── flex sm:items-center sm:justify-between
-│   │   ├── h2.text-base.font-semibold          ← tytuł listy
-│   │   └── flex.gap-2                          ← odśwież, kolumny, eksport, [Nowy]
-│   └── div.mt-3.pt-3.border-t                  ← pasek narzędzi
-│       ├── SearchInput (w-72 / w-80) + [Filtry n] + przełącznik widoku
-│       └── pasek zaznaczenia: "3 zaznaczone" + akcje masowe
-├── div.px-4.py-2.border-b                      ← chipy aktywnych filtrów
+│   │   ├── h2.text-base.font-semibold
+│   │   └── flex.gap-2
+│   └── div.mt-3.pt-3.border-t
+│       ├── SearchInput (w-72 / w-80) + filters + view switcher
+│       └── selection count + bulk actions
+├── div.px-4.py-2.border-b
 ├── table
-└── div.px-4.py-3.border-t                      ← stopka paginacji
+└── div.px-4.py-3.border-t
 ```
 
-Tabela (`primitives/table.tsx`):
-- `thead` → `bg-muted/40`
-- `th` → `px-4 py-2 text-left font-medium text-muted-foreground whitespace-nowrap`
-- `td` → `px-4 py-2`
-- wiersz → `border-b last:border-b-0`, hover `bg-muted/30`
-- kolumna zaznaczenia `w-8`; kolumna akcji `w-0 text-right`
-- checkbox używa `--accent-indigo` (`#6366f1`), **nie** `--primary`
+Table details from `primitives/table.tsx`:
 
-Paginacja: tekst „Showing 1 to 25 of 312 results" (`tabular-nums`), przyciski stron `size-8 rounded-lg`, aktywna `bg-muted`, select rozmiaru strony po prawej.
+- `thead` uses `bg-muted/40`.
+- `th` uses `px-4 py-2 text-left font-medium text-muted-foreground whitespace-nowrap`.
+- `td` uses `px-4 py-2`.
+- Rows use `border-b last:border-b-0` and `bg-muted/30` on hover.
+- The selection column is `w-8`; the action column is `w-0 text-right`.
+- Checkboxes use `--accent-indigo`, not `--primary`.
 
-**Akcje masowe w DataTable są w pasku narzędzi (inline), nie w pływającym pasku.** Pływający ciemny pasek to wzorzec pipeline'u (niżej) — pomylenie ich sprawia, że prototyp obiecuje inny wzorzec interakcji.
+Pagination copy follows “Showing 1 to 25 of 312 results” with `tabular-nums`. Page buttons use `size-8 rounded-lg`, the active page uses `bg-muted`, and the page-size select sits on the right.
 
----
+DataTable bulk actions stay inline in the toolbar. The floating dark action bar belongs to the pipeline pattern, not DataTable.
 
 ## CrudForm
 
-Układ zgrupowany:
-```
+```text
 form
 └── div.grid.grid-cols-1.lg:grid-cols-[7fr_3fr].gap-4
-    ├── div.space-y-3   ← karty grup
-    └── div.space-y-3   ← panel boczny
+    ├── div.space-y-3
+    └── div.space-y-3
 ```
 
-Karta grupy: `rounded-lg border bg-card px-4 py-3 space-y-3`, tytuł `text-sm font-medium`.
+A group card uses `rounded-lg border bg-card px-4 py-3 space-y-3`; its title uses `text-sm font-medium`.
 
-`FormHeader` (tryb edycji): `← Wstecz` + tytuł po lewej, akcje po prawej.
+In edit mode, `FormHeader` puts Back and the title on the left and actions on the right.
 
-**Kolejność przycisków w stopce jest ustalona:** akcje dodatkowe → **Usuń** → **Anuluj** → **Zapisz**.
-Zapisz to `Button type="submit"` z ikoną `Save`; w trakcie zapisu ikona zmienia się na `Loader2 animate-spin`, a etykieta na „Zapisywanie…".
+Footer order is fixed: additional actions → Delete → Cancel → Save. Save is a submit button with a Save icon; while saving, use `Loader2 animate-spin` and “Saving…”. Delete uses `destructive-outline`, not full `destructive`.
 
-Usuń: `variant="destructive-outline"`, nie pełne `destructive`.
+## Kanban — deals-pipeline pattern
 
----
+Source: `customers/backend/customers/deals/pipeline/components/`.
 
-## Kanban — wzorzec z pipeline'u deali
-
-Źródło: `customers/backend/customers/deals/pipeline/components/`.
-
-Lane:
-```
+```text
 div.flex.flex-none.flex-col.gap-3
-├── div.rounded-lg.bg-muted/40.px-4.py-3.5      ← nagłówek jako karta
-│   ├── div.h-1.5.w-full.rounded-sm             ← pasek akcentu etapu
+├── div.rounded-lg.bg-muted/40.px-4.py-3.5
+│   ├── div.h-1.5.w-full.rounded-sm
 │   └── flex.justify-between
-│       ├── NAZWA (text-sm font-bold uppercase) + pigułka licznika
-│       └── suma etapu (text-sm font-bold)
-├── button (dodaj kartę)
-└── div.min-h-[40vh].rounded-lg.p-1.5           ← strefa zrzutu
+│       ├── NAME (text-sm font-bold uppercase) + count badge
+│       └── stage total (text-sm font-bold)
+├── button
+└── div.min-h-[40vh].rounded-lg.p-1.5
 ```
 
-Karta: `rounded-lg border bg-card px-4 py-3.5 shadow-xs`, tytuł `text-base font-semibold line-clamp-2`,
-chipy `rounded-md px-2.5 py-1 text-xs font-semibold` na tokenach `status-*`,
-akcje szybkie ujawniane na hover (`opacity-0 group-hover:opacity-100`) — ale **zawsze widoczne na dotyku i przy focusie**.
+A card uses `rounded-lg border bg-card px-4 py-3.5 shadow-xs`; its title uses `text-base font-semibold line-clamp-2`. Chips use `rounded-md px-2.5 py-1 text-xs font-semibold` with `status-*` tokens. Quick actions may reveal on hover, but must remain visible for touch and keyboard focus.
 
-Pływający pasek akcji masowych: `fixed bottom-6 left-1/2 -translate-x-1/2 bg-foreground text-background rounded-lg shadow-xl`.
+The pipeline bulk-action bar uses `fixed bottom-6 left-1/2 -translate-x-1/2 bg-foreground text-background rounded-lg shadow-xl`.
 
----
+## Tokens and scale
 
-## Tokeny i skale (nie improwizuj)
-
-| Kontrolka | Wysokość |
+| Control | Height |
 |---|---|
-| Button default | `h-9 px-4 py-2` (z ikoną `px-3`) |
-| Button sm | `h-8 px-3` |
-| Button icon | `size-9` |
+| Default button | `h-9 px-4 py-2` (`px-3` with an icon) |
+| Small button | `h-8 px-3` |
+| Icon button | `size-9` |
 | Input / SearchInput | `h-9 px-3` |
-| Topbar | 61px |
+| Top bar | 61px |
 
-Promienie: `--radius: 0.625rem` → sm 6px, md 8px, lg 10px, xl 16px.
+Radius base: `--radius: 0.625rem`, producing 6px small, 8px medium, 10px large, and 16px extra-large radii.
 
-Kolory: **wyłącznie tokeny semantyczne.** Statusy przez `status-{error|success|warning|info|neutral|pink}-{bg|text|border|icon}`, nigdy `text-red-*`. Wykresy przez `chart-*`. Bez nadpisań `dark:` — tokeny same się przełączają.
+Use semantic colors only. Express statuses with `status-{error|success|warning|info|neutral|pink}-{bg|text|border|icon}`, never hardcoded Tailwind shades. Use `chart-*` tokens for charts. Do not add `dark:` overrides because the semantic tokens already switch themes.
 
-Pełne zasady: `.ai/ds-rules.md`, komponenty: `.ai/ui-components.md`.
+Full rules: `.ai/ds-rules.md`; component reference: `.ai/ui-components.md`.
 
----
+## Deliberate prototype differences
 
-## Czego prototyp nie odwzorowuje (i trzeba to powiedzieć wprost)
+Static HTML has two deliberate differences from production:
 
-Dwa świadome odstępstwa, bo to statyczny HTML bez builda:
+- Icons use an embedded Lucide SVG sprite rather than `lucide-react` imports.
+- Text is hardcoded rather than passed through `useT()`.
 
-- **Ikony** to wklejony sprite SVG z lucide, a nie importy `lucide-react`.
-- **Teksty** są zaszyte, a nie przepuszczone przez `useT()`.
-
-Oba są niedopuszczalne w kodzie produkcyjnym. Zapisz to w README prototypu, żeby nikt nie potraktował makiety jako wzorca do skopiowania.
+Both patterns are forbidden in production code. Record the differences in the generated README so nobody treats prototype markup as implementation guidance.

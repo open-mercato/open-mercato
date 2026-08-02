@@ -1,160 +1,183 @@
 #!/usr/bin/env node
-/**
- * Generuje tokens.css dla mockupu na podstawie apps/mercato/src/app/globals.css.
- *
- * Mockupy są statycznym HTML-em, więc nie mogą importować Tailwinda — token muszą
- * być skopiowane. Kopiowanie ręczne cicho się rozjeżdża przy każdej zmianie
- * design systemu, dlatego ten skrypt jest jedynym sposobem na wygenerowanie
- * tokens.css. Uruchamiaj go ponownie, gdy globals.css się zmieni.
- *
- * Użycie:
- *   node .ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs <katalog-mockupu>
- *   node .ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs --check <katalog-mockupu>
- *
- * --check nic nie zapisuje, tylko zwraca kod 1, gdy plik jest nieaktualny.
- */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const REPO_ROOT = resolve(new URL('../../../..', import.meta.url).pathname)
-const GLOBALS = join(REPO_ROOT, 'apps/mercato/src/app/globals.css')
-
-/** Prefiksy z @theme inline, które mockup faktycznie wykorzystuje. */
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
+const SKILL_DIR = resolve(SCRIPT_DIR, '..')
+const REPO_ROOT = resolve(SKILL_DIR, '../../..')
+const PROTOTYPES_ROOT = join(REPO_ROOT, '.ai/prototypes')
+const GLOBALS_PATH = join(REPO_ROOT, 'apps/mercato/src/app/globals.css')
+const ASSETS_DIR = join(SKILL_DIR, 'assets')
 const THEME_PREFIXES = ['--shadow-', '--z-index-', '--radius-', '--font-size-']
+const BUNDLED_STYLESHEETS = ['components.css', 'screens.css', 'prototype.css']
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
-/**
- * Komentarze trzeba usunąć PRZED szukaniem klamr — globals.css zawiera w komentarzu
- * `state/{x}/base`, którego klamra inaczej zamyka blok w połowie i cicho ucina
- * połowę tokenów statusowych.
- */
 function stripComments(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, '')
 }
 
-/**
- * Szuka bloku po selektorze stojącym NA POCZĄTKU LINII i zakończonym `{`.
- *
- * Zwykłe indexOf(selektor) nie wystarcza: globals.css zawiera
- * `@custom-variant dark (&:is(.dark *));`, więc szukanie ".dark" trafiało
- * w tę linię i zwracało cudzy blok — tokeny ciemnego motywu wychodziły puste.
- */
-function block(css, opener) {
-  const escaped = opener.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{`).exec(css)
-  if (!match) throw new Error(`Nie znaleziono bloku "${opener}" w globals.css`)
-  const open = match.index + match[0].length - 1
+function readBlock(css, opener) {
+  const escapedOpener = opener.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp(`(?:^|\\n)\\s*${escapedOpener}\\s*\\{`).exec(css)
+  if (!match) throw new Error(`Could not find the ${opener} block in globals.css.`)
+  const openingBrace = match.index + match[0].length - 1
 
   let depth = 0
-  for (let i = open; i < css.length; i += 1) {
-    if (css[i] === '{') depth += 1
-    else if (css[i] === '}') {
+  for (let index = openingBrace; index < css.length; index += 1) {
+    if (css[index] === '{') depth += 1
+    if (css[index] === '}') {
       depth -= 1
-      if (depth === 0) return css.slice(open + 1, i)
+      if (depth === 0) return css.slice(openingBrace + 1, index)
     }
   }
-  throw new Error(`Niedomknięty blok "${opener}"`)
+  throw new Error(`The ${opener} block in globals.css is not closed.`)
 }
 
-/** Zwraca [{name, value}] — puste linie odrzucone. */
-function declarations(body) {
+function parseDeclarations(body) {
   return body
     .split(';')
     .map((line) => line.trim())
     .filter((line) => line.startsWith('--'))
     .map((line) => {
-      const at = line.indexOf(':')
-      return { name: line.slice(0, at).trim(), value: line.slice(at + 1).trim() }
+      const separator = line.indexOf(':')
+      return { name: line.slice(0, separator).trim(), value: line.slice(separator + 1).trim() }
     })
 }
 
-function emit(decls, indent = '  ') {
-  return decls.map((d) => `${indent}${d.name}: ${d.value};`).join('\n')
+function emitDeclarations(declarations, indent = '  ') {
+  return declarations.map((declaration) => `${indent}${declaration.name}: ${declaration.value};`).join('\n')
 }
 
-function build() {
-  const css = stripComments(readFileSync(GLOBALS, 'utf8'))
+function assertTokenGroup(label, declarations, minimum) {
+  if (declarations.length < minimum) {
+    throw new Error(
+      `${label} produced ${declarations.length} tokens; expected at least ${minimum}. ` +
+        'The globals.css structure may have changed.',
+    )
+  }
+}
 
-  const root = declarations(block(css, ':root'))
-  const dark = declarations(block(css, '.dark'))
-  const theme = declarations(block(css, '@theme inline')).filter((d) =>
-    THEME_PREFIXES.some((prefix) => d.name.startsWith(prefix)),
+export function assertBundledVariablesResolve(generatedCss, assetsDirectory = ASSETS_DIR) {
+  const bundledCss = BUNDLED_STYLESHEETS
+    .map((filename) => readFileSync(join(assetsDirectory, filename), 'utf8'))
+    .join('\n')
+  const defined = new Set()
+  const definitionPattern = /(--[A-Za-z0-9_-]+)\s*:/g
+  for (const css of [generatedCss, bundledCss]) {
+    for (const match of css.matchAll(definitionPattern)) defined.add(match[1])
+  }
+
+  const unresolved = new Set()
+  for (const match of bundledCss.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)([^)]*)\)/g)) {
+    const hasFallback = match[2].trimStart().startsWith(',')
+    if (!hasFallback && !defined.has(match[1])) unresolved.add(match[1])
+  }
+  if (unresolved.size) {
+    throw new Error(`Bundled styles reference undefined CSS variables: ${Array.from(unresolved).sort().join(', ')}`)
+  }
+}
+
+export function buildTokens(globalsPath = GLOBALS_PATH, assetsDirectory = ASSETS_DIR) {
+  const css = stripComments(readFileSync(globalsPath, 'utf8'))
+  const root = parseDeclarations(readBlock(css, ':root'))
+  const dark = parseDeclarations(readBlock(css, '.dark'))
+  const scales = parseDeclarations(readBlock(css, '@theme inline')).filter((declaration) =>
+    THEME_PREFIXES.some((prefix) => declaration.name.startsWith(prefix)),
   )
 
-  // @theme inline mapuje --color-x na var(--x); mockup używa surowych tokenów,
-  // więc te aliasy są zbędne — zostawiamy tylko skale (cień, z-index, promień, typografia).
-  const scales = theme.filter((d) => !d.value.startsWith('var(--color'))
-
-  // Bezpiecznik: cicho pusty blok już raz przeszedł niezauważony (selektor .dark
-  // trafiał w @custom-variant). Lepiej wywalić się głośno niż wygenerować
-  // prototyp bez ciemnego motywu albo bez kolorów statusów.
-  const expect = [
-    ['(:root)', root, 60],
-    ['(.dark)', dark, 40],
-    ['(@theme inline)', scales, 15],
-  ]
-  for (const [label, list, min] of expect) {
-    if (list.length < min) {
-      throw new Error(
-        `Blok ${label} dał tylko ${list.length} tokenów (oczekiwano min. ${min}). ` +
-          'Prawdopodobnie zmienił się układ globals.css i parser trafił w niewłaściwy blok.',
-      )
-    }
+  assertTokenGroup(':root', root, 60)
+  assertTokenGroup('.dark', dark, 40)
+  assertTokenGroup('@theme inline', scales, 15)
+  if (!root.some((declaration) => declaration.name === '--status-error-bg')) {
+    throw new Error('The :root block does not define --status-error-bg.')
   }
-  if (!root.some((d) => d.name === '--status-error-bg')) {
-    throw new Error('Brak --status-error-bg w :root — tokeny statusów nie zostały odczytane.')
-  }
-  if (!dark.some((d) => d.name === '--background')) {
-    throw new Error('Brak --background w .dark — tokeny ciemnego motywu nie zostały odczytane.')
+  if (!dark.some((declaration) => declaration.name === '--background')) {
+    throw new Error('The .dark block does not define --background.')
   }
 
-  return [
-    '/* WYGENEROWANE — nie edytuj ręcznie.',
-    ' *',
-    ' * Źródło: apps/mercato/src/app/globals.css',
-    ' * Regeneracja: node .ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs <katalog>',
-    ' *',
-    ' * Mockup jest statycznym HTML-em bez Tailwinda, więc tokeny muszą być skopiowane.',
-    ' * Ten plik jest kopią — jeśli design system się zmienił, uruchom skrypt ponownie.',
+  const generated = [
+    '/* GENERATED — do not edit by hand.',
+    ' * Source: apps/mercato/src/app/globals.css',
+    ' * Regenerate with .ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs.',
     ' */',
     '',
     ':root {',
     '  color-scheme: light;',
-    emit(root),
+    emitDeclarations(root),
     '',
-    emit(scales),
+    emitDeclarations(scales),
     '}',
     '',
     '.dark {',
     '  color-scheme: dark;',
-    emit(dark),
+    emitDeclarations(dark),
     '}',
     '',
   ].join('\n')
+  assertBundledVariablesResolve(generated, assetsDirectory)
+  return generated
 }
 
-const args = process.argv.slice(2)
-const checkOnly = args.includes('--check')
-const target = args.find((arg) => !arg.startsWith('--'))
-
-if (!target) {
-  console.error('Podaj katalog mockupu, np.: sync-tokens.mjs .ai/mockups/time-tracking')
-  process.exit(2)
-}
-
-const outPath = join(resolve(target), 'tokens.css')
-const next = build()
-
-if (checkOnly) {
-  const current = existsSync(outPath) ? readFileSync(outPath, 'utf8') : ''
-  if (current !== next) {
-    console.error(`tokens.css jest nieaktualny wobec globals.css → ${outPath}`)
-    console.error('Uruchom sync-tokens.mjs bez --check, żeby zregenerować.')
-    process.exit(1)
+export function parseSyncArguments(args) {
+  if (args.length === 1 && !args[0].startsWith('--')) return { checkOnly: false, target: args[0] }
+  if (args.length === 2 && args[0] === '--check' && !args[1].startsWith('--')) {
+    return { checkOnly: true, target: args[1] }
   }
-  console.log('tokens.css aktualny.')
-  process.exit(0)
+  throw new Error('Usage: sync-tokens.mjs [--check] .ai/prototypes/<prototype-slug>')
 }
 
-writeFileSync(outPath, next, 'utf8')
-const count = (next.match(/^\s+--/gm) || []).length
-console.log(`Zapisano ${outPath} (${count} tokenów).`)
+export function resolvePrototypeTarget(targetArgument) {
+  const target = resolve(targetArgument)
+  const targetRelative = relative(PROTOTYPES_ROOT, target)
+  if (
+    !targetRelative ||
+    targetRelative.startsWith('..') ||
+    isAbsolute(targetRelative) ||
+    targetRelative.includes('/') ||
+    targetRelative.includes('\\') ||
+    !SLUG_PATTERN.test(targetRelative)
+  ) {
+    throw new Error('Target must be an immediate .ai/prototypes/<prototype-slug> directory.')
+  }
+  if (!existsSync(target) || !statSync(target).isDirectory()) {
+    throw new Error(`Prototype directory does not exist: ${targetArgument}`)
+  }
+  if (lstatSync(target).isSymbolicLink()) {
+    throw new Error('Prototype target must not be a symbolic link.')
+  }
+  const prototypesRoot = realpathSync(PROTOTYPES_ROOT)
+  const resolvedTarget = realpathSync(target)
+  const resolvedRelative = relative(prototypesRoot, resolvedTarget)
+  if (!resolvedRelative || resolvedRelative.startsWith('..') || isAbsolute(resolvedRelative)) {
+    throw new Error('Prototype target resolves outside .ai/prototypes.')
+  }
+  return resolvedTarget
+}
+
+function main() {
+  try {
+    const { checkOnly, target: targetArgument } = parseSyncArguments(process.argv.slice(2))
+    const target = resolvePrototypeTarget(targetArgument)
+    const outputPath = join(target, 'tokens.css')
+    const generated = buildTokens()
+
+    if (checkOnly) {
+      const current = existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : ''
+      if (current !== generated) throw new Error(`tokens.css is out of date: ${outputPath}`)
+      console.log('tokens.css is current.')
+      return
+    }
+
+    writeFileSync(outputPath, generated, 'utf8')
+    const count = (generated.match(/^\s+--/gm) || []).length
+    console.log(`Wrote ${outputPath} (${count} tokens).`)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 2
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main()
+}

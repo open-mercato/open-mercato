@@ -169,7 +169,7 @@
 }
 .ai-dot {
   width: 1rem; height: 1rem; border-radius: 9999px;
-  background: conic-gradient(from 0deg, var(--brand-lime), var(--brand-yellow), var(--brand-violet), var(--brand-lime));
+  background: conic-gradient(from 0deg, var(--brand-lime), var(--status-warning-icon), var(--brand-violet), var(--brand-lime));
 }
 
 /* main flex-1 p-4 lg:p-6 · Page = space-y-6 */
