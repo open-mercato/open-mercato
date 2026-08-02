@@ -27,6 +27,7 @@ export const moduleOverrideExamples: ModuleOverrides = {
   ai: {
     agents: { 'catalog.catalog_assistant': null },
     tools: { inbox_ops_accept_action: null },
+    extensions: [], // additive AiAgentExtension[]; do not use null-map semantics
   },
   routes: {
     api: { 'DELETE /api/example/items': null },
@@ -59,6 +60,11 @@ export const moduleOverrideExamples: ModuleOverrides = {
   di: { exampleService: null },
   encryption: {
     maps: { 'example:item': null },
+  },
+  nav: {
+    // Prepends sidebar nav group ids ahead of the built-in ordering; unnamed groups keep their
+    // current position. Applied beneath role and per-user sidebar preferences.
+    groupOrder: ['example.nav.group'],
   },
 }
 
@@ -123,6 +129,11 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
+      // Keep the real-bootstrap nav override probe isolated from normal app behavior. The integration
+      // runner sets OM_INTEGRATION_TEST, while development and production keep Example at the tail.
+      nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
+        ? { groupOrder: ['example.nav.group'] }
+        : undefined,
       routes: {
         api: {
           'GET /api/example/override-probe': {

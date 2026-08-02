@@ -970,6 +970,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
 
+- Notification read scopes must distinguish selected, unrestricted, no-access, and omitted legacy semantics in filters, cache behavior, and isolated integration fixtures.
 - 2026-07-11 · shared data engine: tenant-scope tests covered explicit null but not omitted scope → parameterize non-null, null, and omitted tenantId for every predicate path.
 
 ## Shared security-default changes require a complete consumer audit
@@ -989,6 +990,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+## Classify entity metadata by ORM ownership before custom declarations
+
+**Context**: Entity metadata ACL filtering must distinguish module-owned ORM entities from genuinely custom entities, but `ce.ts` declarations can describe both kinds.
+
+**Problem**: Treating every declared entity as custom made ORM-backed entities require `entities.records.view`, bypassing their owning module's mapped view permission.
+
+**Rule**: Check `isOrmBackedSystemEntityId` first; only classify non-ORM declarations or registrations as custom for metadata authorization.
+
+**Applies to**: entity definitions, entity catalogues, schema discovery, and other target-aware entity metadata ACL checks.
 
 ## Security caches must outlive request-scoped providers and cover reserved IPv6 space
 
@@ -1025,3 +1036,27 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When code must write a row that a subsequent out-of-band request (self `fetch`, worker, another connection) has to read, create/flush it on a context-detached EM: `em.fork({ clear: true, freshEventManager: true, useContext: false })`. That fork commits on its own pooled connection, matching the query_index/webhooks isolated-EM convention.
 
 **Applies to**: `activity-executor` `CALL_API`, any one-time credential minted for a self-request, and anything that persists data then reads it back over HTTP or from a second connection while a transaction is open.
+
+## Standalone agent context must follow the installed package, not the checkout layout
+
+**Context**: Generated apps ignore `node_modules`, while coding agents still need the exact root, package, and module `AGENTS.md` contracts plus implementation source for the installed Open Mercato version.
+
+**Rule**: Publish source and instruction files in package tarballs, resolve them through the app's declared module package and exact installed version, and materialize only the requested read-only context outside `node_modules`. Keep a versioned root/BC snapshot for offline fallback, report version skew, and never teach agents to edit or broadly ingest installed dependencies.
+
+**Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
+
+## Cross-module query precedent is not permission to copy storage coupling
+
+**Context**: Dashboard and customer analytics independently queried the currencies module's table to resolve base currency, so disabling or changing that optional module broke consumers outside its ownership boundary.
+
+**Rule**: Put peer-module table access behind a DI service owned by the source module. Optional consumers should resolve a narrow local interface fail-soft, distinguish missing and ambiguous data, and include disabled-module coverage. Treat an existing cross-module raw SQL query as coupling to retire, not a pattern to repeat.
+
+**Applies to**: optional module integrations, analytics enrichments, and any consumer that reads another module's tables or persistence details.
+
+## Keep fallible document preparation outside encryption guards
+
+**Context**: Query-index aggregation and encryption shared an empty catch, so a configuration failure could skip encryption and let a plaintext document continue to persistence.
+
+**Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
+
+**Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.

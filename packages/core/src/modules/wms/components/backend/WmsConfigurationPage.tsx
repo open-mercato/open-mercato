@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
@@ -515,7 +516,7 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
             totalPages: query.data?.totalPages ?? 1,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.warehouses' }}
+          perspective={{ tableId: extensionPoints.hosts.warehousesTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.warehouses.empty.title', 'No warehouses')}
@@ -775,7 +776,7 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
             totalPages: query.data?.totalPages ?? 1,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.zones' }}
+          perspective={{ tableId: extensionPoints.hosts.zonesTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.zones.empty.title', 'No zones')}
@@ -982,7 +983,7 @@ export function LocationSection({ viewAllHref }: ConfigSectionOptions = {}) {
             totalPages: query.data?.totalPages ?? 1,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.locations' }}
+          perspective={{ tableId: extensionPoints.hosts.locationsTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.locations.empty.title', 'No locations')}
@@ -1276,7 +1277,7 @@ export function InventoryProfilesSection() {
             totalPages: query.data?.totalPages ?? 1,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.inventoryProfiles' }}
+          perspective={{ tableId: extensionPoints.hosts.inventoryProfilesTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.profiles.empty.title', 'No inventory profiles')}

@@ -50,6 +50,7 @@ RUN yarn install --immutable
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 COPY scripts/ ./scripts/
+COPY AGENTS.md BACKWARD_COMPATIBILITY.md ./
 
 # Copy other necessary files
 COPY newrelic.js ./
@@ -120,6 +121,7 @@ RUN yarn install --immutable
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 COPY scripts/ ./scripts/
+COPY AGENTS.md BACKWARD_COMPATIBILITY.md ./
 COPY newrelic.js ./
 COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
 COPY eslint.config.mjs ./
