@@ -250,6 +250,7 @@ function expectedGuideOutputNames(): string[] {
   // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
   // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
   // emitted (#3754).
+  collected.add('framework-extension-points.md')
   collected.add('module-facts.json')
   collected.add('upstream/AGENTS.md')
   collected.add('upstream/BACKWARD_COMPATIBILITY.md')
