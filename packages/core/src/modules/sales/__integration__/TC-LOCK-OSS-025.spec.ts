@@ -51,7 +51,6 @@ import {
 const ORDERS_BASE = '/api/sales/orders'
 const ORDER_ADJUSTMENTS_BASE = '/api/sales/order-adjustments'
 const RETURNS_BASE = '/api/sales/returns'
-const ORDER_LINES_BASE = '/api/sales/order-lines'
 
 const BASE_URL = process.env.BASE_URL?.trim() || ''
 function resolveUrl(path: string): string {
@@ -80,26 +79,6 @@ async function postWithOrderLock(
     headers: authHeaders(token, orderLockValue),
     data: body,
   })
-}
-
-/** Read the id of the most recently created order line for an order. */
-async function fetchAnyOrderLineId(
-  request: APIRequestContext,
-  token: string,
-  orderId: string,
-): Promise<string> {
-  const response = await request.fetch(
-    resolveUrl(`${ORDER_LINES_BASE}?orderId=${encodeURIComponent(orderId)}&pageSize=100`),
-    { method: 'GET', headers: authHeaders(token) },
-  )
-  expect(response.status(), 'GET /api/sales/order-lines should return 200').toBe(200)
-  const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
-  // Skip the zero-priced seed line created by the fixture (issue #4021) so the
-  // caller operates on the line it actually added.
-  const lineId = (body.items?.find((item) => typeof item?.id === 'string' && item?.name !== 'QA seed line')
-    ?? body.items?.find((item) => typeof item?.id === 'string'))?.id
-  expect(typeof lineId, 'order should have at least one line to return').toBe('string')
-  return lineId as string
 }
 
 async function deleteOrder(request: APIRequestContext, token: string, orderId: string) {
@@ -197,11 +176,10 @@ test.describe('TC-LOCK-OSS-025: order adjustments + returns document-aggregate c
       const t0 = await readUpdatedAt(request, token, ORDERS_BASE, orderId)
       expect(t0).toMatch(/^\d{4}-\d{2}-\d{2}T/)
 
-      await createOrderLineFixture(request, token, orderId, {
+      const orderLineId = await createOrderLineFixture(request, token, orderId, {
         name: `QA OSS-025 return line ${Date.now()}`,
         quantity: 2,
       })
-      const orderLineId = await fetchAnyOrderLineId(request, token, orderId)
       // The return guard (issue #3034) requires the line to have been shipped.
       // Ship before capturing t1 so the fresh header reflects the latest order state.
       await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
