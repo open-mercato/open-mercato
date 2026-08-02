@@ -118,5 +118,5 @@ cross-org read (TC-NOTIF-007) and the stale-negative list that outlives TC-WMS-0
 
 ### Phase 9: Validation and wrap-up
 
-- [ ] 9.1 Run the full configured validation gate green
-- [ ] 9.2 Re-check #4840's CI lanes against the fixes and report residual failures
+- [x] 9.1 Run the full configured validation gate green — ec6fbfba5 (local gate green in configured order; PR-head run 30757500935 green across prepare, lint, audit, unit tests, Docker, all 15 integration shards, and merged coverage)
+- [x] 9.2 Re-check #4840's CI lanes against the fixes and report residual failures — ec6fbfba5 (observation run 30757093716 reproduced only the five mapped pre-fix shard failures; every corresponding lane passed on PR-head run 30757500935)
