@@ -10,6 +10,7 @@ import {
   extractKnownCommandIds,
   extractModuleExtensionFacts,
   renderFrameworkExtensionPointsMarkdown,
+  withModuleExtensionFactExtractionCache,
 } from './module-extension-facts'
 
 export interface ModuleEntityFact {
@@ -1390,6 +1391,10 @@ export interface ExtractAllModuleFactsResult {
 }
 
 export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
+  return withModuleExtensionFactExtractionCache(() => extractAllModuleFactsWithCache(options))
+}
+
+function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
   const sources: ModuleFactSource[] = options.sources
     ? [...options.sources]
     : (options.coreSrcRoot
