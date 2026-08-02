@@ -637,6 +637,18 @@ export function register(container: AppContainer) {
 }
 ```
 
+#### 6.4.1 Manual operation idempotency
+
+Manual capture, refund, and cancel are protected by a durable `gateway_payment_operations` claim created before the provider call. The claim is scoped by tenant and organization, fingerprints the transaction/action/payload, stores the deterministic provider idempotency key and successful result, and uses an expiring lease plus compare-and-set attempt token for stale or failed recovery.
+
+- The capture/refund/cancel request schemas accept an optional `operationId`. Existing callers remain compatible: when omitted, the service derives a deterministic legacy ID from the scoped transaction, action, amount, and reason.
+- A completed duplicate returns the stored result without another provider call while the transaction remains at that result status, an active duplicate returns `409 payment_operation_in_progress`, and reusing an ID for different input returns `409 payment_operation_conflict`.
+- Intentional equal partial refunds use distinct caller-supplied operation IDs. Retrying the same logical refund reuses its original ID.
+- `CaptureInput`, `RefundInput`, and `CancelInput` add the optional `idempotencyKey` field. Provider packages that support native idempotency pass it to their SDK; Stripe does so for every supported API version and derives partial-refund status from the charge's cumulative refunded amount.
+- Provider success and the local transaction/operation result finalize in one database transaction. Failed or abandoned attempts are reclaimable and always reuse the same provider key.
+
+Integration coverage: `TC-PGWY-021` verifies completed replay, payload-conflict rejection, and distinct equal partial refunds through the authenticated API routes. Unit coverage uses a barrier-controlled concurrent refund to prove that only one adapter call occurs.
+
 ### 6.5 Events
 
 ```typescript
@@ -1696,6 +1708,7 @@ Authorization: Bearer <token>
 }
 
 → 201: { "sessionId", "redirectUrl", "gatewayPaymentId", "paymentId", "transactionId" }
+→ 409: amount or currency does not match the referenced order (see §16.5)
 ```
 
 ### 15.2 Capture / Refund / Cancel
@@ -1754,6 +1767,52 @@ The platform only mounts provider components and passes client-safe session payl
 - `GatewayTransaction` scoped by `organizationId` + `tenantId`
 - Webhook processing resolves tenant from gateway metadata
 - Provider settings are per-tenant (different Stripe accounts per tenant)
+
+### 16.5 Amount Integrity
+
+Amounts that reach a provider are never taken on trust from the caller alone.
+
+**Capture** — a manual capture is rejected when it exceeds the amount persisted on
+the authorized `GatewayTransaction` (`assertCaptureAmountAllowed`, #3880/#4486).
+
+**Session creation** — when the request carries an `orderId`, the hub reconciles the
+caller-supplied `amount` and `currencyCode` against the authoritative amount due for
+that order **before** the adapter is invoked (#4488). The rules:
+
+| Case | Outcome |
+|------|---------|
+| Amount and currency match the amount due (within the stored `numeric(18,4)` precision) | Session created |
+| Amount lower or higher than the amount due | `409`, no provider call |
+| Currency differs from the order currency | `409`, no provider call |
+| Order unknown, soft-deleted, or outside the caller's tenant/organization | `409` with the identical "not found in the current scope" body |
+| Request carries no `orderId` | Not reconciled — nothing authoritative to compare against |
+| No module registered a resolver (for example an installation without `sales`) | Not reconciled |
+
+The unknown-order and out-of-scope cases deliberately return the same response so a
+caller cannot probe for orders belonging to another tenant or organization.
+
+The three conflict messages are served from the module translation catalog
+(`payment_gateways.errors.sessionAmountMismatch`, `.sessionCurrencyMismatch`,
+`.sessionOrderNotFound`) rather than hardcoded, so a rejection is localized like the rest
+of the module. A context without a registered module dictionary (CLI, worker, unit test)
+degrades to the English template shipped with each call — the wording changes, the
+rejection never does.
+
+`payment_gateways` stays decoupled from the module that owns orders: it consumes the
+optional `PaymentOrderTotalResolver` contract
+(`@open-mercato/shared/modules/payment_gateways/types`) resolved from the DI name
+`paymentOrderTotalResolver`. The `sales` module registers the default implementation,
+which scopes its lookup by tenant and organization and reports the order's
+`outstanding_amount` — falling back to the grand total gross amount for orders with
+no payment or refund recorded yet. Any other module that owns orders can register its
+own implementation; an installation with none simply skips reconciliation.
+
+Integration coverage: `TC-PGWY-023` drives the real wiring through the authenticated API —
+it seeds a sales order with a single line, then verifies that an amount above the amount
+due, an amount below it, a currency other than the order currency, and an `orderId` that
+does not resolve in the caller's scope are each rejected with `409`, while the exact amount
+due is accepted with `201`. Unit coverage mocks the resolver to pin the comparison rules and
+to prove the adapter is never reached on a rejection.
 
 ---
 
@@ -1929,3 +1988,4 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-03-10 | Implementation: TC-PGWY-008..011 edge-case tests added (partial refund, double capture, webhook idempotency, malformed webhook). All tests use mock adapter. Stripe-specific integration tests requiring real API keys deferred to future. |
 | 2026-03-19 | Added the provider-owned embedded payment contract: `CreateSessionResult.clientSession`, generated `payments.client.generated.ts` bootstrap imports, and shared browser renderer registry lookup. |
 | 2026-03-20 | Generalized provider-owned payment presentation: renderer catalogs in descriptors, consumer `presentation` request, embedded renderer settings, redirect sessions, and widget-aligned renderer bootstrap entrypoints under `widgets/payments/client.ts(x)`. |
+| 2026-07-25 | Added §16.5 Amount Integrity: payment-session amounts are reconciled against the authoritative order amount due through the optional `PaymentOrderTotalResolver` contract (#4488), alongside the existing capture-amount guard (#4486). |

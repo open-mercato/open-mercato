@@ -20,6 +20,9 @@ import {
   upsertDictionarySchema,
 } from './openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'api' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dictionaries.view'] },
@@ -67,7 +70,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries.GET] Unexpected error', err)
+    logger.error('Failed to load dictionaries', { err })
     return NextResponse.json({ error: 'Failed to load dictionaries' }, { status: 500 })
   }
 }
@@ -153,7 +156,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries.POST] Unexpected error', err)
+    logger.error('Failed to create dictionary', { err })
     return NextResponse.json({ error: 'Failed to create dictionary' }, { status: 500 })
   }
 }

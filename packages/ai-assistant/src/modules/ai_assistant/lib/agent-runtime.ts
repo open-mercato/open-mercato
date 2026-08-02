@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { randomUUID } from 'node:crypto'
 import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
@@ -67,6 +68,8 @@ import { TASK_PLAN_RUNTIME_PROMPT_SECTION } from './task-plan-labels'
 // Ensure built-in LLM providers are registered. Side-effect import; identical to
 // what `./ai-sdk.ts` consumers already rely on.
 import './llm-bootstrap'
+
+const logger = createLogger('ai_assistant').child({ component: 'agent-runtime' })
 
 export interface AgentRequestPageContext {
   pageId?: string | null
@@ -178,7 +181,10 @@ export interface RunAiAgentTextInput {
    */
   generateText?: (
     options: PreparedAiSdkOptions,
-  ) => Promise<GenerateTextResult<ToolSet, never> | StreamTextResult<ToolSet, never>>
+  ) => Promise<
+    | GenerateTextResult<ToolSet, Record<string, unknown>, never>
+    | StreamTextResult<ToolSet, Record<string, unknown>, never>
+  >
   /**
    * When `true`, the runtime appends a `loop-finish` SSE event to the
    * response stream after the AI SDK stream closes. The event payload is the
@@ -562,11 +568,12 @@ export class BudgetEnforcer {
   private abort(reason: LoopBudgetAbortReason): void {
     if (this.abortReason !== null) return
     this.abortReason = reason
-    console.info(
-      `[AI Agents] Budget exceeded — aborting turn. Reason: ${reason}. ` +
-        `toolCalls=${this.toolCallsUsed}, tokens=${this.tokensUsed}, ` +
-        `elapsedMs=${Date.now() - this.turnStartMs}.`,
-    )
+    logger.info('Budget exceeded — aborting turn', {
+      reason,
+      toolCalls: this.toolCallsUsed,
+      tokens: this.tokensUsed,
+      elapsedMs: Date.now() - this.turnStartMs,
+    })
     this.abortController.abort(reason)
   }
 
@@ -584,7 +591,7 @@ export class BudgetEnforcer {
         try {
           await userOnStepFinish(event)
         } catch (err) {
-          console.error('[AI Agents] User onStepFinish threw; ignoring:', err)
+          logger.error('User onStepFinish threw; ignoring', { err })
         }
       }
     }
@@ -674,7 +681,7 @@ export function buildLoopTraceCollector(
       try {
         await userOnStepFinish(event)
       } catch (err) {
-        console.error('[AI Agents] User onStepFinish in LoopTrace collector threw; ignoring:', err)
+        logger.error('User onStepFinish in LoopTrace collector threw; ignoring', { err })
       }
     }
   }
@@ -806,9 +813,7 @@ export function mergeStepOverrides(
       const normalized = normalizeAllowedToolNameForAgent(name, agent)
       const allowed = normalized !== null
       if (!allowed) {
-        console.warn(
-          `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
-        )
+        logger.warn('loop:active_tools_filtered — tool not in agent allowedTools; dropping from activeTools', { toolName: name, agentId: agent.id })
       }
       return normalized ? [normalized] : []
     })
@@ -822,9 +827,7 @@ export function mergeStepOverrides(
     for (const [toolKey, userHandler] of Object.entries(userTools)) {
       const wrappedHandler = wrappedToolRegistry[toolKey]
       if (!wrappedHandler) {
-        console.warn(
-          `[AI Agents] mergeStepOverrides — tool "${toolKey}" from user prepareStep is not in the wrapper tool registry; dropping.`,
-        )
+        logger.warn('mergeStepOverrides — tool from user prepareStep is not in the wrapper tool registry; dropping', { toolName: toolKey })
         continue
       }
       if (userHandler !== wrappedHandler) {
@@ -905,9 +908,7 @@ export function buildWrapperPrepareStep(
         const normalized = normalizeAllowedToolNameForAgent(name, agent)
         const allowed = normalized !== null
         if (!allowed) {
-          console.warn(
-            `[AI Agents] loop:active_tools_filtered — tool "${name}" is not in agent "${agent.id}" allowedTools; dropping from activeTools.`,
-          )
+          logger.warn('loop:active_tools_filtered — tool not in agent allowedTools; dropping from activeTools', { toolName: name, agentId: agent.id })
         }
         return normalized ? [normalized] : []
       })
@@ -918,10 +919,7 @@ export function buildWrapperPrepareStep(
       try {
         userOverride = await effectiveLoop.prepareStep(state)
       } catch (error) {
-        console.error(
-          `[AI Agents] User prepareStep threw for agent "${agent.id}"; ignoring user override:`,
-          error,
-        )
+        logger.error('User prepareStep threw; ignoring user override', { agentId: agent.id, err: error })
         return mapPrepareStepResultForModel(wrapperOverride, wrappedTools)
       }
       return mapPrepareStepResultForModel(
@@ -1023,10 +1021,7 @@ async function resolveTenantAllowlistSnapshot(
       organizationId: organizationId ?? null,
     })
   } catch (error) {
-    console.warn(
-      '[AI Agents] Tenant allowlist lookup failed; falling back to env-only enforcement.',
-      error,
-    )
+    logger.warn('Tenant allowlist lookup failed; falling back to env-only enforcement', { err: error })
     return null
   }
 }
@@ -1059,9 +1054,7 @@ export async function composeSystemPrompt(
   if (typeof entityType !== 'string' || entityType.length === 0) return baseFromOverride
   if (typeof recordId !== 'string' || recordId.length === 0) return baseFromOverride
   if (!container) {
-    console.warn(
-      `[AI Agents] Agent "${agent.id}" declares resolvePageContext but no container was passed to runAiAgentText; skipping hydration.`,
-    )
+    logger.warn('Agent declares resolvePageContext but no container was passed to runAiAgentText; skipping hydration', { agentId: agent.id })
     return baseFromOverride
   }
   const hydrationInput: AiAgentPageContextInput = {
@@ -1077,10 +1070,7 @@ export async function composeSystemPrompt(
       return `${baseFromOverride}\n\n${hydrated}`
     }
   } catch (error) {
-    console.error(
-      `[AI Agents] resolvePageContext for agent "${agent.id}" failed; continuing without hydration:`,
-      error,
-    )
+    logger.error('resolvePageContext failed; continuing without hydration', { agentId: agent.id, err: error })
   }
   return baseFromOverride
 }
@@ -1121,10 +1111,7 @@ async function resolveBaseSystemPromptWithOverride(
     }
     return composeSystemPromptWithOverride(base, { sections: latest.sections })
   } catch (error) {
-    console.warn(
-      `[AI Agents] Prompt-override lookup failed for agent "${agent.id}"; falling back to built-in prompt.`,
-      error,
-    )
+    logger.warn('Prompt-override lookup failed; falling back to built-in prompt', { agentId: agent.id, err: error })
     return base
   }
 }
@@ -1156,17 +1143,13 @@ async function resolveMutationPolicyOverride(
     if (!row) return null
     const raw = row.mutationPolicy
     if (!isKnownMutationPolicy(raw)) {
-      console.warn(
-        `[AI Agents] Ignoring corrupt mutationPolicy override row for agent "${agentId}": "${raw}". Falling back to code-declared policy.`,
-      )
+      logger.warn('Ignoring corrupt mutationPolicy override row; falling back to code-declared policy', { agentId, policy: raw })
       return null
     }
     return raw
   } catch (error) {
-    console.warn(
-      `[AI Agents] mutationPolicy override lookup failed for agent "${agentId}"; falling back to code-declared policy.`,
-      error,
-    )
+    logger.warn('mutationPolicy override lookup failed; falling back to code-declared policy', { agentId, err: error })
+    
     return null
   }
 }
@@ -1210,10 +1193,7 @@ async function resolveRuntimeModelOverride(
       baseURL: row.baseUrl ?? null,
     }
   } catch (error) {
-    console.warn(
-      `[AI Agents] Runtime model override lookup failed for agent "${agentId}"; falling back to lower-priority sources.`,
-      error,
-    )
+    logger.warn('Runtime model override lookup failed; falling back to lower-priority sources', { agentId, err: error })
     return null
   }
 }
@@ -1633,7 +1613,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   if (input.generateText) {
     try {
       const callbackResult = await input.generateText(preparedOptions)
-      const baseResponse = (callbackResult as StreamTextResult<ToolSet, never>).toUIMessageStreamResponse({
+      const baseResponse = (callbackResult as StreamTextResult<ToolSet, Record<string, unknown>, never>).toUIMessageStreamResponse({
         sendReasoning: true,
         headers: {
           'Cache-Control': 'no-cache, no-transform',

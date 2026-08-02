@@ -9,6 +9,9 @@ import {
   resolveRecordLockNotificationType,
   resolveRecordResourceLink,
 } from '../lib/notificationHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('record_locks').child({ subscriber: 'conflict-detected-notification' })
 
 export const metadata = {
   event: 'record_locks.conflict.detected',
@@ -109,6 +112,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
       organizationId: payload.organizationId ?? null,
     })
   } catch (error) {
-    console.error('[record_locks:conflict-detected-notification] Failed to create notification:', error)
+    logger.error('Failed to create notification', { err: error })
   }
 }

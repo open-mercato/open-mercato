@@ -23,6 +23,19 @@
  * This mirrors the narrow mock boundary Step 5.2 established.
  */
 
+const mockLoggerInstance = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+}
+mockLoggerInstance.child.mockImplementation(() => mockLoggerInstance)
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => mockLoggerInstance),
+}))
+
 // Prevent the tool pack from pulling the encryption runtime into the test graph.
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
@@ -82,15 +95,10 @@ async function loadWithMockedToolPack(
 }
 
 describe('Step 5.16 — customers.account_assistant.resolvePageContext (integration)', () => {
-  const originalWarn = console.warn
   beforeEach(() => {
     jest.resetModules()
     jest.clearAllMocks()
   })
-  afterEach(() => {
-    console.warn = originalWarn
-  })
-
   it('hydrates a person bundle under the Person context block for recordType=person', async () => {
     const handler = jest.fn(async () => ({
       found: true,
@@ -229,8 +237,6 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
   })
 
   it('leaves input unchanged and logs a warn when the underlying service throws', async () => {
-    const warn = jest.fn()
-    console.warn = warn
     const handler = jest.fn(async () => {
       throw new Error('downstream blew up')
     })
@@ -246,9 +252,9 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
       organizationId: 'org-1',
     })
     expect(result).toBeNull()
-    expect(warn).toHaveBeenCalled()
-    const firstCall = warn.mock.calls[0]
-    expect(String(firstCall[0])).toMatch(/resolvePageContext/)
-    expect(String(firstCall[0])).toMatch(/hydration_error/)
+    expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+      'resolvePageContext: tool failed; skipping',
+      expect.objectContaining({ toolName: 'customers.get_deal', err: expect.any(Error) }),
+    )
   })
 })

@@ -7,6 +7,7 @@ export type UpsertEntityOptions = {
   organizationId?: string | null
   tenantId?: string | null
   showInSidebar?: boolean
+  accessRestricted?: boolean
   labelField?: string | null
   defaultEditor?: string | null
   isActive?: boolean
@@ -29,6 +30,7 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
     description: opts.description ?? null,
     isActive: opts.isActive ?? true,
     showInSidebar: !!opts.showInSidebar,
+    accessRestricted: !!opts.accessRestricted,
     labelField: opts.labelField ?? null,
     defaultEditor: opts.defaultEditor ?? null,
   }
@@ -40,6 +42,7 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
     ent.description = desired.description
     ent.isActive = desired.isActive
     ent.showInSidebar = desired.showInSidebar
+    ent.accessRestricted = desired.accessRestricted
     ent.labelField = desired.labelField
     ent.defaultEditor = desired.defaultEditor
     ent.updatedAt = new Date()
@@ -51,6 +54,7 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
     if ((ent.description ?? null) !== desired.description) return true
     if ((ent.isActive ?? true) !== desired.isActive) return true
     if ((ent.showInSidebar ?? false) !== desired.showInSidebar) return true
+    if ((ent.accessRestricted ?? false) !== desired.accessRestricted) return true
     if ((ent.labelField ?? null) !== desired.labelField) return true
     if ((ent.defaultEditor ?? null) !== desired.defaultEditor) return true
     if (ent.deletedAt != null) return true

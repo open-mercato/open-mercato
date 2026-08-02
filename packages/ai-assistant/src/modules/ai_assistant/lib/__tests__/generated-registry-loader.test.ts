@@ -7,6 +7,7 @@ import {
   rewriteGeneratedAliasImports,
   escapeUnsafeJsStringChars,
   findGeneratedFile,
+  compileAndImportGenerated,
   ensureApiRouteManifestsRegistered,
 } from '../generated-registry-loader'
 
@@ -186,6 +187,35 @@ describe('findGeneratedFile', () => {
     cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue(root)
 
     expect(findGeneratedFile(fileName)).toBe(path.join(appsDir, fileName))
+  })
+})
+
+describe('compileAndImportGenerated', () => {
+  it('uses a Jest-safe CJS artifact instead of an existing ESM .mjs artifact', async () => {
+    const appRoot = makeTempDir()
+    const generatedDir = path.join(appRoot, '.mercato', 'generated')
+    const moduleDir = path.join(appRoot, 'src', 'modules', 'example')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    fs.mkdirSync(moduleDir, { recursive: true })
+    fs.writeFileSync(path.join(moduleDir, 'ai-agents.ts'), 'export const aiAgents = [{ id: "example.agent" }]\n')
+
+    const generatedPath = path.join(generatedDir, 'ai-agents.generated.ts')
+    fs.writeFileSync(
+      generatedPath,
+      [
+        'import * as ExampleAgents from "../../src/modules/example/ai-agents"',
+        'export const allAiAgents = ExampleAgents.aiAgents',
+      ].join('\n'),
+    )
+    fs.writeFileSync(
+      path.join(generatedDir, 'ai-agents.generated.mjs'),
+      'import broken from "this-existing-esm-artifact-should-not-be-used";\nexport const allAiAgents = [broken]\n',
+    )
+
+    const mod = await compileAndImportGenerated(generatedPath)
+
+    expect(mod.allAiAgents).toEqual([{ id: 'example.agent' }])
+    expect(fs.existsSync(path.join(generatedDir, 'ai-agents.generated.jest.cjs'))).toBe(true)
   })
 })
 

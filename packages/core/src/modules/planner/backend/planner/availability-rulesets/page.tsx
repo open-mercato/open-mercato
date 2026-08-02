@@ -19,6 +19,9 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'availability-rulesets-page' })
 
 const PAGE_SIZE = 50
 const SUBTEXT_CLASSNAME = 'line-clamp-2 text-xs text-muted-foreground'
@@ -117,7 +120,7 @@ export default function PlannerAvailabilityRuleSetsPage() {
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (error) {
-      console.error('planner.availability-rule-sets.list', error)
+      logger.error('Failed to list availability rule sets', { err: error })
       flash(labels.errors.load, 'error')
     } finally {
       setIsLoading(false)
@@ -155,7 +158,7 @@ export default function PlannerAvailabilityRuleSetsPage() {
       flash(labels.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
-      console.error('planner.availability-rule-sets.delete', error)
+      logger.error('Failed to delete availability rule set', { err: error })
       const normalized = normalizeCrudServerError(error)
       flash(normalized.message ?? labels.errors.delete, 'error')
     }

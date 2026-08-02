@@ -47,7 +47,7 @@ test.describe('TC-SALES-011: Payment Allocation', () => {
       await login(page, 'admin');
       await openOrderDetail(page, orderId, lineName);
       await page.getByRole('button', { name: /^Payments$/i }).click();
-      await page.getByRole('button', { name: /Add payment/i }).click();
+      await page.getByRole('button', { name: /Add payment/i }).first().click();
       const dialog = page.getByRole('dialog', { name: /Add payment/i });
       await expect(dialog).toBeVisible({ timeout: 20_000 });
 

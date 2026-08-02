@@ -1,7 +1,9 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { RateLimitConfig, RateLimitGlobalConfig, RateLimitStrategy } from './types'
 
 const VALID_STRATEGIES: RateLimitStrategy[] = ['memory', 'redis']
+const logger = createLogger('ratelimit').child({ component: 'config' })
 
 export function readRateLimitConfig(): RateLimitGlobalConfig {
   const strategy = (process.env.RATE_LIMIT_STRATEGY ?? 'memory') as RateLimitStrategy
@@ -9,7 +11,7 @@ export function readRateLimitConfig(): RateLimitGlobalConfig {
     throw new Error(`Invalid RATE_LIMIT_STRATEGY "${strategy}". Must be one of: ${VALID_STRATEGIES.join(', ')}`)
   }
 
-  const trustProxyDepth = parsePositiveInt(process.env.RATE_LIMIT_TRUST_PROXY_DEPTH) ?? 1
+  const trustProxyDepth = parseTrustProxyDepth(process.env.RATE_LIMIT_TRUST_PROXY_DEPTH)
 
   // Integration test runs disable rate limiting globally so suites do not
   // have to juggle per-endpoint bypass headers or reshape default caps.
@@ -50,4 +52,12 @@ function parsePositiveInt(raw: string | undefined): number | undefined {
   if (raw === undefined || raw === '') return undefined
   const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+function parseTrustProxyDepth(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return 0
+  const parsed = Number(raw)
+  if (Number.isInteger(parsed) && parsed >= 0) return parsed
+  logger.warn('Invalid RATE_LIMIT_TRUST_PROXY_DEPTH; using safe direct mode', { value: raw })
+  return 0
 }

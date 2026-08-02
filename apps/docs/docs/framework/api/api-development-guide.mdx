@@ -560,7 +560,7 @@ export default {
 - **"Entity not found"** - Check entity ID references in `E.generated.ts`
 - **Custom fields not saving** - Ensure `ce.ts` exports custom entities
 - **OpenAPI not generating** - Check route exports `openApi` constant
-- **Commands not found** - Verify command registration and IDs
+- **Commands not found** - Run `yarn generate` and verify `command-loaders.generated.ts` includes the command file and expected ID
 - **Tenant scoping issues** - Check `requireAuth` and organization context
 
 ### Performance Considerations

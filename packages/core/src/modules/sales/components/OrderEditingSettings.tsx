@@ -11,6 +11,9 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type OrderStatusOption = {
   id: string
@@ -96,7 +99,7 @@ export function OrderEditingSettings() {
       setCustomerStatuses(normalizeStatusList(call.result?.orderCustomerEditableStatuses))
       setAddressStatuses(normalizeStatusList(call.result?.orderAddressEditableStatuses))
     } catch (err) {
-      console.error('sales.order-editing-settings.load failed', err)
+      logger.error('sales.order-editing-settings.load failed', { err })
       flash(translations.messages.loadError, 'error')
     } finally {
       setLoading(false)
@@ -158,7 +161,7 @@ export function OrderEditingSettings() {
       setOptions(Array.isArray(call.result?.orderStatuses) ? call.result.orderStatuses : [])
       flash(translations.messages.saved, 'success')
     } catch (err) {
-      console.error('sales.order-editing-settings.save failed', err)
+      logger.error('sales.order-editing-settings.save failed', { err })
       flash(translations.messages.saveError, 'error')
     } finally {
       setSaving(false)

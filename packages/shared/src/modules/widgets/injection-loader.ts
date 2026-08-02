@@ -10,10 +10,13 @@ import type {
   ModuleInjectionTable,
   InjectionWidgetPlacement,
 } from './injection'
+import { createLogger } from '../../lib/logger'
 import {
   applyInjectionWidgetOverridesToEntries,
   applyInjectionWidgetOverridesToTables,
 } from '../overrides'
+
+const logger = createLogger('widgets').child({ component: 'injection-loader' })
 
 type LoadedWidgetModule = InjectionWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }
 type LoadedDataWidgetModule = InjectionDataWidgetModule & { metadata: InjectionWidgetMetadata }
@@ -140,7 +143,7 @@ function notifyInjectionRegistryChanged() {
 
 export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
   if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Core injection widgets re-registered (this may occur during HMR)')
+    logger.debug('Core injection widgets re-registered (this may occur during HMR)')
   }
   const finalEntries = applyInjectionWidgetOverridesToEntries(entries)
   _coreInjectionWidgetEntries = finalEntries
@@ -163,7 +166,7 @@ export function getCoreInjectionWidgets(): ModuleInjectionWidgetEntry[] {
 
 export function registerCoreInjectionTables(tables: Array<{ moduleId: string; table: ModuleInjectionTable }>) {
   if (_coreInjectionTables !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Core injection tables re-registered (this may occur during HMR)')
+    logger.debug('Core injection tables re-registered (this may occur during HMR)')
   }
   const finalTables = applyInjectionWidgetOverridesToTables(tables)
   _coreInjectionTables = finalTables
@@ -186,7 +189,7 @@ export function registerEnabledModuleIds(moduleIds: Iterable<string>) {
     if (typeof moduleId === 'string' && moduleId.length > 0) next.add(moduleId)
   }
   if (_enabledModuleIds !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Enabled module IDs re-registered (this may occur during HMR)')
+    logger.debug('Enabled module IDs re-registered (this may occur during HMR)')
   }
   _enabledModuleIds = next
   writeGlobalEnabledModuleIds(next)
@@ -539,9 +542,7 @@ function warnSkippedWidget(metadataId: string, missingModules: string[]) {
   if (warnedRequiredModuleSkips.has(key)) return
   warnedRequiredModuleSkips.add(key)
   if (process.env.NODE_ENV === 'development') {
-    console.debug(
-      `[InjectionLoader] Skipping widget "${metadataId}" — required module(s) not enabled: ${missingModules.join(', ')}`,
-    )
+    logger.debug('Skipping widget — required module(s) not enabled', { metadataId, missingModules })
   }
 }
 

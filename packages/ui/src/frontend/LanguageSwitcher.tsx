@@ -1,6 +1,6 @@
 "use client"
 import { useId, useTransition } from 'react'
-import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useLocaleLocked, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useRouter } from 'next/navigation'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import {
@@ -13,6 +13,7 @@ import {
 
 export function LanguageSwitcher() {
   const current = useLocale()
+  const localeLocked = useLocaleLocked()
   const t = useT()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -44,6 +45,9 @@ export function LanguageSwitcher() {
       // Ignore network errors; UX fallback keeps previous locale
     }
   }
+
+  // Locale is pinned via OM_FORCE_LOCALE — switching is a no-op, so hide the control.
+  if (localeLocked) return null
 
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">

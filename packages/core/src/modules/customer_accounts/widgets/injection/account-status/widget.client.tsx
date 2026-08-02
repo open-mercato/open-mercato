@@ -115,9 +115,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
     )
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
-
+  async function handleSubmit() {
     const trimmedEmail = email.trim()
     if (!trimmedEmail) {
       flash(t('customer_accounts.widgets.invite.error.emailRequired', 'Email is required'), 'error')
@@ -177,7 +175,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 mt-2">
+    <div className="space-y-3 mt-2">
       <div>
         <label htmlFor="invite-email" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('common.email', 'Email')}
@@ -235,8 +233,9 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
 
       <div className="flex justify-end gap-2 pt-1">
         <Button
-          type="submit"
+          type="button"
           size="sm"
+          onClick={handleSubmit}
           disabled={isSubmitting || !email.trim() || selectedRoleIds.length === 0}
         >
           {isSubmitting
@@ -244,7 +243,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
             : t('customer_accounts.widgets.invite.submit', 'Send Invitation')}
         </Button>
       </div>
-    </form>
+    </div>
   )
 }
 

@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager as CoreEntityManager } from '@mikro-orm/core'
-import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { ExchangeRateService, RateResult } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { fetchStuckDealIds } from '../../../lib/stuckDeals'
+import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
+import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
+import { loadDealsSummaryQueryRows } from '../../../lib/dealsSummaryQueries'
 import {
   computeDelta,
   convertSumsToBase,
@@ -17,12 +18,14 @@ import {
   type CurrencySum,
   type Delta,
 } from '../../../lib/dealsMetrics'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
 }
 
-const OPEN_STATUSES = ['open', 'in_progress'] as const
 const TRAILING_MONTHS = 6
 const TOP_OWNERS = 5
 
@@ -103,40 +106,6 @@ export const openApi: OpenApiRouteDoc = {
   },
 }
 
-type OpenPipelineRow = {
-  stage: string | null
-  currency: string | null
-  total: string | number | null
-  count: string | number
-  owner_user_id: string | null
-}
-
-type WindowSumRow = {
-  currency: string | null
-  current_total: string | number | null
-  current_count: string | number
-  previous_total: string | number | null
-  previous_count: string | number
-}
-
-type WinLossRow = {
-  current_won: string | number
-  current_lost: string | number
-  previous_won: string | number
-  previous_lost: string | number
-}
-
-type WinRateMonthRow = {
-  period: string
-  won: string | number
-  lost: string | number
-}
-
-type OwnerCountRow = {
-  owner_user_id: string | null
-  count: string | number
-}
-
 function toNumber(value: string | number | null | undefined): number {
   const parsed = Number(value ?? 0)
   return Number.isFinite(parsed) ? parsed : 0
@@ -160,7 +129,7 @@ function sumsByCurrency(entries: Array<{ currency: string | null; total: number 
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -169,14 +138,10 @@ export async function GET(req: Request) {
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const effectiveTenantId = scope.tenantId ?? auth.tenantId
-  const orgFilterIds = Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-    ? scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
-    : auth.orgId
-      ? [auth.orgId]
-      : []
-  if (!effectiveTenantId || orgFilterIds.length === 0) {
+  if (!effectiveTenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
 
   const today = new Date()
   const currentQuarter = getQuarterWindow(today)
@@ -184,133 +149,21 @@ export async function GET(req: Request) {
   const trailingMonths = getTrailingMonths(today, TRAILING_MONTHS)
   const seriesStart = trailingMonths[0]?.start ?? currentQuarter.start
 
-  const connection = em.getConnection()
-
-  const baseCurrency: Array<{ code: string }> = await connection.execute<Array<{ code: string }>>(
-    `SELECT code FROM currencies WHERE tenant_id = ? AND organization_id = ? AND is_base = true AND deleted_at IS NULL LIMIT 1`,
-    [effectiveTenantId, orgFilterIds[0]],
-  )
-  const baseCurrencyCode = baseCurrency[0]?.code ?? null
-
-  const orgPlaceholders = orgFilterIds.map(() => '?').join(',')
-  const scopeWhere = `tenant_id = ? AND organization_id IN (${orgPlaceholders}) AND deleted_at IS NULL`
-  const scopeValues: Array<string | number | null> = [effectiveTenantId, ...orgFilterIds]
-  const openPlaceholders = OPEN_STATUSES.map(() => '?').join(',')
-
-  // 1) Open pipeline: per (stage, currency) sums + open-deal owner per row, so we can
-  //    derive pipeline value (per stage + converted total) and the open owner set in one pass.
-  const openRows: OpenPipelineRow[] = await connection.execute<OpenPipelineRow[]>(
-    `SELECT
-        pipeline_stage AS stage,
-        UPPER(COALESCE(value_currency, '')) AS currency,
-        COALESCE(SUM(value_amount), 0) AS total,
-        COUNT(*) AS count,
-        owner_user_id
-      FROM customer_deals
-      WHERE ${scopeWhere} AND status IN (${openPlaceholders})
-      GROUP BY pipeline_stage, UPPER(COALESCE(value_currency, '')), owner_user_id`,
-    [...scopeValues, ...OPEN_STATUSES],
+  const baseCurrencyCode = await resolveOptionalBaseCurrencyCode(
+    container,
+    effectiveTenantId,
+    orgFilterIds[0],
   )
 
-  // 2) Open-deal value created in the current vs previous quarter (pipeline inflow delta).
-  const inflowRows: WindowSumRow[] = await connection.execute<WindowSumRow[]>(
-    `SELECT
-        UPPER(COALESCE(value_currency, '')) AS currency,
-        COALESCE(SUM(value_amount) FILTER (WHERE created_at >= ? AND created_at < ?), 0) AS current_total,
-        COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS current_count,
-        COALESCE(SUM(value_amount) FILTER (WHERE created_at >= ? AND created_at < ?), 0) AS previous_total,
-        COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS previous_count
-      FROM customer_deals
-      WHERE ${scopeWhere} AND status IN (${openPlaceholders})
-      GROUP BY UPPER(COALESCE(value_currency, ''))`,
-    [
-      currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
-      currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
-      previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
-      previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
-      ...scopeValues, ...OPEN_STATUSES,
-    ],
-  )
-
-  // 3) Won value per currency for the current vs previous quarter (updated_at in window).
-  const wonRows: WindowSumRow[] = await connection.execute<WindowSumRow[]>(
-    `SELECT
-        UPPER(COALESCE(value_currency, '')) AS currency,
-        COALESCE(SUM(value_amount) FILTER (WHERE updated_at >= ? AND updated_at < ?), 0) AS current_total,
-        COUNT(*) FILTER (WHERE updated_at >= ? AND updated_at < ?) AS current_count,
-        COALESCE(SUM(value_amount) FILTER (WHERE updated_at >= ? AND updated_at < ?), 0) AS previous_total,
-        COUNT(*) FILTER (WHERE updated_at >= ? AND updated_at < ?) AS previous_count
-      FROM customer_deals
-      WHERE ${scopeWhere} AND (status = 'win' OR closure_outcome = 'won')
-      GROUP BY UPPER(COALESCE(value_currency, ''))`,
-    [
-      currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
-      currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
-      previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
-      previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
-      ...scopeValues,
-    ],
-  )
-
-  // 4) Win/lost counts for the current vs previous quarter (win rate + delta-pp).
-  const winLossRows: WinLossRow[] = await connection.execute<WinLossRow[]>(
-    `SELECT
-        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS current_won,
-        COUNT(*) FILTER (WHERE (status = 'loose' OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS current_lost,
-        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS previous_won,
-        COUNT(*) FILTER (WHERE (status = 'loose' OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS previous_lost
-      FROM customer_deals
-      WHERE ${scopeWhere}`,
-    [
-      currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
-      currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
-      previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
-      previousQuarter.start.toISOString(), previousQuarter.end.toISOString(),
-      ...scopeValues,
-    ],
-  )
-
-  // 5) Win-rate series over the trailing months (won/lost grouped by updated_at month).
-  const seriesRows: WinRateMonthRow[] = await connection.execute<WinRateMonthRow[]>(
-    `SELECT
-        to_char(date_trunc('month', updated_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS period,
-        COUNT(*) FILTER (WHERE status = 'win' OR closure_outcome = 'won') AS won,
-        COUNT(*) FILTER (WHERE status = 'loose' OR closure_outcome = 'lost') AS lost
-      FROM customer_deals
-      WHERE ${scopeWhere} AND updated_at >= ?
-      GROUP BY 1`,
-    [...scopeValues, seriesStart.toISOString()],
-  )
-
-  // Overdue open deals (id set) + stuck deals (id set) → union count for "need attention".
-  const overdueRows: Array<{ id: string }> = await connection.execute<Array<{ id: string }>>(
-    `SELECT id FROM customer_deals
-      WHERE ${scopeWhere} AND status = 'open' AND expected_close_at IS NOT NULL AND expected_close_at < CURRENT_DATE`,
-    [...scopeValues],
-  )
-  // `fetchStuckDealIds` is single-org; run it for every org in scope so multi-org callers don't
-  // undercount stuck deals (the aggregates above already span every org in `orgFilterIds`).
-  const stuckIdLists = await Promise.all(
-    orgFilterIds.map((orgId) =>
-      fetchStuckDealIds(em as unknown as PgEntityManager, orgId, effectiveTenantId)),
-  )
-  const stuckIdSet = new Set<string>()
-  for (const list of stuckIdLists) for (const id of list) stuckIdSet.add(id)
-
-  // The stuck-deal query does not filter status, so a stuck id can be a won/lost/closed deal.
-  // "Need attention" is an active-deal metric — intersect with the open (OPEN_STATUSES) set so
-  // terminal deals never inflate the count.
-  let openStuckIds: string[] = []
-  if (stuckIdSet.size > 0) {
-    const stuckIdValues = Array.from(stuckIdSet)
-    const stuckPlaceholders = stuckIdValues.map(() => '?').join(',')
-    const openStuckRows: Array<{ id: string }> = await connection.execute<Array<{ id: string }>>(
-      `SELECT id FROM customer_deals
-        WHERE ${scopeWhere} AND status IN (${openPlaceholders}) AND id IN (${stuckPlaceholders})`,
-      [...scopeValues, ...OPEN_STATUSES, ...stuckIdValues],
-    )
-    openStuckIds = openStuckRows.map((row) => row.id)
-  }
+  const { openRows, inflowRows, wonRows, winLossRows, seriesRows, overdueRows, openStuckIds } =
+    await loadDealsSummaryQueryRows({
+      em,
+      tenantId: effectiveTenantId,
+      organizationIds: orgFilterIds,
+      currentQuarter,
+      previousQuarter,
+      seriesStart,
+    })
 
   const attentionIds = new Set<string>()
   for (const row of overdueRows) attentionIds.add(row.id)
@@ -366,7 +219,7 @@ export async function GET(req: Request) {
           options: { maxDaysBack: 60, autoFetch: false },
         })
       } catch (err) {
-        console.warn('[customers.deals.summary] exchange-rate lookup failed; falling back to per-currency totals', err)
+        logger.warn('exchange-rate lookup failed; falling back to per-currency totals', { component: 'deals.summary', err })
       }
     }
   }

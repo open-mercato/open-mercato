@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import type { CustomFieldDisplayEntry } from '@open-mercato/shared/lib/crud/custom-fields'
@@ -37,6 +37,9 @@ import {
   getCheckoutCustomerFieldSemanticType,
   validateCheckoutCustomerData,
 } from '../lib/customerDataValidation'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'PayPage' })
 
 type CustomerFieldOption = {
   value: string
@@ -267,17 +270,17 @@ export type PayPageFooterProps = {
   themeTokens: PayPageThemeTokens
 }
 
-const PAGE_HANDLE = ComponentReplacementHandles.page('checkout.pay-page')
-const HEADER_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'header')
-const DESCRIPTION_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'description')
-const SUMMARY_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'summary')
-const PRICING_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'pricing')
-const PAYMENT_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'payment')
-const CUSTOMER_FORM_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'customer-form')
-const LEGAL_CONSENT_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'legal-consent')
-const GATEWAY_FORM_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'gateway-form')
-const HELP_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'help')
-const FOOTER_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'footer')
+const PAGE_HANDLE = extensionPoints.hosts.payPage.componentId
+const HEADER_HANDLE = extensionPoints.hosts.header.componentId
+const DESCRIPTION_HANDLE = extensionPoints.hosts.description.componentId
+const SUMMARY_HANDLE = extensionPoints.hosts.summary.componentId
+const PRICING_HANDLE = extensionPoints.hosts.pricing.componentId
+const PAYMENT_HANDLE = extensionPoints.hosts.payment.componentId
+const CUSTOMER_FORM_HANDLE = extensionPoints.hosts.customerForm.componentId
+const LEGAL_CONSENT_HANDLE = extensionPoints.hosts.legalConsent.componentId
+const GATEWAY_FORM_HANDLE = extensionPoints.hosts.gatewayForm.componentId
+const HELP_HANDLE = extensionPoints.hosts.help.componentId
+const FOOTER_HANDLE = extensionPoints.hosts.footer.componentId
 
 // Checkout supports merchant branding defaults; keep those theme fallbacks isolated from general UI state colors.
 const CHECKOUT_THEME_FALLBACKS = {
@@ -800,6 +803,8 @@ export function PayPageCustomerForm({
           const value = customerData[field.key]
           const containerClass = field.kind === 'multiline' ? 'space-y-2 sm:col-span-2' : 'space-y-2'
           const semanticType = getCheckoutCustomerFieldSemanticType(field)
+          const fieldId = `checkout-customer-${field.key}`
+          const fieldErrorId = `${fieldId}-error`
 
           return (
             <div key={field.key} className={containerClass}>
@@ -817,6 +822,9 @@ export function PayPageCustomerForm({
                   <Checkbox
                     checked={value === true}
                     disabled={inputsLocked}
+                    aria-required={field.required ? true : undefined}
+                    aria-invalid={fieldError ? true : undefined}
+                    aria-describedby={fieldError ? fieldErrorId : undefined}
                     onCheckedChange={(checked) => onFieldChange(field.key, checked === true)}
                   />
                   <span className="space-y-1">
@@ -833,17 +841,21 @@ export function PayPageCustomerForm({
                 </label>
               ) : (
                 <>
-                  <label className="text-sm font-medium">
+                  <label htmlFor={fieldId} className="text-sm font-medium">
                     {field.label}
                     {field.required ? ' *' : ''}
                   </label>
                   {field.kind === 'multiline' ? (
                     <Textarea
+                      id={fieldId}
                       className={READABLE_INPUT_CLASSNAME}
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
+                      aria-required={field.required ? true : undefined}
+                      aria-invalid={fieldError ? true : undefined}
+                      aria-describedby={fieldError ? fieldErrorId : undefined}
                       style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                     />
                   ) : field.kind === 'select' || field.kind === 'radio' ? (
@@ -855,8 +867,11 @@ export function PayPageCustomerForm({
                       }}
                     >
                       <SelectTrigger
+                        id={fieldId}
                         className={`rounded-xl ${READABLE_INPUT_CLASSNAME}`}
+                        aria-required={field.required ? true : undefined}
                         aria-invalid={Boolean(fieldError)}
+                        aria-describedby={fieldError ? fieldErrorId : undefined}
                         style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                       >
                         <SelectValue placeholder={t('checkout.payPage.fields.selectPlaceholder', 'Select...')} />
@@ -872,6 +887,7 @@ export function PayPageCustomerForm({
                     </Select>
                   ) : (
                     <Input
+                      id={fieldId}
                       className={READABLE_INPUT_CLASSNAME}
                       type={semanticType === 'email' ? 'email' : semanticType === 'phone' ? 'tel' : 'text'}
                       value={typeof value === 'string' ? value : ''}
@@ -879,13 +895,16 @@ export function PayPageCustomerForm({
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
                       autoComplete={semanticType === 'email' ? 'email' : semanticType === 'phone' ? 'tel' : undefined}
+                      aria-required={field.required ? true : undefined}
+                      aria-invalid={fieldError ? true : undefined}
+                      aria-describedby={fieldError ? fieldErrorId : undefined}
                       style={buildReadableInputStyle(themeTokens, Boolean(fieldError), inputsLocked)}
                     />
                   )}
                 </>
               )}
               {fieldError ? (
-                <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
+                <p id={fieldErrorId} className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
                   {translateValidationMessage(fieldError, fieldPath)}
                 </p>
               ) : null}
@@ -1203,10 +1222,10 @@ export function PayPagePaymentForm({
         </Alert>
       ) : null}
 
-      <InjectionSpot spotId="checkout.pay-page:gateway-widget:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.gatewayWidgetBefore.spotId} context={injectionContext} />
       {embeddedPaymentSession && embeddedRenderer ? (
         <>
-          <InjectionSpot spotId="checkout.pay-page:gateway-widget:renderer:before" context={injectionContext} />
+          <InjectionSpot spotId={extensionPoints.hosts.gatewayRendererBefore.spotId} context={injectionContext} />
           {React.createElement(embeddedRenderer, {
             providerKey: embeddedPaymentSession.providerKey ?? '',
             transactionId: activeTransactionId ?? '',
@@ -1216,11 +1235,11 @@ export function PayPagePaymentForm({
             onComplete,
             onError,
           })}
-          <InjectionSpot spotId="checkout.pay-page:gateway-widget:renderer:after" context={injectionContext} />
+          <InjectionSpot spotId={extensionPoints.hosts.gatewayRendererAfter.spotId} context={injectionContext} />
         </>
       ) : (
         <>
-          <InjectionSpot spotId="checkout.pay-page:gateway-widget:actions:before" context={injectionContext} />
+          <InjectionSpot spotId={extensionPoints.hosts.gatewayActionsBefore.spotId} context={injectionContext} />
           <Button
             type="button"
             className="h-12 w-full rounded-xl text-base"
@@ -1237,10 +1256,10 @@ export function PayPagePaymentForm({
                   : t('checkout.payPage.actions.payNow', 'Pay now')}
             </span>
           </Button>
-          <InjectionSpot spotId="checkout.pay-page:gateway-widget:actions:after" context={injectionContext} />
+          <InjectionSpot spotId={extensionPoints.hosts.gatewayActionsAfter.spotId} context={injectionContext} />
         </>
       )}
-      <InjectionSpot spotId="checkout.pay-page:gateway-widget:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.gatewayWidgetAfter.spotId} context={injectionContext} />
 
       {paymentSession ? (
         <Button
@@ -1764,7 +1783,7 @@ export function PayPage({
         Object.entries(transformed as Record<string, unknown>).map(([fieldPath, value]) => [fieldPath, String(value)]),
       )
     } catch (error) {
-      console.error('[PayPage] Error in transformValidation:', error)
+      logger.error('Error in transformValidation', { err: error })
       return nextErrors
     }
   }, [triggerPayPageFormEvent])
@@ -1799,7 +1818,7 @@ export function PayPage({
           setFieldErrors((current) => ({ ...current, [fieldPath]: nextMessage }))
         }
       } catch (error) {
-        console.error('[PayPage] Error in onFieldChange:', error)
+        logger.error('Error in onFieldChange', { err: error })
       }
     })()
   }, [applySubmitDataToState, triggerPayPageFormEvent])
@@ -1888,7 +1907,7 @@ export function PayPage({
             }
           }
         } catch (error) {
-          console.error('[PayPage] Error in transformFormData:', error)
+          logger.error('Error in transformFormData', { err: error })
         }
       }
 
@@ -2125,11 +2144,11 @@ export function PayPage({
 
   const leftColumn = (
     <div className="space-y-6">
-      <InjectionSpot spotId="checkout.pay-page:header:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.headerBefore.spotId} context={injectionContext} />
       <div data-component-handle={HEADER_HANDLE}>
         <HeaderComponent payload={payload} preview={isPreview} themeTokens={themeTokens} />
       </div>
-      <InjectionSpot spotId="checkout.pay-page:header:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.headerAfter.spotId} context={injectionContext} />
 
       {(payload.description || publicCustomFields.length > 0) ? (
         <>
@@ -2140,11 +2159,11 @@ export function PayPage({
               themeTokens={themeTokens}
             />
           </div>
-          <InjectionSpot spotId="checkout.pay-page:description:after" context={injectionContext} />
+          <InjectionSpot spotId={extensionPoints.hosts.descriptionAfter.spotId} context={injectionContext} />
         </>
       ) : null}
 
-      <InjectionSpot spotId="checkout.pay-page:customer-fields:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.customerFieldsBefore.spotId} context={injectionContext} />
       {shouldCollectCustomerDetails ? (
         <div data-component-handle={CUSTOMER_FORM_HANDLE}>
           <CustomerFormComponent
@@ -2158,13 +2177,13 @@ export function PayPage({
           />
         </div>
       ) : null}
-      <InjectionSpot spotId="checkout.pay-page:customer-fields:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.customerFieldsAfter.spotId} context={injectionContext} />
     </div>
   )
 
   const paymentFlow = (
     <>
-      <InjectionSpot spotId="checkout.pay-page:pricing:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.pricingBefore.spotId} context={injectionContext} />
       <div data-component-handle={PRICING_HANDLE}>
         <PricingComponent
           payload={payload}
@@ -2196,9 +2215,9 @@ export function PayPage({
           themeTokens={themeTokens}
         />
       </div>
-      <InjectionSpot spotId="checkout.pay-page:pricing:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.pricingAfter.spotId} context={injectionContext} />
 
-      <InjectionSpot spotId="checkout.pay-page:summary:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.summaryBefore.spotId} context={injectionContext} />
       <div data-component-handle={SUMMARY_HANDLE}>
         <SummaryComponent
           payload={payload}
@@ -2209,9 +2228,9 @@ export function PayPage({
           themeTokens={themeTokens}
         />
       </div>
-      <InjectionSpot spotId="checkout.pay-page:summary:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.summaryAfter.spotId} context={injectionContext} />
 
-      <InjectionSpot spotId="checkout.pay-page:legal-consent:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.legalConsentBefore.spotId} context={injectionContext} />
       <div data-component-handle={LEGAL_CONSENT_HANDLE}>
         <LegalConsentComponent
           payload={payload}
@@ -2223,9 +2242,9 @@ export function PayPage({
           themeTokens={themeTokens}
         />
       </div>
-      <InjectionSpot spotId="checkout.pay-page:legal-consent:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.legalConsentAfter.spotId} context={injectionContext} />
 
-      <InjectionSpot spotId="checkout.pay-page:submit:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.submitBefore.spotId} context={injectionContext} />
       <div data-component-handle={GATEWAY_FORM_HANDLE}>
         <PaymentFormComponent
           payload={payload}
@@ -2253,35 +2272,35 @@ export function PayPage({
           themeTokens={themeTokens}
         />
       </div>
-      <InjectionSpot spotId="checkout.pay-page:submit:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.submitAfter.spotId} context={injectionContext} />
 
-      <InjectionSpot spotId="checkout.pay-page:help:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.helpBefore.spotId} context={injectionContext} />
       <div data-component-handle={HELP_HANDLE}>
         <HelpComponent payload={payload} preview={isPreview} themeTokens={themeTokens} />
       </div>
-      <InjectionSpot spotId="checkout.pay-page:help:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.helpAfter.spotId} context={injectionContext} />
     </>
   )
 
   const rightColumn = (
     <>
-      <InjectionSpot spotId="checkout.pay-page:payment:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.paymentBefore.spotId} context={injectionContext} />
       <div data-component-handle={PAYMENT_HANDLE}>
         <PaymentSectionComponent payload={payload} preview={isPreview} themeTokens={themeTokens}>
           {paymentFlow}
         </PaymentSectionComponent>
       </div>
-      <InjectionSpot spotId="checkout.pay-page:payment:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.paymentAfter.spotId} context={injectionContext} />
     </>
   )
 
   const footer = (
     <>
-      <InjectionSpot spotId="checkout.pay-page:footer:before" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.footerBefore.spotId} context={injectionContext} />
       <div data-component-handle={FOOTER_HANDLE}>
         <FooterComponent payload={payload} themeTokens={themeTokens} />
       </div>
-      <InjectionSpot spotId="checkout.pay-page:footer:after" context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.footerAfter.spotId} context={injectionContext} />
     </>
   )
 

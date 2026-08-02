@@ -19,6 +19,9 @@ import {
   syncExcelImportResponseSchema,
 } from '../../data/validators'
 import { resolveSyncExcelConcreteScope } from '../../lib/scope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sync_excel').child({ component: 'import' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sync_excel.run'] },
@@ -188,7 +191,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const stack = error instanceof Error ? error.stack : undefined
-    console.error('[sync_excel.import] unhandled error', { message, stack })
+    logger.error('Unhandled error starting import', { message, stack })
     return NextResponse.json(
       { error: 'Failed to start sync_excel import.' },
       { status: 500 },

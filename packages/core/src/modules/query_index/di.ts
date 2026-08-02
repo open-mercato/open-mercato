@@ -162,9 +162,9 @@ export function register(container: AppContainer) {
             for (const entityType of Array.from(new Set(ids))) {
               const [mod, ent] = entityType.split(':')
               if (!mod || !ent) continue
-              bus.on(`${mod}.${ent}.created`, makeUpsertHandler(entityType))
-              bus.on(`${mod}.${ent}.updated`, makeUpsertHandler(entityType))
-              bus.on(`${mod}.${ent}.deleted`, makeDeleteHandler(entityType))
+              bus.on(`${mod}.${ent}.created`, makeUpsertHandler(entityType), { moduleId: 'query_index' })
+              bus.on(`${mod}.${ent}.updated`, makeUpsertHandler(entityType), { moduleId: 'query_index' })
+              bus.on(`${mod}.${ent}.deleted`, makeDeleteHandler(entityType), { moduleId: 'query_index' })
             }
           }
           if (cfEntityIds.length > 0) {

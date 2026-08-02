@@ -6,6 +6,7 @@ import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryp
 import { decryptCustomFieldValue, resolveTenantEncryptionService } from '../encryption/customFieldValues'
 import { parseBooleanToken } from '../boolean'
 import { extractCustomFieldEntries } from './custom-fields-client'
+import { createLogger } from '../logger'
 import {
   buildCustomFieldDefinitionIndexFromRows,
   normalizeDefinitionKey,
@@ -15,6 +16,8 @@ import {
   type CustomFieldDefinitionRow,
   type CustomFieldDefinitionSummary,
 } from './custom-field-definition-index'
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 export type { CustomFieldDefinitionSummary, CustomFieldDefinitionIndex } from './custom-field-definition-index'
 
@@ -416,7 +419,7 @@ export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefini
         return restored
       }
     } catch (err) {
-      console.warn('[crud:cf-def-cache] read failed', err)
+      logger.warn('Custom-field definition cache read failed', { err })
     }
   }
 
@@ -433,7 +436,7 @@ export async function loadCustomFieldDefinitionIndex(opts: LoadCustomFieldDefini
         tags: buildCfDefIndexCacheTags({ tenantId, entityIds }),
       })
     } catch (err) {
-      console.warn('[crud:cf-def-cache] write failed', err)
+      logger.warn('Custom-field definition cache write failed', { err })
     }
   }
   if (requestBucket) requestBucket.set(cacheKey, index)

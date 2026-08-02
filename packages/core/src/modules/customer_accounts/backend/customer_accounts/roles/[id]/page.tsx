@@ -370,7 +370,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
           optimisticLockUpdatedAt={data.updatedAt ?? data.updated_at ?? null}
           entityId="customer_accounts:customer_role"
           onSubmit={handleSubmit}
-          onDelete={!data.isSystem ? handleDelete : undefined}
+          onDelete={!data.isDefault ? handleDelete : undefined}
           cancelHref="/backend/customer_accounts/roles"
         />
       </PageBody>

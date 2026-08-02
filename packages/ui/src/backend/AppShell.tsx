@@ -139,6 +139,12 @@ export type AppShellProps = {
   profilePathPrefixes?: string[]
   mobileSidebarSlot?: React.ReactNode
   /**
+   * Hide the backend footer status bar (app version + terms/privacy links).
+   * Intended for app developers and whitelabel/embedded deployments that want to
+   * suppress the footer entirely. Defaults to `false` (footer shown).
+   */
+  hideFooter?: boolean
+  /**
    * How long (ms) to keep successfully completed progress operations visible
    * before auto-hiding. Pass `false` or `0` to disable. Defaults to 10 000 ms.
    */
@@ -454,7 +460,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, progressCompletedAutoHideMs }: AppShellProps) {
+function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, hideFooter = false, progressCompletedAutoHideMs }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -1426,21 +1432,23 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </OrganizationScopeBoundary>
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
-          {version ? (
-            <span className="text-xs text-muted-foreground">
-              {t('appShell.version', { version })}
-            </span>
-          ) : null}
-          <nav className="flex items-center gap-3 text-xs text-muted-foreground">
-            <Link href="/terms" className="transition hover:text-foreground">
-              {t('common.terms')}
-            </Link>
-            <Link href="/privacy" className="transition hover:text-foreground">
-              {t('common.privacy')}
-            </Link>
-          </nav>
-        </footer>
+        {hideFooter ? null : (
+          <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+            {version ? (
+              <span className="text-xs text-muted-foreground">
+                {t('appShell.version', { version })}
+              </span>
+            ) : null}
+            <nav className="flex items-center gap-3 text-xs text-muted-foreground">
+              <Link href="/terms" className="transition hover:text-foreground">
+                {t('common.terms')}
+              </Link>
+              <Link href="/privacy" className="transition hover:text-foreground">
+                {t('common.privacy')}
+              </Link>
+            </nav>
+          </footer>
+        )}
       </div>
 
       {/* Mobile drawer */}
@@ -1486,13 +1494,13 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       aria-selected={isActive}
                       aria-controls="mobile-drawer-tabpanel"
                       onClick={() => setMobileDrawerView(tab.id === 'main' ? 'main' : 'auto')}
-                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
+                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors outline-none focus-visible:shadow-focus data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
                       data-active={isActive}
                     >
                       <span>{tab.label}</span>
                       {isActive ? (
                         <span
-                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-foreground"
+                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-accent-indigo"
                           aria-hidden="true"
                         />
                       ) : null}

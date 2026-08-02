@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -96,6 +97,9 @@ import {
   normalizeProductConversionInputs,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 const productFormTypedSchema =
   productFormSchema as unknown as ZodType<ProductFormValues>;
@@ -268,7 +272,7 @@ export default function CreateCatalogProductPage() {
             .filter((item): item is PriceKindSummary => item !== null),
         );
       } catch (err) {
-        console.error("catalog.price-kinds.fetch failed", err);
+        logger.error('catalog.price-kinds.fetch failed', { err });
         setPriceKinds([]);
       }
     };
@@ -317,7 +321,7 @@ export default function CreateCatalogProductPage() {
           }),
         );
       } catch (err) {
-        console.error("sales.tax-rates.fetch failed", err);
+        logger.error('sales.tax-rates.fetch failed', { err });
         setTaxRates([]);
       }
     };
@@ -378,7 +382,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           initialValues={
             initialValuesRef.current ?? createInitialProductFormValues()
           }
@@ -775,10 +779,7 @@ export default function CreateCatalogProductPage() {
                   { fallback: null },
                 );
                 if (!transfer.ok) {
-                  console.error(
-                    "attachments.transfer.failed",
-                    transfer.result?.error,
-                  );
+                  logger.error("attachments.transfer.failed", { err: transfer.result?.error });
                 }
               }
 

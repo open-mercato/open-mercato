@@ -64,4 +64,43 @@ describe('entities/definitions.manage GET (issue #1404)', () => {
     const latestStart = Math.max(...calls.map((c) => c.start))
     expect(latestStart).toBeLessThan(earliestEnd)
   })
+
+  it('hides inherited definitions that are shadowed by a scoped tombstone', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          id: 'def-1',
+          entityId: 'customers:customer_deal',
+          key: 'estimated_seats',
+          kind: 'integer',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          isActive: true,
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'def-2',
+          entityId: 'customers:customer_deal',
+          key: 'estimated_seats',
+          kind: 'integer',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          isActive: false,
+          deletedAt: new Date('2026-06-26T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-26T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+    loadEntityFieldsetConfigsMock.mockResolvedValueOnce(new Map())
+
+    const response = await GET(new Request('http://x/api/entities/definitions.manage?entityId=customers:customer_deal'))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items).toEqual([])
+    expect(body.deletedKeys).toEqual(['estimated_seats'])
+  })
 })

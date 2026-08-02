@@ -1,5 +1,6 @@
 import { asValue } from 'awilix'
 import type { Kysely } from 'kysely'
+import type { FullTextSearchDriver } from './fulltext/types'
 import { SearchService } from './service'
 import { TokenSearchStrategy } from './strategies/token.strategy'
 import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector.strategy'
@@ -24,6 +25,16 @@ import type { VectorIndexJobPayload } from './queue/vector-indexing'
 import type { EncryptionMapEntry } from './lib/field-policy'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
+
+const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
+
+type SearchModuleGlobals = {
+  [FULLTEXT_DRIVER_KEY]?: FullTextSearchDriver
+}
+
+function getSearchModuleGlobals(): SearchModuleGlobals {
+  return globalThis as unknown as SearchModuleGlobals
+}
 
 /**
  * Check if encrypted fields should be excluded from search indexing.
@@ -160,25 +171,44 @@ export function registerSearchModule(
 
   // Fulltext strategy (requires driver configuration, e.g., MEILISEARCH_HOST)
   if (!options?.skipFulltext) {
-    // Build encryption map resolver if SEARCH_EXCLUDE_ENCRYPTED_FIELDS is enabled
-    let encryptionMapResolver: ((entityId: EntityId) => Promise<EncryptionMapEntry[]>) | undefined
-    if (shouldExcludeEncryptedFields()) {
-      try {
-        const em = container.resolve<any>('em')
-        const db = em.getKysely() as Kysely<any>
-        encryptionMapResolver = createEncryptionMapResolver(db)
-      } catch {
-        // Kysely not available, encrypted field filtering disabled
+    const excludeEncrypted = shouldExcludeEncryptedFields()
+    const singletonCacheEnabled = process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
+    const g = getSearchModuleGlobals()
+
+    // The fulltext driver is safe to memoize only when SEARCH_EXCLUDE_ENCRYPTED_FIELDS is
+    // OFF — in that case the driver holds no request-scoped Kysely reference. When the flag
+    // is ON the encryptionMapResolver captures a per-request db handle and must stay
+    // per-request to avoid cross-request data leaks.
+    const canMemoize = singletonCacheEnabled && !excludeEncrypted
+
+    let fulltextDriver: FullTextSearchDriver | null = canMemoize
+      ? (g[FULLTEXT_DRIVER_KEY] ?? null)
+      : null
+
+    if (!fulltextDriver) {
+      let encryptionMapResolver: ((entityId: EntityId) => Promise<EncryptionMapEntry[]>) | undefined
+      if (excludeEncrypted) {
+        try {
+          const em = container.resolve<any>('em')
+          const db = em.getKysely() as Kysely<any>
+          encryptionMapResolver = createEncryptionMapResolver(db)
+        } catch {
+          // Kysely not available, encrypted field filtering disabled
+        }
+      }
+
+      fulltextDriver = createFulltextDriver({
+        fieldPolicyResolver: (entityId: EntityId): SearchFieldPolicy | undefined => {
+          const config = entityConfigMap.get(entityId)
+          return config?.fieldPolicy
+        },
+        encryptionMapResolver,
+      })
+
+      if (canMemoize && fulltextDriver) {
+        g[FULLTEXT_DRIVER_KEY] = fulltextDriver
       }
     }
-
-    const fulltextDriver = createFulltextDriver({
-      fieldPolicyResolver: (entityId: EntityId): SearchFieldPolicy | undefined => {
-        const config = entityConfigMap.get(entityId)
-        return config?.fieldPolicy
-      },
-      encryptionMapResolver,
-    })
 
     if (fulltextDriver) {
       strategies.push(new FullTextSearchStrategy(fulltextDriver))

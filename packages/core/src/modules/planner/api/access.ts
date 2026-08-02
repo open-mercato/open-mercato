@@ -1,6 +1,9 @@
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'access' })
 
 type TranslateFn = (key: string, fallback?: string) => string
 
@@ -46,9 +49,7 @@ export async function resolveAvailabilityWriteAccess(
     { allowUnregistered: true },
   )
   if (!resolver) {
-    console.warn(
-      '[planner] staff_module_not_loaded — availabilityAccessResolver unregistered; denying availability write access',
-    )
+    logger.warn('Staff module not loaded — availabilityAccessResolver unregistered; denying availability write access')
     return {
       canManageAll: false,
       canManageSelf: false,

@@ -1,12 +1,8 @@
 /**
  * Scheduler Module Entry Point
  * 
- * This file ensures commands and other module resources are imported
- * and registered when the module is loaded.
+ * This file exposes module metadata and eager module resources.
  */
-
-// Import commands to trigger registration
-import './commands/jobs.js'
 
 // Import events to register typed event declarations
 import './events.js'

@@ -47,9 +47,13 @@ yarn workspace @open-mercato/shared build
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
-| `modules/` | When registering or listing modules | `@open-mercato/shared/lib/modules/registry` |
+| `logger/` | When emitting diagnostics — `createLogger(namespace)` instead of raw `console.*` (migrate incrementally, Boy Scout rule). Message-first with structured fields (`logger.warn('Payload too large', { event, maxBytes })`), errors under `err`, `child(bindings)` for context, `getLogLevel()`/`isLevelEnabled()` to gate expensive fields; level via `OM_LOG_LEVEL`. Never log credentials, PII, or payload bodies | `@open-mercato/shared/lib/logger` |
+| `modules/` | When registering or listing modules; `surfaceFingerprint` gives a deploy-time hash of the enabled modules, their declared ACL features, and the backend route manifest — mix it into any cache key whose payload is derived from those (no DB write exists to tag-invalidate on, so an omitted fingerprint serves the pre-deploy payload forever). It cannot see React-element fields such as a route `icon`, so callers MUST still pass a `ttl` | `@open-mercato/shared/lib/modules/registry`, `@open-mercato/shared/lib/modules/surfaceFingerprint` |
+| `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
+| `search/` | When resolving record ids from the `search_tokens` index — MUST use instead of hand-rolling the Kysely lookup, and MUST be unioned into (or replace) any `$ilike` filter on a column an encryption map covers | `@open-mercato/shared/lib/search/tokenLookup` |
+| `string.ts` | When parsing comma-separated lists from CLI args/query params, or coercing a string to `undefined` when blank | `@open-mercato/shared/lib/string` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 
 ## Module Types (`src/modules/`)
@@ -86,10 +90,56 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organizationId })
 ```
 
+### Search Tokens — MUST use instead of `$ilike` on encrypted columns
+
+```typescript
+import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
+
+const match = await findEntityIdsBySearchTokens({
+  db: em.getKysely<any>(),
+  entityType: E.customers.customer_entity,
+  query: term,
+  fields: ['display_name', 'primary_email'],
+  scope: { tenantId, organizationId },
+})
+if (match.matched && match.ids.length) filters.$or.push({ id: { $in: match.ids } })
+```
+
+An `$ilike` predicate runs against the stored column value. For a field covered by a
+module encryption map that value is ciphertext, so the filter matches nothing and the
+endpoint returns an empty page indistinguishable from a genuine no-result. The token
+index stores hashes of the plaintext, so it keeps matching. Issue #2990.
+
+- `matched: false` means the index was **not consulted** (blank query, `OM_SEARCH_ENABLED=off`,
+  or the term produced no tokens) — it is NOT "nothing matched". Keep the caller's own
+  predicate in that case.
+- `matched: true` with `ids: []` is a real empty result.
+- Queries that go through the query engine get this routing automatically; raw
+  `em.find` / Kysely list routes must wire it themselves. When the fallback would run
+  `ILIKE` against an encrypted column, both query engines now log a warning
+  (`lib/query/ciphertext-search-warning`) instead of degrading silently.
+
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
 
 ```typescript
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+```
+
+### Comma-Separated List Parsing — MUST use instead of ad-hoc splitting
+
+```typescript
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
+```
+
+`parseCommaSeparatedList(value)` splits on commas, trims each entry, and drops blanks. Non-string
+inputs (`null`/`undefined`) yield `[]`. MUST use it instead of hand-rolling
+`value.split(',').map((s) => s.trim()).filter(Boolean)` when reading CLI flags or query params.
+
+Keep the surrounding guard when a call site distinguishes "not supplied" (`undefined`) from
+"supplied but empty" (`[]`) — the helper always returns an array:
+
+```typescript
+const roleNames = rolesCsv ? parseCommaSeparatedList(rolesCsv) : undefined
 ```
 
 ### Browser Storage — use the shared helpers instead of raw `localStorage`
@@ -148,6 +198,30 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 - Use `hasAllFeatures(granted, required)` for arrays such as `features`, `requireFeatures`, or handler guard lists.
 - MUST NOT gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks in shared registries or runners; wildcard grants like `module.*` and `*` are part of the RBAC contract.
 
+### CRUD HTTP Errors — MUST use the shared helpers instead of hand-rolling `CrudHttpError`
+
+`@open-mercato/shared/lib/crud/errors` owns the standardized error shapes. Use the helper, not a raw `new CrudHttpError(...)`:
+
+```typescript
+import { assertFound, notFound, badRequest, forbidden, conflict } from '@open-mercato/shared/lib/crud/errors'
+
+const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))
+```
+
+| Status | Helper |
+|--------|--------|
+| 400 | `badRequest(message)` |
+| 403 | `forbidden(message?)` |
+| 404 | `notFound(message?)` — or `assertFound(value, message)` when guarding a lookup |
+| 409 | `conflict(message)` |
+
+MUST rules:
+- MUST NOT hand-roll `throw new CrudHttpError(404, { error: msg })`. Pick the helper that fits the call site:
+  - **Inline lookup** → `const deal = assertFound(await em.findOne(Deal, { id }), msg)`. It throws the standardized 404 and returns the value narrowed to `T`, so there is no nullable intermediate binding.
+  - **Guard statement** (multi-line lookup, or a compound condition such as `if (!entity || entity.tenantId !== auth.tenantId)`) → `throw notFound(msg)`. TypeScript already narrows the value after the throw, so this keeps tenant-scoping conditions explicit without losing type safety.
+- `message` is passed through verbatim and is never derived from an entity name — keep routing 404 copy through `translate(...)` so it stays translatable.
+- `assertFound` treats every falsy value as missing. Use it for entity/object lookups only, never to guard numbers or strings where `0`/`''` are valid results.
+
 ### CRUD Multi-ID Filtering
 
 - Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
@@ -164,7 +238,7 @@ MUST rules:
 
 ### Module-Level Overrides (`@open-mercato/shared/modules/overrides`)
 
-Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-18 are wired.
+Downstream apps replace or disable any contract a module presents through a single `entry.overrides` field on a `ModuleEntry`. The umbrella spec is `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`; phases 1-19 are wired.
 
 | Use case | Helper |
 |----------|--------|
@@ -176,6 +250,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 | Widgets | `applyInjectionWidgetOverridesToEntries()`, `applyInjectionWidgetOverridesToTables()`, `applyDashboardWidgetOverridesToEntries()`, `applyComponentOverridesToEntries()` |
 | Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
 | DI | `applyDiOverridesToContainer()` |
+| Sidebar nav ordering | `applyNavGroupOrderOverrides()`, `getNavGroupOrderOverride()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
@@ -184,6 +259,8 @@ MUST rules:
 - `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.
 - The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests`, widget registries, notification registries, etc.) so the overrides take effect when the registry stores entries.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
+- `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
+- Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds.
 
 ### Query Engine Extensibility (UMES)
 

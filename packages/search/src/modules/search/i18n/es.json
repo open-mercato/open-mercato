@@ -17,6 +17,8 @@
   "search.api.errors.recreateFailed": "No se pudo recrear la tabla vectorial con la nueva dimensión.",
   "search.api.errors.reindexFailed": "La operación de reindexación falló.",
   "search.api.errors.reindexInProgress": "Ya hay una reindexación en progreso.",
+  "search.api.errors.scopedQueueCancelFailed": "No se pudieron cancelar los trabajos de reindexación en cola.",
+  "search.api.errors.scopedQueueCancelUnavailable": "La cancelación de cola con alcance no está disponible.",
   "search.api.errors.searchFailed": "La operación de búsqueda falló.",
   "search.api.errors.serviceUnavailable": "El servicio de búsqueda no está disponible.",
   "search.api.errors.strategyUnavailable": "La estrategia de búsqueda solicitada no está disponible.",

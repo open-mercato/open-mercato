@@ -49,6 +49,23 @@ import {
   type AttachmentSigner,
 } from '../attachment-parts'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAuth(overrides: Partial<AiChatRequestContext> = {}): AiChatRequestContext {
   return {
     tenantId: 'tenant-1',
@@ -261,8 +278,9 @@ describe('resolveAttachmentParts — acceptedMediaTypes whitelist', () => {
     })
 
     expect(parts.map((part) => part.attachmentId)).toEqual(['img-1', 'pdf-1'])
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining('bin-1'),
+    expect(testLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ attachmentId: 'bin-1' }),
     )
   })
 
@@ -312,7 +330,7 @@ describe('resolveAttachmentParts — tenant / org scope enforcement', () => {
 
     expect(parts).toEqual([])
     expect(fsReadFileMock).not.toHaveBeenCalled()
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'))
+    expect(testLogger.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'), expect.anything())
   })
 
   it('lets super-admin callers through regardless of tenant scope', async () => {
@@ -347,7 +365,7 @@ describe('resolveAttachmentParts — tenant / org scope enforcement', () => {
     })
 
     expect(parts).toEqual([])
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('not found'))
+    expect(testLogger.warn).toHaveBeenCalledWith(expect.stringContaining('not found'), expect.anything())
   })
 
   // Regression for #2663 — null-scoped rows used to bypass the tenant check via
@@ -372,7 +390,7 @@ describe('resolveAttachmentParts — tenant / org scope enforcement', () => {
 
     expect(parts).toEqual([])
     expect(fsReadFileMock).not.toHaveBeenCalled()
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'))
+    expect(testLogger.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'), expect.anything())
   })
 
   // Regression for #2663 — `tenantId='X', organizationId=null` used to be
@@ -395,7 +413,7 @@ describe('resolveAttachmentParts — tenant / org scope enforcement', () => {
     })
 
     expect(parts).toEqual([])
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'))
+    expect(testLogger.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'), expect.anything())
   })
 
   it('lets a tenant-wide caller (null org) read any org within its tenant', async () => {
@@ -481,7 +499,7 @@ describe('resolveAttachmentParts — unavailable service graceful skip', () => {
 
     expect(parts).toEqual([])
     expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('without a DI container'))
+    expect(testLogger.warn).toHaveBeenCalledWith(expect.stringContaining('without a DI container'))
   })
 
   it('returns [] without throwing when the container cannot resolve `em`', async () => {

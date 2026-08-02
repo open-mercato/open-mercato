@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'auto-link-crm' })
 
 export const metadata = {
   event: 'customer_accounts.user.created',
@@ -55,6 +58,6 @@ export default async function handle(
 
     await em.nativeUpdate(CustomerUser, { id: userId }, updates)
   } catch (err) {
-    console.error('[customer_accounts:auto-link-crm] Failed to link customer user to CRM person:', err)
+    logger.error('Failed to link customer user to CRM person', { err })
   }
 }

@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { ScimProvisioningLog } from '../../../data/entities'
+import { SsoConfigError } from '../../../services/ssoConfigService'
 import { resolveSsoAdminContext } from '../../admin-context'
 import { handleSsoAdminApiError } from '../../error-handler'
 
@@ -20,18 +22,25 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'ssoConfigId is required' }, { status: 400 })
     }
 
-    const where: Record<string, unknown> = { ssoConfigId }
-    if (!scope.isSuperAdmin && scope.organizationId) {
+    const where: FilterQuery<ScimProvisioningLog> = { ssoConfigId }
+    if (!scope.isSuperAdmin) {
+      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
       where.organizationId = scope.organizationId
     }
 
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
 
-    const logs = await em.find(ScimProvisioningLog, where, {
-      orderBy: { createdAt: 'desc' },
-      limit: 50,
-    })
+    const logs = await findWithDecryption(
+      em,
+      ScimProvisioningLog,
+      where,
+      {
+        orderBy: { createdAt: 'desc' },
+        limit: 50,
+      },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
 
     return NextResponse.json({
       items: logs.map((log) => ({

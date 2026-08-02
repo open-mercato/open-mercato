@@ -1,6 +1,9 @@
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export type DealClosurePayload = {
   id: string
@@ -34,7 +37,7 @@ export async function deliverDealClosureNotification(
   try {
     notificationService = resolveNotificationService(container)
   } catch (err) {
-    console.warn('[customers.dealClosureNotification] notificationService resolve failed', err)
+    logger.warn('notificationService resolve failed', { component: 'dealClosureNotification', err })
     return
   }
 
@@ -59,6 +62,6 @@ export async function deliverDealClosureNotification(
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.warn('[customers.dealClosureNotification] create failed', notificationType, err)
+    logger.warn('Notification create failed', { component: 'dealClosureNotification', notificationType, err })
   }
 }

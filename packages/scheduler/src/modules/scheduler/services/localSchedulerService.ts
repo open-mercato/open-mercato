@@ -1,15 +1,22 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { ScheduledJob } from '../data/entities.js'
 import { LocalLockStrategy } from '../lib/localLockStrategy'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
+import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'local' })
 
 export interface RbacServiceLike {
   tenantHasFeature(tenantId: string | null | undefined, feature: string, opts?: { organizationId?: string | null }): Promise<boolean>
+  userHasAllFeatures(userId: string, required: readonly string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean>
 }
 
 export interface LocalSchedulerConfig {
@@ -55,13 +62,12 @@ export class LocalSchedulerService {
    */
   async start(): Promise<void> {
     if (this.isRunning) {
-      console.warn('[scheduler:local] Already running')
+      logger.warn('Polling engine already running')
       return
     }
 
     this.isRunning = true
-    console.log('[scheduler:local] Starting polling engine...')
-    console.log(`[scheduler:local] Poll interval: ${this.config.pollIntervalMs}ms`)
+    logger.info('Starting polling engine', { pollIntervalMs: this.config.pollIntervalMs })
 
     // Run initial poll immediately
     await this.poll()
@@ -69,18 +75,18 @@ export class LocalSchedulerService {
     // Schedule recurring polls
     this.pollTimer = setInterval(() => {
       this.poll().catch((error) => {
-        console.error('[scheduler:local] Poll error:', error)
+        logger.error('Poll error', { err: error })
       })
     }, this.config.pollIntervalMs)
 
-    console.log('[scheduler:local] ✓ Polling engine started')
+    logger.info('Polling engine started')
   }
 
   /**
    * Stop the local scheduler
    */
   async stop(): Promise<void> {
-    console.log('[scheduler:local] Stopping polling engine...')
+    logger.info('Stopping polling engine')
     this.isRunning = false
     
     if (this.pollTimer) {
@@ -88,7 +94,7 @@ export class LocalSchedulerService {
       this.pollTimer = undefined
     }
 
-    console.log('[scheduler:local] ✓ Polling engine stopped')
+    logger.info('Polling engine stopped')
   }
 
   /**
@@ -113,18 +119,18 @@ export class LocalSchedulerService {
       })
 
       if (dueSchedules.length === 0) {
-        console.log('[scheduler:local] No due schedules')
+        logger.debug('No due schedules')
         return
       }
 
-      console.log(`[scheduler:local] Found ${dueSchedules.length} due schedule(s)`)
+      logger.info('Found due schedules', { count: dueSchedules.length })
 
       // Execute each schedule
       for (const schedule of dueSchedules) {
         await this.executeSchedule(schedule)
       }
     } catch (error: unknown) {
-      console.error('[scheduler:local] Poll failed:', error)
+      logger.error('Poll failed', { err: error })
     }
   }
 
@@ -133,9 +139,10 @@ export class LocalSchedulerService {
    */
   private async executeSchedule(schedule: ScheduledJob): Promise<void> {
     const lockKey = `schedule:${schedule.id}`
+    const scheduleLogger = logger.child({ scheduleId: schedule.id, scheduleName: schedule.name })
 
     const { acquired } = await this.lockStrategy.runWithLock(lockKey, async () => {
-      console.log(`[scheduler:local] Executing schedule: ${schedule.name} (${schedule.id})`)
+      scheduleLogger.info('Executing schedule')
 
       // Emit started event
       await emitSchedulerEvent('scheduler.job.started', {
@@ -154,7 +161,7 @@ export class LocalSchedulerService {
           const hasFeature = await this.checkFeature(schedule)
           
           if (!hasFeature) {
-            console.log(`[scheduler:local] Schedule ${schedule.name} skipped: missing feature ${schedule.requireFeature}`)
+            scheduleLogger.info('Schedule skipped: missing required feature', { requireFeature: schedule.requireFeature })
             
             await emitSchedulerEvent('scheduler.job.skipped', {
               id: schedule.id,
@@ -202,7 +209,7 @@ export class LocalSchedulerService {
           await em.flush()
         }
 
-        console.log(`[scheduler:local] ✓ Schedule ${schedule.name} completed successfully`)
+        scheduleLogger.info('Schedule completed')
 
         // Emit completed event
         await emitSchedulerEvent('scheduler.job.completed', {
@@ -214,7 +221,7 @@ export class LocalSchedulerService {
           completedAt: new Date(),
         })
       } catch (error: unknown) {
-        console.error(`[scheduler:local] ✗ Schedule ${schedule.name} failed:`, error)
+        scheduleLogger.error('Schedule failed', { err: error })
 
         // Emit failed event
         await emitSchedulerEvent('scheduler.job.failed', {
@@ -233,7 +240,7 @@ export class LocalSchedulerService {
     })
 
     if (!acquired) {
-      console.log(`[scheduler:local] Schedule ${schedule.name} is already locked, skipping`)
+      scheduleLogger.debug('Schedule already locked, skipping')
       return
     }
   }
@@ -247,18 +254,19 @@ export class LocalSchedulerService {
     }
 
     const queue = this.queueFactory(schedule.targetQueue)
-    
-    await queue.enqueue({
-      scheduleId: schedule.id,
-      scheduleName: schedule.name,
-      scopeType: schedule.scopeType,
+
+    // Deliver the same flat contract as the asynchronous execute-schedule
+    // worker: targetPayload fields on the root, scheduler-owned scope and
+    // idempotency fields applied last. Local mode runs each firing exactly
+    // once, so the firing timestamp is a valid logical execution key.
+    await queue.enqueue(buildQueueTargetPayload({
+      targetPayload: schedule.targetPayload,
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
-      payload: schedule.targetPayload || {},
-      triggeredAt: new Date(),
-    })
+      idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
+    }))
 
-    console.log(`[scheduler:local] Enqueued job to queue: ${schedule.targetQueue}`)
+    logger.info('Enqueued job to target queue', { scheduleId: schedule.id, targetQueue: schedule.targetQueue })
   }
 
   /**
@@ -270,6 +278,14 @@ export class LocalSchedulerService {
     }
 
     const commandBus = new CommandBus()
+    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    await assertSchedulerSafeCommandAuthorized({
+      commandId: schedule.targetCommand,
+      actorUserId,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      rbacService: this.rbacService,
+    })
     
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
@@ -277,10 +293,10 @@ export class LocalSchedulerService {
       organizationId: schedule.organizationId,
     }
     
-    // Build command context with tenant/org scope but no user
-    // Commands run without user authentication for scheduled jobs
-    const commandCtx: CommandRuntimeContext = {
-      container: {
+    // Build the schedule-scoped command context after the allowlist/RBAC gate.
+    const commandCtx = buildScheduledCommandContext(
+      schedule,
+      {
         resolve: (name: string) => {
           // Simple resolver that forwards to our dependencies
           if (name === 'em') return this.em()
@@ -288,20 +304,15 @@ export class LocalSchedulerService {
           if (name === 'rbacService') return this.rbacService
           throw new Error(`Service not available in scheduler context: ${name}`)
         },
-      } as CommandRuntimeContext['container'],
-      auth: null, // Scheduled commands run without user authentication
-      organizationScope: null,
-      selectedOrganizationId: schedule.organizationId || null,
-      organizationIds: schedule.organizationId ? [schedule.organizationId] : null,
-      request: undefined,
-    }
+      } as AppContainer,
+    )
 
-    const result = await commandBus.execute(schedule.targetCommand, {
+    await commandBus.execute(schedule.targetCommand, {
       input: commandInput,
       ctx: commandCtx,
     })
 
-    console.log(`[scheduler:local] Executed command: ${schedule.targetCommand}`, result)
+    logger.info('Executed command', { scheduleId: schedule.id, targetCommand: schedule.targetCommand })
   }
 
   /**
@@ -331,7 +342,7 @@ export class LocalSchedulerService {
 
       return hasFeature
     } catch (error: unknown) {
-      console.error('[scheduler:local] Feature check failed:', error)
+      logger.error('Feature check failed', { scheduleId: schedule.id, err: error })
       return false
     }
   }

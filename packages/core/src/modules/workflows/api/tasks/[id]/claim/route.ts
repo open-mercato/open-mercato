@@ -16,6 +16,9 @@ import {
   userTaskClaimResponseSchema,
   workflowErrorSchema,
 } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -77,7 +80,7 @@ export async function POST(
       message: 'Task claimed successfully',
     })
   } catch (error) {
-    console.error('Error claiming user task:', error)
+    logger.error('Error claiming user task', { err: error })
 
     // Handle specific error codes from task-handler
     if (error instanceof Error) {

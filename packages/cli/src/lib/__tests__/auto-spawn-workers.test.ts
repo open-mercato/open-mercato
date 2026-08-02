@@ -1,5 +1,6 @@
 import {
   resolveAutoSpawnWorkersMode,
+  resolveLazySpawnMode,
   resolveLazyPollMs,
   resolveLazyRestart,
 } from '../auto-spawn-workers'
@@ -79,6 +80,24 @@ describe('resolveLazyPollMs', () => {
   it('falls back to default for non-positive', () => {
     expect(resolveLazyPollMs({ OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS: '0' })).toBe(1000)
     expect(resolveLazyPollMs({ OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS: '-100' })).toBe(1000)
+  })
+})
+
+describe('resolveLazySpawnMode', () => {
+  it('defaults to per-queue workers when unset', () => {
+    expect(resolveLazySpawnMode({})).toBe('per-queue')
+  })
+
+  it('uses a shared worker when explicitly requested', () => {
+    expect(resolveLazySpawnMode({ OM_AUTO_SPAWN_WORKERS_LAZY_MODE: 'shared' })).toBe('shared')
+  })
+
+  it('accepts the explicit per-queue mode', () => {
+    expect(resolveLazySpawnMode({ OM_AUTO_SPAWN_WORKERS_LAZY_MODE: 'per-queue' })).toBe('per-queue')
+  })
+
+  it('falls back to per-queue for invalid values', () => {
+    expect(resolveLazySpawnMode({ OM_AUTO_SPAWN_WORKERS_LAZY_MODE: 'maybe' })).toBe('per-queue')
   })
 })
 

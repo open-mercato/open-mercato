@@ -19,6 +19,9 @@ import {
 import { normalizedInboundMessageSchema } from '../data/validators'
 import { resolveCommunicationChannelsSystemUserId } from '../lib/system-user'
 import { isUniqueViolation } from '../lib/pg-errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'ingest-inbound-message' })
 
 const ingestInputSchema = z.object({
   channelId: z.string().uuid(),
@@ -152,10 +155,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       } catch (dedupErr) {
         // Sent-folder dedup is best-effort — a failure here must not abort
         // ingest (better a possible duplicate than a lost inbound message).
-        console.warn(
-          '[communication_channels:ingest-inbound] sent-folder dedup query failed, continuing:',
-          dedupErr instanceof Error ? dedupErr.message : dedupErr,
-        )
+        logger.warn('sent-folder dedup query failed, continuing', { err: dedupErr })
       }
     }
 
@@ -285,10 +285,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     } catch (matcherErr) {
       // Matcher failure must not block ingest — fall back to the existing
       // conversation-based thread mapping so the message still lands.
-      console.warn(
-        '[communication_channels:ingest-inbound] thread matcher failed, falling back to conversation mapping:',
-        matcherErr instanceof Error ? matcherErr.message : matcherErr,
-      )
+      logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
     }
 
     // (4) Contact resolution (best-effort, advisory).
@@ -316,10 +313,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // Best-effort: contact resolution is advisory and must not abort ingest.
       // Log like the sibling dedup/matcher catches so a misbehaving resolver is
       // visible in operator logs instead of failing silently.
-      console.warn(
-        '[communication_channels:ingest-inbound] contact resolution failed, continuing without a CRM match:',
-        contactErr instanceof Error ? contactErr.message : contactErr,
-      )
+      logger.warn('contact resolution failed, continuing without a CRM match', { err: contactErr })
       contactHint = null
     }
     const matchedPersonId = contactHint?.matchedPersonId ?? null

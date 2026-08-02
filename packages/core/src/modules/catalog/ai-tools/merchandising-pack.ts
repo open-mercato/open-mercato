@@ -60,6 +60,9 @@ import {
   type ProductBundle,
   type ProductBundleResult,
 } from './_shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 type SearchServiceLike = {
   search: (query: string, options: {
@@ -414,7 +417,7 @@ const listSelectedProductsTool: CatalogAiToolDefinition = {
         items.push(entry.result)
       } else {
         missingIds.push(entry.productId)
-        console.warn(`[catalog.list_selected_products] product not in scope: ${entry.productId}`)
+        logger.warn('catalog.list_selected_products product not in scope', { productId: entry.productId })
       }
     }
     return { items, missingIds }

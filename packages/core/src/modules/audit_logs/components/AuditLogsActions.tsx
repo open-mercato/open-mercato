@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -11,6 +12,9 @@ import { Undo2, RotateCcw } from 'lucide-react'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from '@open-mercato/ui/backend/version-history'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'AuditLogsActions' })
 
 export type ActionLogItem = {
   id: string
@@ -104,7 +108,7 @@ export function AuditLogsActions({
       markUndoSuccess(token)
       await onRefresh()
     } catch (err) {
-      console.error(t('audit_logs.actions.undo'), err)
+      logger.error('Undo action failed', { err })
       onUndoError?.()
     } finally {
       setUndoingToken(null)
@@ -123,7 +127,7 @@ export function AuditLogsActions({
       markRedoConsumed(logId)
       await onRefresh()
     } catch (err) {
-      console.error(t('audit_logs.actions.redo'), err)
+      logger.error('Redo action failed', { err })
       onRedoError?.()
     } finally {
       setRedoingId(null)
@@ -242,7 +246,7 @@ export function AuditLogsActions({
         data={actionItems}
         columns={columns}
         actions={combinedActions}
-        perspective={{ tableId: 'audit_logs.actions.list' }}
+        perspective={{ tableId: extensionPoints.hosts.actionsTable.tableId }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
         onRowClick={(item) => setSelected(item)}
         pagination={pagination}

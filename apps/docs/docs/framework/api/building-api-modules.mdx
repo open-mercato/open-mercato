@@ -419,12 +419,9 @@ const updateTaskCommand: CommandHandler<TaskUpdateInput, { taskId: string }> = {
 };
 ```
 
-### 3.3 Register Commands
+### 3.3 Expose Commands
 
-```ts title="packages/<pkg>/src/modules/tasks/commands/index.ts"
-import "./tasks";
-import "./comments";
-```
+Command files under `commands/` are auto-discovered by `yarn generate`. The generated command-loader registry imports the matching command file on first use, so module `index.ts` should not import commands just for registration side effects.
 
 ## Step 4: Create API Routes
 
@@ -959,7 +956,7 @@ ensureTenantScope(ctx, entity.tenantId);
 1. **"Entity not found"** - Check that `E.tasks.task_entity` exists in generated files
 2. **Custom fields not working** - Ensure `ce.ts` exports entities correctly
 3. **OpenAPI not generating** - Verify route exports `openApi` constant
-4. **Commands not registering** - Check command imports in `commands/index.ts`
+4. **Commands not registering** - Run `yarn generate` and verify `command-loaders.generated.ts` includes the command file
 5. **Tenant scoping errors** - Verify `tenantId` and `organizationId` are provided
 
 ### Debugging

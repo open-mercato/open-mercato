@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -20,6 +21,8 @@ import {
 } from '../../../../../lib/model-allowlist'
 import { AiTenantModelAllowlistRepository } from '../../../../../data/repositories/AiTenantModelAllowlistRepository'
 import { AiAgentRuntimeOverrideRepository } from '../../../../../data/repositories/AiAgentRuntimeOverrideRepository'
+
+const logger = createLogger('ai_assistant')
 
 function modelsForPicker(
   provider: ReturnType<typeof llmProviderRegistry.list>[number],
@@ -170,7 +173,7 @@ export async function GET(
         // Picker still renders against env-only so the UI does not break, but log at
         // error level so an outage is operationally visible. The chat dispatcher
         // refuses to dispatch when this lookup fails, so writes stay safe.
-        console.error('[AI Agents Models] Failed to load tenant allowlist:', snapshotError)
+        logger.error('AI Agents Models — Failed to load tenant allowlist', { err: snapshotError })
       }
     }
 
@@ -246,7 +249,7 @@ export async function GET(
       providers,
     })
   } catch (error) {
-    console.error('[AI Agents Models] GET error:', error)
+    logger.error('AI Agents Models — GET error', { err: error })
     return NextResponse.json({ error: 'Failed to resolve agent models.' }, { status: 500 })
   }
 }
