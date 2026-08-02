@@ -638,16 +638,31 @@ test('uses bounded filesystem fallbacks when ripgrep is not installed', () => {
   assert.match(readFileSync(join(root, parsed.searchResult), 'utf8'), /entities\.ts:1:export class Person/)
 })
 
-test('surfaces bounded search query errors with a nonzero status', () => {
-  const root = createFixture()
-  const result = spawnSync(
-    process.execPath,
-    ['scripts/framework-context.mjs', '--module', 'customers', '--query', '[', '--json'],
-    { cwd: root, encoding: 'utf8' },
-  )
-  assert.equal(result.status, 2)
-  assert.match(result.stderr, /bounded search failed(?: \(exit 2\)|: Invalid regular expression)/)
-})
+for (const withoutRipgrep of [false, true]) {
+  test(`treats search queries as literal text${withoutRipgrep ? ' without ripgrep' : ''}`, () => {
+    const root = createFixture()
+    const moduleRoot = join(root, 'node_modules', '@open-mercato', 'core', 'src', 'modules', 'customers')
+    write(join(moduleRoot, 'literal.ts'), "export const literal = '[literal-query]'\n")
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ['scripts/framework-context.mjs', '--module', 'customers', '--query', '[literal-query]', '--json'],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          env: withoutRipgrep ? { ...process.env, PATH: '', Path: '' } : process.env,
+        },
+      )
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+      const parsed = JSON.parse(result.stdout) as { searchResult: string; boundedSearch: { matches: number } }
+      assert.equal(parsed.boundedSearch.matches, 1)
+      assert.match(readFileSync(join(root, parsed.searchResult), 'utf8'), /literal\.ts:1:export const literal/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
 
 test('rejects unsafe package versions before materialization without deleting app files', () => {
   const root = createFixture({ packageVersion: '../../../../src' })

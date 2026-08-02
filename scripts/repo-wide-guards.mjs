@@ -173,6 +173,14 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/root-layout-theme-script.test.ts',
+    reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
     path: 'packages/create-app/src/lib/template-dependency-drift.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
