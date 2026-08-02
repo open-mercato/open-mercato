@@ -1,0 +1,92 @@
+{
+  "namespaces": ["public"],
+  "name": "public",
+  "tables": [
+    {
+      "columns": {
+        "id": { "name": "id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": true, "nullable": false, "default": "gen_random_uuid()", "mappedType": "uuid" },
+        "tenant_id": { "name": "tenant_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "organization_id": { "name": "organization_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "title": { "name": "title", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "text" },
+        "description": { "name": "description", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "mappedType": "text" },
+        "status": { "name": "status", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "default": "'todo'", "mappedType": "text" },
+        "priority": { "name": "priority", "type": "smallint", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "default": "0", "mappedType": "smallint" },
+        "due_at": { "name": "due_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "length": 6, "mappedType": "datetime" },
+        "is_active": { "name": "is_active", "type": "boolean", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "default": "true", "mappedType": "boolean" },
+        "created_at": { "name": "created_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "length": 6, "mappedType": "datetime" },
+        "updated_at": { "name": "updated_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "length": 6, "mappedType": "datetime" },
+        "deleted_at": { "name": "deleted_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "length": 6, "mappedType": "datetime" }
+      },
+      "name": "reference_module_tasks",
+      "schema": "public",
+      "indexes": [
+        { "keyName": "reference_module_tasks_scope_deleted_idx", "columnNames": ["tenant_id", "organization_id", "deleted_at"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "reference_module_tasks_scope_status_idx", "columnNames": ["tenant_id", "organization_id", "status"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "reference_module_tasks_scope_due_idx", "columnNames": ["tenant_id", "organization_id", "due_at"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "reference_module_tasks_pkey", "columnNames": ["id"], "composite": false, "constraint": true, "primary": true, "unique": true }
+      ],
+      "checks": [
+        { "name": "reference_module_tasks_priority_check", "expression": "priority >= 0 and priority <= 5", "definition": "check (((priority >= 0) AND (priority <= 5)))" },
+        { "name": "reference_module_tasks_status_check", "expression": "status = any (array['todo'::text, 'in_progress'::text, 'done'::text])", "definition": "check ((status = ANY (ARRAY['todo'::text, 'in_progress'::text, 'done'::text])))" }
+      ],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": { "name": "id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": true, "nullable": false, "default": "gen_random_uuid()", "mappedType": "uuid" },
+        "tenant_id": { "name": "tenant_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "organization_id": { "name": "organization_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "task_id": { "name": "task_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "target_kind": { "name": "target_kind", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "text" },
+        "target_id": { "name": "target_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "target_label_snapshot": { "name": "target_label_snapshot", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "mappedType": "text" },
+        "created_at": { "name": "created_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "length": 6, "mappedType": "datetime" },
+        "updated_at": { "name": "updated_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "length": 6, "mappedType": "datetime" },
+        "deleted_at": { "name": "deleted_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "length": 6, "mappedType": "datetime" }
+      },
+      "name": "reference_module_task_links",
+      "schema": "public",
+      "indexes": [
+        { "keyName": "reference_module_task_links_scope_task_idx", "columnNames": ["tenant_id", "organization_id", "task_id"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "reference_module_task_links_scope_target_idx", "columnNames": ["tenant_id", "organization_id", "target_kind", "target_id"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "reference_module_task_links_active_unique", "columnNames": ["tenant_id", "organization_id", "task_id", "target_kind", "target_id"], "composite": true, "constraint": false, "primary": false, "unique": true, "expression": "create unique index \"reference_module_task_links_active_unique\" on \"reference_module_task_links\" (\"tenant_id\", \"organization_id\", \"task_id\", \"target_kind\", \"target_id\") where \"deleted_at\" is null" },
+        { "keyName": "reference_module_task_links_pkey", "columnNames": ["id"], "composite": false, "constraint": true, "primary": true, "unique": true }
+      ],
+      "checks": [
+        { "name": "reference_module_task_links_target_kind_check", "expression": "target_kind = any (array['customer'::text, 'catalog_product'::text, 'sales_document'::text])", "definition": "check ((target_kind = ANY (ARRAY['customer'::text, 'catalog_product'::text, 'sales_document'::text])))" }
+      ],
+      "foreignKeys": {
+        "reference_module_task_links_task_id_foreign": { "columnNames": ["task_id"], "constraintName": "reference_module_task_links_task_id_foreign", "localTableName": "public.reference_module_task_links", "referencedColumnNames": ["id"], "referencedTableName": "public.reference_module_tasks", "updateRule": "cascade", "deleteRule": "cascade" }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": { "name": "id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": true, "nullable": false, "default": "gen_random_uuid()", "mappedType": "uuid" },
+        "tenant_id": { "name": "tenant_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "organization_id": { "name": "organization_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "task_id": { "name": "task_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "command_id": { "name": "command_id", "type": "uuid", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "uuid" },
+        "command_type": { "name": "command_type", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "text" },
+        "payload": { "name": "payload", "type": "text", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "mappedType": "text" },
+        "expected_version": { "name": "expected_version", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "length": 6, "mappedType": "datetime" },
+        "created_at": { "name": "created_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "length": 6, "mappedType": "datetime" },
+        "expires_at": { "name": "expires_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": false, "length": 6, "mappedType": "datetime" },
+        "consumed_at": { "name": "consumed_at", "type": "timestamptz", "unsigned": false, "autoincrement": false, "primary": false, "nullable": true, "length": 6, "mappedType": "datetime" }
+      },
+      "name": "reference_module_task_undo_snapshots",
+      "schema": "public",
+      "indexes": [
+        { "keyName": "reference_module_task_undo_scope_task_idx", "columnNames": ["tenant_id", "organization_id", "task_id"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "reference_module_task_undo_expiry_idx", "columnNames": ["expires_at", "consumed_at"], "composite": true, "constraint": false, "primary": false, "unique": false },
+        { "keyName": "reference_module_task_undo_snapshots_pkey", "columnNames": ["id"], "composite": false, "constraint": true, "primary": true, "unique": true }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "reference_module_task_undo_snapshots_task_id_foreign": { "columnNames": ["task_id"], "constraintName": "reference_module_task_undo_snapshots_task_id_foreign", "localTableName": "public.reference_module_task_undo_snapshots", "referencedColumnNames": ["id"], "referencedTableName": "public.reference_module_tasks", "updateRule": "cascade", "deleteRule": "cascade" }
+      },
+      "nativeEnums": {}
+    }
+  ]
+}

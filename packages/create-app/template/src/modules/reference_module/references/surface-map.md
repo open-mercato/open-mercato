@@ -16,16 +16,30 @@ All links are file-level, repository-relative, and deliberately omit line anchor
 |---|---|---|---|
 | `module.metadata` | implemented | module scaffold | [index.ts](../index.ts) |
 | `module.registration` | implemented, absent by design | module scaffold | [src/modules.ts](../../../modules.ts) |
+| `module.di` | implemented | module scaffold | [di.ts](../di.ts) |
+| `module.cli` | implemented | module scaffold | [cli.ts](../cli.ts) |
 
 The registry source exists, but no built-in preset contains an entry for `reference_module`. Registration becomes an intentional consumer action only after copy-and-rename.
+
+## Implemented scoped-data foundation
+
+| Capabilities | Exact source |
+|---|---|
+| `data.entity.task`, `data.entity.link`, `data.entity.undo-snapshot` | [entities.ts](../data/entities.ts) |
+| `data.validators` | [validators.ts](../data/validators.ts) |
+| `data.custom-fields` | [ce.ts](../ce.ts) |
+| `data.extension-links` | [extensions.ts](../data/extensions.ts) |
+| `data.encryption` | [encryption.ts](../encryption.ts) |
+| `data.migration` | [migration](../migrations/Migration20260802000000_reference_module.ts) |
+| `data.snapshot` | [JSON snapshot](../migrations/.snapshot-open-mercato.json) |
+| `setup.acl` | [acl.ts](../acl.ts) |
+| `setup.role-sync`, `setup.defaults`, `setup.examples` | [setup.ts](../setup.ts) |
+
+The stable source-only entity bridge lives in [entity-id.ts](../data/entity-id.ts). The module remains disabled; role grants apply during initial setup only after activation, and existing roles require `yarn mercato auth sync-role-acls` after ACL changes.
 
 ## Planned local reference coverage
 
 The following IDs are frozen and use `coverageKind: reference`, but their rollout is `planned`. Their exact future file paths and single owners are recorded in the [inventory](./surface-inventory.json). The paths do not exist yet; later steps must replace `planned` with `implemented` only when real code and a caller/test land.
-
-### Module and scoped data
-
-`module.di`, `module.cli`, `data.entity.task`, `data.entity.link`, `data.entity.undo-snapshot`, `data.validators`, `data.custom-fields`, `data.extension-links`, `data.encryption`, `data.migration`, `data.snapshot`, `setup.acl`, `setup.role-sync`, `setup.defaults`, `setup.examples`
 
 ### APIs, commands, guards, and enrichment
 

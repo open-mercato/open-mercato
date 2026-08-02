@@ -22,7 +22,7 @@ This directory is the canonical local teaching module for standalone Open Mercat
 
 ## Rollout state
 
-The [metadata shell](./index.ts), the inventory, and the source-present/registration-absent contract are implemented first. Entries marked `planned` in the inventory name the exact files that later implementation phases will add. They are not claims of current local coverage, and there are no empty discovery placeholders.
+The [metadata shell](./index.ts), [scoped data model](./data/entities.ts), ACL/setup, migration/snapshot, DI, CLI, inventory, and source-present/registration-absent contract are implemented. Entries still marked `planned` in the inventory name exact files that later implementation phases will add. They are not claims of current local coverage, and there are no empty discovery placeholders.
 
 ## Copy and enable deliberately
 
@@ -31,7 +31,8 @@ The [metadata shell](./index.ts), the inventory, and the source-present/registra
 3. Append `enabledModules.push({ id: '<your_module>', from: '@app' })` to [the module registry](../../modules.ts). Do not rewrite its existing entries.
 4. Run `yarn generate` after adding discovery files or registering the module.
 5. If the copied module owns entities, run `yarn db:generate`, review the SQL and JSON snapshot, and ask before applying migrations.
-6. Run focused tests and `yarn typecheck`; add integration coverage for affected API and UI paths.
+6. After changing ACL features or default grants in an existing app, run `yarn mercato auth sync-role-acls` so existing roles receive the intended grants.
+7. Run focused tests and `yarn typecheck`; add integration coverage for affected API and UI paths.
 
 Do not register this teaching module unchanged in production. The completed example uses these grep-friendly identifiers, all of which must be renamed when copied:
 
