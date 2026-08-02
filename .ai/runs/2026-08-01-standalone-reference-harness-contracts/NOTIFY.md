@@ -46,3 +46,10 @@
 - Resume point: 2.3 (source: CEZ handoff plus Tasks table; checkpoint HANDOFF.md was stale after lean Steps 2.1–2.2)
 - PR head SHA: `8d3f8c44b`
 - Recovery: the interrupted Step 2.3 work was preserved as unpushed autosave commit `5395389fd`; validation and bookkeeping are being completed before amending and pushing it as the single Step commit.
+
+## 2026-08-02T05:56:26Z — checkpoint 2
+
+- Steps: 2.1..2.3 (`5b0ac4268..dc4cee802`).
+- Result: 104 focused tests, create-app typecheck, recursive emission, script/schema checks, diff check, and the contiguous 202-case catalog contract passed.
+- UI: skipped because the checkpoint touched harness context/evaluator contracts only and no rendered surface.
+- Recovery: interrupted Step 2.3 was validated, amended from the unpushed CEZ autosave into the proper single Step commit, and pushed before this checkpoint.
