@@ -21,6 +21,8 @@ import {
   type AgentWindowMetricsView,
 } from '../../../components/types'
 import { SkillDrawer } from '../../../components/SkillDrawer'
+import { normalizeAgentTags } from '../../../data/agentTags'
+import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 import { AgentHeaderCard, ICON_DEFAULT } from './components/AgentHeaderCard'
 import { AgentConfigDrawer } from './components/AgentConfigDrawer'
 import { OverviewTab } from './components/OverviewTab'
@@ -120,6 +122,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     blockedMessage: t('agent_orchestrator.proposal.flash.blocked'),
   })
   const [savingIcon, setSavingIcon] = React.useState(false)
+  const [savingTags, setSavingTags] = React.useState(false)
 
   const updateIcon = React.useCallback(
     async (value: string) => {
@@ -157,6 +160,47 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
         flash(err instanceof Error ? err.message : t('agent_orchestrator.agentDetail.icon.error', 'Could not update icon'), 'error')
       } finally {
         setSavingIcon(false)
+      }
+    },
+    [agent, runMutation, retryLastMutation, t],
+  )
+
+  const updateTags = React.useCallback(
+    async (next: string[]) => {
+      if (!agent) return
+      const nextTags = normalizeAgentTags(next)
+      if (nextTags.length === agent.tags.length && nextTags.every((tag, index) => tag === agent.tags[index])) return
+      setSavingTags(true)
+      try {
+        let saved: { tags: string[]; updatedAt: string } | null = null
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(agent.iconUpdatedAt), async () => {
+              const call = await apiCallOrThrow<{ tags: string[]; updatedAt: string }>(
+                `/api/agent_orchestrator/agents/${encodeURIComponent(agent.id)}/settings`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ tags: nextTags, updatedAt: agent.iconUpdatedAt }),
+                },
+              )
+              saved = call.result ?? null
+            }),
+          context: { retryLastMutation },
+          mutationPayload: { tags: nextTags },
+        })
+        setAgent((prev) =>
+          prev && saved ? { ...prev, tags: normalizeAgentTags(saved.tags), iconUpdatedAt: saved.updatedAt } : prev,
+        )
+        flash(t('agent_orchestrator.agents.tags.saved', 'Tags updated'), 'success')
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          setReloadKey((key) => key + 1)
+          return
+        }
+        flash(err instanceof Error ? err.message : t('agent_orchestrator.agents.tags.error', 'Could not update tags'), 'error')
+      } finally {
+        setSavingTags(false)
       }
     },
     [agent, runMutation, retryLastMutation, t],
@@ -216,7 +260,9 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
           windowMetrics={windowMetrics}
           autonomy={autonomy}
           savingIcon={savingIcon}
+          savingTags={savingTags}
           onIconChange={updateIcon}
+          onTagsChange={updateTags}
           onConfigure={() => setConfigOpen(true)}
         />
 
@@ -273,7 +319,9 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
         </Tabs>
 
         <SkillDrawer open={!!activeSkill} onOpenChange={(open) => { if (!open) setActiveSkill(null) }} skill={activeSkill} />
-        <AgentConfigDrawer open={configOpen} onOpenChange={setConfigOpen} agent={agent} autonomy={autonomy} />
+        {isAgentPreviewUiEnabled() ? (
+          <AgentConfigDrawer open={configOpen} onOpenChange={setConfigOpen} agent={agent} autonomy={autonomy} />
+        ) : null}
       </PageBody>
     </Page>
   )

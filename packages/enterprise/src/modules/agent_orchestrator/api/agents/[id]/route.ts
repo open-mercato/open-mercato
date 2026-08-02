@@ -9,6 +9,7 @@ import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
 import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
 import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES, isAgentIconName } from '../../../data/agentIcons'
+import { normalizeAgentTags } from '../../../data/agentTags'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -45,8 +46,11 @@ const agentDetailSchema = z.object({
   label: z.string(),
   description: z.string(),
   icon: z.enum(AGENT_ICON_NAMES).nullable(),
-  // Settings-row version for optimistic locking on the icon picker; null when
-  // the tenant has never set an icon for this agent (no row yet).
+  // Per-tenant operator tags, normalized; empty when untagged.
+  tags: z.array(z.string()),
+  // Settings-row version for optimistic locking on the icon picker and the tag
+  // editor (they share the row); null when the tenant has never customised this
+  // agent (no row yet).
   iconUpdatedAt: z.string().nullable(),
   instructions: z.string(),
   defaultProvider: z.string().nullable(),
@@ -68,9 +72,10 @@ export async function GET(req: Request, ctx: RouteContext) {
   const entry = getAgentEntry(id)
   if (!entry) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
-  // Tenant presentation icon + its lock version (best-effort — never fails the
-  // definition read).
+  // Tenant presentation overrides + the row's lock version (best-effort — never
+  // fails the definition read).
   let icon: string | null = null
+  let tags: string[] = []
   let iconUpdatedAt: string | null = null
   if (auth.tenantId && auth.orgId) {
     try {
@@ -79,10 +84,12 @@ export async function GET(req: Request, ctx: RouteContext) {
       const row = await getAgentSettingRow(em, { tenantId: auth.tenantId, organizationId: auth.orgId }, entry.id)
       if (row) {
         icon = isAgentIconName(row.icon) ? row.icon : null
+        tags = normalizeAgentTags(row.tags)
         iconUpdatedAt = row.updatedAt.toISOString()
       }
     } catch {
       icon = null
+      tags = []
       iconUpdatedAt = null
     }
   }
@@ -121,6 +128,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     label: entry.label,
     description: entry.description,
     icon,
+    tags,
     iconUpdatedAt,
     instructions: entry.instructions,
     defaultProvider: entry.defaultProvider ?? null,

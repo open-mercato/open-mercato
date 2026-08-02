@@ -6,7 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { listAgentEntries, ensureAgentsLoaded } from '../../lib/sdk/defineAgent'
 import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContract'
-import { getAgentIconMap } from '../../lib/settings/agentSettings'
+import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
 
 export const metadata = {
@@ -24,6 +24,9 @@ const agentItemSchema = z.object({
   // Per-tenant presentation icon (lucide name) overriding the initials avatar
   // in the agents list / overview. Null when the tenant has not set one.
   icon: z.enum(AGENT_ICON_NAMES).nullable(),
+  // Per-tenant operator tags, normalized. Empty when the tenant has not tagged
+  // this agent; the registry list filters on them.
+  tags: z.array(z.string()),
   // Optional per-agent example input for the Playground "Insert sample" button.
   sampleInput: z.unknown().optional(),
   // Optional OUTCOME JSON-Schema (the inner `data`/`proposal` shape, not the
@@ -56,17 +59,21 @@ export async function GET(req: Request) {
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   await ensureAgentsLoaded()
 
-  // Per-tenant presentation icons. Best-effort: a missing scope or a settings
+  // Per-tenant presentation overrides. Best-effort: a missing scope or a settings
   // read failure must not break the registry listing — agents still render with
-  // their initials fallback.
+  // their initials fallback and no tags.
   let iconByAgent = new Map<string, string>()
+  let tagsByAgent = new Map<string, string[]>()
   if (auth.tenantId && auth.orgId) {
     try {
       const container = await createRequestContainer()
       const em = (container.resolve('em') as EntityManager).fork()
-      iconByAgent = await getAgentIconMap(em, { tenantId: auth.tenantId, organizationId: auth.orgId })
+      const maps = await getAgentPresentationMaps(em, { tenantId: auth.tenantId, organizationId: auth.orgId })
+      iconByAgent = maps.icons
+      tagsByAgent = maps.tags
     } catch {
       iconByAgent = new Map()
+      tagsByAgent = new Map()
     }
   }
 
@@ -79,6 +86,7 @@ export async function GET(req: Request) {
     label: entry.label,
     description: entry.description,
     icon: iconByAgent.get(entry.id) ?? null,
+    tags: tagsByAgent.get(entry.id) ?? [],
     sampleInput: entry.sampleInput,
     outcomeSchema: resolveAgentOutcomeJsonSchema(entry),
     facts: entry.facts,
@@ -93,7 +101,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List registered agents',
       description:
-        'Returns the in-module agent registry (id, result kind, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions.',
+        'Returns the in-module agent registry (id, result kind, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags).',
       responses: [
         { status: 200, description: 'Registered agents', schema: agentListResponseSchema },
       ],

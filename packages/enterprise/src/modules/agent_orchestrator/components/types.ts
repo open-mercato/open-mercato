@@ -4,6 +4,7 @@
  * React layer. No new entities — these are pure read projections.
  */
 import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
+import { normalizeAgentTags } from '../data/agentTags'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
 
 export type ProposalView = {
@@ -211,6 +212,8 @@ export type AgentView = {
   runtime: AgentRuntime
   /** Tenant-configured presentation icon (lucide name), or null for the fallback glyph. */
   icon: AgentIconName | null
+  /** Tenant-configured operator tags, normalized; empty when untagged. */
+  tags: string[]
   tools: string[]
   skills: string[]
   /** Optional example input for the Playground "Insert sample" button. */
@@ -560,6 +563,7 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     resultKind,
     runtime,
     icon: isAgentIconName(item.icon) ? item.icon : null,
+    tags: normalizeAgentTags(item.tags),
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
     sampleInput: item.sampleInput,

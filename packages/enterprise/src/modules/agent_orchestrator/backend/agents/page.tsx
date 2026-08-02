@@ -3,9 +3,10 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Download, Filter, Bot, ShieldCheck, Pencil, Wallet } from 'lucide-react'
+import { Download, Bot, ShieldCheck, Pencil, Wallet } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -25,6 +26,8 @@ import {
   type AgentWindowMetricsView,
 } from '../../components/types'
 import { Chip, TYPE_ICON, RUNTIME_ICON, AUTONOMY_ICON, agentAvatarIcon } from '../../components/agentChips'
+import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
+import { collectAgentTagOptions, filterAgentRows } from './agentListFilters'
 
 const RUNTIME_LABEL: Record<AgentRuntime, string> = {
   'in-process': 'In Process',
@@ -32,6 +35,10 @@ const RUNTIME_LABEL: Record<AgentRuntime, string> = {
   opencode: 'Open Code',
   external: 'External',
 }
+
+const RUNTIME_VALUES: AgentRuntime[] = ['in-process', 'native', 'opencode', 'external']
+const AUTONOMY_VALUES: Autonomy[] = ['auto', 'review', 'gated']
+const HEALTH_VALUES: Health[] = ['good', 'watch', 'poor', 'new']
 
 type Autonomy = 'auto' | 'review' | 'gated'
 type Health = 'good' | 'watch' | 'poor' | 'new'
@@ -80,6 +87,9 @@ export default function AgentsRegistryPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
+  const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const previewUi = isAgentPreviewUiEnabled()
 
   React.useEffect(() => {
     let cancelled = false
@@ -187,6 +197,23 @@ export default function AgentsRegistryPage() {
       },
     },
     {
+      accessorKey: 'tags',
+      header: t('agent_orchestrator.agents.list.col.tags', 'Tags'),
+      enableSorting: false,
+      meta: { maxWidth: '260px' },
+      cell: ({ row }) => {
+        const tags = row.original.tags
+        if (!tags.length) return <span className="text-sm text-muted-foreground">—</span>
+        return (
+          <div className="flex flex-wrap gap-1">
+            {tags.map((tag) => (
+              <Chip key={tag}>{tag}</Chip>
+            ))}
+          </div>
+        )
+      },
+    },
+    {
       accessorKey: 'runs',
       header: t('agent_orchestrator.agents.list.col.runs', 'Runs'),
       cell: ({ row }) => <div className="text-right text-sm tabular-nums">{formatNumber(row.original.runs, locale) ?? '0'}</div>,
@@ -237,6 +264,63 @@ export default function AgentsRegistryPage() {
     },
   ], [t])
 
+  const tagOptions = React.useMemo(() => collectAgentTagOptions(rows), [rows])
+
+  const filterDefs = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'resultKind',
+      label: t('agent_orchestrator.agents.list.col.type', 'Type'),
+      type: 'select',
+      multiple: true,
+      options: (['informative', 'actionable'] as const).map((value) => ({
+        value,
+        label: t(`agent_orchestrator.agents.list.resultKind.${value}`),
+      })),
+    },
+    {
+      id: 'runtime',
+      label: t('agent_orchestrator.agents.list.col.runtime', 'Runtime'),
+      type: 'select',
+      multiple: true,
+      options: RUNTIME_VALUES.map((value) => ({
+        value,
+        label: t(`agent_orchestrator.agents.list.runtime.${value}`, RUNTIME_LABEL[value]),
+      })),
+    },
+    {
+      id: 'autonomy',
+      label: t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy'),
+      type: 'select',
+      multiple: true,
+      options: AUTONOMY_VALUES.map((value) => ({
+        value,
+        label: t(`agent_orchestrator.agents.list.autonomy.${value}`, titleCase(value)),
+      })),
+    },
+    {
+      id: 'status',
+      label: t('agent_orchestrator.agents.list.col.status', 'Status'),
+      type: 'select',
+      multiple: true,
+      options: HEALTH_VALUES.map((value) => ({
+        value,
+        label: t(`agent_orchestrator.agents.list.status.${value}`, titleCase(value)),
+      })),
+    },
+    {
+      id: 'tags',
+      label: t('agent_orchestrator.agents.list.col.tags', 'Tags'),
+      type: 'tags',
+      placeholder: t('agent_orchestrator.agents.tags.filterPlaceholder', 'Pick a tag'),
+      options: tagOptions.map((tag) => ({ value: tag, label: tag })),
+    },
+  ], [t, tagOptions])
+
+  const filteredRows = React.useMemo(
+    () => filterAgentRows(rows, search, filterValues),
+    [rows, search, filterValues],
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -271,28 +355,27 @@ export default function AgentsRegistryPage() {
   const spendCurrency = rows.find((agent) => agent.currency)?.currency ?? null
   const spendLabel = spendMinorTotal > 0 ? formatCostMinor(spendMinorTotal, spendCurrency) : null
 
-  const total = rows.length
+  const total = filteredRows.length
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
+  const pagedRows = filteredRows.slice((page - 1) * pageSize, page * pageSize)
+  const filtersActive = Object.values(filterValues).some((value) => (Array.isArray(value) ? value.length > 0 : value != null && value !== ''))
 
   return (
     <Page>
       <PageBody className="space-y-5">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold">{t('agent_orchestrator.agents.list.title')}</h1>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 size-4" />
-              {t('agent_orchestrator.agents.actions.filters', 'Filters')}
-            </Button>
-            <Button variant="outline" size="sm">
-              <Download className="mr-2 size-4" />
-              {t('agent_orchestrator.agents.actions.export', 'Export')}
-            </Button>
-            <Button size="sm" onClick={() => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info')}>
-              {t('agent_orchestrator.agents.actions.newAgent', 'New agent')}
-            </Button>
-          </div>
+          {previewUi ? (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm">
+                <Download className="mr-2 size-4" />
+                {t('agent_orchestrator.agents.actions.export', 'Export')}
+              </Button>
+              <Button size="sm" onClick={() => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info')}>
+                {t('agent_orchestrator.agents.actions.newAgent', 'New agent')}
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -338,6 +421,20 @@ export default function AgentsRegistryPage() {
             columns={columns}
             data={pagedRows}
             sortable
+            searchValue={search}
+            onSearchChange={(value) => { setSearch(value); setPage(1) }}
+            searchPlaceholder={t('agent_orchestrator.agents.list.searchPlaceholder', 'Search agents, tags…')}
+            filters={filterDefs}
+            filterValues={filterValues}
+            onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+            onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+            filterAwareEmptyState={{
+              active: filtersActive,
+              entityNamePlural: t('agent_orchestrator.agents.list.entityPlural', 'agents'),
+              canRemoveLast: false,
+              onClearAll: () => { setFilterValues({}); setPage(1) },
+              onRemoveLast: () => {},
+            }}
             pagination={{
               page,
               pageSize,
@@ -355,8 +452,12 @@ export default function AgentsRegistryPage() {
                 items={[
                   { id: 'view', label: t('agent_orchestrator.agents.list.actions.view', 'View'), onSelect: () => router.push(`/backend/agents/${encodeURIComponent(row.id)}`) },
                   { id: 'playground', label: t('agent_orchestrator.agents.list.openPlayground', 'Open in playground'), onSelect: () => router.push(`/backend/playground?agent=${encodeURIComponent(row.id)}`) },
-                  { id: 'duplicate', label: t('agent_orchestrator.agents.list.actions.duplicate', 'Duplicate'), onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
-                  { id: 'disable', label: t('agent_orchestrator.agents.list.actions.disable', 'Disable'), destructive: true, onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
+                  ...(previewUi
+                    ? [
+                        { id: 'duplicate', label: t('agent_orchestrator.agents.list.actions.duplicate', 'Duplicate'), onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
+                        { id: 'disable', label: t('agent_orchestrator.agents.list.actions.disable', 'Disable'), destructive: true, onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
+                      ]
+                    : []),
                 ]}
               />
             )}

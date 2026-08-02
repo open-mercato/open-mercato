@@ -53,6 +53,7 @@ import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { summarizeProposalActions } from '../../components/proposalFactsData'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
+import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 import {
   useInboxCursor,
   useCaseloadHotkeys,
@@ -936,7 +937,7 @@ export default function AgentCaseloadPage() {
         </div>
 
         {!isLoading && !error && (grandTotal > 0 || runningCount > 0) ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${isAgentPreviewUiEnabled() ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
             <LifecycleTile
               icon={Inbox}
               label={t('agent_orchestrator.caseload.lifecycle.needYou')}
@@ -945,16 +946,18 @@ export default function AgentCaseloadPage() {
             />
             <LifecycleTile icon={Clock} label={t('agent_orchestrator.caseload.lifecycle.waiting')} value={lifecycle.waiting} sub={t('agent_orchestrator.caseload.lifecycle.waitingHint')} />
             <LifecycleTile icon={Activity} label={t('agent_orchestrator.caseload.lifecycle.running')} value={lifecycle.running} sub={t('agent_orchestrator.caseload.lifecycle.runningHint')} />
-            <LifecycleTile
-              icon={CheckCircle2}
-              label={t('agent_orchestrator.caseload.lifecycle.closedToday')}
-              value={
-                <span className="inline-flex items-center rounded-md border border-dashed border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
-                  {t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')}
-                </span>
-              }
-              sub={t('agent_orchestrator.caseload.lifecycle.closedHint')}
-            />
+            {isAgentPreviewUiEnabled() ? (
+              <LifecycleTile
+                icon={CheckCircle2}
+                label={t('agent_orchestrator.caseload.lifecycle.closedToday')}
+                value={
+                  <span className="inline-flex items-center rounded-md border border-dashed border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
+                    {t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')}
+                  </span>
+                }
+                sub={t('agent_orchestrator.caseload.lifecycle.closedHint')}
+              />
+            ) : null}
           </div>
         ) : null}
 

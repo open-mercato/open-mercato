@@ -33,6 +33,7 @@ import {
 import { deriveReasoning } from '../../../components/proposalFactsData'
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
+import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
 // without inventing colors (brand-violet / accent-indigo / muted neutral).
@@ -1207,17 +1208,19 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 </div>
 
                 {/* Illustrative — mock sections grouped + de-emphasized at the bottom */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('agent_orchestrator.traces.detail.illustrative')}
-                    </span>
-                    <div className="h-px flex-1 bg-border" />
+                {isAgentPreviewUiEnabled() ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('agent_orchestrator.traces.detail.illustrative')}
+                      </span>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                    <div className="grid gap-6 lg:grid-cols-2">
+                      <ModelComparisonCard currentModel={run.model} />
+                    </div>
                   </div>
-                  <div className="grid gap-6 lg:grid-cols-2">
-                    <ModelComparisonCard currentModel={run.model} />
-                  </div>
-                </div>
+                ) : null}
               </div>
             )
           })()

@@ -1,28 +1,46 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentSetting } from '../../data/entities'
 import { DEFAULT_AGENT_ICONS, isAgentIconName, type AgentIconName } from '../../data/agentIcons'
+import { normalizeAgentTags } from '../../data/agentTags'
 
 export type AgentSettingsScope = { tenantId: string; organizationId: string }
 
+export type AgentPresentationMaps = {
+  /** Only recognised icon names; unknown / stale ones are dropped so callers can fall back. */
+  icons: Map<string, AgentIconName>
+  /** Only agents with at least one tag, so a miss means "untagged". */
+  tags: Map<string, string[]>
+}
+
 /**
- * Load the per-(tenant, organization) agent icon overrides as a plain map of
- * `agentId → iconName`. Only rows with a recognised icon name are returned;
- * unknown / stale names are dropped so the caller can safely fall back. The
- * agents list/overview merge this over the code-authored registry.
+ * Load every per-(tenant, organization) presentation override in one read. The
+ * agents list merges both maps over the code-authored registry, so splitting
+ * them into two queries would scan the same rows twice.
  */
-export async function getAgentIconMap(
+export async function getAgentPresentationMaps(
   em: EntityManager,
   scope: AgentSettingsScope,
-): Promise<Map<string, AgentIconName>> {
+): Promise<AgentPresentationMaps> {
   const rows = await em.find(AgentSetting, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
-  const map = new Map<string, AgentIconName>()
+  const icons = new Map<string, AgentIconName>()
+  const tags = new Map<string, string[]>()
   for (const row of rows) {
-    if (isAgentIconName(row.icon)) map.set(row.agentId, row.icon)
+    if (isAgentIconName(row.icon)) icons.set(row.agentId, row.icon)
+    const rowTags = normalizeAgentTags(row.tags)
+    if (rowTags.length) tags.set(row.agentId, rowTags)
   }
-  return map
+  return { icons, tags }
+}
+
+/** `agentId → iconName` for the tenant. Kept as a stable import path for callers that only need icons. */
+export async function getAgentIconMap(
+  em: EntityManager,
+  scope: AgentSettingsScope,
+): Promise<Map<string, AgentIconName>> {
+  return (await getAgentPresentationMaps(em, scope)).icons
 }
 
 /**

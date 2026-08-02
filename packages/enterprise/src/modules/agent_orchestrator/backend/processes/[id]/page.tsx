@@ -20,6 +20,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { confidenceFace, confidencePctOf } from '../../../components/cockpitStatus'
+import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 import {
   formatConfidence,
   formatCostMinor,
@@ -569,17 +570,23 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                     <ArrowRight className="size-4" />
                   </Button>
                 ) : null}
-                <Button type="button" variant="outline" size="sm" disabled>
-                  {t('agent_orchestrator.process.actionPause')}
-                </Button>
-                <Button type="button" variant="outline" size="sm" disabled>
-                  {t('agent_orchestrator.process.actionReassign')}
-                </Button>
-                <Button type="button" variant="outline" size="sm" disabled>
-                  {t('agent_orchestrator.process.actionTakeOver')}
-                </Button>
+                {isAgentPreviewUiEnabled() ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" disabled>
+                      {t('agent_orchestrator.process.actionPause')}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" disabled>
+                      {t('agent_orchestrator.process.actionReassign')}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" disabled>
+                      {t('agent_orchestrator.process.actionTakeOver')}
+                    </Button>
+                  </>
+                ) : null}
               </div>
-              <p className="text-xs text-muted-foreground">{t('agent_orchestrator.process.actionsComingSoon')}</p>
+              {isAgentPreviewUiEnabled() ? (
+                <p className="text-xs text-muted-foreground">{t('agent_orchestrator.process.actionsComingSoon')}</p>
+              ) : null}
             </div>
           </div>
 
