@@ -63,11 +63,21 @@ Conceptual documentation cannot enumerate changing module-specific keys safely. 
 - Serializing DI runtime values or executing registries.
 - Adding runtime UI/API/database surfaces.
 
-## Data Model
+## Proposed Solution
+
+Project exact module-specific targets from the runtime override schema and normalized owned facts through one exhaustive adapter registry. Each target carries a structured path, the applicable runtime mode, a shared fact reference, and portable provenance. Unsupported dynamic entries produce per-module diagnostics; they never become guessed targets or non-module keys at the generated document root.
+
+## Data Models
 
 Add an optional module-specific collection:
 
 ```ts
+type ModuleOverrideMode = 'disable-replace' | 'replace' | 'additive'
+
+type ModuleOverrideTargetNote =
+  | 'safe-metadata-only'
+  | 'page-middleware-not-mutation-guard'
+
 type ModuleOverrideTarget = {
   id: string
   domain: ModuleOverrideDomain
@@ -81,6 +91,7 @@ type ModuleOverrideTarget = {
 
 type ModuleFactsJsonEntry = ExistingModuleFactsJsonEntry & {
   overrideTargets?: ModuleOverrideTarget[]
+  overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
 }
 ```
 
@@ -92,13 +103,13 @@ Definitions:
 - `modes` reference the supported operations already established by the framework extension-point catalog.
 - `factRef` points to the module-owned fact being overridden.
 - `source` points to the registry, convention file, or defining entry used by runtime normalization.
-- `notes` is a closed enum for facts such as `safe-metadata-only`, `page-middleware-not-mutation-guard`, or `framework-only`; it is not free-form prose.
+- `notes` is the closed `ModuleOverrideTargetNote` enum; it is not free-form prose. Framework-only settings are never emitted as module targets.
 
-`id` is deterministically derived from `moduleId + domain + path`. `path` rather than a concatenated display string is the lossless authority.
+`id` is deterministically derived from the JSON-serialized tuple `[moduleId, domain, path]`, so segment boundaries cannot collide. `path` rather than a concatenated display string is the lossless authority.
 
 For a keyed-record domain, `key` must equal the terminal key-bearing `path` segment after runtime normalization; it is repeated only as a convenience for consumers that do not render paths. For singleton or structured domains whose terminal path identifies a property rather than a lookup key, omit `key`. A contract test asserts this invariant for every adapter.
 
-Add a deterministic generator diagnostic collection using the existing module-facts diagnostics envelope (or, if none is exported, an additive `diagnostics` array on the generated document root):
+Add a deterministic per-module diagnostic collection through `ModuleFactsJsonEntry.overrideTargetDiagnostics`. Reuse the existing module-facts diagnostic renderer where practical, but never add a non-module key or diagnostics array at the generated document root:
 
 ```ts
 type ModuleOverrideTargetDiagnostic = {
@@ -110,7 +121,7 @@ type ModuleOverrideTargetDiagnostic = {
 }
 ```
 
-Diagnostics sort by `moduleId`, `domain`, `code`, then path/source. They contain no source snippets or runtime values. Release validation fails for missing adapter/domain coverage; per-module dynamic-key diagnostics remain visible and explicitly prevent a fabricated target.
+Diagnostics sort by `moduleId`, `domain`, `code`, then path/source. They contain no source snippets or runtime values. Release validation fails for missing adapter/domain coverage; per-module dynamic-key diagnostics remain visible and explicitly prevent a fabricated target. A compatibility test asserts that every root key still identifies a selected module and that a legacy root record remains readable unchanged.
 
 ## Framework and Module Responsibilities
 
@@ -148,14 +159,14 @@ The implementation audits the runtime unified override type/parser and covers ev
 | `ai.extensions` and AI file overrides | extension/override ID and full nested path |
 | `routes.api` | uppercase method plus normalized `/api/...` route key |
 | `routes.pages` | backend/frontend application route path |
-| `eventSubscribers` | subscriber registry ID |
+| `events.subscribers` | subscriber registry ID |
 | `workers` | worker registry ID/name |
 | `widgets.injection` | injection spot/contribution key shape accepted by runtime |
 | `widgets.components` | replaceable component ID plus supported replace/wrap/props path |
 | `widgets.dashboard` | dashboard widget ID |
 | `notifications.types` | notification type ID |
 | `notifications.handlers` | handler ID |
-| `apiInterceptors` | exact interceptor contribution key/target identity |
+| `interceptors` | exact interceptor contribution key/target identity |
 | `commandInterceptors` | exact command interceptor key/target identity |
 | `enrichers` | exact response/query enricher key where runtime supports override |
 | `guards` | backend/frontend page route middleware identity only |
@@ -165,7 +176,7 @@ The implementation audits the runtime unified override type/parser and covers ev
 | `di` | Awilix registration token |
 | `encryption` | entity/config key accepted by the override resolver |
 
-This table is an audit seed, not a second runtime schema. Implementation must derive the final list from the current unified override types/parser and fail a coverage test when a new domain is added without a target extractor or explicit `framework-only` classification.
+This table is an audit seed, not a second runtime schema. Implementation must derive the final list from the current unified override types/parser and fail a coverage test when a new domain is added without a target extractor or explicit `framework-only` classification. Every emitted target's top-level `domain` must be a member of the runtime `ModuleOverrideDomain` union; nested segments such as `subscribers` live only in `path`.
 
 ## Exact-Key Rules
 
@@ -201,7 +212,7 @@ This table is an audit seed, not a second runtime schema. Implementation must de
 - When topology activation facts exist, link `factRef` or a supplemental reference to them; absence of the topology sibling must not prevent the override target from representing a valid registry entry.
 - Wildcard target semantics do not change the override entry's own exact registry key.
 
-## Discovery Architecture
+## Architecture
 
 Build override targets from a registry of domain adapters tied to the unified override schema:
 
@@ -243,6 +254,10 @@ Render paths as copyable code, but generate them from structured `path` data. Ma
 - Never translate a mutation guard into `overrides.guards`.
 - Escalate only to the named source when the fact cannot answer one exact remaining detail.
 - Prefer the smallest safe override and preserve module ownership/optional coupling.
+
+## API Contracts
+
+No HTTP API is added or changed. Generated JSON gains only the optional per-module `overrideTargets` and `overrideTargetDiagnostics` fields, and generated Markdown gains one additive section. The root record remains `Record<moduleId, ModuleFactsJsonEntry>` with no synthetic framework or diagnostics key.
 
 ## Backward Compatibility
 
@@ -335,7 +350,7 @@ At least one failure-first case must make a plausible domain-only answer incorre
 - Facts survive package packing and a fresh standalone scaffold.
 - Focused tests, generation, configured validation, `harness:validate --all`, and full `harness:release` pass.
 
-## Risks
+## Risks & Impact Review
 
 ### Generated key disagrees with runtime normalization
 
@@ -363,6 +378,17 @@ At least one failure-first case must make a plausible domain-only answer incorre
 
 ## Final Compliance Report — 2026-08-02
 
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `.ai/specs/AGENTS.md`
+- `packages/cli/AGENTS.md`
+- `packages/create-app/AGENTS.md`
+- `packages/shared/AGENTS.md`
+- `BACKWARD_COMPATIBILITY.md`
+
+### Compliance Matrix
+
 | Rule source | Requirement | Status | Evidence in this spec |
 |---|---|---|---|
 | Root `AGENTS.md` | Preserve public override contracts and avoid unsafe mutation bypass. | Compliant | Facts mirror runtime only; no new domains or behavior. |
@@ -372,7 +398,22 @@ At least one failure-first case must make a plausible domain-only answer incorre
 | Root security rules | Never expose DI values/secrets. | Compliant | DI facts and tests are metadata-only. |
 | Spec cohesion | One independently deployable capability. | Compliant | This spec owns only exact unified override target facts. |
 
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Domain names match runtime | Pass | Top-level domains derive from `ModuleOverrideDomain`; nested names live in structured paths. |
+| Keys and paths round-trip | Pass | The terminal-key invariant and runtime resolver tests cover keyed domains. |
+| Diagnostics preserve root compatibility | Pass | Diagnostics are optional per-module fields, never root keys. |
+| Framework-only settings remain separate | Pass | `nav.groupOrder` stays in framework facts and cannot become a module target. |
+
+### Non-Compliant Items
+
 No non-compliant item or required human confirmation was identified.
+
+### Verdict
+
+**Fully compliant:** approved after the provenance prerequisite as the implementation specification for exact unified override targets.
 
 ## Changelog
 
@@ -380,6 +421,7 @@ No non-compliant item or required human confirmation was identified.
 
 - Split module-specific exact override targets from general provenance and extension topology.
 - Defined exhaustive domain adapters, exact structured paths, page/mutation guard separation, and standalone exact-key proof.
+- Aligned domain names with `ModuleOverrideDomain` and constrained diagnostics to per-module entries.
 
 ## Review — 2026-08-02
 

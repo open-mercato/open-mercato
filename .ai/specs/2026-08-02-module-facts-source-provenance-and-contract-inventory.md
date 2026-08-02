@@ -8,7 +8,7 @@
 
 ## TLDR
 
-Make the generated module fact sheet the deterministic, source-linked inventory of every public or auto-discovered contract owned by an installed module. Preserve all existing JSON shapes, add portable provenance alongside them, and fill the currently absent contract families: commands, recursive subscribers and workers, page middleware, setup, encryption, complete DI registrations, custom-entity ownership, vector search, integrations, AI extensions, and generator plugins.
+Make the generated module fact sheet the deterministic, source-linked inventory of every public or auto-discovered contract owned by an installed module. Preserve all existing JSON shapes, add portable provenance alongside them, fill the currently absent command/worker/middleware/setup/encryption/rich-DI/custom-entity/AI-extension/generator-plugin families, and close recursive-subscriber plus vector/integration coverage gaps in the established rich contribution facts.
 
 This spec does not decide whether another module actively attaches to those contracts and does not define unified override keys. Those are the responsibilities of the sibling topology and override-target specs.
 
@@ -59,9 +59,13 @@ The fallback is broad source search. That is slow, non-deterministic, and someti
 - Adding a runtime API, Platform Map UI, persistence, migrations, or telemetry.
 - Renaming existing IDs, filenames, or convention paths.
 
-## Contract Boundary
+## Proposed Solution
 
-### Provenance primitive
+Extend the existing module-facts entry additively with one shared provenance/reference vocabulary and source-linked owned-contract facts only for families that have no richer established representation. Existing rich facts remain authoritative and receive provenance-index entries; they are not copied into a second payload. Runtime discovery and fact generation must consume the same normalized reader, or prove parity with one shared fixture where package boundaries prevent code reuse.
+
+## Data Models
+
+### Provenance and reference primitives
 
 Add an exported optional provenance model in the shared module-facts contract:
 
@@ -71,6 +75,64 @@ export type ModuleFactSourceRef = {
   exportName?: string
   line?: number
 }
+
+export type ModuleFactRef = {
+  factSection: string
+  factKey: string
+}
+
+export type ModuleFactSourceKind =
+  | 'module-metadata'
+  | 'entity'
+  | 'event'
+  | 'acl-feature'
+  | 'api-route'
+  | 'di-registration'
+  | 'search'
+  | 'vector'
+  | 'notification'
+  | 'cli-command'
+  | 'backend-page'
+  | 'frontend-page'
+  | 'ai-tool'
+  | 'ai-agent'
+  | 'ai-extension'
+  | 'command'
+  | 'subscriber'
+  | 'worker'
+  | 'page-middleware'
+  | 'setup'
+  | 'encryption'
+  | 'custom-entity'
+  | 'integration'
+  | 'generator-plugin'
+  | 'extension-host'
+  | 'extension-contribution'
+
+export type ModuleOwnedContractKind =
+  | 'module-metadata'
+  | 'command'
+  | 'worker'
+  | 'page-middleware'
+  | 'setup'
+  | 'encryption'
+  | 'di-registration'
+  | 'custom-entity'
+  | 'ai-extension'
+  | 'generator-plugin'
+
+export type ModuleFactSafeScalar = string | number | boolean | null
+
+export type ModuleOwnedContractFact = {
+  kind: ModuleOwnedContractKind
+  id: string
+  source: ModuleFactSourceRef
+  metadata?: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]>
+}
+
+export type ModuleOwnedContracts = Partial<
+  Record<ModuleOwnedContractKind, ModuleOwnedContractFact[]>
+>
 ```
 
 `sourcePath` uses the existing canonical representation: a POSIX-normalized portable installed-source path that includes the `sourceRoot` prefix (for example `node_modules/@open-mercato/core/src/modules/customers/acl.ts`). It is not a second path relative to `sourceRoot`, and it must never be an absolute workstation path. Markdown renders that exact portable path as a link from the generated document. `line` is optional because AST recovery can fail after transforms; consumers must use the path and exported symbol as the stable identity.
@@ -87,6 +149,14 @@ export type ModuleFactSourceEntry = {
 export type ModuleFactsJsonEntry = ExistingModuleFactsJsonEntry & {
   factSources?: ModuleFactSourceEntry[]
   ownedContracts?: ModuleOwnedContracts
+  factDiagnostics?: ModuleFactDiagnostic[]
+}
+
+export type ModuleFactDiagnostic = {
+  code: 'duplicate-source' | 'unresolved-static-contract'
+  kind: ModuleFactSourceKind
+  id: string
+  source?: ModuleFactSourceRef
 }
 ```
 
@@ -94,23 +164,24 @@ export type ModuleFactsJsonEntry = ExistingModuleFactsJsonEntry & {
 
 ### Owned contract families
 
-`ownedContracts` adds source-linked facts only where a richer established field does not already exist. The concrete types may be split by file, but the public JSON shape must cover:
+`ownedContracts` adds source-linked facts only where a richer established field does not already exist. Established rich facts are referenced through `factSources` and `ModuleFactRef`; they are never copied into `ownedContracts`. The concrete family types may be narrower discriminated unions in implementation, but the public JSON projection must follow this ownership table:
 
-| Family | Required safe fields | Authoritative convention |
-|---|---|---|
-| Module metadata | module ID, version/metadata flags, required module IDs, ejectable state, source | `index.ts` / `module.ts` exports used by module selection |
-| Domain commands | command ID, source | recursive `commands/*.ts` discovery |
-| Subscribers | subscriber ID or stable generated identity, event patterns when statically declared, source | the same recursive subscriber scanner used at runtime |
-| Workers | worker ID, queue/name metadata when static, source | the runtime worker scanner |
-| Page middleware | surface (`backend` or `frontend`), middleware ID or export, source | `backend/middleware.ts`, `frontend/middleware.ts` |
-| Setup | present hooks, exported default-role/profile identifiers when static, source | `setup.ts` recognized exports |
-| Encryption | entity IDs and declared encrypted fields only when statically safe, source | `encryption.ts` |
-| DI registrations | token, registration kind, provider symbol if static, lifetime, injection mode, source | `di.ts` registration map |
-| Custom entities/fields | owned entity or field-set ID and source | `ce.ts`, custom-field DSL convention files |
-| Search/vector | indexed entity or provider ID, search kind, source | `search.ts`, `vector-search.ts` and current runtime readers |
-| Integrations | integration IDs, bundle membership, manifest kind, source | singular/array/bundle manifest conventions |
-| AI extensions | extension ID, file override target if declared, source | AI extension and override convention files |
-| Generator plugins | plugin ID/name and source | generator plugin convention files |
+| Family | Projection | Required safe fields | Authoritative convention |
+|---|---|---|---|
+| Module metadata | New `ownedContracts` fact | module ID, version/metadata flags, required module IDs, ejectable state, source | `index.ts` metadata used by module selection |
+| Domain commands | New `ownedContracts` fact | command ID, source | recursive `commands/*.ts` discovery |
+| Subscribers | Reuse `extensionSurfaces.contributions[kind=subscriber]`; add `factSources` entry and make its reader recursively match runtime | subscriber ID, event patterns when statically declared, source | the same recursive subscriber scanner used at runtime |
+| Workers | New `ownedContracts` fact | worker ID, queue/name metadata when static, source | the runtime worker scanner |
+| Page middleware | New `ownedContracts` fact | surface (`backend` or `frontend`), middleware ID or export, source | `backend/middleware.ts`, `frontend/middleware.ts` |
+| Setup | New `ownedContracts` fact | present hooks, exported default-role/profile identifiers when static, source | `setup.ts` recognized exports |
+| Encryption | New `ownedContracts` fact | entity IDs and declared encrypted fields only when statically safe, source | `encryption.ts` |
+| DI registrations | New `ownedContracts` fact; keep legacy `diTokens` | token, registration kind, provider symbol if static, lifetime, injection mode, source | `di.ts` registration map |
+| Custom entities/fields | New `ownedContracts` fact | owned entity or field-set ID and source | `ce.ts`, custom-field DSL convention files |
+| Search/vector | Reuse `searchEntities` plus `extensionSurfaces.contributions[kind=specialized-registry]`; add `factSources` entries | indexed entity or provider ID, search kind, source | `search.ts`, `vector.ts`, and current runtime readers |
+| Integrations | Reuse `extensionSurfaces.contributions[kind=specialized-registry]`; add `factSources` entries and complete its array/bundle reader | integration IDs, bundle membership, manifest kind, source | `integration.ts` singular/array/bundle exports |
+| AI tools/agents | Reuse existing rich facts and specialized-registry contributions; add `factSources` entries | stable ID/name and source | `ai-tools.ts`, `ai-agents.ts` |
+| AI extensions/file overrides | New `ownedContracts` fact only when no established rich field represents the export | extension ID, file override target if declared, source | AI extension and override convention files |
+| Generator plugins | New `ownedContracts` fact | plugin ID/name and source | `generators.ts` `generatorPlugins` export |
 
 Existing rich page, route, CLI, tool, and agent facts remain authoritative. Their source references are also added to `factSources` so consumers can use one uniform provenance lookup.
 
@@ -181,7 +252,7 @@ Update the module Markdown sheet so that:
 - source links use repository-relative paths and optional line anchors supported by the renderer;
 - sections with no facts retain current empty/omission behavior.
 
-## API and Generated-File Compatibility
+## API Contracts
 
 No HTTP API changes are introduced. Generated-file changes are additive:
 
@@ -208,7 +279,8 @@ No HTTP API changes are introduced. Generated-file changes are additive:
 
 ### Phase 3 — Missing owned families
 
-- Add domain commands, recursive subscribers, workers, page middleware, setup, encryption, rich DI, custom-entity/field ownership, vector, integration arrays/bundles, AI extensions/file overrides, and generator plugins.
+- Add new owned facts for domain commands, workers, page middleware, setup, encryption, rich DI, custom-entity/field ownership, AI extensions/file overrides, and generator plugins.
+- Extend the established subscriber and specialized-registry readers for recursive subscribers, vector facts, and integration arrays/bundles; reference those rich facts instead of duplicating their payloads in `ownedContracts`.
 - Align each reader with runtime discovery and add parity fixtures.
 - Run `yarn generate` after changing auto-discovery inputs or generated registries.
 
@@ -233,6 +305,8 @@ No HTTP API changes are introduced. Generated-file changes are additive:
 - Integration-array/bundle and generator-plugin fixtures cover all supported declaration shapes.
 - Duplicate module ID selection matches runtime provider selection.
 - Duplicate declarations of one `kind + id` select the runtime-authoritative source and emit deterministic rejected-source diagnostics.
+- Established subscriber, search, vector, integration, tool, and agent facts gain `factSources` references without duplicating their payloads in `ownedContracts`.
+- Every top-level `module-facts.json` key still resolves to a selected module ID; diagnostics remain inside the owning module entry.
 
 ### Runtime parity tests
 
@@ -268,7 +342,7 @@ Run `harness:validate --all`, then the full `harness:release` gate after package
 - The facts and required sources survive package packing and a fresh standalone scaffold.
 - Focused tests, `yarn generate`, the configured validation subset, `harness:validate --all`, and `harness:release` pass.
 
-## Risks
+## Risks & Impact Review
 
 ### Static analysis overclaims dynamic declarations
 
@@ -296,6 +370,17 @@ Run `harness:validate --all`, then the full `harness:release` gate after package
 
 ## Final Compliance Report — 2026-08-02
 
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `.ai/specs/AGENTS.md`
+- `packages/cli/AGENTS.md`
+- `packages/create-app/AGENTS.md`
+- `packages/shared/AGENTS.md`
+- `BACKWARD_COMPATIBILITY.md`
+
+### Compliance Matrix
+
 | Rule source | Requirement | Status | Evidence in this spec |
 |---|---|---|---|
 | Root `AGENTS.md` | Preserve generated contract surfaces. | Compliant | Additive JSON/Markdown boundary and legacy fixtures. |
@@ -305,7 +390,22 @@ Run `harness:validate --all`, then the full `harness:release` gate after package
 | Root security rules | Do not expose secrets or scoped data. | Compliant | Explicit safe schema and negative tests. |
 | Spec cohesion | One independently deployable capability. | Compliant | This spec owns only source-linked owned contract inventory. |
 
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data models match generated contracts | Pass | New fields are optional per-module fields; the root module record is unchanged. |
+| Existing rich facts remain authoritative | Pass | The projection table references subscriber/search/vector/integration/AI facts instead of duplicating them. |
+| Risks cover extraction and packaging | Pass | Static overclaiming, sensitive metadata, context growth, and reader drift are covered. |
+| Test plan covers every new family | Pass | Unit, parity, compatibility, and fresh standalone release gates are specified. |
+
+### Non-Compliant Items
+
 No non-compliant item or required human confirmation was identified.
+
+### Verdict
+
+**Fully compliant:** approved as the prerequisite implementation specification for source-linked owned contract inventory.
 
 ## Changelog
 
@@ -313,6 +413,7 @@ No non-compliant item or required human confirmation was identified.
 
 - Split source provenance and owned contract inventory from extension topology and override-key work.
 - Specified additive source references, complete safe DI classification, runtime discovery parity, and standalone package/harness proof.
+- Kept established rich extension/search/AI facts authoritative and made root-record compatibility an explicit regression gate.
 
 ## Review — 2026-08-02
 

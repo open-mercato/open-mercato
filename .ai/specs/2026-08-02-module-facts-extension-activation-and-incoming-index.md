@@ -60,13 +60,36 @@ Without those answers, standalone guidance can produce code that compiles but is
 - Introducing direct ORM relationships or runtime dependencies between modules.
 - Adding a UI graph, API, database schema, or module activation behavior.
 
-## Data Model
+## Proposed Solution
+
+Extend the existing `ModuleExtensionSurfaceFacts` entry with an authoritative activation layer, a compact target-owned incoming index, and one contributor-owned resolution summary per target. Reuse the provenance prerequisite's `ModuleFactSourceRef`/`ModuleFactRef` and the existing UMES contribution discriminant so the new topology is a correlation view over established facts rather than a parallel contribution catalog.
+
+## Data Models
 
 ### Activation facts
 
 Add an optional additive collection under the existing extension-surface model:
 
 ```ts
+type ModuleExtensionContributionKind = ModuleExtensionContributionFact['kind']
+
+type ModuleExtensionActivationKind =
+  | 'crud-response-enricher'
+  | 'query-enricher'
+  | 'mutation-guard'
+  | 'api-interceptor-bridge'
+  | 'command-interceptor-bridge'
+  | 'widget-injection-consumer'
+  | 'component-extension-consumer'
+  | 'dashboard-host-consumer'
+
+type ModuleExtensionTargetRef = {
+  kind: 'module' | 'entity' | 'api-route' | 'command' | 'widget-spot' | 'component' | 'event' | 'notification' | 'wildcard'
+  id: string
+  moduleId?: string
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+}
+
 type ModuleExtensionActivation = {
   id: string
   kind: ModuleExtensionActivationKind
@@ -77,12 +100,14 @@ type ModuleExtensionActivation = {
   bridge?: ModuleFactRef
 }
 
-type ModuleExtensionSurfaces = ExistingModuleExtensionSurfaces & {
+type ModuleExtensionSurfaceFactsAdditions = {
   activations?: ModuleExtensionActivation[]
   incoming?: ModuleIncomingExtensionRef[]
   contributionResolutions?: ModuleContributionResolution[]
 }
 ```
+
+Add `ModuleExtensionSurfaceFactsAdditions` to the existing exported `ModuleExtensionSurfaceFacts` shape; do not introduce a second extension-surface property or rename the public type.
 
 An activation means the selected module's runtime path will query, invoke, merge, or render the named contribution family. `id` must be stable and derived from the host kind and exact normalized runtime identity, not from filesystem order.
 
@@ -147,7 +172,9 @@ Use existing UMES target/fact reference primitives wherever possible. Extend the
 
 Entity names alone are insufficient when two routes or command surfaces activate different extension families.
 
-## Authoritative Activation Rules
+## Architecture
+
+### Authoritative Activation Rules
 
 ### CRUD routes and enrichers
 
@@ -178,7 +205,7 @@ Entity names alone are insufficient when two routes or command surfaces activate
 
 Modules that do not use a factory may expose an activation through a supported static bridge declaration. The bridge must be an existing runtime convention or a separately approved additive contract; this implementation must not invent a facts-only manifest that runtime ignores.
 
-## Correlation Algorithm
+### Correlation Algorithm
 
 1. Extract selected module-owned facts and source provenance.
 2. Extract existing hosts, contributions, and new activation facts without changing their runtime meaning.
@@ -199,6 +226,10 @@ Resolution rules:
 - `unresolved`: the target should be concrete but no selected host/capability can resolve it.
 
 Generation diagnostics must distinguish `optional-target-missing` from `unresolved`; optional integrations are not build failures.
+
+## API Contracts
+
+No HTTP API is added or changed. The only published output changes are optional fields on each module's existing `ModuleFactsJsonEntry.extensionSurfaces`; the top-level `module-facts.json` record and every existing extension-surface field retain their current shape and meaning.
 
 ## Backward Compatibility
 
@@ -313,7 +344,7 @@ Run focused package tests, `yarn generate`, the configured validation subset, `h
 - Standalone guidance refuses unsupported activation claims and finds already-installed contributors facts-first.
 - Fresh standalone package/scaffold and full harness release gates pass.
 
-## Risks
+## Risks & Impact Review
 
 ### False activation from static parsing
 
@@ -341,6 +372,17 @@ Run focused package tests, `yarn generate`, the configured validation subset, `h
 
 ## Final Compliance Report — 2026-08-02
 
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `.ai/specs/AGENTS.md`
+- `packages/cli/AGENTS.md`
+- `packages/create-app/AGENTS.md`
+- `packages/shared/AGENTS.md`
+- `BACKWARD_COMPATIBILITY.md`
+
+### Compliance Matrix
+
 | Rule source | Requirement | Status | Evidence in this spec |
 |---|---|---|---|
 | Root `AGENTS.md` | No direct cross-module ORM relationship; preserve optional integration. | Compliant | Correlation is generated documentation with explicit optional states. |
@@ -349,7 +391,22 @@ Run focused package tests, `yarn generate`, the configured validation subset, `h
 | `packages/create-app/AGENTS.md` | Standalone guidance and packaging stay aligned. | Compliant | Refresh skill, failure-first cases, and fresh release gate. |
 | Spec cohesion | One independently deployable capability. | Compliant | This spec owns only extension topology and bidirectional correlation. |
 
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Activation identities match target identities | Pass | The shared target reference distinguishes route methods and all supported host kinds. |
+| Incoming rows point to source-owned contributions | Pass | Incoming facts remain compact and never duplicate contribution behavior. |
+| Resolution cardinality is defined | Pass | One target can resolve to multiple activation IDs with deterministic ordering. |
+| Optional-module behavior remains decoupled | Pass | Missing optional targets are contributor-owned non-error outcomes. |
+
+### Non-Compliant Items
+
 No non-compliant item or required human confirmation was identified.
+
+### Verdict
+
+**Fully compliant:** approved after the provenance prerequisite as the implementation specification for authoritative bidirectional extension topology.
 
 ## Changelog
 
@@ -357,6 +414,7 @@ No non-compliant item or required human confirmation was identified.
 
 - Split authoritative activation and incoming topology from owned fact provenance and exact override targets.
 - Preserved all legacy host/contribution facts while defining source-linked bindings and target-side references.
+- Defined the shared target, activation, and contribution-kind identities used by the additive topology fields.
 
 ## Review — 2026-08-02
 

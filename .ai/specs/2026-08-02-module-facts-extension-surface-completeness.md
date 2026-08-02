@@ -115,6 +115,7 @@ Spec 2: bound topology   Spec 3: exact overrides
 ## Cross-Suite Compatibility Contract
 
 - The top-level `module-facts.json` remains `Record<moduleId, ModuleFactsJsonEntry>`.
+- Generator diagnostics remain optional fields on the owning module entry (or a separate sibling artifact); no synthetic framework/diagnostics key is added to the root module record.
 - New exported properties are optional; current generators emit deterministic empty values.
 - Existing arrays/objects keep their current types and required fields.
 - Existing Markdown headings remain; new sections and appended source columns are additive.
