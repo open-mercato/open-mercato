@@ -23,7 +23,7 @@ describe('module-facts BC resolve guard (T2)', () => {
   const extractionStartedAt = process.cpuUsage()
   const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
   const extractionCpuUsage = process.cpuUsage(extractionStartedAt)
-  const extractionDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
+  const extractionCpuDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
 
   it('emits complete, deterministic extension catalogs for every resolved module', () => {
     const repeated = extractAllModuleFacts({ sources })
@@ -44,7 +44,7 @@ describe('module-facts BC resolve guard (T2)', () => {
     const markdownBytes = Object.values(markdownByModule)
       .reduce((total, markdown) => total + Buffer.byteLength(markdown), Buffer.byteLength(frameworkMarkdown))
 
-    expect(extractionDurationMs).toBeLessThan(30_000)
+    expect(extractionCpuDurationMs).toBeLessThan(30_000)
     expect(Buffer.byteLength(completeJson)).toBeLessThan(2_000_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_500_000)
     expect(markdownBytes).toBeLessThan(1_000_000)
