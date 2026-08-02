@@ -16,64 +16,89 @@ Date: 2026-07-30
 - Each of three clean `yarn dev` restarts was profiled with `scripts/profile-dev-rss.mjs --pid <dev-pid> --duration 180000 --interval 1000`.
 - For every run, an authenticated real browser first navigated to `/backend/memory-probe` and confirmed `Baseline marker A`. The mounted probe is a client component. Its source was edited to marker B, then the browser was polled/snapshotted after six seconds. No navigation, reload, click, or server restart was issued after the edit; the same page URL instead showed `Baseline marker B` and logged Fast Refresh completion.
 
-## Authoritative stable CPU/RSS cohort (2026-08-02)
+## Authoritative stable CPU/RSS cohort (2026-08-02, timestamp-strengthened)
 
-This fresh three-run cohort is the authoritative denominator for final acceptance. It
-supersedes the historical RSS-only median below because it adds process-tree CPU-time
-accounting and enforces one identical warmed cache/source seed across the baseline and
-candidate cohorts. The historical `10,094.50 MB` median remains a cross-check only.
+This replacement three-run cohort is the authoritative denominator for final
+acceptance. It supersedes both the historical RSS-only median below and the first
+CPU-capable cohort recorded earlier on 2026-08-02. That first CPU cohort was withdrawn
+because its equal Next identities lacked contemporaneous capture timestamps; none of
+its values are used for acceptance.
 
 ### Identity and seed gates
 
 - Runtime identity: template runtime commit `77c0a5591b1faba5781b91ed102c89950ac66e7c`, Node executable `/Users/andrzejewsky/.nvm/versions/node/v24.13.1/bin/node`, Node `v24.13.1`, Next/`@next` `16.2.11`, and React/ReactDOM `19.2.7`.
-- No dependency, manifest, lockfile, or runtime-version change was used. The prohibited-file diff was empty before the cohort.
-- Authoritative seed: `5,629` `.mercato/next/dev` files; sorted manifest SHA-256 `72ce610a2f04c263dbcac221693b8dbd556635112ba1c3853741759d2dc50425`.
-- Marker-A source SHA-256: `8672e3cd23e43756f1a885b20724915c98110fff70a7c26da3cd756dcf516a6b`. Every run restored and verified both the seed manifest and marker hash before launch.
+- No dependency, manifest, lockfile, or runtime-version change was used. The prohibited-file diff was empty before and after the cohort.
+- Authoritative seed: `5,629` `.mercato/next/dev` entries. Its canonical digest is SHA-256 of the exact newline-terminated, path-sorted `dev-sha256.txt` file bytes: `27ed25b9dacd68c8b8f249086e4bb2e7b6096638e573ff99cfb75ac627a422ae`.
+- Marker-A source SHA-256: `8672e3cd23e43756f1a885b20724915c98110fff70a7c26da3cd756dcf516a6b`.
+- Before each measured dev process started, all `5,629` restored files were rehashed and compared entry-for-entry with the retained manifest, the canonical manifest digest was recomputed, and marker A was rehashed. The validity envelope records both ISO timestamps and a monotonic ordering gap.
 - The preparatory seed workflow authenticated successfully, displayed marker A, hot-reloaded A→B without navigation, retained the same Next PID/start identity, stopped gracefully, and passed its zero-state post-audit. One earlier preparatory attempt was withdrawn before capture when browser automation was temporarily obscured; it produced no seed or measured report.
 
-CPU core-seconds are the sum of positive per-PID CPU-time deltas over the sampled
-process tree. Mean total CPU percentage is `100 × core-seconds / measured seconds`;
-peak total CPU percentage is the highest one-interval process-tree delta rate.
+| Run | Seed verified (UTC) | Dev spawned (UTC) | ISO ordering gap | Monotonic gap | Entries / digest / marker |
+| --- | --- | --- | ---: | ---: | --- |
+| 1 | `2026-08-02T15:57:39.046Z` | `2026-08-02T15:57:39.053Z` | +7 ms | +6.25 ms | 5,629 / match / match |
+| 2 | `2026-08-02T16:06:32.644Z` | `2026-08-02T16:06:32.649Z` | +5 ms | +4.79 ms | 5,629 / match / match |
+| 3 | `2026-08-02T16:10:34.285Z` | `2026-08-02T16:10:34.292Z` | +7 ms | +6.27 ms | 5,629 / match / match |
 
-| Run | Report duration | Samples | Peak total RSS | Mean total RSS | CPU core-s | Mean CPU | Peak CPU | Dominant class |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 1 | 180,002 ms | 174 | 8,938.19 MB | 6,138.65 MB | 121.75 | 67.61% | 948.99% | `next-turbopack` |
-| 2 | 180,003 ms | 174 | 10,553.60 MB | 7,411.87 MB | 198.43 | 110.22% | 937.38% | `next-turbopack` |
-| 3 | 180,001 ms | 174 | 8,073.14 MB | 6,505.71 MB | 131.11 | 73.16% | 885.74% | `next-turbopack` |
-| **Median** | **180,002 ms** | **174** | **8,938.19 MB** | **6,505.71 MB** | **131.11** | **73.16%** | **937.38%** | **`next-turbopack`** |
+CPU core-seconds are the sum of positive per-PID CPU-time deltas over the sampled
+process tree. Mean total CPU percentage is the arithmetic mean of the valid
+per-interval process-tree CPU percentages. Peak total CPU percentage is the highest
+valid one-interval process-tree delta rate.
+
+| Run | Evidence label | Report duration | Samples | Peak total RSS | Mean total RSS | CPU core-s | Mean CPU | Peak CPU | Dominant class |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | `stable-cpu-baseline-v2-1` | 180,003 ms | 173 | 9,717.54 MB | 6,409.73 MB | 126.25 | 70.58% | 940.04% | `next-turbopack` |
+| 2 | `stable-cpu-baseline-v2-2-retry` | 180,002 ms | 174 | 8,607.89 MB | 6,643.70 MB | 130.24 | 72.43% | 876.91% | `next-turbopack` |
+| 3 | `stable-cpu-baseline-v2-3` | 180,002 ms | 173 | 8,504.21 MB | 6,863.81 MB | 131.39 | 73.32% | 855.36% | `next-turbopack` |
+| **Median** | — | **180,002 ms** | **173** | **8,607.89 MB** | **6,643.70 MB** | **130.24** | **72.43%** | **876.91%** | **`next-turbopack`** |
 
 The hard memory target is therefore a candidate median peak total RSS at or below
-`6,256.73 MB` (`8,938.19 × 0.70`). CPU is a non-blocking optimization target and
-must be reported against the `131.11` core-second, `73.16%` mean, and `937.38%`
+`6,025.52 MB` (`8,607.89 × 0.70`). CPU is a non-blocking optimization target and
+must be reported against the `130.24` core-second, `72.43%` mean, and `876.91%`
 peak medians.
 
 ### Fixed-timing browser and lifecycle evidence
 
-Offsets are relative to the first successful profiler sample. All three runs started
-the browser signal at T+60 seconds, edited at T+100 seconds, observed marker B before
-T+140 seconds, and stopped sampling at T+180 seconds.
+Offsets are relative to the first successful profiler sample. Every Next identity
+capture includes both an ISO `capturedAt` timestamp and the offset below. Validity
+requires the pre-edit capture before T+100, the post-HMR capture between the edit and
+T+140, and an independent deadline capture from T+140 through T+142.
 
-| Run | Profiler attach | Browser signal | Marker A observed | Edit | Marker B observed | Next identity | Post-edit navigation/reload | Shutdown / audits |
-| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
-| 1 | 70.23 ms | T+60,002 ms | T+84,646 ms | T+100,002 ms | T+120,544 ms | PID `6822`, `Sun Aug 2 17:28:02 2026`, unchanged through deadline | none | graceful; pre/post pass |
-| 2 | 74.06 ms | T+60,000 ms | T+71,943 ms | T+100,004 ms | T+115,281 ms | PID `12886`, `Sun Aug 2 17:31:38 2026`, unchanged through deadline | none | graceful; pre/post pass |
-| 3 | 73.15 ms | T+60,001 ms | T+77,589 ms | T+100,002 ms | T+105,450 ms | PID `19205`, `Sun Aug 2 17:35:26 2026`, unchanged through deadline | none | graceful; pre/post pass |
-| **Median** | **73.15 ms** | **T+60,001 ms** | **T+77,589 ms** | **T+100,002 ms** | **T+115,281 ms** | **unchanged in 3/3** | **none in 3/3** | **pass in 3/3** |
+| Run | Profiler attach | Browser signal | Marker A | Edit | Marker B | Next before | Next after HMR | Next at deadline | Next PID/start | Shutdown / audits |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| 1 | 70.81 ms | T+60,001 | T+75,356 | T+100,001 | T+108,576 | T+89,989 | T+121,830 | T+140,070 | `31651` / `Sun Aug 2 17:57:46 2026` | graceful; pre/post pass |
+| 2 | 71.49 ms | T+60,002 | T+67,758 | T+100,001 | T+108,077 | T+90,593 | T+125,985 | T+140,075 | `44710` / `Sun Aug 2 18:06:40 2026` | graceful; pre/post pass |
+| 3 | 71.18 ms | T+60,002 | T+73,992 | T+100,002 | T+104,722 | T+86,550 | T+115,963 | T+140,081 | `52091` / `Sun Aug 2 18:10:42 2026` | graceful; pre/post pass |
+| **Median** | **71.18 ms** | **T+60,002** | **T+73,992** | **T+100,001** | **T+108,077** | **T+89,989** | **T+121,830** | **T+140,075** | **unchanged in 3/3** | **pass in 3/3** |
 
-Each Next identity used the same Node 24 executable and `next-server (v16.2.11)`
-command before HMR, after marker B appeared, and at the T+140 deadline. The normal
-lazy scheduler and shared worker startup path was exercised in every run. No due
-schedule was present during these bounded windows; complete-tree shutdown and the
-port/process post-audits nevertheless passed for all three runs.
+The corresponding before / post-HMR / deadline `capturedAt` triples were
+`15:59:09.164Z` / `15:59:41.005Z` / `15:59:59.245Z` for run 1,
+`16:08:03.366Z` / `16:08:38.758Z` / `16:08:52.848Z` for run 2, and
+`16:12:00.966Z` / `16:12:30.379Z` / `16:12:54.497Z` for run 3, all on
+2026-08-02. The browser JSON retains the full ISO strings on both the capture fields
+and embedded identity objects.
+
+Each run retained the same actual Next PID/start, Node 24 executable, and
+`next-server (v16.2.11)` command across all three captures. Marker B was observed on
+the already-mounted page with no post-edit navigation or reload. The normal lazy
+scheduler/shared-worker startup path was exercised in every run; no due schedule was
+present during the bounded windows. Complete-tree shutdown and port/process
+post-audits passed in all three runs.
+
+One attempted run, `stable-cpu-baseline-v2-2`, was correctly rejected and retained as
+withdrawn evidence: marker B appeared at T+130,603, but the post-HMR Next capture
+completed at T+140,150 and therefore missed the T+140 gate by 150 ms. Its values are
+excluded from every median. A separate preflight attempt was stopped before browser
+timing when seed verification and dev launch initially shared the same millisecond;
+its cleanup audit passed and it produced no accepted report.
 
 Canonical evidence is under
 `/private/tmp/open-mercato-standalone-memory-baseline/.mercato/dev-rss/`:
 
-- Reports: `stable-cpu-baseline-{1,2,3}.json`.
-- Validity envelopes: `evidence/stable-cpu-baseline/stable-cpu-baseline-{1,2,3}-validity.json`.
-- Browser timing/identity JSON: `evidence/stable-cpu-baseline/browser/stable-cpu-baseline-{1,2,3}-browser.json`.
-- Marker screenshots: `evidence/stable-cpu-baseline/browser/stable-cpu-baseline-{1,2,3}-marker-{a,b}.png`.
-- Identity, seed manifests, lifecycle logs, and bounded pre/post audits: `evidence/stable-cpu-baseline/`.
+- Accepted reports: `stable-cpu-baseline-v2-1.json`, `stable-cpu-baseline-v2-2-retry.json`, and `stable-cpu-baseline-v2-3.json`.
+- Accepted validity envelopes: matching `evidence/stable-cpu-baseline/*-validity.json` files.
+- Browser timing/identity JSON: matching `evidence/stable-cpu-baseline/browser/*-browser.json` files.
+- Marker screenshots: matching `evidence/stable-cpu-baseline/browser/*-marker-{a,b}.png` files.
+- Identity, canonical seed manifest, lifecycle logs, withdrawal evidence, and bounded pre/post audits: `evidence/stable-cpu-baseline/`.
 
 ## Historical RSS-only results
 
