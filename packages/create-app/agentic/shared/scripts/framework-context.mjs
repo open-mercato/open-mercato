@@ -494,13 +494,6 @@ function fallbackInstalledPackageManifests(nodeModulesRoot) {
 }
 
 function fallbackBoundedSearch(query, sourceRoot) {
-  let pattern
-  try {
-    pattern = new RegExp(query)
-  } catch (error) {
-    throw new Error(`bounded search failed: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
   const matches = []
   let bytesRead = 0
   for (const file of fallbackRegularFiles(sourceRoot, 'bounded search failed')) {
@@ -515,7 +508,7 @@ function fallbackBoundedSearch(query, sourceRoot) {
     const lines = content.toString('utf8').split(/\r?\n/)
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index]
-      if (!pattern.test(line)) continue
+      if (!line.includes(query)) continue
       const preview = line.length > 500 ? `${line.slice(0, 500)}…` : line
       matches.push(`${file}:${index + 1}:${preview}`)
       if (matches.length > SEARCH_MATCH_LIMIT) break
@@ -640,7 +633,7 @@ function packageDiagnosticWarnings(diagnostics) {
 
 function runBoundedSearch(query, sourceRoot) {
   const fileSearch = runRg(
-    ['--no-ignore', '--hidden', '--files-with-matches', '--null', '--sort', 'path', '--', query, sourceRoot],
+    ['--no-ignore', '--hidden', '--fixed-strings', '--files-with-matches', '--null', '--sort', 'path', '--', query, sourceRoot],
     'bounded search failed',
   )
   if (!fileSearch) return fallbackBoundedSearch(query, sourceRoot)
@@ -660,6 +653,7 @@ function runBoundedSearch(query, sourceRoot) {
       [
         '--no-ignore',
         '--hidden',
+        '--fixed-strings',
         '--line-number',
         '--with-filename',
         '--color',

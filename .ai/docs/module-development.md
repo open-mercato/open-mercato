@@ -22,6 +22,7 @@
 | `ce.ts` | `entities` | Custom entities / custom field sets |
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
+| `extension-points.ts` | `extensionPoints` | Canonical serializable UI host declarations for generated UMES facts |
 | `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
@@ -50,6 +51,9 @@
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
+- UI extension hosts without an existing canonical event/entity/route/command/registry fact source belong in module-root `extension-points.ts`. Export `extensionPoints = defineModuleExtensionPoints({ moduleId, hosts })` and use `injectionExtensionHost`, `dataTableExtensionHost`, `crudFormExtensionHost`, or `componentExtensionHost` from `@open-mercato/shared/modules/widgets/extension-points`. The declaration must point to the binding call site and the call site must consume the declared ID; it is not a documentation-only inventory.
+- Exact hosts declare the frozen ID; dynamic hosts declare a pattern with named parameters. Preserve aliases, fallbacks, context/data/scope contracts, activation, and byte-identical runtime IDs. Existing event/entity/API/command and specialized registry facts remain canonical and are referenced rather than copied into `extension-points.ts`.
+- Generated module sheets expose correlated `UMES hosts` and `UMES contributions`; framework-owned shell/menu/dashboard/notification/integration targets live in the sibling framework extension catalog. Treat unresolved first-party target diagnostics as failures. DataTable base prefixes and helper-only/unbound CrudForm/DataTable IDs are not mountable extension points.
 - Dashboard widget browser components MUST live in a `*.client.tsx` file loaded through a dynamic import (`lazyDashboardWidget(() => import('./widget.client'))`). The CLI bundler stubs local `*.client` **dynamic imports** out of its graph, so the owning `widget.ts` stays importable in Node while browser-only dependencies (charts, editors, anything reaching `next/dynamic`) never execute on CLI start. A static `import … from './widget.client'` in the server-side dashboard `widget.ts` is NOT stubbed and breaks every CLI entry point, including `yarn dev`. Injection widgets are excluded from the CLI registry and continue to follow their injection-specific `widget.ts` convention.
 - Optional peer modules: resolve a non-required dependency inside `try/catch` (a per-module local `tryResolve` helper wrapping `container.resolve()`) and degrade when absent — never a hard `requires` on a module that should be optional. (Cross-module ORM relations and side-effect imports are already banned — see root `AGENTS.md` § Architecture.) Detail: `packages/core/AGENTS.md` → Cross-Module Coupling
 - API interception: declare interceptors in `api/interceptors.ts`; keep hooks fail-closed and scoped by route + method

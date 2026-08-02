@@ -376,8 +376,8 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 ### Full surface, frontend, design-system, and UX audits
 
 87. Map a complex module brief to every current canonical discovery/support surface, including vector and UI locale files, and reject retired conventions/placeholders.
-88. Select every additive UMES mechanism, including query enrichers/sync subscribers, reactive/DOM/client filters, integration UI, vector, embedded AI, and typed provider registrations.
-89. Audit all wired `entry.overrides` domains plus additive AI extensions, resolved registry/worker keys, entry-scoped setup, disable/replace semantics, and rollback.
+88. Select every additive UMES mechanism from generated named-module/framework facts, including response/query enrichers, interceptors/guards, querying/queried subscribers, client/portal bridges, menus, every bound CrudForm/DataTable surface, correlation/round-trip provenance, specialist registries, and helper-only negatives; treat unresolved first-party targets as blockers.
+89. Audit all wired `entry.overrides` domains from generated contribution/fact-ref provenance, including exact domain/key/mode, additive AI extensions, resolved registry/worker keys, entry-scoped setup, stale/unresolved diagnostics, disable/replace semantics, and rollback.
 90. Build a responsive localized public frontend over installed catalog capabilities with server-first boundaries.
 91. Extend the customer portal with public/guarded metadata, principal-derived scope, frozen extension identifiers, navigation, shared UI, and full UX states.
 92. Redesign a dense operations page for exact Alert/confirm/form contracts, status/tag and brand rules, responsive UX, accessibility, and state coverage.
@@ -628,7 +628,7 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | External install with fake/recorded skills CLI | Pinned CLI invocation, repeated skill flags, 15-skill default versus opt-in automation selection, dependency closure, all-set activation/rollback including prior-ledger restoration, retry semantics, external-before-local ordering. |
 | Windows simulated filesystem/command resolution | Junction/link behavior and `.cmd` spawning. |
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
-| Generated module facts | Source-linked API routes, backend pages, frontend pages, CLI commands, AI tools/MCP capabilities, and AI agents resolve to installed source without enabling broad dependency discovery. |
+| Generated module facts | Source-linked API routes, backend pages, frontend pages, CLI commands, AI tools/MCP capabilities, AI agents, and correlated UMES hosts/contributions resolve exact targets and specialist routes without enabling broad dependency discovery; framework-owned hosts remain in the sibling framework extension catalog. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
 | Deterministic harness validation | 202 schema-valid cases, existing references, no contradictory stale patterns, complete emitted module-fact coverage, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
@@ -731,6 +731,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
+- **2026-08-01** — Strengthened OMH-088/089 and targeted enricher/interceptor/guard/form/table/menu/DOM/portal cases around fact-first UMES target resolution, correlation provenance, every bound CrudForm/DataTable family, framework-owned hosts, and exact unified override modes; the UMES umbrella spec is optional provenance only and remains unnecessary in emitted standalone apps.
 - **2026-08-01** — Expanded OMH-006/OMH-168 and aligned the interactive standalone `om-implement-spec` owner with shared `om-auto-implement-spec` resolution, planning/progress, report-section, and stable `Spec:` reference contracts while retaining user confirmation and no-PR local delivery.
 - **2026-07-24** — Skeleton created under the autonomous Open Questions policy; standalone boundary, source-context, evaluation, and migration assumptions resolved from the user brief.
 - **2026-07-24** — Added prior-spec/PR-history findings, the initial case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.

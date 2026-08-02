@@ -175,9 +175,10 @@ Override plumbing (`packages/shared`):
 
 Route-level (`packages/core/src/modules/auth/__integration__/TC-AUTH-NAV-OVERRIDE-001.spec.ts`) —
 proves a real declaration survives a real bootstrap, following the pattern already used for the
-API-route domain (`TC-UMES-022`), where the example app applies a genuine override so a test can
-observe it. `apps/mercato/src/modules.ts` therefore applies `nav: { groupOrder: ['example.nav.group'] }`
-on the `example` entry:
+API-route domain (`TC-UMES-022`). The example app applies a genuine
+`nav: { groupOrder: ['example.nav.group'] }` override only when the ephemeral runner's existing
+`OM_INTEGRATION_TEST` flag is enabled. This keeps the test path real without turning the fixture into
+the default sidebar policy for normal monorepo development or newly scaffolded standalone apps:
 
 - the app-declared group leads the sidebar, outranking `customers.nav.group` (first in the shipped list)
 - a personal sidebar preference still wins over the app default, and clearing it falls back to the
@@ -256,6 +257,10 @@ No migration is required, and no existing installation changes behaviour.
   identical to the previous implementation. Verified empirically rather than by inspection: the ordering
   test suite was run against the *unmodified* implementation, where the no-override and empty-override
   cases pass unchanged and only the override-specific cases fail.
+- **The repository's applied integration fixture is test-only.** Both the monorepo app and create-app
+  template guard the Example module's `nav.groupOrder` declaration with `OM_INTEGRATION_TEST`. Normal
+  development and production runtimes therefore exercise the no-override path unless an app owner
+  deliberately configures an ordering override.
 - **One narrow behaviour does change, intentionally.** An app that had already written `overrides.nav`
   was previously ignored with a "domain not yet wired" warning, and now takes effect. That is the point
   of wiring the domain; such an app was relying on a documented no-op.
@@ -282,3 +287,9 @@ No migration is required, and no existing installation changes behaviour.
   domain in the umbrella spec's status table (phase 19), `packages/shared/AGENTS.md`, the overrides
   docs page, and the `moduleOverrideExamples` catalogue in both the app and the create-app template.
   Added `TC-AUTH-NAV-OVERRIDE-001` for route-level proof through a real bootstrap.
+
+- 2026-08-01: Corrected the route-level fixture boundary after the applied Example override made the
+  Example group lead every normal monorepo and classic standalone sidebar. The declaration is now
+  active only under the integration runner's existing `OM_INTEGRATION_TEST` flag, with a create-app
+  regression contract keeping the monorepo and template entries synchronized. The override feature,
+  precedence, and integration assertion remain unchanged.
