@@ -24,7 +24,7 @@ Issue: #4729
 | 2 | 2.1 | Add failing example-root schema, path-security, and compatibility fixtures | dispatch:capable | done | 5b0ac4268 |
 | 2 | 2.2 | Implement capability-scoped example-root matching and cumulative budgets | dispatch:capable | done | 8d3f8c44b |
 | 2 | 2.3 | Add and implement ordered installed-version fallback with redacted traces | dispatch:capable | done | dc4cee802 |
-| 3 | 3.1 | Add failure-first spec-first routing, emission, link, and budget tests | dispatch:standard | todo | — |
+| 3 | 3.1 | Add failure-first spec-first routing, emission, link, and budget tests | dispatch:standard | done | self:step-3.1 |
 | 3 | 3.2 | Add the emitted spec-first instruction and planning-skill decision route | dispatch:standard | todo | — |
 | 3 | 3.3 | Synchronize spec-first harness cases, validators, lanes, counts, and docs | dispatch:capable | todo | — |
 | 4 | 4.1 | Add the inert reference module inventory, progressive map, shell, and preset guards | dispatch:capable | todo | — |
