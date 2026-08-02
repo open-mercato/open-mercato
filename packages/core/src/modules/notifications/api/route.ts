@@ -10,7 +10,10 @@ import {
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
-import { buildNotificationReadScopeWhere } from '../lib/notificationScope'
+import {
+  buildNotificationReadScopeWhere,
+  getNotificationReadScopeTagOrganizationIds,
+} from '../lib/notificationScope'
 import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
@@ -43,8 +46,11 @@ type NotificationsListPayload = {
 
 function buildNotificationsListCacheKey(
   userId: string,
+  organizationId: string | null,
+  organizationIds: string[],
   input: z.infer<typeof listNotificationsSchema>,
 ): string {
+  const normalizedOrganizationIds = Array.from(new Set(organizationIds)).sort((left, right) => left.localeCompare(right))
   const filterSignature = JSON.stringify({
     status: Array.isArray(input.status)
       ? [...input.status].sort((left, right) => left.localeCompare(right))
@@ -57,7 +63,8 @@ function buildNotificationsListCacheKey(
     page: input.page,
     pageSize: input.pageSize,
   })
-  return `notifications:list:v${NOTIFICATIONS_LIST_CACHE_VERSION}:u=${userId}:filters=${filterSignature}`
+  const scopeSignature = JSON.stringify({ organizationId, organizationIds: normalizedOrganizationIds })
+  return `notifications:list:v${NOTIFICATIONS_LIST_CACHE_VERSION}:u=${userId}:scope=${scopeSignature}:filters=${filterSignature}`
 }
 
 function isNotificationsListPayload(value: unknown): value is NotificationsListPayload {
@@ -80,10 +87,15 @@ export async function GET(req: Request) {
   const queryParams = Object.fromEntries(url.searchParams.entries())
   const input = listNotificationsSchema.parse(queryParams)
   const userId = scope.userId
-  const cache = userId && isCrudCacheEnabled()
+  const cacheableOrganizationIds = Array.isArray(scope.organizationIds)
+    ? scope.organizationIds
+    : null
+  const cache = userId && cacheableOrganizationIds && isCrudCacheEnabled()
     ? resolveCrudCache(ctx.container)
     : null
-  const cacheKey = cache && userId ? buildNotificationsListCacheKey(userId, input) : null
+  const cacheKey = cache && userId && cacheableOrganizationIds
+    ? buildNotificationsListCacheKey(userId, scope.organizationId, cacheableOrganizationIds, input)
+    : null
 
   if (cache && cacheKey) {
     try {
@@ -149,7 +161,11 @@ export async function GET(req: Request) {
       await runWithCacheTenant(scope.tenantId, () =>
         cache.set(cacheKey, payload, {
           ttl: NOTIFICATIONS_LIST_TTL_MS,
-          tags: buildCollectionTags(NOTIFICATIONS_LIST_RESOURCE, scope.tenantId, [null]),
+          tags: buildCollectionTags(
+            NOTIFICATIONS_LIST_RESOURCE,
+            scope.tenantId,
+            getNotificationReadScopeTagOrganizationIds(scope),
+          ),
         }),
       )
     } catch (error) {

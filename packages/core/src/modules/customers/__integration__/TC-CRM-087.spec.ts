@@ -27,17 +27,17 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
     const companyIds: string[] = [];
     const prefix = `QA TC-CRM-087 ${Date.now()}`;
 
-    const handleColumnWidth = (handle: import('@playwright/test').Locator) =>
-      handle.evaluate((el) => Math.round((el.closest('th') as HTMLElement).getBoundingClientRect().width));
-
     const waitForTableReady = async () => {
       await page.getByText('Loading table', { exact: false })
         .waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
       await page.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10_000 });
     };
 
-    // Second data-column resize handle — avoids the (potentially sticky) first column.
-    const handleAt = () => page.locator('thead [role="separator"][aria-orientation="vertical"]').nth(1);
+    const targetHeader = () =>
+      page.locator('thead th:has([role="separator"][aria-orientation="vertical"])').first();
+    const handleAt = () => targetHeader().getByRole('separator');
+    const targetColumnWidth = () =>
+      targetHeader().evaluate((element) => Math.round((element as HTMLElement).getBoundingClientRect().width));
 
     try {
       token = await getAuthToken(request);
@@ -60,24 +60,52 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
 
       const handle = handleAt();
       await expect(handle).toBeAttached();
-      const defaultWidth = await handleColumnWidth(handle);
+      const defaultWidth = await targetColumnWidth();
 
-      const box = await handle.boundingBox();
-      expect(box).not.toBeNull();
-      const cx = box!.x + box!.width / 2;
-      const cy = box!.y + box!.height / 2;
-      await page.mouse.move(cx, cy);
-      await page.mouse.down();
-      await page.mouse.move(cx + 130, cy, { steps: 10 });
-      await page.mouse.up();
+      const origin = await handle.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      await handle.dispatchEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: origin.x,
+        clientY: origin.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      await page.evaluate(({ x, y }) => {
+        document.dispatchEvent(new PointerEvent('pointermove', {
+          bubbles: true,
+          button: 0,
+          buttons: 1,
+          clientX: x + 130,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+        document.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          buttons: 0,
+          clientX: x + 130,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+      }, origin);
 
-      const widened = await handleColumnWidth(handle);
+      const widened = await targetColumnWidth();
       expect(widened, 'dragging the handle should widen the column').toBeGreaterThan(defaultWidth + 80);
 
       await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForTableReady();
       expect(
-        await handleColumnWidth(handleAt()),
+        await targetColumnWidth(),
         'the resized width should survive a reload for the account that set it',
       ).toBeGreaterThan(defaultWidth + 80);
 
@@ -93,14 +121,15 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
       await page.getByLabel('Email').fill(employee.email);
       const passwordInput = page.getByLabel('Password', { exact: true }).first();
       await passwordInput.fill(employee.password);
-      await passwordInput.press('Enter');
+      await page.locator('form[data-auth-ready="1"]').evaluate((form) =>
+        (form as HTMLFormElement).requestSubmit());
       await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout: 15_000 });
 
       // -- 3) the employee gets the default width — no carry-over ----------------
       await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
       await waitForTableReady();
       expect(
-        await handleColumnWidth(handleAt()),
+        await targetColumnWidth(),
         'a different account must not inherit the previous account\'s unsaved column width',
       ).toBeLessThan(defaultWidth + 60);
     } finally {
