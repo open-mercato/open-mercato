@@ -95,6 +95,11 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { clearAllPerspectiveState, PERSPECTIVE_COOKIE_PREFIX, PERSPECTIVE_STORAGE_PREFIX } from './perspectiveState'
+
+// Re-exported so `@open-mercato/ui/backend/DataTable` stays the published import
+// path for the purge (BACKWARD_COMPATIBILITY: import paths are a contract surface).
+export { clearAllPerspectiveState }
 
 const logger = createLogger('ui').child({ component: 'DataTable' })
 
@@ -470,8 +475,6 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
   return sections
 }
 
-const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
-const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
 
 // Bounds for user-driven column resizing (#1835). Widths outside this range are
 // clamped so a persisted/dragged value can never collapse a column to nothing or
@@ -550,43 +553,6 @@ export function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveS
     return
   }
   writeVersionedPreference(key, PERSPECTIVE_SNAPSHOT_VERSION, snapshot)
-}
-
-/**
- * Purge every browser-local DataTable perspective snapshot and active-view cookie
- * across all tables in this origin. Snapshots persist the unsaved/live table state
- * (column widths, order, visibility) keyed only by `tableId`, so they are shared by
- * every account that signs in on the same browser profile. Call this at the auth
- * identity boundary (login) so one user's unsaved layout never carries over to a
- * different user — including a different tenant — reusing the same browser tab (#4185).
- */
-export function clearAllPerspectiveState(): void {
-  if (typeof window !== 'undefined') {
-    try {
-      const storage = window.localStorage
-      const staleKeys: string[] = []
-      for (let index = 0; index < storage.length; index += 1) {
-        const key = storage.key(index)
-        if (key && key.startsWith(`${PERSPECTIVE_STORAGE_PREFIX}:`)) staleKeys.push(key)
-      }
-      for (const key of staleKeys) storage.removeItem(key)
-    } catch {
-      // private mode / quota errors are non-fatal
-    }
-  }
-  if (typeof document !== 'undefined') {
-    try {
-      const cookies = document.cookie ? document.cookie.split(';') : []
-      for (const cookie of cookies) {
-        const name = cookie.split('=')[0]?.trim()
-        if (name && name.startsWith(`${PERSPECTIVE_COOKIE_PREFIX}:`)) {
-          document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`
-        }
-      }
-    } catch {
-      // ignore — cookie access can throw in sandboxed contexts
-    }
-  }
 }
 
 export function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
