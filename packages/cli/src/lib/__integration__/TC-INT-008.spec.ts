@@ -249,8 +249,11 @@ function expectedGuideOutputNames(): string[] {
   // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
   // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
   // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
-  // emitted (#3754).
+  // emitted (#3754). framework-extension-points.md is likewise generated into
+  // dist/agentic/guides by both build.mjs pipelines (#4810) rather than checked in
+  // alongside the static conceptual guides, so it needs an explicit entry here.
   collected.add('module-facts.json')
+  collected.add('framework-extension-points.md')
   collected.add('upstream/AGENTS.md')
   collected.add('upstream/BACKWARD_COMPATIBILITY.md')
   collected.add('upstream/manifest.json')
