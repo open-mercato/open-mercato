@@ -60,7 +60,7 @@ const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[])
 const mockLoadSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
 const mockLoadFirstRoleSidebarPreference = jest.fn<Promise<null>, [unknown, { roleIds: string[]; tenantId: string | null; locale: string }]>()
 const mockResolveFeatureCheckContext = jest.fn<
-  Promise<{ organizationId: string | null; scope: { tenantId: string | null }; allowedOrganizationIds: string[] | null }>,
+  Promise<{ organizationId: string | null; scope: { tenantId: string | null; selectedId: string | null }; allowedOrganizationIds: string[] | null }>,
   [unknown]
 >()
 const mockGetSelectedOrganizationFromRequest = jest.fn<string | null, [Request]>()
@@ -171,7 +171,7 @@ describe('GET /api/auth/admin/nav', () => {
     mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
     mockResolveFeatureCheckContext.mockResolvedValue({
       organizationId: 'org-1',
-      scope: { tenantId: 'tenant-1' },
+      scope: { tenantId: 'tenant-1', selectedId: 'org-1' },
       allowedOrganizationIds: ['org-1'],
     })
   })
@@ -382,6 +382,43 @@ describe('GET /api/auth/admin/nav', () => {
     for (const [callArgs] of mockResolveFeatureCheckContext.mock.calls) {
       expect(callArgs).toEqual(expect.objectContaining({ request }))
     }
+  })
+
+  it('uses a versioned cache key that distinguishes concrete and all-organization cookie selections', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([])
+    mockResolveFeatureCheckContext.mockImplementation(async (args) => {
+      const scopeArgs = args as { selectedId?: string | null; request?: Request }
+      const cookieSelection = scopeArgs.request?.headers.get('cookie')?.match(/(?:^|;\s*)om_selected_org=([^;]+)/)?.[1]
+      const requestedSelection = scopeArgs.selectedId === undefined
+        ? cookieSelection ? decodeURIComponent(cookieSelection) : null
+        : scopeArgs.selectedId
+      return {
+        organizationId: 'org-1',
+        scope: {
+          tenantId: 'tenant-1',
+          selectedId: requestedSelection === '__all__' ? null : requestedSelection ?? 'org-1',
+        },
+        allowedOrganizationIds: ['org-1'],
+      }
+    })
+    setupCustomEntities([])
+
+    await GET(new Request('http://localhost/api/auth/admin/nav', {
+      headers: { cookie: 'om_selected_org=org-1' },
+    }))
+    const concreteSelectionKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    expect(concreteSelectionKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
+    expect(concreteSelectionKey).not.toContain('nav:sidebar:v5:')
+
+    mockCacheGet.mockClear()
+    setupCustomEntities([])
+
+    await GET(new Request('http://localhost/api/auth/admin/nav', {
+      headers: { cookie: 'om_selected_org=__all__' },
+    }))
+    const allOrganizationsKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    expect(allOrganizationsKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
+    expect(allOrganizationsKey).not.toBe(concreteSelectionKey)
   })
 
   it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {
