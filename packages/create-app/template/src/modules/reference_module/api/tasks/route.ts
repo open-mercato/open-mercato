@@ -4,10 +4,13 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { ReferenceTask, ReferenceTaskLink } from '../../data/entities'
 import { REFERENCE_TASK_ENTITY_ID } from '../../data/entity-id'
 import { referenceTaskCreateSchema, referenceTaskLinkTargetKinds, referenceTaskStatuses, referenceTaskUpdateSchema } from '../../data/validators'
 import { buildReferenceCrudOpenApi, createPagedListResponseSchema } from '../openapi'
+import { resolveReferenceRouteContext } from '../context'
+import { readReferenceTaskCache, writeReferenceTaskCache } from '../../lib/task-cache'
 
 const rawBodySchema = z.object({}).passthrough()
 const querySchema = z.object({
@@ -25,6 +28,7 @@ const querySchema = z.object({
   linkTargetId: z.string().uuid().optional(),
   sortField: z.enum(['title', 'status', 'priority', 'dueAt', 'createdAt', 'updatedAt']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
+  format: z.literal('csv').optional(),
 }).passthrough()
 
 type Query = z.infer<typeof querySchema>
@@ -74,7 +78,47 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['reference_module.manage'] },
 }
 
-export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
+async function buildTaskFilters(query: Query, ctx: {
+  auth: { tenantId?: string | null; orgId?: string | null } | null
+  selectedOrganizationId: string | null
+  container: { resolve: <T = unknown>(name: string) => T }
+}) {
+  const filters: Record<string, unknown> = {}
+  if (query.id) filters.id = { $eq: query.id }
+  if (query.search) filters.title = { $ilike: buildIlikeTerm(query.search) }
+  if (query.status) filters.status = { $eq: query.status }
+  if (query.priority !== undefined) filters.priority = { $eq: query.priority }
+  if (query.isActive !== undefined) filters.is_active = query.isActive === 'true'
+  if (query.dueFrom || query.dueTo) {
+    filters.due_at = {
+      ...(query.dueFrom ? { $gte: new Date(query.dueFrom) } : {}),
+      ...(query.dueTo ? { $lte: new Date(query.dueTo) } : {}),
+    }
+  }
+  if (query.linkTargetKind && query.linkTargetId) {
+    const tenantId = ctx.auth?.tenantId ?? null
+    const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+    if (!tenantId || !organizationId) return { id: { $eq: '00000000-0000-0000-0000-000000000000' } }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const links = await findWithDecryption(
+      em,
+      ReferenceTaskLink,
+      { tenantId, organizationId, targetKind: query.linkTargetKind, targetId: query.linkTargetId, deletedAt: null },
+      { populate: ['task'], fields: ['task'] },
+      { tenantId, organizationId },
+    )
+    filters.id = { $in: links.map((link) => link.task.id) }
+  }
+  Object.assign(filters, await buildCustomFieldFiltersFromQuery({
+    entityId: REFERENCE_TASK_ENTITY_ID,
+    query,
+    em: ctx.container.resolve('em'),
+    tenantId: ctx.auth?.tenantId ?? null,
+  }))
+  return filters
+}
+
+const route = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
     entity: ReferenceTask,
@@ -86,51 +130,35 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   events: { module: 'reference_module', entity: 'reference_task', persistent: true },
   indexer: { entityType: REFERENCE_TASK_ENTITY_ID },
   enrichers: { entityId: 'reference_module.reference_task' },
-  list: {
+  list: Object.assign({
     schema: querySchema,
     entityId: REFERENCE_TASK_ENTITY_ID,
-    fields: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'is_active', 'created_at', 'updated_at'],
+    fields: (query: Query) => query.format === 'csv'
+      ? ['id', 'title', 'status', 'priority', 'due_at', 'is_active', 'created_at', 'updated_at']
+      : ['id', 'title', 'description', 'status', 'priority', 'due_at', 'is_active', 'created_at', 'updated_at'],
     sortFieldMap: {
       title: 'title', status: 'status', priority: 'priority', dueAt: 'due_at', createdAt: 'created_at', updatedAt: 'updated_at',
     },
-    buildFilters: async (query: Query, ctx) => {
-      const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = { $eq: query.id }
-      if (query.search) filters.title = { $ilike: buildIlikeTerm(query.search) }
-      if (query.status) filters.status = { $eq: query.status }
-      if (query.priority !== undefined) filters.priority = { $eq: query.priority }
-      if (query.isActive !== undefined) filters.is_active = query.isActive === 'true'
-      if (query.dueFrom || query.dueTo) {
-        filters.due_at = {
-          ...(query.dueFrom ? { $gte: new Date(query.dueFrom) } : {}),
-          ...(query.dueTo ? { $lte: new Date(query.dueTo) } : {}),
-        }
-      }
-      if (query.linkTargetKind && query.linkTargetId) {
-        const tenantId = ctx.auth?.tenantId ?? null
-        const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-        if (!tenantId || !organizationId) return { id: { $eq: '00000000-0000-0000-0000-000000000000' } }
-        const em = (ctx.container.resolve('em') as EntityManager).fork()
-        const links = await findWithDecryption(
-          em,
-          ReferenceTaskLink,
-          { tenantId, organizationId, targetKind: query.linkTargetKind, targetId: query.linkTargetId, deletedAt: null },
-          { populate: ['task'], fields: ['task'] },
-          { tenantId, organizationId },
-        )
-        filters.id = { $in: links.map((link) => link.task.id) }
-      }
-      Object.assign(filters, await buildCustomFieldFiltersFromQuery({
-        entityId: REFERENCE_TASK_ENTITY_ID,
-        query,
-        em: ctx.container.resolve('em'),
-        tenantId: ctx.auth?.tenantId ?? null,
-      }))
-      return filters
-    },
+    buildFilters: buildTaskFilters,
     transformItem: transformTask,
     decorateCustomFields: { entityIds: REFERENCE_TASK_ENTITY_ID, stripPrefixedKeys: true },
-  },
+    allowCsv: true,
+    export: {
+      formats: ['csv' as const],
+      filename: 'reference-tasks.csv',
+      batchSize: 10_000,
+      columns: [
+        { field: 'id', header: 'id' },
+        { field: 'title', header: 'title' },
+        { field: 'status', header: 'status' },
+        { field: 'priority', header: 'priority' },
+        { field: 'dueAt', header: 'dueAt' },
+        { field: 'isActive', header: 'isActive' },
+        { field: 'createdAt', header: 'createdAt' },
+        { field: 'updatedAt', header: 'updatedAt' },
+      ],
+    },
+  }, { disableListCache: true }),
   hooks: {
     afterList: async (result, ctx) => {
       const items = result.items as ReferenceTaskListItem[]
@@ -190,6 +218,32 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     },
   },
 })
+
+export const { metadata, POST, PUT, DELETE } = route
+
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url)
+  if (url.searchParams.get('format') !== 'csv') return route.GET(request)
+  const context = await resolveReferenceRouteContext(request)
+  if (!context) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const query = querySchema.parse(Object.fromEntries(url.searchParams.entries()))
+  const countCacheKey = `export-count:${url.searchParams.toString()}`
+  let total = await readReferenceTaskCache<number>(context.container, context.scope, countCacheKey)
+  if (total === null) {
+    const queryEngine = context.container.resolve('queryEngine') as QueryEngine
+    const result = await queryEngine.query(REFERENCE_TASK_ENTITY_ID, {
+      tenantId: context.scope.tenantId,
+      organizationId: context.scope.organizationId,
+      fields: ['id'],
+      filters: await buildTaskFilters(query, { ...context.ctx, container: context.container }),
+      page: { page: 1, pageSize: 1 },
+    })
+    total = result.total
+    await writeReferenceTaskCache(context.container, context.scope, countCacheKey, total)
+  }
+  if (total > 10_000) return Response.json({ error: 'Export exceeds the 10000 row limit' }, { status: 413 })
+  return route.GET(request)
+}
 
 const listItemSchema = z.object({
   id: z.string().uuid(),

@@ -27,6 +27,10 @@ import {
 
 const updateCommandSchema = z.object({ id: z.string().uuid(), updatedAt: z.string().datetime().optional() })
   .and(referenceTaskUpdateSchema)
+const createCommandSchema = referenceTaskCreateSchema.and(z.object({
+  importId: z.string().uuid().optional(),
+  importLink: referenceTaskLinkCreateSchema.nullable().optional(),
+}))
 const idCommandSchema = z.object({ id: z.string().uuid(), updatedAt: z.string().datetime().optional() })
 const linkCreateCommandSchema = z.object({ taskId: z.string().uuid(), updatedAt: z.string().datetime().optional() })
   .and(referenceTaskLinkCreateSchema)
@@ -58,10 +62,12 @@ const taskCrudEvents: CrudEventsConfig<ReferenceTask> = {
   module: 'reference_module',
   entity: 'reference_task',
   persistent: true,
-  buildPayload: ({ entity, identifiers }) => ({
+  buildPayload: ({ entity, identifiers, actorUserId }) => ({
     id: identifiers.id,
     tenantId: identifiers.tenantId,
     organizationId: identifiers.organizationId,
+    recipientUserId: actorUserId ?? null,
+    title: entity.title,
     status: entity.status,
     priority: entity.priority,
   }),
@@ -306,6 +312,7 @@ async function undoReferenceMutation(params: Parameters<NonNullable<CommandHandl
       id: task.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
+      recipientUserId: params.ctx.auth?.sub ?? null,
     })
   }
 }
@@ -314,11 +321,18 @@ const createTaskCommand: CommandHandler<unknown, TaskCommandResult> = {
   id: 'reference_module.reference_task.create',
   isUndoable: true,
   async execute(rawInput, ctx) {
-    const input = referenceTaskCreateSchema.parse(rawInput)
+    const input = createCommandSchema.parse(rawInput)
     const scope = commandScope(ctx)
+    if ((input.importId || input.importLink) && !ctx.syncOrigin?.startsWith('reference_module.import:')) {
+      throw new CrudHttpError(403, { error: 'Import-only fields require a trusted import context' })
+    }
     const now = new Date()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const targetLabelSnapshot = input.importLink
+      ? await resolveTargetSnapshot(ctx, scope, input.importLink.targetKind, input.importLink.targetId)
+      : null
     const task = em.create(ReferenceTask, {
+      ...(input.importId ? { id: input.importId } : {}),
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       title: input.title,
@@ -331,6 +345,17 @@ const createTaskCommand: CommandHandler<unknown, TaskCommandResult> = {
       updatedAt: now,
       deletedAt: null,
     })
+    const link = input.importLink ? em.create(ReferenceTaskLink, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      task,
+      targetKind: input.importLink.targetKind,
+      targetId: input.importLink.targetId,
+      targetLabelSnapshot,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }) : null
     let undoSnapshot!: ReferenceTaskUndoSnapshot
     await runCrudCommandWrite({
       ctx,
@@ -340,6 +365,7 @@ const createTaskCommand: CommandHandler<unknown, TaskCommandResult> = {
       scope,
       phases: [async () => {
         em.persist(task)
+        if (link) em.persist(link)
         undoSnapshot = persistUndoSnapshot(em, task, scope, 'create', {}, task.updatedAt)
       }],
       customFields: input.customFields,
@@ -347,6 +373,16 @@ const createTaskCommand: CommandHandler<unknown, TaskCommandResult> = {
       indexer: taskCrudIndexer,
       sideEffect: () => ({ entity: task, identifiers: taskIdentifiers(task) }),
     })
+    if (link) {
+      await emitReferenceModuleEvent('reference_module.reference_task.linked', {
+        id: task.id,
+        linkId: link.id,
+        targetKind: link.targetKind,
+        targetId: link.targetId,
+        recipientUserId: ctx.auth?.sub ?? null,
+        ...scope,
+      })
+    }
     return { id: task.id, updatedAt: task.updatedAt.toISOString(), undoSnapshotId: undoSnapshot.id }
   },
   async buildLog({ result, ctx }) {
@@ -461,7 +497,11 @@ const restoreTaskCommand: CommandHandler<unknown, TaskCommandResult> = {
       indexer: taskCrudIndexer,
       sideEffect: () => ({ entity: task, identifiers: taskIdentifiers(task) }),
     })
-    await emitReferenceModuleEvent('reference_module.reference_task.restored', { id: task.id, ...scope })
+    await emitReferenceModuleEvent('reference_module.reference_task.restored', {
+      id: task.id,
+      recipientUserId: ctx.auth?.sub ?? null,
+      ...scope,
+    })
     return { id: task.id, updatedAt: task.updatedAt.toISOString(), undoSnapshotId: undoSnapshot.id }
   },
   async buildLog({ result, ctx }) {
@@ -523,6 +563,7 @@ const createLinkCommand: CommandHandler<unknown, LinkCommandResult> = {
       linkId: link.id,
       targetKind: link.targetKind,
       targetId: link.targetId,
+      recipientUserId: ctx.auth?.sub ?? null,
       ...scope,
     })
     return {
@@ -588,6 +629,7 @@ const deleteLinkCommand: CommandHandler<unknown, LinkCommandResult> = {
       linkId: link.id,
       targetKind: link.targetKind,
       targetId: link.targetId,
+      recipientUserId: ctx.auth?.sub ?? null,
       ...scope,
     })
     return {

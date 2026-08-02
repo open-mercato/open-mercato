@@ -30,7 +30,7 @@ Issue: #4729
 | 4 | 4.1 | Add the inert reference module inventory, progressive map, shell, and preset guards | dispatch:capable | done | self:step-4.1 |
 | 4 | 4.2 | Add scoped reference data, ACL, setup, migration, snapshot, DI, and CLI surfaces | dispatch:capable | done | self:step-4.2 |
 | 4 | 4.3 | Add guarded CRUD, commands, links, locking, undo, events, search, and enrichers | dispatch:capable | done | self:step-4.3 |
-| 4 | 4.4 | Add export/import, cache, queue/progress, notifications, and browser events | dispatch:capable | todo | — |
+| 4 | 4.4 | Add export/import, cache, queue/progress, notifications, and browser events | dispatch:capable | done | self:step-4.4 |
 | 4 | 4.5 | Add customer-grade reference UI and optional UMES extension examples | dispatch:capable | todo | — |
 | 4 | 4.6 | Add activated-fixture, API, runtime, UI, security, and preset certification tests | dispatch:capable | todo | — |
 | 5 | 5.1 | Link standalone skills and instructions to the exact reference inventory | dispatch:standard | todo | — |

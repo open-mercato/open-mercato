@@ -49,20 +49,19 @@ The stable source-only entity bridge lives in [entity-id.ts](../data/entity-id.t
 | `enrichers.response`, `query.enrichment` | [batched due-state enricher](../data/enrichers.ts) |
 | `events.typed` | [events.ts](../events.ts) |
 | `search.index` | [search.ts](../search.ts) |
+| `api.import` | [bounded import route](../api/imports/route.ts) |
+| `api.export` | [safe-column task export](../api/tasks/route.ts) |
+| `events.subscriber`, `notifications.type` | [notification subscriber](../subscribers/reference-task-notifications.ts), [notification types](../notifications.ts) |
+| `events.dom-bridge` | [audience-scoped broadcast events](../events.ts) |
+| `cache.read`, `cache.invalidation` | [tenant-tagged cache](../lib/task-cache.ts), [cache subscriber](../subscribers/reference-task-cache.ts) |
+| `queue.worker`, `progress.job` | [import worker](../workers/reference-task-import.ts) |
+| `notifications.renderer`, `notifications.handler` | [client renderers](../notifications.client.ts), [reactive handlers](../notifications.handlers.ts) |
 
 The CRUD factory owns scoped list/create/update/delete calls. Detail, restore, and link routes reuse the same command IDs, registry guards, version headers, and safe operation metadata; optional host lookups use only Query Engine IDs and encrypted display snapshots.
 
 ## Planned local reference coverage
 
 The following IDs are frozen and use `coverageKind: reference`, but their rollout is `planned`. Their exact future file paths and single owners are recorded in the [inventory](./surface-inventory.json). The paths do not exist yet; later steps must replace `planned` with `implemented` only when real code and a caller/test land.
-
-### APIs, commands, guards, and enrichment
-
-`api.import`, `api.export`
-
-### Events, search, cache, queues, and notifications
-
-`events.subscriber`, `events.dom-bridge`, `cache.read`, `cache.invalidation`, `queue.worker`, `progress.job`, `notifications.type`, `notifications.renderer`, `notifications.handler`
 
 ### Backend UI and extension hosts
 

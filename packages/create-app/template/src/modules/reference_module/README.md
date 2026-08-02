@@ -51,5 +51,8 @@ The singular module ID is an intentional teaching-fixture exception. Product mod
 - Keep cross-module links as scoped IDs and safe snapshots; never add cross-module ORM relationships.
 - Route writes through commands, mutation guards, transactions, optimistic locking, and post-commit side effects.
 - Keep encrypted values out of search, events, notifications, caches, and logs.
+- The CSV route accepts one UTF-8 file up to 2 MiB and 5,000 rows, then hands one command transaction per row to the [registered worker](./workers/reference-task-import.ts). Progress and cancellation use the shared progress APIs.
+- List export uses the CRUD factory's CSV path with a 10,000-row preflight and a safe field allowlist. The [cache helper](./lib/task-cache.ts) partitions keys and tags by tenant and organization.
+- Task/import events carry IDs and safe snapshots only. The [notification subscriber](./subscribers/reference-task-notifications.ts) deduplicates by task state or job, while the browser bridge filters tenant, organization, and recipient audiences.
 - Use generated IDs after activation, shared API/UI helpers, translations, and design-system tokens.
 - Add a real caller and focused test with every discovery surface. Never create empty convention files.

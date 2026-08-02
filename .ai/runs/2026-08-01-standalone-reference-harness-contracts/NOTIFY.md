@@ -81,3 +81,9 @@
 
 - Delegation: added fail-closed CRUD and link routes, command-backed writes, mutation and command/API guards, optimistic locking, finite one-use undo snapshots, typed events, safe search indexing, scoped OpenAPI, Query Engine filtering, and batched time-sensitive enrichers; 11/11 focused reference tests and create-app typecheck passed, with zero `reference_module` diagnostics in the template-wide compiler output.
 - Environment: the template-wide compiler still reports pre-existing generated-registry, classic-example, and test-global diagnostics outside `reference_module`; targeted ESLint remains unavailable because the linked dependency state lacks `eslint-config-next/core-web-vitals`, so the configured full gate must retry lint after dependencies are restored.
+
+## 2026-08-02T19:50:50Z — Step 4.4 complete
+
+- Delegation: recovered the interrupted autosave and added bounded safe-column export, strict UTF-8 CSV import, scope-bound idempotent row IDs, command-mediated per-row writes, tenant/organization cache tags with safe degradation, queue/progress/cancellation summaries, deduplicated notifications, and audience-scoped browser events without encrypted values.
+- Result: 15/15 focused inventory/data/workflow/runtime reference tests, create-app typecheck, zero `reference_module` diagnostics in the template-wide compiler output, and diff checks passed.
+- Broader verification: the reference-pattern create-app run completed with 463 passes and four platform skips; its eight failures are existing generated dependency-state blockers (seven missing the built CLI module-facts generator and one missing the generated template knowledge-change script), not Step 4.4 failures.
