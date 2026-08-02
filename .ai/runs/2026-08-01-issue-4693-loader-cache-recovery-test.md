@@ -35,6 +35,22 @@ the import-time path is reached, and assertions stop at the recovery boundary be
 module registry replays an already-evaluated module on the guarded retry, making the retry's
 outcome a property of the runner rather than of the loader.
 
+### Base merge (2026-08-02)
+
+`develop` moved 32 commits ahead while this PR was open, and #4724 landed in that window:
+`compileAndImport` now requires an app `tsconfig.json` and validates its compiled cache by
+content hash (a sibling `.mjs.cache.json`) instead of by mtime. The fixture staged a poisoned
+`.mjs` with a future mtime, so under the new rules the loader simply recompiled it from the
+healthy `.ts` and the import-time rejection this suite exists to exercise stopped happening.
+
+The fixture now stages the cache the way the loader itself defines it: the loader compiles the
+generated sources once so it writes real metadata, then each compiled output is replaced with
+the CommonJS content Jest's registry can evaluate and only `outputHash` is rewritten. `version`,
+`inputHash` and `dependencies` stay exactly as the loader wrote them, so the fixture models a
+stale-but-internally-consistent cache and cannot drift out of step with the cache format the way
+a hand-built metadata file would. `jest.resetModules()` between priming passes is required
+because Jest keys its registry on the resolved path and ignores the loader's `?cache=` query.
+
 ## Progress
 
 - [x] Triage: confirm the test file is still absent from `upstream/develop` and that
@@ -48,3 +64,8 @@ outcome a property of the runner rather than of the loader.
 - [x] Run the full validation gate (local runner)
 - [x] Open the PR and request labels from a maintainer (`refactor`, `priority-low`,
       `risk-low`, `skip-qa`)
+- [x] Merge current `develop` (32 commits) into the branch and re-verify against it
+- [x] Rework the fixture for the hashed loader cache introduced by #4724 — 2/2 pass again
+- [x] Re-run the discrimination check on the reworked fixture: reverting the `await` at
+      `dynamicLoader.ts:359` fails the marker assertion, restoring it passes 2/2
+- [x] Re-confirm the branch still carries no source-file change
