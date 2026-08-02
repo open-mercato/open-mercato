@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -38,6 +39,8 @@ const SPEC_GUIDE = '.ai/guides/spec-delivery.md'
 const TIERS_PATH = '.ai/skills/tiers.json'
 const STANDALONE_ROOT_TARGET_BYTES = 12 * 1024
 const CODEX_DEFAULT_PROJECT_DOC_BYTES = 32 * 1024
+const HARNESS_ROOT = path.join(CREATE_APP_ROOT, 'agentic/shared/ai/harness')
+const SPEC_ORACLE = path.join(HARNESS_ROOT, 'writable-spec-oracles.mjs')
 
 const ROUTING_FIXTURES: RoutingFixture[] = [
   {
@@ -239,6 +242,106 @@ test('writable proofs require spec-before-code ordering and exact existing-spec 
   }))
 })
 
+test('the harness catalog adds only the six missing routing decisions and two writable ordering proofs', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(HARNESS_ROOT, 'cases.json'), 'utf8')) as Array<{
+    id: string
+    tags: string[]
+    evaluationKind: string
+    specRoutingOracle?: RoutingResponse
+  }>
+  const validators = JSON.parse(fs.readFileSync(path.join(HARNESS_ROOT, 'validators.json'), 'utf8')) as {
+    catalog: { expectedCaseCount: number; writableCaseIds: string[] }
+    validators: Record<string, { runners?: string[] }>
+  }
+  const matrix = JSON.parse(fs.readFileSync(path.join(HARNESS_ROOT, 'release-matrix.json'), 'utf8')) as {
+    routing: { portability: { caseIds: string[] } }
+    writable: Array<{ caseId: string }>
+    generativeJudge: { caseIds: string[] }
+    generatedCodeReview: { caseIds: string[] }
+  }
+  const specRoutingCases = cases.filter((entry) => entry.tags.includes('spec-first-routing'))
+  const readOnlyCases = specRoutingCases.filter((entry) => entry.evaluationKind === 'routing')
+  const writableCases = specRoutingCases.filter((entry) => entry.evaluationKind === 'implementation')
+
+  assert.deepEqual(readOnlyCases.map((entry) => entry.id), ['OMH-203', 'OMH-204', 'OMH-205', 'OMH-206', 'OMH-207', 'OMH-208'])
+  assert.deepEqual(writableCases.map((entry) => entry.id), ['OMH-209', 'OMH-210'])
+  assert.deepEqual(
+    readOnlyCases.map((entry) => entry.specRoutingOracle?.decision),
+    ['spec-first', 'direct', 'direct', 'direct', 'ask', 'reuse-spec'],
+  )
+  assert.equal(new Set(readOnlyCases.map((entry) => JSON.stringify(entry.specRoutingOracle))).size, 6)
+  assert.equal(validators.catalog.expectedCaseCount, 210)
+  assert.deepEqual(validators.catalog.writableCaseIds.slice(-2), ['OMH-209', 'OMH-210'])
+  assert.deepEqual(matrix.routing.portability.caseIds, validators.catalog.writableCaseIds)
+  assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
+  assert.deepEqual(matrix.generativeJudge.caseIds, validators.catalog.writableCaseIds)
+  assert.deepEqual(matrix.generatedCodeReview.caseIds, validators.catalog.writableCaseIds)
+  assert.deepEqual(validators.validators['oracle.spec-first.new-feature'].runners, ['writable-spec-oracles.mjs'])
+  assert.deepEqual(validators.validators['oracle.spec-first.existing-spec'].runners, ['writable-spec-oracles.mjs'])
+})
+
+test('the fixed writable spec oracle fails before and passes after each narrow proof', () => {
+  const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-spec-oracle-')))
+  const specPath = path.join(targetDir, '.ai/specs/2026-08-02-inventory-reservations.md')
+  const runOracle = (caseId: string) => spawnSync(process.execPath, [
+    SPEC_ORACLE,
+    '--root', targetDir,
+    '--case', caseId,
+    '--phase', 'after',
+    '--json',
+  ], { encoding: 'utf8' })
+  const baseSpec = `# Inventory Reservations
+
+## Problem Statement
+
+Confirmed orders need bounded, organization-scoped inventory holds that cannot leak across tenants.
+
+## Data Contract
+
+A reservation records its product, quantity, tenant, organization, expiry, status, and optimistic-lock version.
+
+## API Contract
+
+POST /api/inventory/reservations creates one scoped reservation and DELETE /api/inventory/reservations/:id releases it.
+
+## Integration Coverage
+
+Create self-contained fixtures and cover creation, release, scope denial, validation failure, and concurrent conflict behavior.
+
+## Implementation Plan
+
+The specification write and review must finish before code or implementation begins.
+
+### Phase 1 — Reservation data and API
+
+Add the scoped reservation model, migration snapshot, validators, routes, and focused integration coverage while leaving the app working.
+`
+
+  try {
+    assert.notEqual(runOracle('OMH-209').status, 0)
+    fs.mkdirSync(path.dirname(specPath), { recursive: true })
+    fs.writeFileSync(specPath, baseSpec)
+    assert.equal(runOracle('OMH-209').status, 0)
+    assert.notEqual(runOracle('OMH-210').status, 0)
+    fs.writeFileSync(specPath, `${baseSpec}
+## Bulk-release API Contract
+
+POST /api/inventory/reservations/bulk-release releases a bounded set of scoped reservations atomically.
+
+## Bulk-release Integration Coverage
+
+Exercise successful bulk-release, mixed-scope denial, invalid IDs, and all-or-nothing rollback in integration tests.
+
+### Phase 2 — Bulk-release contract
+
+Implement bulk-release only after Phase 1 is complete, then run the focused API integration coverage.
+`)
+    assert.equal(runOracle('OMH-210').status, 0)
+  } finally {
+    fs.rmSync(targetDir, { recursive: true, force: true })
+  }
+})
+
 test('every built-in preset emits one path-stable spec route with resolvable installed skill ownership', () => {
   const generatedRoots: string[] = []
   const emittedTierManifests: string[] = []
@@ -272,7 +375,7 @@ test('every built-in preset emits one path-stable spec route with resolvable ins
     for (const presetId of VALID_PRESET_IDS) {
       const targetDir = scaffoldPreset(presetId)
       targets.push(targetDir)
-      for (const relativePath of [SPEC_TEMPLATE, SPEC_GUIDE, TIERS_PATH]) {
+      for (const relativePath of [SPEC_TEMPLATE, SPEC_GUIDE, TIERS_PATH, '.ai/harness/writable-spec-oracles.mjs']) {
         assert.equal(fs.existsSync(path.join(targetDir, relativePath)), true, `${presetId} must emit ${relativePath}`)
       }
 

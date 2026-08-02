@@ -301,7 +301,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 46)
+  assert.equal(validators.catalog.writableCaseIds.length, 48)
   assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
     ['OMH-185', 600_000],
     ['OMH-188', 600_000],
@@ -581,12 +581,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-202', () => {
+test('deterministic evaluation enforces the case schema through OMH-210', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-202')
+    assert.equal(cases.at(-1)?.id, 'OMH-210')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 

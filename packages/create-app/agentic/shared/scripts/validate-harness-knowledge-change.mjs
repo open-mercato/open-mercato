@@ -17,7 +17,7 @@ const CHANGE_CONTRACT_RULES = Object.freeze([
   ['skill-link', /(?:^|\/)(?:\.ai|ai)\/skills\/|(?:^|\/)tiers\.json$/],
   ['discovery', /(?:^|\/)(?:generators?|agentic-setup|setup\/tools)\//],
   ['context-read', /(?:^|\/)ai\/harness\/cases\.json$/],
-  ['oracle', /(?:^|\/)(?:writable-(?:ast|behavior)-oracles\.mjs|validators\.json)$/],
+  ['oracle', /(?:^|\/)(?:writable-(?:ast|behavior|spec)-oracles\.mjs|validators\.json)$/],
   ['evaluator', /(?:^|\/)(?:ai\/harness\/.*\.schema\.json|scripts\/(?:evaluate-agent-harness|agent-harness-tool-server|validate-harness-knowledge-change|knowledge-change-contract)\.mjs)$/],
 ])
 const CONTRACT_RANGE_REQUIREMENTS = Object.freeze({

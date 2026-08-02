@@ -53,3 +53,10 @@
 - Result: 104 focused tests, create-app typecheck, recursive emission, script/schema checks, diff check, and the contiguous 202-case catalog contract passed.
 - UI: skipped because the checkpoint touched harness context/evaluator contracts only and no rendered surface.
 - Recovery: interrupted Step 2.3 was validated, amended from the unpushed CEZ autosave into the proper single Step commit, and pushed before this checkpoint.
+
+## 2026-08-02T15:06:15Z — om-auto-continue-pr-loop resume
+
+- Resumed by: @pkarw
+- Resume point: 3.3 (source: Tasks table; `HANDOFF.md` predates the landed 3.1 and 3.2 commits and is stale)
+- PR head SHA: `3d591a4b7`
+- Recovery: the interrupted Step 3.3 work is preserved in the local unpushed CEZ autosave commit `82c6002d1`; it will be validated and normalized before Phase 4 begins.

@@ -102,9 +102,9 @@ test('case schema adds optional finite example roots and installed-version fallb
     $defs: Record<string, { properties?: Record<string, { maximum?: number }> }>
   }
   const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{ id: string; context: Record<string, unknown> }>
-  assert.equal(cases.length, 202)
-  assert.equal(schema.minItems, 202)
-  assert.equal(schema.maxItems, 202)
+  assert.equal(cases.length, 210)
+  assert.equal(schema.minItems, 210)
+  assert.equal(schema.maxItems, 210)
   assert.deepEqual(schema.items.properties.context.required, ['required', 'forbidden'])
   assert.ok(schema.items.properties.context.properties.exampleRoots)
   assert.ok(schema.items.properties.context.properties.installedVersionFallback)
