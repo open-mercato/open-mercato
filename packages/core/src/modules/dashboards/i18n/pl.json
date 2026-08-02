@@ -15,6 +15,8 @@
   "dashboards.analytics.comparison.vsWeekBefore": "vs tydzien wczesniej",
   "dashboards.analytics.comparison.vsYearBefore": "vs rok wczesniej",
   "dashboards.analytics.comparison.vsYesterday": "vs wczoraj",
+  "dashboards.analytics.currency.unlabelled": "Kwoty pokazane bez waluty",
+  "dashboards.analytics.currency.unlabelledHint": "Nie udało się wiarygodnie ustalić waluty, dlatego kwota jest wyświetlana bez jej oznaczenia.",
   "dashboards.analytics.dateRange.last30Days": "Ostatnie 30 dni",
   "dashboards.analytics.dateRange.last7Days": "Ostatnie 7 dni",
   "dashboards.analytics.dateRange.last90Days": "Ostatnie 90 dni",

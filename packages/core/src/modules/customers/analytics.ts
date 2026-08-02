@@ -26,10 +26,12 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         tableName: 'customer_deals',
         dateField: 'created_at',
         defaultScopeFields: ['tenant_id', 'organization_id'],
+        currencyField: 'valueCurrency',
       },
       fieldMappings: {
         id: { dbColumn: 'id', type: 'uuid' },
         valueAmount: { dbColumn: 'value_amount', type: 'numeric' },
+        valueCurrency: { dbColumn: 'value_currency', type: 'text' },
         status: { dbColumn: 'status', type: 'text' },
         closureOutcome: { dbColumn: 'closure_outcome', type: 'text' },
         pipelineStage: { dbColumn: 'pipeline_stage', type: 'text' },

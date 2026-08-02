@@ -37,7 +37,9 @@ import {
   sanitizeUploadedFileName,
 } from '../lib/security'
 import {
+  isMultipartUploadLimitError,
   isMultipartRequestWithinUploadLimit,
+  parseMultipartFormDataWithinUploadLimit,
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '../lib/upload-limits'
@@ -283,10 +285,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
   }
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
   }
 
-  const form = await req.formData()
+  let form: FormData
+  try {
+    form = await parseMultipartFormDataWithinUploadLimit(req)
+  } catch (error) {
+    if (isMultipartUploadLimitError(error)) {
+      return NextResponse.json({
+        error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+      }, { status: 413 })
+    }
+    throw error
+  }
   const formPayload = buildFormPayload(form)
   const customFieldValues = splitCustomFieldPayload(formPayload).custom
   const entityId = String(form.get('entityId') || '')

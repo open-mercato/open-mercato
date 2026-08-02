@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
@@ -1158,7 +1159,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
                 data={pagedBalances}
                 disableRowClick
                 entityId={E.wms.inventory_balance}
-                perspective={{ tableId: 'wms.location.items' }}
+                perspective={{ tableId: extensionPoints.hosts.locationItemsTable.tableId }}
                 pagination={{
                   page: itemsPage,
                   pageSize: itemsPageSize,
@@ -1201,7 +1202,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
               data={movementsQuery.data ?? []}
               disableRowClick
               entityId={E.wms.inventory_movement}
-              perspective={{ tableId: 'wms.location.activity' }}
+              perspective={{ tableId: extensionPoints.hosts.locationActivityTable.tableId }}
               emptyState={t('wms.backend.location.activity.empty', 'No recent movements for this location.')}
               actions={(
                 <Button asChild type="button" variant="ghost" size="sm">
