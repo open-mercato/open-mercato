@@ -21,8 +21,8 @@ export const dateRangePresetSchema = z.enum([
 const scalarFilterOperators = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_null', 'is_not_null'] as const
 const setFilterOperators = ['in', 'not_in'] as const
 
-export const scalarFilterOperatorSchema = z.enum(scalarFilterOperators)
-export const setFilterOperatorSchema = z.enum(setFilterOperators)
+const scalarFilterOperatorSchema = z.enum(scalarFilterOperators)
+const setFilterOperatorSchema = z.enum(setFilterOperators)
 
 // Derived from the two groups rather than listed again, so a new operator cannot be added
 // without deciding whether it takes a scalar value or a bounded set of values.
@@ -51,12 +51,9 @@ const setFilterMemberSchema = z.union([z.string(), z.number(), z.boolean()])
 
 // A minimum of one keeps `IN ()` — a PostgreSQL syntax error rather than an empty result —
 // out of the query builder for the same reason the maximum keeps an unbounded list out of it.
-export const setFilterValueSchema = z
-  .array(setFilterMemberSchema)
-  .min(1)
-  .max(MAX_SET_FILTER_VALUES)
+const setFilterValueSchema = z.array(setFilterMemberSchema).min(1).max(MAX_SET_FILTER_VALUES)
 
-export const widgetDataFilterSchema = z.discriminatedUnion('operator', [
+const widgetDataFilterSchema = z.discriminatedUnion('operator', [
   z.object({
     field: z.string().min(1),
     operator: setFilterOperatorSchema,

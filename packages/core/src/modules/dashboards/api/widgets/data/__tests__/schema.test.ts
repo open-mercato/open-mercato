@@ -73,7 +73,11 @@ describe('widget data set filter bounds (#4852)', () => {
     expect(parsed.success).toBe(false)
   })
 
-  test.each([[null], [{ id: 'open' }], [['open']]])('rejects the non-primitive member %p', (member) => {
+  test.each([
+    ['null', null],
+    ['an object', { id: 'open' }],
+    ['a nested array', ['open']],
+  ])('rejects %s as a set member', (_label, member) => {
     const parsed = widgetDataRequestSchema.safeParse(
       buildRequest([{ field: 'status', operator: 'in', value: ['open', member] }]),
     )
