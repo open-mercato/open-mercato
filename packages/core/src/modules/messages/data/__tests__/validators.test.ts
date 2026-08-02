@@ -1,6 +1,22 @@
-import { composeMessageSchema, forwardMessageSchema, messageActionSchema, updateDraftSchema } from '../validators'
+import {
+  composeMessageSchema,
+  forwardMessageSchema,
+  listMessagesSchema,
+  messageActionSchema,
+  updateDraftSchema,
+} from '../validators'
 
 describe('messages validators', () => {
+  it('accepts list boolean filters after interceptor revalidation', () => {
+    const parsed = listMessagesSchema.parse({
+      hasObjects: 'true',
+      hasAttachments: 'false',
+      hasActions: 'true',
+    })
+
+    expect(listMessagesSchema.parse(parsed)).toEqual(parsed)
+  })
+
   it('rejects duplicate recipient ids during compose', () => {
     const result = composeMessageSchema.safeParse({
       subject: 'Subject',
