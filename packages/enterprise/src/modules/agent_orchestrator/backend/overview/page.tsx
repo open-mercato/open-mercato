@@ -29,6 +29,7 @@ import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { agentAvatarIcon } from '../../components/agentChips'
 import { WebSearchHealthCard } from '../../components/WebSearchHealthCard'
+import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 
 type Health = 'good' | 'watch' | 'poor' | 'new'
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
@@ -313,6 +314,7 @@ export default function AgentFleetOverviewPage() {
       .slice(0, 6)
   }, [pendingProposals, pendingRuns, agentLabels, agentKinds])
 
+  const previewUi = isAgentPreviewUiEnabled()
   const backendChip = <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
   // Per-verb intervention counts need a backend taxonomy (Review/Question/Do/Notify/Know).
   // Until then these are representative demo figures so the section reads like the design.
@@ -384,7 +386,7 @@ export default function AgentFleetOverviewPage() {
           />
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${previewUi ? 'lg:grid-cols-4' : ''}`}>
               <KpiTile icon={CheckCircle2}
                 label={t('agent_orchestrator.overview.kpi.autoCompleted', 'Auto-completed')}
                 caption={windowLabel}
@@ -396,14 +398,18 @@ export default function AgentFleetOverviewPage() {
                 value={formatNumber(kpi.pendingCount, locale) ?? '0'}
                 chip={kpi.oldestMin == null ? null : <OldestChip>{t('agent_orchestrator.overview.kpi.oldest', 'oldest {time}', { time: formatWaitMinutes(kpi.oldestMin) ?? '—' })}</OldestChip>}
                 sub={t('agent_orchestrator.overview.kpi.needsDecisionSub', 'Waiting in the inbox now')} />
-              <KpiTile icon={Users}
-                label={t('agent_orchestrator.overview.kpi.operatorRatio', 'Operator ratio')}
-                value={backendChip}
-                sub={t('agent_orchestrator.overview.kpi.operatorRatioSub', 'Processes per supervisor')} />
-              <KpiTile icon={Clock}
-                label={t('agent_orchestrator.overview.kpi.slaBreaches', 'SLA breaches')}
-                value={backendChip}
-                sub={t('agent_orchestrator.overview.kpi.slaBreachesSub', 'Over 4h since reroute')} />
+              {previewUi ? (
+                <>
+                  <KpiTile icon={Users}
+                    label={t('agent_orchestrator.overview.kpi.operatorRatio', 'Operator ratio')}
+                    value={backendChip}
+                    sub={t('agent_orchestrator.overview.kpi.operatorRatioSub', 'Processes per supervisor')} />
+                  <KpiTile icon={Clock}
+                    label={t('agent_orchestrator.overview.kpi.slaBreaches', 'SLA breaches')}
+                    value={backendChip}
+                    sub={t('agent_orchestrator.overview.kpi.slaBreachesSub', 'Over 4h since reroute')} />
+                </>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
@@ -528,6 +534,7 @@ export default function AgentFleetOverviewPage() {
               </Panel>
             </div>
 
+            {previewUi ? (
             <div className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
@@ -571,6 +578,7 @@ export default function AgentFleetOverviewPage() {
                 ))}
               </div>
             </div>
+            ) : null}
           </>
         )}
       </PageBody>

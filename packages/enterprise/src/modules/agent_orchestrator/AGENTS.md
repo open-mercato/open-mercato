@@ -159,6 +159,14 @@ Every route file MUST export `openApi`. Custom write routes MUST wire the mutati
 
 `overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden). Components: `ProposalCard`, `ProposalFacts` (Caseload facts grid + reasoning, FACTS.json-driven with generic fallback), `SkillDrawer`, `TraceView`.
 
+### Operator tags + registry filters
+
+Agents are code/file-defined and global, so a tenant's own taxonomy lives in `agent_settings.tags` (jsonb, alongside the `icon` override), keyed by agent id and NOT an FK, so tags outlive an agent missing from the live registry. Normalize on BOTH sides with `normalizeAgentTags` (`data/agentTags.ts`, server-safe like `agentIcons.ts`) or a differently-cased tag silently fails to match. Read via `getAgentPresentationMaps` (one query for icons + tags), written through the existing `PUT /agents/:id/settings`: `icon` and `tags` are both optional there and an omitted field is left unchanged, so the tag editor and the icon picker share one optimistic-locked row. Registry filtering is in-memory in `backend/agents/agentListFilters.ts` (the list endpoint returns the whole registry, unpaged); values OR inside a facet, facets AND together, tags included in free-text search.
+
+### Preview UI flag
+
+`isAgentPreviewUiEnabled()` (`lib/featureFlags.ts`, `NEXT_PUBLIC_OM_AGENT_ORCHESTRATOR_PREVIEW_UI`, **default off**) hides the cockpit surfaces built ahead of their backend: New agent / Export / Duplicate / Disable, agent Pause + the Configure drawer, process Pause / Reassign / Take over, the overview interventions card and its two `Needs backend` tiles, the caseload `Closed today` tile, and the trace model comparison. Anything that renders illustrative figures or is toast-only belongs behind it, never on the default path; `__tests__/preview-ui-flag.test.ts` asserts each gated file still reads the flag.
+
 ## Runtime Split — Key Files
 
 - Registry + `runtime` field: `lib/sdk/defineAgent.ts` (`registerFileAgent`, `ensureAgentsLoaded`, load-time propose-only mutation gate).

@@ -39,6 +39,8 @@ type WebSearchHealthResponse = {
   source: 'tenant' | 'instance'
   adapters: AdapterHealthRow[]
   problems: Array<{ id: string | null; packageName: string; reason: string }>
+  /** False when no adapter was called; `status` then reports configuration only. */
+  probed: boolean
   checkedAt: string
 }
 
@@ -94,6 +96,7 @@ export async function GET(req: Request) {
     source: settings.source,
     adapters,
     problems: problems.map((problem) => ({ ...problem })),
+    probed: probe,
     checkedAt: new Date().toISOString(),
   }
   return NextResponse.json(body)
@@ -116,6 +119,7 @@ const healthSchema = z.object({
   problems: z.array(
     z.object({ id: z.string().nullable(), packageName: z.string(), reason: z.string() }),
   ),
+  probed: z.boolean(),
   checkedAt: z.string(),
 })
 

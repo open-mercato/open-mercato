@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -15,7 +16,9 @@ import {
   type AgentWindowMetricsView,
 } from '../../../../components/types'
 import { agentAvatarIcon, resolveAgentIcon } from '../../../../components/agentChips'
+import { useAgentTagSuggestions } from '../../../../components/useAgentTags'
 import { AGENT_ICON_NAMES } from '../../../../data/agentIcons'
+import { isAgentPreviewUiEnabled } from '../../../../lib/featureFlags'
 import { StatCell, PendingChip } from './workspacePrimitives'
 import { statusVariant, titleCase, type AgentMetrics, type Autonomy } from './workspaceShared'
 
@@ -27,7 +30,9 @@ export type AgentHeaderCardProps = {
   windowMetrics: AgentWindowMetricsView | null
   autonomy: Autonomy
   savingIcon: boolean
+  savingTags: boolean
   onIconChange: (value: string) => void
+  onTagsChange: (next: string[]) => void
   onConfigure: () => void
 }
 
@@ -37,11 +42,15 @@ export function AgentHeaderCard({
   windowMetrics,
   autonomy,
   savingIcon,
+  savingTags,
   onIconChange,
+  onTagsChange,
   onConfigure,
 }: AgentHeaderCardProps) {
   const t = useT()
   const locale = useLocale()
+  const tagSuggestions = useAgentTagSuggestions()
+  const previewUi = isAgentPreviewUiEnabled()
   const overridePct = metrics.overrideRate == null ? null : Math.round(metrics.overrideRate * 100)
   const overrideGate = overridePct != null && overridePct > 30
   const noData = t('agent_orchestrator.agents.list.pending.noData', 'No data')
@@ -60,6 +69,18 @@ export function AgentHeaderCard({
             </div>
             <p className="mt-0.5 font-mono text-xs text-muted-foreground">{agent.id}</p>
             <p className="mt-1 text-sm text-muted-foreground">{agent.description || agent.id}</p>
+            <div className="mt-3 max-w-xl">
+              <span className="text-xs text-muted-foreground">{t('agent_orchestrator.agents.tags.label', 'Tags')}</span>
+              <div className="mt-1">
+                <TagsInput
+                  value={agent.tags}
+                  onChange={onTagsChange}
+                  suggestions={tagSuggestions}
+                  disabled={savingTags}
+                  placeholder={t('agent_orchestrator.agents.tags.placeholder', 'Add a tag…')}
+                />
+              </div>
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -85,12 +106,16 @@ export function AgentHeaderCard({
               </SelectContent>
             </Select>
           </div>
-          <Button variant="outline" size="sm" onClick={() => flash(t('agent_orchestrator.agentDetail.actions.codeOnly', 'Managed in code for now — UI wiring needs backend.'), 'info')}>
-            {t('agent_orchestrator.agentDetail.actions.pause', 'Pause')}
-          </Button>
-          <Button size="sm" onClick={onConfigure}>
-            {t('agent_orchestrator.agentDetail.actions.configure', 'Configure')}
-          </Button>
+          {previewUi ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => flash(t('agent_orchestrator.agentDetail.actions.codeOnly', 'Managed in code for now — UI wiring needs backend.'), 'info')}>
+                {t('agent_orchestrator.agentDetail.actions.pause', 'Pause')}
+              </Button>
+              <Button size="sm" onClick={onConfigure}>
+                {t('agent_orchestrator.agentDetail.actions.configure', 'Configure')}
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import { z, type ZodTypeAny } from 'zod'
 import { AGENT_ICON_NAMES } from './agentIcons'
+import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
 
 /**
  * A single proposed action emitted by an actionable agent. `payload` is shaped
@@ -1164,11 +1165,22 @@ export const agentSettingUpdateSchema = z.object({
 })
 export type AgentSettingUpdate = z.infer<typeof agentSettingUpdateSchema>
 
+// Operator-authored agent tags. Free text rather than a fixed vocabulary, so the
+// schema only enforces the storage bounds — `normalizeAgentTags` is what trims,
+// lowercases and dedupes before either side compares them.
+export const agentTagsSchema = z
+  .array(z.string().trim().min(1).max(AGENT_TAG_MAX_LENGTH))
+  .max(AGENT_TAGS_MAX_COUNT)
+
 // Request body for PUT /agents/[id]/settings. `agentId` comes from the route
-// param, so the body carries only the icon (null clears it) plus the optional
-// optimistic-lock expectation (the settings row's current updatedAt).
+// param, so the body carries only the editable settings plus the optional
+// optimistic-lock expectation (the settings row's current updatedAt). Both
+// fields are optional and an omitted one is left untouched, so a caller can save
+// tags without restating the icon (and older clients that only send `icon` keep
+// working unchanged).
 export const agentIconWriteSchema = z.object({
-  icon: agentIconNameSchema.nullable(),
+  icon: agentIconNameSchema.nullable().optional(),
+  tags: agentTagsSchema.optional(),
   updatedAt: z.string().datetime().nullable().optional(),
 })
 export type AgentIconWrite = z.infer<typeof agentIconWriteSchema>

@@ -4946,6 +4946,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "tags": {
+          "name": "tags",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "tenant_id": {
           "name": "tenant_id",
           "type": "uuid",

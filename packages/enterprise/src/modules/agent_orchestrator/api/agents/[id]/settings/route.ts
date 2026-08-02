@@ -11,6 +11,7 @@ import { getAgentEntry, ensureAgentsLoaded } from '../../../../lib/sdk/defineAge
 import { AgentSetting } from '../../../../data/entities'
 import { agentIconWriteSchema } from '../../../../data/validators'
 import { AGENT_ICON_NAMES } from '../../../../data/agentIcons'
+import { normalizeAgentTags } from '../../../../data/agentTags'
 
 export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.manage'] },
@@ -19,6 +20,7 @@ export const metadata = {
 const responseSchema = z.object({
   agentId: z.string(),
   icon: z.enum(AGENT_ICON_NAMES).nullable(),
+  tags: z.array(z.string()),
   updatedAt: z.string(),
 })
 
@@ -50,6 +52,10 @@ export async function PUT(req: Request, ctx: RouteContext) {
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
   const existing = await em.findOne(AgentSetting, { ...scope, agentId: id })
 
+  // An omitted field means "leave as is", so tags-only and icon-only writes both
+  // work against the one shared row.
+  const nextTags = parsed.data.tags === undefined ? undefined : normalizeAgentTags(parsed.data.tags)
+
   if (existing) {
     // Optimistic lock only applies to an update of an existing row; a first-time
     // write (no row) has nothing to conflict with.
@@ -65,15 +71,31 @@ export async function PUT(req: Request, ctx: RouteContext) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       throw err
     }
-    existing.icon = parsed.data.icon
+    if (parsed.data.icon !== undefined) existing.icon = parsed.data.icon
+    if (nextTags !== undefined) existing.tags = nextTags
     await em.flush()
-    return NextResponse.json({ agentId: id, icon: existing.icon ?? null, updatedAt: existing.updatedAt.toISOString() })
+    return NextResponse.json({
+      agentId: id,
+      icon: existing.icon ?? null,
+      tags: normalizeAgentTags(existing.tags),
+      updatedAt: existing.updatedAt.toISOString(),
+    })
   }
 
-  const created = em.create(AgentSetting, { ...scope, agentId: id, icon: parsed.data.icon })
+  const created = em.create(AgentSetting, {
+    ...scope,
+    agentId: id,
+    icon: parsed.data.icon ?? null,
+    tags: nextTags ?? [],
+  })
   em.persist(created)
   await em.flush()
-  return NextResponse.json({ agentId: id, icon: created.icon ?? null, updatedAt: created.updatedAt.toISOString() })
+  return NextResponse.json({
+    agentId: id,
+    icon: created.icon ?? null,
+    tags: normalizeAgentTags(created.tags),
+    updatedAt: created.updatedAt.toISOString(),
+  })
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -81,9 +103,9 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Update agent presentation settings',
   methods: {
     PUT: {
-      summary: "Set an agent's presentation icon",
+      summary: "Set an agent's presentation icon and tags",
       description:
-        'Upserts the per-(tenant, organization) presentation icon for an agent definition. Optimistic-locked on the settings row updatedAt. Gated by agent_orchestrator.agents.manage.',
+        'Upserts the per-(tenant, organization) presentation icon and operator tags for an agent definition. Both fields are optional and an omitted one is left unchanged. Optimistic-locked on the settings row updatedAt. Gated by agent_orchestrator.agents.manage.',
       responses: [{ status: 200, description: 'Updated settings', schema: responseSchema }],
       errors: [
         { status: 400, description: 'Validation failed / missing scope', schema: errorSchema },

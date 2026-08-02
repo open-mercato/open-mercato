@@ -1587,7 +1587,7 @@ export class AgentProcess {
 @Index({ name: 'agent_settings_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Unique({ name: 'agent_settings_org_agent_uq', properties: ['tenantId', 'organizationId', 'agentId'] })
 export class AgentSetting {
-  [OptionalProps]?: 'icon' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'icon' | 'tags' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1605,6 +1605,15 @@ export class AgentSetting {
   /** Lucide icon name from `AGENT_ICON_NAMES` (data/agentIcons.ts). Null = fall back to type glyph / initials. */
   @Property({ name: 'icon', type: 'varchar', length: 64, nullable: true })
   icon?: string | null
+
+  /**
+   * Free-form operator labels, normalized and deduped on write. Because the row
+   * is keyed by agent id and not by an FK, tags survive an agent that is not in
+   * the live registry (module uninstalled, agent renamed or turned off) and come
+   * back with it.
+   */
+  @Property({ name: 'tags', type: 'jsonb', nullable: true })
+  tags?: string[] | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
