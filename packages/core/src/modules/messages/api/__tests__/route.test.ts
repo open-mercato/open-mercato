@@ -284,7 +284,7 @@ describe('messages /api/messages GET crud route', () => {
     const opts = getCrudOptions()
 
     await opts.list.buildFilters(
-      { folder: 'inbox', page: 1, pageSize: 20 },
+      { folder: 'inbox', search: 'Scoped subject', page: 1, pageSize: 20 },
       {
         auth: { tenantId, orgId: null, sub: userId },
         selectedOrganizationId: null,
@@ -303,6 +303,11 @@ describe('messages /api/messages GET crud route', () => {
       (call: unknown[]) => call[0] === 'm.organization_id',
     )
     expect(organizationPredicates).toEqual([])
+    expect(findMessageIdsBySearchTokensMock).toHaveBeenCalledWith({
+      em,
+      query: 'Scoped subject',
+      tenantId,
+    })
   })
 
   it('filters message ids to every organization in the resolved scope', async () => {
@@ -311,7 +316,7 @@ describe('messages /api/messages GET crud route', () => {
     const secondOrganizationId = 'b9f11921-da7f-4f25-bdf4-e16913463a83'
 
     await opts.list.buildFilters(
-      { folder: 'inbox', page: 1, pageSize: 20 },
+      { folder: 'inbox', search: 'Scoped subject', page: 1, pageSize: 20 },
       {
         auth: { tenantId, orgId: organizationId, sub: userId },
         selectedOrganizationId: organizationId,
@@ -331,6 +336,12 @@ describe('messages /api/messages GET crud route', () => {
       'in',
       [organizationId, secondOrganizationId],
     )
+    expect(findMessageIdsBySearchTokensMock).toHaveBeenCalledWith({
+      em,
+      query: 'Scoped subject',
+      tenantId,
+      organizationIds: [organizationId, secondOrganizationId],
+    })
   })
 
   it('keeps the existing message list response shape through transform and afterList hooks', async () => {

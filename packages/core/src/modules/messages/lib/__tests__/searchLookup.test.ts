@@ -115,4 +115,41 @@ describe('findMessageIdsBySearchTokens', () => {
     expect(compiled.some((s) => s.includes('tenant_id is not distinct from'))).toBe(true)
     expect(compiled.some((s) => s.includes('organization_id is not distinct from'))).toBe(true)
   })
+
+  it('omits the organization predicate for an unrestricted scope', async () => {
+    const { db, calls } = createKyselyMock([])
+    const em = createEm(db)
+
+    await findMessageIdsBySearchTokens({
+      em: em as never,
+      query: 'Hello',
+      tenantId: 'tenant-1',
+    })
+
+    const organizationWhereCalls = calls.filter(
+      (call) => call.method === 'where' && (
+        call.args[0] === 'organization_id'
+        || compileSql(call.args[0]).includes('organization_id')
+      ),
+    )
+    expect(organizationWhereCalls).toEqual([])
+  })
+
+  it('scopes token lookup to every allowed organization', async () => {
+    const { db, calls } = createKyselyMock([])
+    const em = createEm(db)
+
+    await findMessageIdsBySearchTokens({
+      em: em as never,
+      query: 'Hello',
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1', 'org-2'],
+    })
+
+    const whereCalls = calls.filter((call) => call.method === 'where')
+    expect(whereCalls).toContainEqual({
+      method: 'where',
+      args: ['organization_id', 'in', ['org-1', 'org-2']],
+    })
+  })
 })

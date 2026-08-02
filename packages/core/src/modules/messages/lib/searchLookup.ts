@@ -11,12 +11,14 @@ export async function findMessageIdsBySearchTokens({
   query,
   tenantId,
   organizationId,
+  organizationIds,
   fields = ['subject', 'body', 'external_name'],
 }: {
   em: EntityManager
   query: string
   tenantId: string | null
-  organizationId: string | null
+  organizationId?: string | null
+  organizationIds?: readonly string[] | null
   fields?: string[]
 }): Promise<string[] | null> {
   return findEntityIdsBySearchTokensCompat({
@@ -24,6 +26,6 @@ export async function findMessageIdsBySearchTokens({
     entityType: 'messages:message',
     query,
     fields,
-    scope: { tenantId, organizationId },
+    scope: { tenantId, organizationId, organizationIds },
   })
 }

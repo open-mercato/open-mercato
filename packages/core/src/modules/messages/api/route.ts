@@ -105,9 +105,13 @@ async function buildMessageListIdFilter(input: ListMessagesInput, ctx: CrudCtx):
   const tenantId = ctx.auth?.tenantId ?? null
   const organizationIds = ctx.organizationIds
   const fallbackOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  const searchOrganizationId = Array.isArray(organizationIds)
-    ? organizationIds.length === 1 ? organizationIds[0] : null
-    : organizationIds === null ? null : fallbackOrganizationId
+  const searchOrganizationScope = organizationIds === null
+    ? {}
+    : Array.isArray(organizationIds)
+      ? organizationIds.length === 1
+        ? { organizationId: organizationIds[0] }
+        : { organizationIds }
+      : { organizationId: fallbackOrganizationId }
   const userId = ctx.auth?.sub ?? null
 
   if (!tenantId || !userId) return { id: { $eq: NO_MATCH_ID } }
@@ -120,7 +124,7 @@ async function buildMessageListIdFilter(input: ListMessagesInput, ctx: CrudCtx):
         em,
         query: input.search,
         tenantId,
-        organizationId: searchOrganizationId,
+        ...searchOrganizationScope,
       })
     : undefined
 
