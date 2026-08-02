@@ -18,17 +18,55 @@ export const dateRangePresetSchema = z.enum([
   'last_90_days',
 ])
 
-export const filterOperatorSchema = z.enum([
-  'eq',
-  'neq',
-  'gt',
-  'gte',
-  'lt',
-  'lte',
-  'in',
-  'not_in',
-  'is_null',
-  'is_not_null',
+const scalarFilterOperators = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is_null', 'is_not_null'] as const
+const setFilterOperators = ['in', 'not_in'] as const
+
+export const scalarFilterOperatorSchema = z.enum(scalarFilterOperators)
+export const setFilterOperatorSchema = z.enum(setFilterOperators)
+
+// Derived from the two groups rather than listed again, so a new operator cannot be added
+// without deciding whether it takes a scalar value or a bounded set of values.
+export const filterOperatorSchema = z.enum([...scalarFilterOperators, ...setFilterOperators])
+
+/**
+ * Upper bound on how many members an `in` / `not_in` widget-data filter may carry (#4852).
+ *
+ * Every member becomes one placeholder plus one bound parameter in the aggregation's WHERE
+ * clause, so the cost of a set filter is proportional to its length. The bound lives here
+ * rather than in the SQL builder because `buildWhereClause` can only truncate the list —
+ * silently returning an answer to a different question than the caller asked — or throw from
+ * deep inside query construction; validating here yields a 400 that names the offending
+ * filter and is published in the route's OpenAPI schema.
+ *
+ * 200 is deliberately generous for a dashboard filter: the widest grouping a widget can render
+ * is capped at 100 buckets (`groupBy.limit`), and a batch carries at most 50 requests, so even
+ * a fully saturated batch stays an order of magnitude below PostgreSQL's per-statement limit
+ * of 65535 bound parameters. Raising it later is a one-line change to this constant.
+ */
+export const MAX_SET_FILTER_VALUES = 200
+
+// `IN` / `NOT IN` compare against literals; a null member never matches either way, which is
+// what the dedicated `is_null` / `is_not_null` operators are for.
+const setFilterMemberSchema = z.union([z.string(), z.number(), z.boolean()])
+
+// A minimum of one keeps `IN ()` — a PostgreSQL syntax error rather than an empty result —
+// out of the query builder for the same reason the maximum keeps an unbounded list out of it.
+export const setFilterValueSchema = z
+  .array(setFilterMemberSchema)
+  .min(1)
+  .max(MAX_SET_FILTER_VALUES)
+
+export const widgetDataFilterSchema = z.discriminatedUnion('operator', [
+  z.object({
+    field: z.string().min(1),
+    operator: setFilterOperatorSchema,
+    value: setFilterValueSchema,
+  }),
+  z.object({
+    field: z.string().min(1),
+    operator: scalarFilterOperatorSchema,
+    value: z.unknown().optional(),
+  }),
 ])
 
 export const widgetDataRequestSchema = z.object({
@@ -45,15 +83,7 @@ export const widgetDataRequestSchema = z.object({
       resolveLabels: z.boolean().optional(),
     })
     .optional(),
-  filters: z
-    .array(
-      z.object({
-        field: z.string().min(1),
-        operator: filterOperatorSchema,
-        value: z.unknown().optional(),
-      }),
-    )
-    .optional(),
+  filters: z.array(widgetDataFilterSchema).optional(),
   dateRange: z
     .object({
       field: z.string().min(1),
