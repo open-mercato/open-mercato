@@ -228,7 +228,6 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: [
         '.ai/skills/om-system-extension/references/extension-branches.md',
         '.ai/guides/framework-extension-points.md',
-        '.ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md',
       ],
       decisions: [
         'facts-first-target-resolution',
@@ -243,7 +242,7 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
       ],
     },
     'OMH-089': {
-      contexts: ['.ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md'],
+      contexts: [],
       decisions: ['facts-first-override-resolution', 'override-fact-ref-provenance', 'override-mode-from-facts', 'unresolved-first-party-blocker'],
     },
     'OMH-091': { contexts: ['.ai/guides/framework-extension-points.md'], decisions: ['facts-first-portal-host', 'portal-broadcast-audience-scope', 'exact-portal-hook'] },
@@ -365,7 +364,7 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
   for (const caseId of ['OMH-088', 'OMH-089']) {
     const record = byId.get(caseId)
     assert.ok(record?.source?.paths?.includes(optionalUmesSpec), `${caseId}: UMES spec must remain provenance`)
-    assert.ok(record?.context.allowedExtra?.includes(optionalUmesSpec), `${caseId}: UMES spec may be read when present`)
+    assert.ok(!record?.context.allowedExtra?.includes(optionalUmesSpec), `${caseId}: source-only provenance must not become scaffold context`)
     assert.ok(!record?.context.required.includes(optionalUmesSpec), `${caseId}: standalone must not require the UMES spec`)
   }
 
