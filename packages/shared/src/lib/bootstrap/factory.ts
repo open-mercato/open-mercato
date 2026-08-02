@@ -1,11 +1,12 @@
 import type { BootstrapData, BootstrapOptions } from './types'
 import { registerOrmEntities } from '../db/mikro'
-import { registerDiRegistrars } from '../di/container'
+import { registerAppDiRegistrar, registerDiRegistrars } from '../di/container'
 import { registerModules } from '../modules/registry'
 import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerCodeWorkflowEntries } from '../../modules/workflows/code-registry'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
 import { registerComponentOverrides } from '../../modules/widgets/component-registry'
@@ -34,6 +35,9 @@ let _asyncRegistrationPromise: Promise<void> | null = null
 export function createBootstrap(data: BootstrapData, options: BootstrapOptions = {}) {
   return function bootstrap(): void {
     const registrationKey = options.registrationKey ?? 'default'
+    if (options.appDiRegistrar) {
+      registerAppDiRegistrar(options.appDiRegistrar)
+    }
     // In development, always re-run registrations to handle HMR
     // (Module state may be reset when Turbopack reloads packages)
     if (_bootstrappedKeys.has(registrationKey) && process.env.NODE_ENV !== 'development') return
@@ -71,6 +75,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6. Analytics module configs (for dashboard widgets and analytics API) ===
     if (data.analyticsModuleConfigs) {
       registerAnalyticsModuleConfigs(data.analyticsModuleConfigs)
+    }
+
+    // === 6a. Code workflow definitions (so CLI/worker processes resolve them like the app runtime) ===
+    if (data.codeWorkflows?.length) {
+      registerCodeWorkflowEntries(data.codeWorkflows)
     }
 
     // === 6b. Response enrichers (for CRUD response enrichment) ===

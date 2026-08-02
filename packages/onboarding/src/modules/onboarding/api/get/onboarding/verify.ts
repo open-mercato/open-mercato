@@ -1,6 +1,7 @@
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import type { OnboardingRequest } from '@open-mercato/onboarding/modules/onboarding/data/entities'
@@ -107,6 +108,9 @@ async function completeProvisionedRequest(args: {
 }
 
 export async function GET(req: Request) {
+  if (parseBooleanToken(process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? '') !== true) {
+    return NextResponse.json({ ok: false, error: 'Self-service onboarding is disabled.' }, { status: 404 })
+  }
   const url = new URL(req.url)
   const baseUrlResult = resolveVerifyRedirectBaseUrl(req)
   if (!baseUrlResult.ok) {

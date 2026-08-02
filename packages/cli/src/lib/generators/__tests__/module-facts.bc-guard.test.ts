@@ -35,6 +35,12 @@ describe('module-facts BC resolve guard (T2)', () => {
     describe(`${moduleId}`, () => {
       const facts = factsByModule[moduleId]
 
+      it('stamps the exact providing package and version without removing coreVersion', () => {
+        expect(facts.sourcePackage).toBe(source.from ?? null)
+        expect(facts.sourceVersion).toBe(source.packageVersion ?? null)
+        expect(facts).toHaveProperty('coreVersion')
+      })
+
       // Entity / search / host ids are colon-namespaced under the module by construction
       // and convention; drift here means the builder or a module's data model broke.
       it('colon-namespaces entity / search / host ids under the module and keeps ids unique', () => {

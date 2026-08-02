@@ -1,5 +1,6 @@
 /** Full app bootstrap used by backend and portal page runtimes. */
 import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootstrap'
+import { register as registerAppDi } from '@/di'
 import { serverFoundationBootstrapData } from '@/bootstrap-common'
 
 import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
@@ -14,6 +15,7 @@ export const bootstrap = createBootstrap({
   componentOverrideEntries,
   notificationHandlerEntries,
 }, {
+  appDiRegistrar: registerAppDi,
   registrationKey: 'full',
 })
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@jest/globals'
 import {
   parseInterval,
+  resolveScheduleIntervalMs,
   calculateNextRunFromInterval,
   validateInterval,
   intervalToHuman,
@@ -10,9 +11,8 @@ describe('intervalParser', () => {
   describe('parseInterval', () => {
     describe('seconds', () => {
       it('should parse seconds correctly', () => {
-        expect(parseInterval('30s')).toBe(30 * 1000)
-        expect(parseInterval('1s')).toBe(1000)
         expect(parseInterval('60s')).toBe(60 * 1000)
+        expect(parseInterval('90s')).toBe(90 * 1000)
       })
     })
 
@@ -86,8 +86,10 @@ describe('intervalParser', () => {
     })
 
     describe('edge cases', () => {
-      it('should handle zero', () => {
+      it('should preserve parsing for legacy intervals below one minute', () => {
         expect(parseInterval('0s')).toBe(0)
+        expect(parseInterval('1s')).toBe(1000)
+        expect(parseInterval('59s')).toBe(59 * 1000)
         expect(parseInterval('0m')).toBe(0)
         expect(parseInterval('0h')).toBe(0)
         expect(parseInterval('0d')).toBe(0)
@@ -99,6 +101,16 @@ describe('intervalParser', () => {
         expect(parseInterval('999h')).toBe(999 * 60 * 60 * 1000)
         expect(parseInterval('365d')).toBe(365 * 24 * 60 * 60 * 1000)
       })
+    })
+  })
+
+  describe('resolveScheduleIntervalMs', () => {
+    it('should clamp legacy sub-minute intervals to one minute', () => {
+      expect(resolveScheduleIntervalMs('0s')).toBe(60 * 1000)
+      expect(resolveScheduleIntervalMs('10s')).toBe(60 * 1000)
+      expect(resolveScheduleIntervalMs('59s')).toBe(60 * 1000)
+      expect(resolveScheduleIntervalMs('60s')).toBe(60 * 1000)
+      expect(resolveScheduleIntervalMs('15m')).toBe(15 * 60 * 1000)
     })
   })
 
@@ -122,9 +134,9 @@ describe('intervalParser', () => {
 
     it('should handle seconds intervals', () => {
       const baseDate = new Date('2025-01-27T12:00:00Z')
-      const nextRun = calculateNextRunFromInterval('30s', baseDate)
+      const nextRun = calculateNextRunFromInterval('60s', baseDate)
       
-      expect(nextRun).toEqual(new Date('2025-01-27T12:00:30Z'))
+      expect(nextRun).toEqual(new Date('2025-01-27T12:01:00Z'))
     })
 
     it('should handle minute intervals', () => {
@@ -179,15 +191,19 @@ describe('intervalParser', () => {
 
   describe('validateInterval', () => {
     it('should return true for valid intervals', () => {
-      expect(validateInterval('30s')).toBe(true)
+      expect(validateInterval('60s')).toBe(true)
+      expect(validateInterval('1m')).toBe(true)
       expect(validateInterval('15m')).toBe(true)
       expect(validateInterval('2h')).toBe(true)
       expect(validateInterval('1d')).toBe(true)
-      expect(validateInterval('0s')).toBe(true)
       expect(validateInterval('999d')).toBe(true)
     })
 
     it('should return false for invalid intervals', () => {
+      expect(validateInterval('0s')).toBe(false)
+      expect(validateInterval('1s')).toBe(false)
+      expect(validateInterval('59s')).toBe(false)
+      expect(validateInterval('0m')).toBe(false)
       expect(validateInterval('invalid')).toBe(false)
       expect(validateInterval('')).toBe(false)
       expect(validateInterval('15')).toBe(false)
@@ -204,7 +220,8 @@ describe('intervalParser', () => {
       it('should convert seconds to human readable', () => {
         expect(intervalToHuman('1s')).toBe('1 second')
         expect(intervalToHuman('30s')).toBe('30 seconds')
-        expect(intervalToHuman('59s')).toBe('59 seconds')
+        expect(intervalToHuman('60s')).toBe('60 seconds')
+        expect(intervalToHuman('90s')).toBe('90 seconds')
       })
     })
 
@@ -260,6 +277,7 @@ describe('intervalParser', () => {
       it('should use plural for other numbers', () => {
         expect(intervalToHuman('0s')).toBe('0 seconds')
         expect(intervalToHuman('2s')).toBe('2 seconds')
+        expect(intervalToHuman('60s')).toBe('60 seconds')
         expect(intervalToHuman('2m')).toBe('2 minutes')
         expect(intervalToHuman('2h')).toBe('2 hours')
         expect(intervalToHuman('2d')).toBe('2 days')
@@ -300,7 +318,7 @@ describe('intervalParser', () => {
 
   describe('integration', () => {
     it('should work end-to-end for various intervals', () => {
-      const intervals = ['30s', '15m', '2h', '1d']
+      const intervals = ['60s', '15m', '2h', '1d']
       
       intervals.forEach(interval => {
         expect(validateInterval(interval)).toBe(true)

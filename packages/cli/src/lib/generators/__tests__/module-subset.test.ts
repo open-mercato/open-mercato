@@ -762,6 +762,24 @@ export function GET() {
     expect(output).toContain('features:')
   })
 
+  it('normalizes singular app-owned integration exports without requiring plural properties', async () => {
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'mailbox', 'integration.ts'),
+      "export const integration = { id: 'mailbox' }\nexport default integration\n",
+    )
+    const resolver = createMockResolver(tmpDir, [{ id: 'mailbox', from: '@app' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    for (const file of ['modules.generated.ts', 'modules.runtime.generated.ts']) {
+      const output = readGenerated(tmpDir, file)!
+      expect(output).toContain('as unknown as { integrations?:')
+      expect(output).toContain('.integration ? [')
+      expect(output).not.toMatch(/INTEGRATION_[A-Za-z0-9_]+\.integrations/)
+      expect(output).not.toMatch(/INTEGRATION_[A-Za-z0-9_]+\.bundles/)
+    }
+  })
+
   it('escapes generated module specifiers for lazy imports', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'safe_mod', 'subscribers', `o'hare.ts`),

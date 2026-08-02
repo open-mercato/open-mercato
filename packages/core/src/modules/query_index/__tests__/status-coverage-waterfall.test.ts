@@ -33,6 +33,7 @@ jest.mock('../lib/coverage', () => ({
 }))
 
 import { GET } from '../api/status'
+import { queryIndexStatusResponseSchema } from '../api/openapi'
 
 const ENTITY_A = 'catalog:catalog_product'
 const ENTITY_B = 'customers:person'
@@ -353,5 +354,53 @@ describe('query_index status route — coverage waterfall (#3285)', () => {
     const body = await res.json()
     expect(body.errors.map((row: { id: string }) => row.id)).toEqual(['err-org-1'])
     expect(body.logs.map((row: { id: string }) => row.id)).toEqual(['log-org-1'])
+  })
+
+  // A finished job used to derive `completed` from finished_at alone, so a reindex that
+  // dropped records still reported success (GSM-266).
+  it.each([
+    ['failed', 'failed'],
+    [null, 'idle'],
+  ])('derives the entity job status from a finished job with status=%s', async (jobStatus, expected) => {
+    const db = makeFakeDb({
+      custom_field_defs: [
+        { entity_id: ENTITY_A, is_active: true, tenant_id: null, organization_id: null },
+      ],
+      entity_index_jobs: [
+        {
+          id: 'job-1',
+          entity_type: ENTITY_A,
+          tenant_id: 'tenant-1',
+          organization_id: null,
+          partition_index: null,
+          partition_count: null,
+          status: jobStatus ?? 'reindexing',
+          processed_count: 9,
+          total_count: 10,
+          started_at: new Date('2026-07-28T10:00:00.000Z'),
+          heartbeat_at: new Date('2026-07-28T10:05:00.000Z'),
+          finished_at: new Date('2026-07-28T10:05:00.000Z'),
+        },
+      ],
+      indexer_error_logs: [],
+      indexer_status_logs: [],
+    })
+    const em = { getKysely: () => db }
+    mockCreateRequestContainer.mockResolvedValueOnce({
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'eventBus') return { emitEvent }
+        if (name === 'searchModuleConfigs') return []
+        if (name === 'searchStrategies') return []
+        throw new Error(`Unexpected token: ${name}`)
+      },
+    })
+
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(queryIndexStatusResponseSchema.safeParse(body).success).toBe(true)
+    const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
+    expect(entity.job.status).toBe(expected)
   })
 })

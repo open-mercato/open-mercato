@@ -7,15 +7,16 @@
     "start": "docusaurus build && docusaurus serve",
     "build": "docusaurus build",
     "serve": "docusaurus serve",
-    "clean": "rimraf build .docusaurus"
+    "clean": "rimraf build .docusaurus",
+    "test": "yarn clean && yarn build && node --test __tests__/search-index.test.mjs"
   },
   "dependencies": {
-    "@docusaurus/core": "^3.10.1",
-    "@docusaurus/plugin-content-docs": "^3.10.1",
-    "@docusaurus/preset-classic": "^3.10.1",
-    "@docusaurus/theme-classic": "^3.10.1",
-    "@docusaurus/theme-common": "^3.10.1",
-    "@docusaurus/theme-mermaid": "^3.10.1",
+    "@docusaurus/core": "^3.10.2",
+    "@docusaurus/plugin-content-docs": "^3.10.2",
+    "@docusaurus/preset-classic": "^3.10.2",
+    "@docusaurus/theme-classic": "^3.10.2",
+    "@docusaurus/theme-common": "^3.10.2",
+    "@docusaurus/theme-mermaid": "^3.10.2",
     "@easyops-cn/docusaurus-search-local": "^0.55.2",
     "@mdx-js/react": "^3.0.0",
     "@mermaid-js/layout-elk": "~0.2.2",

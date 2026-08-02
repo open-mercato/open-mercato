@@ -27,13 +27,11 @@ import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/me
 import { registerMessageObjectTypes } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
 import { runBootstrapRegistrations } from '@/.mercato/generated/bootstrap-registrations.generated'
 import { allCodeWorkflows } from '@/.mercato/generated/workflows.generated'
-import { registerCodeWorkflows } from '@open-mercato/core/modules/workflows/lib/code-registry'
 
 applyModuleOverridesFromEnabledModules(enabledModules)
 registerEventModuleConfigs(eventModuleConfigs)
 registerMessageTypes(messageTypes, { replace: true })
 registerMessageObjectTypes(messageObjectTypes, { replace: true })
-registerCodeWorkflows(allCodeWorkflows)
 runBootstrapRegistrations()
 
 type ServerFoundationBootstrapData = Omit<
@@ -58,4 +56,5 @@ export const serverFoundationBootstrapData: ServerFoundationBootstrapData = {
   guardEntries,
   commandInterceptorEntries,
   commandLoaderEntries,
+  codeWorkflows: allCodeWorkflows,
 }

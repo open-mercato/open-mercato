@@ -30,6 +30,7 @@ export type ModuleEntry = {
 
 export type PackageInfo = {
   name: string
+  version?: string | null
   path: string
   modulesPath: string
 }
@@ -384,6 +385,7 @@ function discoverPackagesInMonorepo(rootDir: string): PackageInfo[] {
       if (fs.existsSync(modulesPath)) {
         packages.push({
           name: pkgJson.name || `@open-mercato/${entry.name}`,
+          version: typeof pkgJson.version === 'string' ? pkgJson.version : null,
           path: pkgPath,
           modulesPath,
         })
@@ -419,6 +421,7 @@ function discoverPackagesInNodeModules(rootDir: string): PackageInfo[] {
       if (fs.existsSync(modulesPath)) {
         packages.push({
           name: pkgJson.name || `@open-mercato/${entry.name}`,
+          version: typeof pkgJson.version === 'string' ? pkgJson.version : null,
           path: pkgPath,
           modulesPath,
         })
