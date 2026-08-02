@@ -91,4 +91,4 @@ PR: #4855
 - [x] Phase 2.1 — schema edge coverage — 9f9090680
 - [x] Phase 2.2 — route 400 coverage — 9f9090680
 - [x] Phase 2.3 — OpenAPI `maxItems` coverage — 9f9090680
-- [ ] Phase 3.1 — validation gate, PR, review pass
+- [x] Phase 3.1 — validation gate, PR, review pass — 4310aacf6
