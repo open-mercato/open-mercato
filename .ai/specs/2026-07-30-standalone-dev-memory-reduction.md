@@ -11,13 +11,13 @@ administrator, visits an authenticated backend page, changes a standalone module
 source file, observes hot reload without a server restart, and retains a profiler
 report.
 
-**Current outcome (2026-07-31): not accepted.** The telemetry relocation implemented
-on this branch by Task 3 removes recurring five-second rebuilds and lowers median sustained RSS,
-but the corrected production-candidate median regresses both mandatory peak
-metrics. Balanced follow-up controls identify automatic targeted warmup as a major
-first-compile amplifier, yet suppression still misses both ceilings. Current
-Next 16.2.x source/config candidates are exhausted; the next high-signal step is a
-Next 16.3 preview dependency/toolchain trial, which requires explicit approval.
+**Current outcome (2026-08-02): fixture measurement accepted; production change
+not yet authorized.** The telemetry relocation implemented on this branch removes
+recurring five-second rebuilds and lowers sustained RSS. A later fixture-only
+composition of that fix with Next `16.3.0-preview.9`, suppressed automatic targeted
+warmup, and the existing embedded-scheduler mechanism passes both 30% peak gates
+across three valid single-browser-pass runs. C5 was omitted. Promoting the preview
+pins and runtime/template defaults remains an explicit approval boundary.
 
 This capability is intentionally separate from the monorepo profiling harness in
 `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md`. It reuses that harness through
@@ -91,9 +91,10 @@ The MVP is all four phases in this specification: one reproducible baseline, one
 confirmed root-cause intervention, one minimal test-first implementation, and one
 accepted three-run candidate result. Baseline and attribution alone are not the
 requested deliverable, and a production change without the three-run acceptance
-result is not complete. Tasks 1–4 completed the workflow but failed the final peak
-gate, so the MVP remains open rather than retroactively accepting the telemetry
-sub-fix.
+result is not complete. Tasks 1–4 completed the workflow but the initial telemetry
+candidate failed the final peak gate. The later fixture-only composition passes the
+measurement gate; the MVP remains open until its approval-gated production scope
+is implemented and validated rather than treating fixture edits as shipped behavior.
 
 Deferred work includes a permanent CI memory-regression gate, a reusable browser
 scenario package, other operating systems, broader route matrices, and every
@@ -118,7 +119,7 @@ research branch.
 | V8 `--max-old-space-size` cap | Can replace memory pressure with compilation OOMs and does not remove root-cause work. |
 | Webpack dev fallback | Officially supported, but not selected without evidence; Next.js recommends Turbopack for local performance. |
 | `experimental.optimizePackageImports` list | Official Next.js guidance says Turbopack already analyzes imports; not a default intervention. |
-| Preview/canary Next.js release | Useful as diagnostic evidence, but not acceptable as the shipped final dependency. |
+| Preview/canary Next.js release | Fixture diagnostics are allowed; production promotion requires explicit dependency approval and the full validation gate. |
 | Idle-only RSS | Misses the backend compile and hot-reload peaks the user experiences. |
 | Import an existing research branch wholesale | Would combine multiple unproven changes and obscure attribution. |
 
@@ -454,12 +455,60 @@ still fails, and the retained restoration manifest verifies Next/SWC 16.2.11,
 React 19.2.7, the original package/lock/runtime hashes, all 8,291 Next/@next file
 hashes, and all 790 original cache hashes after restoration.
 
-Promotion remains an explicit production dependency/toolchain decision and would
-require the full package build, typecheck, create-app, real-browser, and wider-repeat
-memory gates. A follow-up should demand meaningful margin or explicitly test the
-preview composed with independently measured C5/scheduler process savings; those
-savings are not assumed additive. Until approval, do not weaken the criteria or
-describe telemetry relocation or the preview as final peak acceptance.
+That preview-only result did not authorize production promotion. The completed
+fixture-only composition and its remaining approval boundary are recorded below;
+no earlier C5/scheduler saving is assumed additive.
+
+#### Composed fixture acceptance — 2026-08-02
+
+The approved fixture-only follow-up composed the branch telemetry fix, Next/
+`@next/env`/Darwin ARM64 SWC `16.3.0-preview.9`, React/React DOM `19.2.7`,
+suppressed automatic targeted warmup, and
+`OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER=true`. **C5 was omitted** because its
+exact temporary patch was not preserved; no additive C5 saving is claimed.
+
+Accepted reports are relative to
+`/private/tmp/open-mercato-standalone-memory-baseline/`:
+
+| Run | Profiler report | Samples / configured window | Peak total | Mean total | Maximum `next-turbopack` | Embedded worker max / mean |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat1.json` | 173 / 180 s | 6,194.01 MB | 5,042.54 MB | 5,475.26 MB | 527.09 / 370.98 MB |
+| 3 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat3.json` | 168 / 180 s | 5,841.84 MB | 4,890.01 MB | 5,101.92 MB | 377.50 / 311.27 MB |
+| 4 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat4.json` | 173 / 180 s | 5,867.10 MB | 5,110.18 MB | 5,260.37 MB | 446.52 / 442.58 MB |
+| **Median** | — | — | **5,867.10 MB** | **5,042.54 MB** | **5,260.37 MB** | **446.52 / 370.98 MB** |
+
+Run 2 (`experiment-preview9-node24-suppressed-embedded-scheduler-repeat2.json`)
+is directional only and excluded because its HMR stdin correction caused multiple
+browser passes. Runs 1, 3, and 4 each have one matching browser JSON under
+`.mercato/dev-rss/browser/`, Node `v24.13.1`, login HTTP 200, protected A-to-B
+rendering, and HMR. Run 3's 168 successful samples are not a truncated profile:
+its configured duration is `180000` ms and report timestamps span 183.037 seconds.
+
+The accepted median total peak is 4,227.40 MB (**41.878%**) below the fixed
+10,094.50 MB comparator and 1,199.05 MB below its ceiling. The class median is
+2,648.17 MB (**33.485%**) below 7,908.54 MB and 275.608 MB below its ceiling.
+Topology proofs show one `queue worker --all --with-scheduler` and no scheduler
+child. Repeated raw logs prove schedule execution, enqueue, schedule completion,
+queue consumption/job completion, and clean scheduler/worker shutdown.
+
+Against the preview-only separate scheduler-plus-worker topology, command-level
+median maximum fell from 1,019.72 to 446.52 MB (573.20 MB / **56.21%** saved),
+and median mean fell from 684.75 to 370.98 MB (313.76 MB / **45.82%** saved).
+
+No production source or manifest changed for this composition. Production work
+requires approval for the following exact scope:
+
+- preview pins and lockfile changes in `package.json`, `apps/mercato/package.json`,
+  `packages/create-app/template/package.json.template`, and `yarn.lock`;
+- standalone targeted warmup suppressed by default with an explicit opt-in
+  override and the required root/template runtime mirror;
+- the embedded-scheduler default already present in `scripts/dev.mjs` mirrored to
+  `packages/create-app/template/scripts/dev.mjs`;
+- the telemetry relocation already implemented on this branch retained unchanged.
+
+After measurement, the fixture was restored exactly: marker B, normal warmup,
+Next/@next `16.2.11`, React/React DOM `19.2.7`, no experiment processes, and passing
+fixture, Yarn-state, 8,291-file Next/@next, and 790-file cache SHA-256 manifests.
 
 ## Data Models
 
@@ -672,19 +721,19 @@ above.
 
 ### Non-Compliant Items
 
-The telemetry production gate and red-green cycle are satisfied. Final compliance
-needs a decision because Task 4 failed both unchanged three-run peak gates. The
-branch implementation is a dev-runtime environment change, not a frontend/bootstrap change,
-so no Frontend Architecture Contract is required. A Next 16.3 preview trial would
-change production dependencies and remains outside the authorized scope.
+The fixture-only composed candidate passes both unchanged three-run peak gates,
+but its preview dependency pins and runtime/template defaults are not authorized
+production changes. The branch implementation remains a dev-runtime environment
+change rather than a frontend/bootstrap change, so no Frontend Architecture
+Contract is required.
 
 ### Verdict
 
-**Needs decision:** telemetry relocation is implementation-compliant and
-behaviorally valuable, but the specification's peak objective is not met. No
-current-stack intervention is approved as the final peak fix. Continue with the
-Next 16.3 preview dependency/toolchain diagnostic only after explicit approval, or
-resume with a new independent high-signal hypothesis.
+**Needs production approval:** the composed fixture evidence meets the memory and
+functional acceptance contract with material headroom. Implementation is still
+blocked on explicit approval of the preview pins/lockfile, targeted-warmup default,
+and create-app embedded-scheduler mirror. Until then, only the existing telemetry
+relocation is production code on this branch.
 
 ## Changelog
 
@@ -703,6 +752,13 @@ resume with a new independent high-signal hypothesis.
 - Added balanced targeted-warmup S/L/F evidence, current-stack intervention
   falsifications, cache ABBA controls, retained artifact paths, restoration state,
   and the approval-gated Next 16.3 decision boundary.
+
+### 2026-08-02
+
+- Added the three-run fixture-only composed acceptance set (runs 1/3/4), excluded
+  the multi-browser run 2, recorded embedded scheduler lifecycle/topology savings,
+  documented C5 omission and exact restoration, and defined the production
+  manifest/runtime/template approval boundary.
 
 ### Review — 2026-07-30
 

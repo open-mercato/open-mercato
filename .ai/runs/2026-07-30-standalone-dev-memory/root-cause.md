@@ -2,8 +2,8 @@
 
 Date: 2026-07-30
 
-Status: **telemetry sub-cause confirmed; final peak target failed; decision required
-after exhausting the current stable Next.js toolchain.**
+Status: **fixture-only composed candidate passes both peak targets; production
+promotion requires explicit dependency/runtime/template approval.**
 
 ## Conclusion
 
@@ -19,6 +19,15 @@ the remaining peak in first-route compilation owned by `next-server`; automatic
 targeted warmup amplifies it, but even suppressing warmup misses both ceilings.
 Telemetry relocation is therefore a valid branch implementation and hygiene fix,
 not the final root cause or an accepted 30% peak candidate.
+
+A later fixture-only composition combined that telemetry fix with Next
+`16.3.0-preview.9`, suppressed automatic targeted warmup, and the existing
+embedded-scheduler mechanism. Its three valid single-browser-pass runs reduced
+median total peak by **41.878%** and median maximum `next-turbopack` by
+**33.485%**, passing both fixed ceilings with material headroom. This is accepted
+measurement evidence, not an authorized production change: C5 was omitted, and
+the preview pins plus runtime/template defaults remain behind the approval
+boundary below.
 
 ## Baseline attribution
 
@@ -352,17 +361,86 @@ source was changed. The retained restoration manifest verifies the fixture back 
 Next/SWC 16.2.11 and React 19.2.7, with the original package/lock/runtime hashes,
 all 8,291 Next/@next file hashes, and all 790 original cache hashes passing.
 
-Production promotion therefore still requires explicit dependency/toolchain
-approval plus full build, typecheck, create-app, browser, and wider-repeat memory
-gates. A proposal should require meaningful headroom, or explicitly test composition
-with the independently measured C5/scheduler process savings; those savings must
-not be assumed additive. Until then, the stable-stack work needs a user decision,
-and neither telemetry relocation nor the preview is the final accepted peak fix.
+That preview-only result did not authorize production promotion. The completed
+fixture-only composition and its remaining approval boundary are recorded below;
+no earlier C5/scheduler saving is assumed additive.
+
+### Fixture-only composed acceptance candidate
+
+The final composition retained the telemetry relocation already implemented on
+this branch and changed only the disposable fixture for the other variables:
+
+- `next`, `@next/env`, and `@next/swc-darwin-arm64` were
+  `16.3.0-preview.9`; React and React DOM remained `19.2.7`;
+- every dev, profiler, and browser command was pinned to Node `24.13.1`;
+- automatic targeted warmup was suppressed through the temporary fixture-only
+  `OM_DEV_WARMUP_MODE=suppressed` control;
+- `OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER=true` produced one
+  `queue worker --all --with-scheduler` process and no `scheduler start` child;
+- **C5 was omitted.** Its exact temporary patch state was not preserved, so this
+  experiment neither composes it nor assumes its earlier savings are additive.
+
+Each accepted run cloned the same verified 50-file preview seed, ran the external
+profiler for `180000` ms at a `1000` ms interval, performed exactly one Node 24
+login/protected-probe/A-to-B browser workflow, and shut down the complete tree.
+Run 2 is retained only as directional evidence and excluded from every acceptance
+calculation because an stdin-timing correction caused more than one browser pass.
+
+| Accepted run | Raw profiler report | Successful samples / configured window | Peak total | Mean total | Maximum `next-turbopack` | Embedded worker max / mean | Login / auth / probe / HMR |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat1.json` | 173 / 180 s | 6,194.01 MB | 5,042.54 MB | 5,475.26 MB | 527.09 / 370.98 MB | 1.081 / 1.848 / 2.621 / 2.298 s |
+| 3 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat3.json` | 168 / 180 s | 5,841.84 MB | 4,890.01 MB | 5,101.92 MB | 377.50 / 311.27 MB | 0.286 / 0.663 / 0.506 / 14.873 s |
+| 4 | `.mercato/dev-rss/experiment-preview9-node24-suppressed-embedded-scheduler-repeat4.json` | 173 / 180 s | 5,867.10 MB | 5,110.18 MB | 5,260.37 MB | 446.52 / 442.58 MB | 0.367 / 1.139 / 2.716 / 8.343 s |
+| **Median** | — | — | **5,867.10 MB** | **5,042.54 MB** | **5,260.37 MB** | **446.52 / 370.98 MB** | — |
+
+The artifact prefix for every relative path in this section is
+`/private/tmp/open-mercato-standalone-memory-baseline/`. Matching single-pass
+browser JSON files are under `.mercato/dev-rss/browser/` with the same run labels.
+Run 3 has 168 successful samples because process-tree sampling took longer on
+several iterations; the report still declares the full `180000` ms window and its
+UTC timestamps span 183.037 seconds. Runs 1 and 4 span 180.001 and 180.002 seconds.
+
+The accepted median is 4,227.40 MB (**41.878%**) below the fixed 10,094.50 MB
+total comparator and passes the 7,066.15 MB ceiling by 1,199.05 MB. The median
+maximum `next-turbopack` is 2,648.17 MB (**33.485%**) below the 7,908.54 MB
+class comparator and passes the 5,535.978 MB ceiling by 275.608 MB. Relative to
+the preview-only diagnostic median, composition lowers total peak by another
+1,180.57 MB and the class maximum by 504.37 MB.
+
+Process samples and raw logs independently prove the topology and behavior. Each
+run has one embedded worker and no scheduler child. Multiple schedules repeatedly
+progressed through execution, target-queue enqueue, schedule completion, queue
+consumption, and job completion. Clean shutdown logs show the scheduler polling
+engine stopped and the shared worker closed successfully. Every browser artifact
+reports Node `v24.13.1`, login HTTP 200, protected marker A, and observed marker B;
+the only failed responses are the two expected pre-login feature checks returning
+401.
+
+The direct topology comparison uses the same command-level definition across the
+three preview-only and three accepted composed reports. The preview-only median
+maximum of the separate worker plus scheduler was 1,019.72 MB; the embedded-worker
+median maximum is 446.52 MB, a 573.20 MB (**56.21%**) saving. Their median means
+are 684.75 and 370.98 MB, a 313.76 MB (**45.82%**) saving.
+
+Production work remains unstarted and requires approval for this exact scope:
+
+1. pin the preview dependency set and update the applicable manifests/lockfile
+   (`package.json`, `apps/mercato/package.json`,
+   `packages/create-app/template/package.json.template`, and `yarn.lock`);
+2. make standalone automatic targeted warmup suppressed by default while retaining
+   an explicit opt-in override, with the required root/template runtime mirror;
+3. mirror the embedded-scheduler default already present in the monorepo dev
+   wrapper into `packages/create-app/template/scripts/dev.mjs`;
+4. retain the telemetry relocation already implemented on this branch.
+
+No runtime source, production manifest, or lockfile was edited for this composed
+experiment.
 
 ## Restoration audit
 
-After the final experiment, the fixture was restored with marker B, no dev/browser
-tree, and ports 3000/4000 free. The verified hashes are:
+After the composed experiment, the fixture was restored with marker B, normal
+targeted-warmup behavior, no dev/profiler/browser tree, and its exact baseline
+package, lockfile, dependency, and compiler-cache state. The verified hashes are:
 
 - `next.config.ts`: `dd017fb4c340741a1801021883832644fc624c2159d4a181b87b952fe4d9a30a`
 - `scripts/dev-runtime.mjs`: `e15fa5b889afc1e3b2474da92113441a9d967c1632eac71226723b4622bfa354`
@@ -370,6 +448,9 @@ tree, and ports 3000/4000 free. The verified hashes are:
 - probe marker B: `bb1b3f26a3d4caf75ac8c7f84a5b4059aa80b362307e841a0133c9b8aae0b2ac`
 
 All 790 original Turbopack cache hashes passed their retained SHA-256 manifest.
+The preserved fixture manifest, the separate Yarn-state hash, and all 8,291
+Next/@next file hashes also passed. Installed versions are again Next,
+`@next/env`, and Darwin ARM64 SWC `16.2.11`, with React/React DOM `19.2.7`.
 The original accumulated cache, Node 24 suppression seed, A2 Node 25 warm seed,
 and invalid compiler caches remain separate; none was promoted into the restored
 working cache.
