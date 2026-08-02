@@ -113,8 +113,22 @@ test('renderReportTable orders reports by startedAt and renders a chronological 
       summary: {
         peakTotalMb: 3072.5,
         meanTotalMb: 2800.1,
+        cpuCoreSeconds: 120.5,
+        meanTotalCpuPercent: 66.25,
+        peakTotalCpuPercent: 310.75,
         sampleCount: 45,
         peakTopProcesses: [{ pid: 1, ppid: 0, rssMb: 1500, command: 'node next-server' }],
+      },
+    },
+    {
+      label: 'legacy',
+      durationMs: 90_000,
+      startedAt: '2026-05-27T06:15:00.000Z',
+      summary: {
+        peakTotalMb: 2200.0,
+        meanTotalMb: 2000.0,
+        sampleCount: 45,
+        peakTopProcesses: [],
       },
     },
     {
@@ -124,6 +138,9 @@ test('renderReportTable orders reports by startedAt and renders a chronological 
       summary: {
         peakTotalMb: 1900.0,
         meanTotalMb: 1750.0,
+        cpuCoreSeconds: 95.25,
+        meanTotalCpuPercent: 52.5,
+        peakTotalCpuPercent: 250.5,
         sampleCount: 45,
         peakTopProcesses: [{ pid: 1, ppid: 0, rssMb: 1400, command: 'node next-server' }],
       },
@@ -133,6 +150,11 @@ test('renderReportTable orders reports by startedAt and renders a chronological 
   assert.match(table, /\| Label \|/)
   assert.match(table, /baseline/)
   assert.match(table, /after-2102/)
+  assert.match(table, /\| CPU core-s \| Mean CPU \| Peak CPU \|/)
+  assert.match(table, /120\.5/)
+  assert.match(table, /66\.25%/)
+  assert.match(table, /310\.75%/)
+  assert.match(table, /\| `legacy` \|[^\n]*\| \? \| \? \| \? \|/)
   // startedAt orders `baseline` (06:00) before `after-2102` (06:30).
   // Delta = later − earlier = 1900 − 3072.5 = -1172.5 MB (memory went down: good).
   assert.match(table, /Delta:.*`after-2102`.*`baseline`.*-1172\.5 MB/)

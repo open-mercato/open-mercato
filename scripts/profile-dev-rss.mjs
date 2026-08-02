@@ -75,6 +75,11 @@ export async function profile({ rootPid, durationMs, intervalMs, label, outDir, 
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2))
   log?.(`[profile] done → ${outPath}`)
   log?.(`[profile] peak total RSS = ${report.summary.peakTotalMb}MB across ${samples.length} samples`)
+  if (Number.isFinite(report.summary.cpuCoreSeconds)) {
+    log?.(
+      `[profile] CPU = ${report.summary.cpuCoreSeconds} core-s, mean ${formatCpuPercent(report.summary.meanTotalCpuPercent)}, peak ${formatCpuPercent(report.summary.peakTotalCpuPercent)}`,
+    )
+  }
   return { report, outPath }
 }
 
@@ -95,8 +100,8 @@ export function renderReportTable(reports) {
     return a.label.localeCompare(b.label)
   })
   const lines = []
-  lines.push('| Label | Peak total RSS (MB) | Mean total RSS (MB) | Peak class | Cgroup peak (MB) | Samples | Duration | Top process | Peak marker |')
-  lines.push('|-------|---------------------|---------------------|------------|------------------|---------|----------|-------------|-------------|')
+  lines.push('| Label | Peak total RSS (MB) | Mean total RSS (MB) | Peak class | Cgroup peak (MB) | Samples | Duration | Top process | Peak marker | CPU core-s | Mean CPU | Peak CPU |')
+  lines.push('|-------|---------------------|---------------------|------------|------------------|---------|----------|-------------|-------------|------------|----------|----------|')
   for (const r of sorted) {
     const topProc = r.summary?.peakTopProcesses?.[0]
     const topDesc = topProc
@@ -106,8 +111,13 @@ export function renderReportTable(reports) {
       ? `${r.summary.peakNearestMarkers.before.type}: ${truncate(r.summary.peakNearestMarkers.before.label, 36)}`
       : '_(none)_'
     const cgroupPeak = r.summary?.peakCgroup?.peakMb ?? r.summary?.peakCgroup?.currentMb ?? ''
+    const cpuCoreSeconds = Number.isFinite(r.summary?.cpuCoreSeconds)
+      ? r.summary.cpuCoreSeconds
+      : '?'
+    const meanCpu = formatCpuPercent(r.summary?.meanTotalCpuPercent)
+    const peakCpu = formatCpuPercent(r.summary?.peakTotalCpuPercent)
     lines.push(
-      `| \`${r.label}\` | ${r.summary?.peakTotalMb ?? '?'} | ${r.summary?.meanTotalMb ?? '?'} | ${r.summary?.peakDominantProcessClass ?? '?'} | ${cgroupPeak} | ${r.summary?.sampleCount ?? '?'} | ${formatMs(r.durationMs)} | ${topDesc} | ${peakMarker} |`,
+      `| \`${r.label}\` | ${r.summary?.peakTotalMb ?? '?'} | ${r.summary?.meanTotalMb ?? '?'} | ${r.summary?.peakDominantProcessClass ?? '?'} | ${cgroupPeak} | ${r.summary?.sampleCount ?? '?'} | ${formatMs(r.durationMs)} | ${topDesc} | ${peakMarker} | ${cpuCoreSeconds} | ${meanCpu} | ${peakCpu} |`,
     )
   }
   if (sorted.length >= 2) {
@@ -150,6 +160,11 @@ function formatMs(ms) {
   if (typeof ms !== 'number' || !Number.isFinite(ms)) return '?'
   const s = Math.round(ms / 1000)
   return `${s}s`
+}
+
+function formatCpuPercent(value) {
+  if (!Number.isFinite(value)) return '?'
+  return `${value}%`
 }
 
 function readReports(outDir) {
