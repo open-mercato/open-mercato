@@ -129,6 +129,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/content',
+    workspaceDir: 'packages/content',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/legal-entity.test.tsx',
+        scans: 'repo-root legal documents — superseded operator identity',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/ui',
     workspaceDir: 'packages/ui',
     jestConfig: 'jest.config.cjs',
