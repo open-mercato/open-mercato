@@ -317,7 +317,10 @@ describe('Workflows Validators', () => {
             activityId: 'update-inventory-1',
             activityName: 'Update Inventory',
             activityType: 'UPDATE_ENTITY',
-            config: { entityType: 'inventory', updates: { count: 10 } },
+            // commandId + input are what executeUpdateEntity actually reads; the
+            // previous entityType/updates shape would have failed at runtime and
+            // is now rejected at validation time (#4232).
+            config: { commandId: 'sales.documents.update', input: { count: 10 } },
           },
         ],
       }
@@ -430,7 +433,10 @@ describe('Workflows Validators', () => {
             activityId: 'send-email-2',
             activityName: 'Send Email',
             activityType: 'SEND_EMAIL' as const,
-            config: { to: 'a@b.c' },
+            // Complete SEND_EMAIL config: the WAIT duration/until rules must not
+            // leak here, while SEND_EMAIL's own to/subject requirement applies
+            // (#4232).
+            config: { to: 'a@b.c', subject: 'Hello' },
           })
         ).not.toThrow()
       })

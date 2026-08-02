@@ -6,6 +6,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
+import { requireResolvedTenantScope } from '../readScope'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
@@ -74,6 +75,9 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const tenantScopeGuard = requireResolvedTenantScope(auth)
+  if (tenantScopeGuard) return tenantScopeGuard
+
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
 
@@ -109,18 +113,26 @@ export async function GET(req: Request) {
     actorUserId = actorQuery
   }
 
-  const list = await accessLogs.list({
-    tenantId: auth.tenantId ?? undefined,
-    organizationId: organizationId ?? undefined,
-    actorUserId,
-    resourceKind: resourceKind ?? undefined,
-    accessType: accessType ?? undefined,
-    page,
-    pageSize,
-    limit: url.searchParams.get('limit') ? parseNumber(url.searchParams.get('limit'), { min: 1, max: 200, fallback: pageSize }) : undefined,
-    before,
-    after,
-  })
+  let list: Awaited<ReturnType<AccessLogService['list']>>
+  try {
+    list = await accessLogs.list({
+      tenantId: auth.tenantId ?? undefined,
+      organizationId: organizationId ?? undefined,
+      actorUserId,
+      resourceKind: resourceKind ?? undefined,
+      accessType: accessType ?? undefined,
+      page,
+      pageSize,
+      limit: url.searchParams.get('limit') ? parseNumber(url.searchParams.get('limit'), { min: 1, max: 200, fallback: pageSize }) : undefined,
+      before,
+      after,
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
+    }
+    throw err
+  }
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
@@ -169,6 +181,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filters supplied', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
       ],
     },
   },

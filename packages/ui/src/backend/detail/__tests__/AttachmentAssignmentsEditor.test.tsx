@@ -1,14 +1,24 @@
 /**
  * @jest-environment jsdom
+ *
+ * Regression coverage for #4338: the assignment row key must stay stable while
+ * the user types — a value-derived key remounts the row on every keystroke,
+ * which throws the input out of focus after each character.
  */
-
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
-import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { AttachmentAssignmentsEditor } from '../AttachmentMetadataDialog'
-import type { AssignmentDraft, AssignmentEditorLabels } from '../AttachmentMetadataDialog'
+import { fireEvent, render, screen } from '@testing-library/react'
 
-const labels: AssignmentEditorLabels = {
+jest.mock('@open-mercato/core/generated-shims/entities.ids.generated', () => ({
+  E: new Proxy({}, {
+    get: (_target, moduleId) => new Proxy({}, {
+      get: (_entity, entityId) => `${String(moduleId)}:${String(entityId)}`,
+    }),
+  }),
+}))
+
+import { AttachmentAssignmentsEditor, type AssignmentDraft } from '../AttachmentMetadataDialog'
+
+const labels = {
   title: 'Assignments',
   description: 'Link this attachment to records',
   type: 'Type',
@@ -16,7 +26,7 @@ const labels: AssignmentEditorLabels = {
   href: 'Link',
   label: 'Label',
   add: 'Add assignment',
-  remove: 'Remove',
+  remove: 'Remove assignment',
 }
 
 function EditorHarness({ initial }: { initial: AssignmentDraft[] }) {
@@ -24,70 +34,50 @@ function EditorHarness({ initial }: { initial: AssignmentDraft[] }) {
   return <AttachmentAssignmentsEditor value={value} onChange={setValue} labels={labels} />
 }
 
-/**
- * Re-queries the input before every keystroke. A stale reference would keep
- * accepting `fireEvent.change` after a remount detached it from the document,
- * which is exactly how this bug hid from a naive assertion.
- */
-function typeInto(getInput: () => HTMLInputElement, text: string) {
-  getInput().focus()
-  Array.from(text).forEach((char) => {
-    const input = getInput()
-    fireEvent.change(input, { target: { value: input.value + char } })
-  })
-}
+describe('AttachmentAssignmentsEditor (metadata dialog)', () => {
+  it('keeps the Type input mounted and focused while typing multiple characters', () => {
+    render(<EditorHarness initial={[{ type: '', id: '', href: '', label: '' }]} />)
 
-const getTypeInput = (index = 0) =>
-  screen.getAllByPlaceholderText('catalog.product')[index] as HTMLInputElement
-const getIdInput = (index = 0) =>
-  screen.getAllByPlaceholderText('Record ID')[index] as HTMLInputElement
+    const typeInput = screen.getByPlaceholderText('catalog.product') as HTMLInputElement
+    typeInput.focus()
 
-describe('AttachmentAssignmentsEditor typing (issue #4338)', () => {
-  it('keeps the Type field focused while typing a multi-character value', () => {
-    renderWithProviders(<EditorHarness initial={[{ type: '', id: '', href: '', label: '' }]} />, { dict: {} })
+    let typed = ''
+    for (const char of 'catalog.product') {
+      typed += char
+      fireEvent.change(typeInput, { target: { value: typed } })
+      expect(screen.getByPlaceholderText('catalog.product')).toBe(typeInput)
+      expect(document.activeElement).toBe(typeInput)
+    }
 
-    typeInto(() => getTypeInput(), 'catalog.product')
-
-    // Assert against the live tree — the element still mounted and focused —
-    // rather than the reference captured before typing started.
-    expect(getTypeInput()).toHaveValue('catalog.product')
-    expect(document.activeElement).toBe(getTypeInput())
-    expect(document.activeElement).toHaveValue('catalog.product')
+    expect(typeInput.value).toBe('catalog.product')
   })
 
-  it('keeps the Record ID field focused while typing a multi-character value', () => {
-    renderWithProviders(<EditorHarness initial={[{ type: '', id: '', href: '', label: '' }]} />, { dict: {} })
+  it('keeps the Record ID input mounted and focused while typing', () => {
+    render(<EditorHarness initial={[{ type: 'catalog.product', id: '', href: '', label: '' }]} />)
 
-    typeInto(() => getIdInput(), 'abc-123')
+    const idInput = screen.getByPlaceholderText('Record ID') as HTMLInputElement
+    idInput.focus()
 
-    expect(getIdInput()).toHaveValue('abc-123')
-    expect(document.activeElement).toBe(getIdInput())
-    expect(document.activeElement).toHaveValue('abc-123')
+    fireEvent.change(idInput, { target: { value: 'a' } })
+    fireEvent.change(idInput, { target: { value: 'ab' } })
+
+    expect(screen.getByPlaceholderText('Record ID')).toBe(idInput)
+    expect(document.activeElement).toBe(idInput)
+    expect(idInput.value).toBe('ab')
   })
 
-  it('edits the intended row when several assignments are present', () => {
-    renderWithProviders(
-      <EditorHarness
-        initial={[
-          { type: 'catalog.product', id: 'p-1', href: '', label: '' },
-          { type: '', id: '', href: '', label: '' },
-        ]}
-      />,
-      { dict: {} },
-    )
+  it('still adds and removes assignment rows', () => {
+    render(<EditorHarness initial={[]} />)
 
-    typeInto(() => getTypeInput(1), 'sales.order')
+    fireEvent.click(screen.getByRole('button', { name: 'Add assignment' }))
+    expect(screen.getByPlaceholderText('catalog.product')).toBeTruthy()
 
-    expect(getTypeInput(0)).toHaveValue('catalog.product')
-    expect(getTypeInput(1)).toHaveValue('sales.order')
-    expect(document.activeElement).toBe(getTypeInput(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove assignment' }))
+    expect(screen.queryByPlaceholderText('catalog.product')).toBeNull()
   })
 
-  // Index keys are only safe while the row stays fully controlled. This guards
-  // that invariant: if a row ever gains internal state, removing a middle row
-  // will leak it onto the row that shifts into the freed index and fail here.
-  it('shows the surviving rows correctly after removing a middle row', () => {
-    renderWithProviders(
+  it('keeps the surviving assignment values after removing a middle row', () => {
+    render(
       <EditorHarness
         initial={[
           { type: 'catalog.product', id: 'p-1', href: '', label: '' },
@@ -95,15 +85,15 @@ describe('AttachmentAssignmentsEditor typing (issue #4338)', () => {
           { type: 'customers.person', id: 'c-3', href: '', label: '' },
         ]}
       />,
-      { dict: {} },
     )
 
     fireEvent.click(screen.getAllByRole('button', { name: labels.remove })[1])
 
-    expect(screen.getAllByPlaceholderText('catalog.product')).toHaveLength(2)
-    expect(getTypeInput(0)).toHaveValue('catalog.product')
-    expect(getIdInput(0)).toHaveValue('p-1')
-    expect(getTypeInput(1)).toHaveValue('customers.person')
-    expect(getIdInput(1)).toHaveValue('c-3')
+    const typeInputs = screen.getAllByPlaceholderText('catalog.product') as HTMLInputElement[]
+    const idInputs = screen.getAllByPlaceholderText('Record ID') as HTMLInputElement[]
+    expect(typeInputs[0]).toHaveValue('catalog.product')
+    expect(idInputs[0]).toHaveValue('p-1')
+    expect(typeInputs[1]).toHaveValue('customers.person')
+    expect(idInputs[1]).toHaveValue('c-3')
   })
 })

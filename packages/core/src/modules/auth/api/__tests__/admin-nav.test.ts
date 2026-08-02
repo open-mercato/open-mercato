@@ -54,13 +54,13 @@ const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
 const mockLoadAcl = jest.fn<Promise<{ isSuperAdmin: boolean; features: string[] }>, [string, { tenantId: string | null; organizationId: string | null }]>()
 const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { tenantId: string | null; organizationId: string | null }]>()
-const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[] }]>()
+const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[]; ttl?: number }]>()
 const mockCacheGet = jest.fn<Promise<null>, [string]>()
 const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[]) => groups)
 const mockLoadSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
 const mockLoadFirstRoleSidebarPreference = jest.fn<Promise<null>, [unknown, { roleIds: string[]; tenantId: string | null; locale: string }]>()
 const mockResolveFeatureCheckContext = jest.fn<
-  Promise<{ organizationId: string | null; scope: { tenantId: string | null }; allowedOrganizationIds: string[] | null }>,
+  Promise<{ organizationId: string | null; scope: { tenantId: string | null; selectedId: string | null }; allowedOrganizationIds: string[] | null }>,
   [unknown]
 >()
 const mockGetSelectedOrganizationFromRequest = jest.fn<string | null, [Request]>()
@@ -171,7 +171,7 @@ describe('GET /api/auth/admin/nav', () => {
     mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
     mockResolveFeatureCheckContext.mockResolvedValue({
       organizationId: 'org-1',
-      scope: { tenantId: 'tenant-1' },
+      scope: { tenantId: 'tenant-1', selectedId: 'org-1' },
       allowedOrganizationIds: ['org-1'],
     })
   })
@@ -384,6 +384,43 @@ describe('GET /api/auth/admin/nav', () => {
     }
   })
 
+  it('uses a versioned cache key that distinguishes concrete and all-organization cookie selections', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([])
+    mockResolveFeatureCheckContext.mockImplementation(async (args) => {
+      const scopeArgs = args as { selectedId?: string | null; request?: Request }
+      const cookieSelection = scopeArgs.request?.headers.get('cookie')?.match(/(?:^|;\s*)om_selected_org=([^;]+)/)?.[1]
+      const requestedSelection = scopeArgs.selectedId === undefined
+        ? cookieSelection ? decodeURIComponent(cookieSelection) : null
+        : scopeArgs.selectedId
+      return {
+        organizationId: 'org-1',
+        scope: {
+          tenantId: 'tenant-1',
+          selectedId: requestedSelection === '__all__' ? null : requestedSelection ?? 'org-1',
+        },
+        allowedOrganizationIds: ['org-1'],
+      }
+    })
+    setupCustomEntities([])
+
+    await GET(new Request('http://localhost/api/auth/admin/nav', {
+      headers: { cookie: 'om_selected_org=org-1' },
+    }))
+    const concreteSelectionKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    expect(concreteSelectionKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
+    expect(concreteSelectionKey).not.toContain('nav:sidebar:v5:')
+
+    mockCacheGet.mockClear()
+    setupCustomEntities([])
+
+    await GET(new Request('http://localhost/api/auth/admin/nav', {
+      headers: { cookie: 'om_selected_org=__all__' },
+    }))
+    const allOrganizationsKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    expect(allOrganizationsKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
+    expect(allOrganizationsKey).not.toBe(concreteSelectionKey)
+  })
+
   it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {
     mockLoadAcl.mockResolvedValue({
       isSuperAdmin: false,
@@ -410,6 +447,48 @@ describe('GET /api/auth/admin/nav', () => {
 
     expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
     expect(mockUserHasAllFeatures).toHaveBeenCalled()
+  })
+
+  describe('cache key survives a deploy that changes the module surface', () => {
+    async function cacheKeyForRoutes(routes: BackendRouteManifest[]): Promise<string> {
+      mockGetBackendRouteManifests.mockReturnValue(routes)
+      setupCustomEntities([])
+      const response = await GET(makeRequest())
+      expect(response.status).toBe(200)
+      const [key] = mockCacheSet.mock.calls[mockCacheSet.mock.calls.length - 1]
+      return key
+    }
+
+    const dashboardRoute: BackendRouteManifest = {
+      moduleId: 'dashboard',
+      pattern: '/backend/dashboard',
+      title: 'Dashboard',
+      group: 'Dashboard',
+      order: 1,
+    }
+
+    it('reads and writes the same key within one deploy', async () => {
+      const writtenKey = await cacheKeyForRoutes([dashboardRoute])
+
+      expect(mockCacheGet).toHaveBeenCalledWith(writtenKey)
+    })
+
+    it('writes a different key once a new module contributes backend routes', async () => {
+      const before = await cacheKeyForRoutes([dashboardRoute])
+      const after = await cacheKeyForRoutes([
+        dashboardRoute,
+        { moduleId: 'search', pattern: '/backend/search', title: 'Search', group: 'Search', order: 2 },
+      ])
+
+      expect(after).not.toBe(before)
+    })
+
+    it('bounds any surface change the fingerprint cannot see with a TTL', async () => {
+      await cacheKeyForRoutes([dashboardRoute])
+
+      const [, , options] = mockCacheSet.mock.calls[mockCacheSet.mock.calls.length - 1]
+      expect(options.ttl).toBe(30 * 60 * 1000)
+    })
   })
 
   it('returns 401 when not authenticated', async () => {

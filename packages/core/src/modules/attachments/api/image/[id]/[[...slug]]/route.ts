@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import sharp from 'sharp'
+import sharp, { type ResizeOptions } from 'sharp'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -109,7 +109,7 @@ export async function GET(
         limitInputPixels: MAX_IMAGE_SOURCE_PIXELS,
       })
       if (width || height) {
-        const resizeOptions: sharp.ResizeOptions = {
+        const resizeOptions: ResizeOptions = {
           width: width || undefined,
           height: height || undefined,
           fit: cropType === 'contain' ? 'contain' : 'cover',

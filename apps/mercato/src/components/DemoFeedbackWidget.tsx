@@ -54,7 +54,6 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   const [message, setMessage] = useState('')
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [marketingConsent, setMarketingConsent] = useState(false)
-  const [sendCopy, setSendCopy] = useState(true)
   const [suppressPopup, setSuppressPopup] = useState(false)
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -164,7 +163,6 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
             message: message.trim(),
             termsAccepted,
             marketingConsent,
-            sendCopy,
           }),
         },
       )
@@ -181,7 +179,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
       setSubmitError(t('demoFeedback.errors.generic', 'Something went wrong. Please try again.'))
       setSubmitState('error')
     }
-  }, [email, message, termsAccepted, marketingConsent, sendCopy, suppressPopup, t])
+  }, [email, message, termsAccepted, marketingConsent, suppressPopup, t])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && submitState === 'idle') {
@@ -195,7 +193,6 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     setMessage('')
     setTermsAccepted(false)
     setMarketingConsent(false)
-    setSendCopy(true)
     setSubmitState('idle')
     setSubmitError(null)
     setFieldErrors({})
@@ -231,7 +228,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="om-demo-feedback-floating fixed bottom-6 right-6 z-banner flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="om-demo-feedback-floating fixed bottom-6 right-6 z-banner flex max-w-[calc(100vw-3rem)] items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
       }}
@@ -336,7 +333,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onCheckedChange={(v) => setMarketingConsent(v === true)}
                 />
                 <span>
-                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from CT Tornado by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
+                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from Open Mercato sp. z o.o. by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
                     .split(/{termsLink}|{privacyLink}/)
                     .map((part, i, arr) => (
                       <span key={i}>
@@ -355,16 +352,6 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                       </span>
                     ))}
                 </span>
-              </label>
-
-              <label className="flex items-center gap-2.5 text-xs text-muted-foreground">
-                <Checkbox
-                  id="feedback-send-copy"
-                  checked={sendCopy}
-                  disabled={submitState === 'sending'}
-                  onCheckedChange={(v) => setSendCopy(v === true)}
-                />
-                <span>{t('demoFeedback.form.sendCopy', 'Send me a copy of this message')}</span>
               </label>
 
               <label className="flex items-center gap-2.5 text-xs text-muted-foreground">

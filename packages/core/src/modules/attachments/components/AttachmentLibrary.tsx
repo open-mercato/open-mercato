@@ -229,7 +229,7 @@ export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled 
           <div className="text-xs text-muted-foreground">No assignments yet.</div>
         ) : (
           value.map((entry, index) => (
-            <div key={index} data-assignment-card className="rounded border p-3 space-y-2">
+            <div key={index} className="rounded border p-3 space-y-2">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-xs font-medium">{labels.type}</label>
@@ -916,6 +916,7 @@ export function AttachmentLibrary() {
                     className="text-sm text-blue-600 underline"
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
                   >
                     {content}
                   </a>
@@ -961,7 +962,12 @@ export function AttachmentLibrary() {
           const absolute = resolveAbsoluteUrl(downloadPath)
           return (
             <Button variant="ghost" size="icon" asChild>
-              <a href={absolute} download aria-label={t('attachments.library.table.download', 'Download')}>
+              <a
+                href={absolute}
+                download
+                aria-label={t('attachments.library.table.download', 'Download')}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <Download className="h-4 w-4" />
               </a>
             </Button>
