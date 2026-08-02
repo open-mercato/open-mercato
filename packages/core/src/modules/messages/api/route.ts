@@ -103,17 +103,24 @@ async function buildMessageListIdFilter(input: ListMessagesInput, ctx: CrudCtx):
   const em = ctx.container.resolve('em') as EntityManager
   const db = getDb(em) as any
   const tenantId = ctx.auth?.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const organizationIds = ctx.organizationIds
+  const fallbackOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const searchOrganizationId = Array.isArray(organizationIds)
+    ? organizationIds.length === 1 ? organizationIds[0] : null
+    : organizationIds === null ? null : fallbackOrganizationId
   const userId = ctx.auth?.sub ?? null
 
   if (!tenantId || !userId) return { id: { $eq: NO_MATCH_ID } }
+  if (Array.isArray(organizationIds) && organizationIds.length === 0) {
+    return { id: { $eq: NO_MATCH_ID } }
+  }
 
   const searchIds = input.search
     ? await findMessageIdsBySearchTokens({
         em,
         query: input.search,
         tenantId,
-        organizationId,
+        organizationId: searchOrganizationId,
       })
     : undefined
 
@@ -123,9 +130,13 @@ async function buildMessageListIdFilter(input: ListMessagesInput, ctx: CrudCtx):
     .where('m.tenant_id', '=', tenantId)
     .where('m.deleted_at', 'is', null)
 
-  q = organizationId
-    ? q.where('m.organization_id', '=', organizationId)
-    : q.where('m.organization_id', 'is', null)
+  if (Array.isArray(organizationIds)) {
+    q = q.where('m.organization_id', 'in', organizationIds)
+  } else if (organizationIds !== null) {
+    q = fallbackOrganizationId
+      ? q.where('m.organization_id', '=', fallbackOrganizationId)
+      : q.where('m.organization_id', 'is', null)
+  }
 
   const joinRecipient = () => {
     q = q.leftJoin('message_recipients as r', (jb: any) => jb

@@ -279,6 +279,60 @@ describe('messages /api/messages GET crud route', () => {
     expect(messageQuery.where).toHaveBeenCalledWith('r.archived_at', 'is', null)
   })
 
+  it('does not narrow an unrestricted organization scope to null-owned messages', async () => {
+    const em = createEmMock()
+    const opts = getCrudOptions()
+
+    await opts.list.buildFilters(
+      { folder: 'inbox', page: 1, pageSize: 20 },
+      {
+        auth: { tenantId, orgId: null, sub: userId },
+        selectedOrganizationId: null,
+        organizationIds: null,
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            return null
+          },
+        },
+      },
+    )
+
+    const messageQuery = em.db.selectFrom.mock.results[0]?.value
+    const organizationPredicates = messageQuery.where.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'm.organization_id',
+    )
+    expect(organizationPredicates).toEqual([])
+  })
+
+  it('filters message ids to every organization in the resolved scope', async () => {
+    const em = createEmMock()
+    const opts = getCrudOptions()
+    const secondOrganizationId = 'b9f11921-da7f-4f25-bdf4-e16913463a83'
+
+    await opts.list.buildFilters(
+      { folder: 'inbox', page: 1, pageSize: 20 },
+      {
+        auth: { tenantId, orgId: organizationId, sub: userId },
+        selectedOrganizationId: organizationId,
+        organizationIds: [organizationId, secondOrganizationId],
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            return null
+          },
+        },
+      },
+    )
+
+    const messageQuery = em.db.selectFrom.mock.results[0]?.value
+    expect(messageQuery.where).toHaveBeenCalledWith(
+      'm.organization_id',
+      'in',
+      [organizationId, secondOrganizationId],
+    )
+  })
+
   it('keeps the existing message list response shape through transform and afterList hooks', async () => {
     const em = createEmMock()
     em.find.mockResolvedValueOnce([
