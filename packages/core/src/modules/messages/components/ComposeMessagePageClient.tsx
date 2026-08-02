@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter } from 'next/navigation'
+import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import { MessageComposer } from '@open-mercato/ui/backend/messages'
 // UMES extension surface — compose page injection spot (SPEC-045d §9.3a).
 // Channel provider packages inject "composer capabilities" widgets here
@@ -21,7 +22,7 @@ export function ComposeMessagePageClient() {
         scoping) into this spot purely as additional UI siblings.
       */}
       <InjectionSpot
-        spotId="crud-form:messages:message:fields"
+        spotId={extensionPoints.hosts.composeFields.spotId}
         context={{ form: 'compose' }}
         data={{}}
       />

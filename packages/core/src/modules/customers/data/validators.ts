@@ -11,6 +11,10 @@ export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.t
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
 
+// customer_deals.description is an unbounded `text` column; this cap only exists to keep
+// request bodies, fulltext search documents and query-index documents from growing without limit.
+export const DEAL_DESCRIPTION_MAX_LENGTH = 50_000
+
 const emptyStringToNull = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
   const trimmed = value.trim()
@@ -161,7 +165,7 @@ export const companyUpdateSchema = z
 
 export const dealCreateSchema = scopedSchema.extend({
   title: z.string().min(1).max(200),
-  description: z.string().max(4000).optional(),
+  description: z.string().max(DEAL_DESCRIPTION_MAX_LENGTH).optional(),
   status: z.string().max(50).optional(),
   pipelineStage: z.string().max(100).optional(),
   pipelineId: uuid().optional(),
