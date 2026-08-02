@@ -1060,3 +1060,11 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
 
 **Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
+
+## Run macOS sandbox harness gates with a self-contained Node runtime
+
+**Context**: The standalone agent-harness tests launch nested processes inside a macOS sandbox. A Homebrew Node binary can depend on dynamic libraries under `/opt/homebrew`, which the nested sandbox does not allow the process to load.
+
+**Rule**: When harness tests fail broadly with `dyld` or blocked Node-library errors, put the workspace's self-contained Node runtime first on `PATH` and rerun the complete gate. Do not diagnose the resulting cascade as product failures until the runtime can start inside the sandbox.
+
+**Applies to**: `create-mercato-app` agent-harness tests and validation gates that execute them on macOS.
