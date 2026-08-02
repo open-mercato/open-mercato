@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/resources/extension-points'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
@@ -318,7 +319,7 @@ export default function ResourcesResourceTypesPage() {
             />
           )}
           onRowClick={(row) => router.push(`/backend/resources/resource-types/${row.id}/edit`)}
-          perspective={{ tableId: 'resources.resource-types.list' }}
+          perspective={{ tableId: extensionPoints.hosts.resourceTypesTable.tableId }}
         />
       </PageBody>
       {ConfirmDialogElement}

@@ -1157,7 +1157,7 @@ function collectStringArrayElements(expr: ts.Expression, stringConstants: Map<st
   return values
 }
 
-function extractCommandIdsFromSource(sourcePath: string): string[] {
+export function extractCommandIdsFromSource(sourcePath: string): string[] {
   const sourceText = fs.readFileSync(sourcePath, 'utf8')
   const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const ids = new Set<string>()

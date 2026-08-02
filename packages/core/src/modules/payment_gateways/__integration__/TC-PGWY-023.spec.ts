@@ -70,24 +70,20 @@ test.describe('TC-PGWY-023 payment-session amount reconciliation', () => {
     try {
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD' },
+        data: {
+          currencyCode: 'USD',
+          lines: [{
+            currencyCode: 'USD',
+            quantity: 1,
+            name: `QA PGWY-023 line ${Date.now()}`,
+            unitPriceNet: ORDER_GROSS,
+            unitPriceGross: ORDER_GROSS,
+          }],
+        },
       })
       expect(orderResponse.status(), 'POST /api/sales/orders should be 201').toBe(201)
       orderId = (await readJson(orderResponse)).id as string
       expect(orderId, 'order create response should carry an id').toBeTruthy()
-
-      const lineResponse = await apiRequest(request, 'POST', '/api/sales/order-lines', {
-        token,
-        data: {
-          orderId,
-          currencyCode: 'USD',
-          quantity: 1,
-          name: `QA PGWY-023 line ${Date.now()}`,
-          unitPriceNet: ORDER_GROSS,
-          unitPriceGross: ORDER_GROSS,
-        },
-      })
-      expect(lineResponse.status(), 'POST /api/sales/order-lines should be 201').toBe(201)
 
       const order = listItems(
         await readJson(await apiRequest(request, 'GET', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })),
