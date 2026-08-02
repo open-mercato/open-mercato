@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -8,6 +9,8 @@ import { isAgentTaskPlanEnabled, listAgents, loadAgentRegistry } from '../../../
 import { hasRequiredFeatures } from '../../../lib/auth'
 import { toolRegistry } from '../../../lib/tool-registry'
 import type { AiToolDefinition } from '../../../lib/types'
+
+const logger = createLogger('ai_assistant')
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -103,7 +106,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ agents, total: agents.length, aiConfigured })
   } catch (error) {
-    console.error('[AI Agents] Failed to list agents:', error)
+    logger.error('AI Agents — Failed to list agents', { err: error })
     return NextResponse.json(
       { error: 'Failed to list agents', code: 'internal_error' },
       { status: 500 },

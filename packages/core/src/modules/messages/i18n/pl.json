@@ -34,6 +34,7 @@
   "messages.bulk.flash.markReadSuccess": "Oznaczono {count} wiadomości jako przeczytane.",
   "messages.bulk.flash.markUnreadSuccess": "Oznaczono {count} wiadomości jako nieprzeczytane.",
   "messages.bulk.flash.partial": "Przetworzono {succeeded} z {total} wiadomości; niepowodzeń: {failed}.",
+  "messages.bulk.flash.unarchiveSuccess": "Przeniesiono {count} wiadomości do skrzynki odbiorczej.",
   "messages.compose": "Napisz wiadomość",
   "messages.composeHint": "Utwórz wiadomość, dołącz obiekty i wyślij do wybranych odbiorców.",
   "messages.composer.attachmentPicker.confirm": "Dołącz wybrane",

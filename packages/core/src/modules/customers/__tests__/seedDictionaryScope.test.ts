@@ -5,6 +5,7 @@ import {
   ENTITY_LIFECYCLE_STAGE_DEFAULTS,
   DEAL_STATUS_DEFAULTS,
   PIPELINE_STAGE_DEFAULTS,
+  INTERACTION_STATUS_DEFAULTS,
 } from '../cli'
 
 const valuesOf = (dict: ReadonlyArray<{ value: string }>) => new Set(dict.map((d) => d.value))
@@ -52,5 +53,25 @@ describe('customers seed data stays within dictionary scope (#2645)', () => {
     }
 
     expect(violations).toEqual([])
+  })
+})
+
+describe('interaction status dictionary defaults', () => {
+  it('seeds the five canonical statuses in order', () => {
+    expect(INTERACTION_STATUS_DEFAULTS.map((entry) => entry.value)).toEqual([
+      'planned',
+      'in_progress',
+      'waiting',
+      'done',
+      'canceled',
+    ])
+  })
+
+  it('gives every default a label, color, and icon', () => {
+    for (const entry of INTERACTION_STATUS_DEFAULTS) {
+      expect(entry.label.length).toBeGreaterThan(0)
+      expect(entry.color).toMatch(/^#[0-9a-fA-F]{6}$/)
+      expect(entry.icon).toMatch(/^lucide:/)
+    }
   })
 })

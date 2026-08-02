@@ -84,6 +84,12 @@ Limitations and notes
 - Keep the indexed path even when gaps are detected by setting `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` (enabled by default). When active, list responses include an `x-om-partial-index` response header (with `entity`, `baseCount`, `indexedCount`, and `scope`) so the admin UI can surface a banner prompting the user to reindex via `/backend/query-indexes`.
 - Coverage statistics are tracked per tenant to avoid cross-organization leakage. Admin views surface the tenant snapshot directly and never blend organization-level scopes.
 
+Coverage refresh triggers
+- Every login fires `query_index.coverage.warmup`, which sweeps stale entity types and schedules a `coverage.refresh` for each. It is a proactive nice-to-have on top of the query engine's own lazy, on-demand refresh (triggered on read when a coverage snapshot is missing or past its TTL) — coverage self-heals even with the warmup disabled.
+- The warmup sweep only re-checks entity types whose persisted coverage snapshot (`entity_index_coverage.refreshed_at`) is actually stale, so a process restart does not repeat the full sweep for scopes a prior warmup, a lazy refresh, or an incremental CRUD delta already kept fresh. Before dispatching any refresh it also batch-primes the shared `information_schema.columns` cache for every table involved, avoiding a query-per-table cache stampede when many refreshes are dispatched concurrently.
+- Tune the sweep with `QUERY_INDEX_WARMUP_ENABLED`, `QUERY_INDEX_WARMUP_THROTTLE_MS`, `QUERY_INDEX_WARMUP_CONCURRENCY`, and `QUERY_INDEX_WARMUP_STAGGER_MS` — see [System status variables](https://docs.openmercato.com/docs/framework/operations/system-status#query_index_warmup_enabled). All default to the prior always-on, unstaggered behaviour when unset.
+- Deletes recompute coverage via `query_index.delete_one`, throttled to once per `(entityType, tenant)` per 5 minutes — the incremental `+1`/`-1` adjustment already keeps the count correct between recomputes, so the throttle only limits how often the full recount runs. Pass `suppressCoverage: true` to skip the recount entirely, or an explicit `coverageDelayMs` to bypass the throttle for a caller that wants a guaranteed (optionally deferred) recompute.
+
 ## Debugging SQL output
 
 - Standard debug logs honour `LOG_VERBOSITY=debug` (or a development `NODE_ENV`) and describe which path the hybrid engine picks.

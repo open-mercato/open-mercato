@@ -5,8 +5,11 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { CacheStrategy } from '@open-mercato/cache'
+import { getCurrentCacheTenant, runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('directory').child({ component: 'org-scope-cache' })
 
 export { parseSelectedOrganizationCookie, parseSelectedTenantCookie }
 
@@ -15,6 +18,13 @@ export type OrganizationScope = {
   filterIds: string[] | null
   allowedIds: string[] | null
   tenantId: string | null
+  // True when the caller explicitly selected a concrete organization (cookie /
+  // selectedId param) that could not be honored — it does not exist for the
+  // tenant or is not accessible. Reads degrade gracefully (filterIds/selectedId
+  // fall back to the caller's accessible orgs), but writes MUST fail loudly on
+  // this so a record never lands under an org the caller did not intend. Absent
+  // (undefined) means the selection — if any — was honored.
+  selectionRejected?: boolean
 }
 
 // Phase 4 — short-TTL cache for resolveOrganizationScopeForRequest.
@@ -76,7 +86,8 @@ function isValidCachedScope(value: unknown): value is OrganizationScope {
   const record = value as Partial<OrganizationScope>
   const idOk = (v: unknown) => v === null || typeof v === 'string'
   const arrOk = (v: unknown) => v === null || (Array.isArray(v) && v.every((entry) => typeof entry === 'string'))
-  return idOk(record.selectedId) && idOk(record.tenantId) && arrOk(record.filterIds) && arrOk(record.allowedIds)
+  const flagOk = record.selectionRejected === undefined || typeof record.selectionRejected === 'boolean'
+  return idOk(record.selectedId) && idOk(record.tenantId) && arrOk(record.filterIds) && arrOk(record.allowedIds) && flagOk
 }
 
 function resolveCacheFromContainer(container: AwilixContainer | null | undefined): CacheStrategy | null {
@@ -93,13 +104,17 @@ function resolveCacheFromContainer(container: AwilixContainer | null | undefined
 export async function invalidateOrganizationScopeCacheForUser(
   container: AwilixContainer,
   userId: string,
+  tenantId?: string | null,
 ): Promise<void> {
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([buildOrgScopeUserCacheTag(userId)])
+    const cacheTenantId = tenantId === undefined ? getCurrentCacheTenant() : tenantId
+    await runWithCacheTenant(cacheTenantId, () =>
+      cache.deleteByTags([buildOrgScopeUserCacheTag(userId)]),
+    )
   } catch (err) {
-    console.warn('[org-scope:cache] invalidate user failed', err)
+    logger.warn('Cache invalidate user failed', { err })
   }
 }
 
@@ -110,9 +125,11 @@ export async function invalidateOrganizationScopeCacheForTenant(
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)])
+    await runWithCacheTenant(tenantId, () =>
+      cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)]),
+    )
   } catch (err) {
-    console.warn('[org-scope:cache] invalidate tenant failed', err)
+    logger.warn('Cache invalidate tenant failed', { err })
   }
 }
 
@@ -317,9 +334,18 @@ export async function resolveOrganizationScope({
   const initialSelected =
     normalizedSelectedId
     ?? (widenToAllOrgs ? null : accountOrgId ?? null)
+  // A selection is only honored when it resolves to a real, non-deleted org for
+  // this tenant. `orgDescendants` holds exactly the existing orgs among the
+  // candidate ids, so a stale/dead id (e.g. a selected-org cookie or JWT org
+  // that no longer resolves after a DB reset) has no entry and is dropped here.
+  // Without the existence guard an unrestricted (all-orgs) principal — whose
+  // `allowedSet` is null — would accept the dead id as `effectiveSelected`, and
+  // writes derived from `selectedId` would land under an org the read scope
+  // (`filterIds`) never filters to, silently orphaning the record.
+  const selectionResolvesToOrg = (id: string): boolean => orgDescendants.has(id)
   let effectiveSelected: string | null = null
   if (initialSelected) {
-    if (allowedSet === null || allowedSet.has(initialSelected)) {
+    if ((allowedSet === null || allowedSet.has(initialSelected)) && selectionResolvesToOrg(initialSelected)) {
       effectiveSelected = initialSelected
     }
   }
@@ -333,6 +359,13 @@ export async function resolveOrganizationScope({
     filterSet = null
   } else if (auth.orgId) {
     filterSet = loadFallbackSet()
+    // Keep the write target (`selectedId`) aligned with the read scope
+    // (`filterIds`): when an unrestricted principal's requested selection was
+    // dropped above, fall the selection back to the account org too so a record
+    // created here is always readable back by the same caller.
+    if (!effectiveSelected && fallbackOrgId && filterSet && filterSet.size > 0) {
+      effectiveSelected = fallbackOrgId
+    }
   }
 
   if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
@@ -345,11 +378,21 @@ export async function resolveOrganizationScope({
     }
   }
 
+  // A concrete organization was explicitly requested (`normalizedSelectedId` is
+  // null for both "no selection" and the "all organizations" token) but the
+  // resolver could not honor it — it was dropped as non-existent/inaccessible
+  // and the effective selection fell back to something else. Surface this so the
+  // write layer can reject the request instead of silently creating the record
+  // under the fallback org. Only set the field when true to keep the scope shape
+  // unchanged for the common (honored) case.
+  const selectionRejected = normalizedSelectedId !== null && effectiveSelected !== normalizedSelectedId
+
   return {
     selectedId: effectiveSelected,
     filterIds: filterSet ? Array.from(filterSet) : null,
     allowedIds: allowedSet ? Array.from(allowedSet) : null,
     tenantId,
+    ...(selectionRejected ? { selectionRejected: true } : {}),
   }
 }
 
@@ -453,7 +496,7 @@ export async function resolveOrganizationScopeForRequest({
         const cached = await cache.get(cacheKey)
         if (isValidCachedScope(cached)) return cached
       } catch (err) {
-        console.warn('[org-scope:cache] read failed', err)
+        logger.warn('Cache read failed', { err })
       }
     }
 
@@ -472,7 +515,7 @@ export async function resolveOrganizationScopeForRequest({
           tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
         })
       } catch (err) {
-        console.warn('[org-scope:cache] write failed', err)
+        logger.warn('Cache write failed', { err })
       }
     }
 

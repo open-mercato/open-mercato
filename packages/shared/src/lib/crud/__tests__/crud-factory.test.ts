@@ -10,6 +10,7 @@ import {
   registerOptimisticLockReaders,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { z } from 'zod'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
@@ -201,6 +202,7 @@ describe('CRUD Factory', () => {
     }
     crudMutationGuardService = null
     registerApiInterceptors([])
+    registerMutationGuards([])
   })
 
   const querySchema = z.object({
@@ -719,6 +721,193 @@ describe('CRUD Factory', () => {
     // CommandBus via flushCrudSideEffects(). The factory itself must NOT emit events
     // to avoid duplicates (see commit 3f999f35).
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('POST command route runs mutation guards before executing the command', async () => {
+    const guardValidate = jest.fn(async (_input: any) => ({ ok: false, status: 403, message: 'Blocked by test guard' }))
+    registerMutationGuards([{ moduleId: 'example', guards: [{
+      id: 'example.block-command-create',
+      targetEntity: 'example.todo',
+      operations: ['create'],
+      validate: guardValidate,
+    }] }])
+    const commandRoute = makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          schema: createSchema,
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const res = await commandRoute.POST(new Request('http://x/api/example/todos/command', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'A' }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(403)
+    expect(guardValidate).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'example.todo',
+      resourceId: null,
+      operation: 'create',
+      mutationPayload: expect.objectContaining({ title: 'A' }),
+    }))
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('POST command route merges guard modifiedPayload and runs afterSuccess with the command result id', async () => {
+    commandBus.execute.mockResolvedValue({ result: { id: 'cmd-created-1' }, logEntry: { id: 'log-1' } })
+    const guardAfterSuccess = jest.fn(async () => {})
+    registerMutationGuards([{ moduleId: 'example', guards: [{
+      id: 'example.rewrite-command-create',
+      targetEntity: 'example.todo',
+      operations: ['create'],
+      validate: async (_input: any) => ({ ok: true, modifiedPayload: { title: 'FROM-GUARD' }, shouldRunAfterSuccess: true }),
+      afterSuccess: guardAfterSuccess,
+    }] }])
+    const commandRoute = makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          schema: createSchema,
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const res = await commandRoute.POST(new Request('http://x/api/example/todos/command', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'A' }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(commandBus.execute).toHaveBeenCalledWith('example.todo.create', expect.objectContaining({
+      input: expect.objectContaining({ title: 'FROM-GUARD' }),
+    }))
+    expect(guardAfterSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      resourceId: 'cmd-created-1',
+      operation: 'create',
+    }))
+  })
+
+  it('POST command route falls back to the response payload id for guard afterSuccess', async () => {
+    commandBus.execute.mockResolvedValue({ result: { lineId: 'line-42' }, logEntry: { id: 'log-1' } })
+    const guardAfterSuccess = jest.fn(async () => {})
+    registerMutationGuards([{ moduleId: 'example', guards: [{
+      id: 'example.after-command-create',
+      targetEntity: 'example.todo',
+      operations: ['create'],
+      validate: async (_input: any) => ({ ok: true, shouldRunAfterSuccess: true }),
+      afterSuccess: guardAfterSuccess,
+    }] }])
+    const commandRoute = makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          schema: createSchema,
+          response: ({ result }: any) => ({ id: result.lineId }),
+        },
+      },
+    })
+
+    const res = await commandRoute.POST(new Request('http://x/api/example/todos/command', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'A' }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(guardAfterSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      resourceId: 'line-42',
+      operation: 'create',
+    }))
+  })
+
+  // Commands whose mapInput wraps the payload (e.g. `{ body }`) null the factory
+  // candidateId and thereby OPT OUT of row-level mutation guards, leaving the
+  // command-level optimistic-lock check as the sole guard — a documented contract
+  // (apps/docs/docs/framework/data-integrity/concurrency-locking.mdx) that sales
+  // line/adjustment routes rely on.
+  it('PUT command route without a top-level id keeps the documented row-level guard opt-out', async () => {
+    crudMutationGuardService = {
+      validateMutation: jest.fn().mockResolvedValue({ ok: true, shouldRunAfterSuccess: false }),
+      afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
+    }
+    const guardValidate = jest.fn(async (_input: any) => ({ ok: false, status: 409, message: 'must not run' }))
+    registerMutationGuards([{ moduleId: 'example', guards: [{
+      id: 'example.idless-update-opt-out',
+      targetEntity: 'example.todo',
+      operations: ['update'],
+      validate: guardValidate,
+    }] }])
+    const commandRoute = makeCrudRoute({
+      metadata: { PUT: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        update: {
+          commandId: 'example.todo.update',
+          schema: z.object({ title: z.string() }),
+          mapInput: ({ parsed }: any) => ({ body: parsed }),
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const res = await commandRoute.PUT(new Request('http://x/api/example/todos/command', {
+      method: 'PUT',
+      body: JSON.stringify({ title: 'nested id shape' }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(200)
+    expect(guardValidate).not.toHaveBeenCalled()
+    expect(crudMutationGuardService.validateMutation).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledWith('example.todo.update', expect.anything())
+  })
+
+  it('DELETE command route without any id keeps the documented row-level guard opt-out', async () => {
+    const guardValidate = jest.fn(async (_input: any) => ({ ok: false, status: 403, message: 'must not run' }))
+    registerMutationGuards([{ moduleId: 'example', guards: [{
+      id: 'example.idless-delete-opt-out',
+      targetEntity: 'example.todo',
+      operations: ['delete'],
+      validate: guardValidate,
+    }] }])
+    const commandRoute = makeCrudRoute({
+      metadata: { DELETE: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        delete: {
+          commandId: 'example.todo.delete',
+          schema: z.any(),
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const res = await commandRoute.DELETE(new Request('http://x/api/example/todos/command', {
+      method: 'DELETE',
+      body: JSON.stringify({}),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(200)
+    expect(guardValidate).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
   })
 
   it('POST is blocked by interceptor before hook', async () => {

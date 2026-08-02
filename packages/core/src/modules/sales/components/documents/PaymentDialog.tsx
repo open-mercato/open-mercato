@@ -17,6 +17,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export type PaymentTotals = {
   paidTotalAmount?: number | null
@@ -153,7 +156,7 @@ export function PaymentDialog({
         if (!query) setPaymentMethods([])
         return []
       } catch (err) {
-        console.error('sales.payments.methods.load', err)
+        logger.error('sales.payments.methods.load', { err })
         return []
       } finally {
         setMethodsLoading(false)
@@ -224,7 +227,7 @@ export function PaymentDialog({
       setDocumentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.payments.statuses.load', err)
+      logger.error('sales.payments.statuses.load', { err })
       setDocumentStatuses([])
       return []
     } finally {
@@ -259,7 +262,7 @@ export function PaymentDialog({
       setPaymentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.payments.statuses.load', err)
+      logger.error('sales.payments.statuses.load', { err })
       setPaymentStatuses([])
       return []
     } finally {

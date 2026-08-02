@@ -1,5 +1,6 @@
 "use client"
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -14,6 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 import { notifyAuthIdentityChange } from '@open-mercato/ui/backend/AuthSessionGuard'
+import { clearAllPerspectiveState } from '@open-mercato/ui/backend/DataTable'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { X } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -102,6 +104,7 @@ export default function LoginPage() {
   const searchParams = useSearchParams()
   const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
   const requireFeature = (searchParams.get('requireFeature') || '').trim()
+  const redirectParam = searchParams.get('redirect') || ''
   const requiredRoles = requireRole ? requireRole.split(',').map((value) => value.trim()).filter(Boolean) : []
   const requiredFeatures = requireFeature ? requireFeature.split(',').map((value) => value.trim()).filter(Boolean) : []
   const translatedRoles = requiredRoles.map((role) => translate(`auth.roles.${role}`, role))
@@ -134,7 +137,10 @@ export default function LoginPage() {
       try {
         const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-om-unauthorized-redirect': '0',
+          },
           body: JSON.stringify({ features: [] }),
           cache: 'no-store',
         })
@@ -148,7 +154,7 @@ export default function LoginPage() {
         // producing an infinite loop (see GH #2070). Stay on the login page so
         // the access-denied banner is visible.
         if (hasAclChallenge) return
-        const rawRedirect = searchParams.get('redirect') || ''
+        const rawRedirect = redirectParam
         let destination = '/backend'
         if (rawRedirect) {
           try {
@@ -170,7 +176,7 @@ export default function LoginPage() {
       }
     })()
     return () => { cancelled = true }
-  }, [router, searchParams, requiredFeatures.length, requiredRoles.length])
+  }, [router, redirectParam, requiredFeatures.length, requiredRoles.length])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -259,6 +265,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
         clearAllOperations()
+        clearAllPerspectiveState()
         notifyAuthIdentityChange()
         // NextResponse.redirect from API
         router.replace(res.url)
@@ -313,6 +320,7 @@ export default function LoginPage() {
       const data = await res.json().catch(() => null) as LoginResponseEventDetail
       emitLoginResponseEvent(data)
       clearAllOperations()
+      clearAllPerspectiveState()
       notifyAuthIdentityChange()
       if (data && typeof data.redirect === 'string' && data.redirect.length > 0) {
         router.replace(data.redirect)
@@ -422,7 +430,7 @@ export default function LoginPage() {
                 />
               </div>
               <InjectionSpot<LoginFormWidgetContext>
-                spotId="auth.login:form"
+                spotId={extensionPoints.hosts.loginForm.spotId}
                 context={loginFormContext}
               />
               {authOverride?.hidePassword ? null : (

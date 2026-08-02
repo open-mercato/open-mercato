@@ -7,6 +7,9 @@ import { getChannelAdapterRegistry } from '../lib/adapter-registry-singleton'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { POLLING_ONLY_DEFAULT_INTERVAL_SECONDS } from '../lib/connect-channel'
 import { emitCommunicationChannelsEvent } from '../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'push-unregister' })
 
 /**
  * Spec C § Phase C5 — Tear down a previously-registered push delivery.
@@ -130,9 +133,7 @@ export async function pushUnregister(params: {
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.warn(
-      `[push-unregister] adapter.unregisterPush failed for channel ${channel.id}: ${message}`,
-    )
+    logger.warn('adapter.unregisterPush failed for channel', { channelId: channel.id, reason: message })
     return {
       channelId: channel.id,
       status: 'failed',

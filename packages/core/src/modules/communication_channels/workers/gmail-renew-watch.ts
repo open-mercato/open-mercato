@@ -5,6 +5,9 @@ import { CommunicationChannel } from '../data/entities'
 import { COMMUNICATION_CHANNELS_QUEUES } from '../lib/queue'
 import { pushRenew } from '../commands/push-renew'
 import { emitCommunicationChannelsEvent } from '../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'gmail-renew-watch' })
 
 /**
  * Spec C § Phase C4 — Daily cron that re-issues `gmail.users.watch` for
@@ -79,9 +82,7 @@ export default async function handle(
 
     const organizationId = channel.organizationId
     if (!organizationId) {
-      console.warn(
-        `[gmail-renew-watch] skipping channel ${channel.id} — no organizationId on row`,
-      )
+      logger.warn('skipping channel — no organizationId on row', { channelId: channel.id })
       continue
     }
 
@@ -113,15 +114,11 @@ export default async function handle(
       }
     } catch (err) {
       failed += 1
-      console.warn(
-        `[gmail-renew-watch] failed to renew channel ${channel.id}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      )
+      logger.warn('failed to renew channel watch', { channelId: channel.id, err })
     }
   }
   if (renewed > 0 || failed > 0) {
-    console.info(`[gmail-renew-watch] renewed=${renewed} failed=${failed}`)
+    logger.info('gmail watch renewal summary', { renewed, failed })
   }
 }
 

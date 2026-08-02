@@ -91,6 +91,12 @@ export type AsyncQueueOptions = {
   connection?: RedisConnectionOptions
   /** Number of concurrent job processors. Defaults to 1 */
   concurrency?: number
+  /** Number of attempts for newly enqueued jobs. Defaults to 3. */
+  attempts?: number
+  /** How long a job lock is held before the job counts as stalled, in ms. Defaults to 30000. */
+  lockDuration?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. Defaults to 1. */
+  maxStalledCount?: number
 }
 
 /**
@@ -135,6 +141,12 @@ export type ProcessResult = {
   lastJobId?: string
 }
 
+export type QueueJobScope = {
+  tenantId: string
+  organizationId?: string | null
+  jobTypes?: readonly string[]
+}
+
 // ============================================================================
 // Queue Interface
 // ============================================================================
@@ -174,6 +186,13 @@ export interface Queue<T = unknown> {
    * @returns Promise with count of removed jobs
    */
   clear(): Promise<{ removed: number }>
+
+  /**
+   * Remove queued jobs whose payload belongs to the provided tenant/org scope.
+   * Active jobs are not forcibly terminated; callers should rely on their own
+   * cancellation/heartbeat contracts for in-flight work.
+   */
+  removeQueuedJobsByScope?(scope: QueueJobScope): Promise<{ removed: number }>
 
   /**
    * Close the queue and release resources.
@@ -237,6 +256,10 @@ export type WorkerMeta = {
   id?: string
   /** Worker concurrency (default: 1) */
   concurrency?: number
+  /** How long a job lock is held before the job counts as stalled, in ms. */
+  lockDuration?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. */
+  maxStalledCount?: number
 }
 
 /**
@@ -252,4 +275,8 @@ export type WorkerDescriptor<T = unknown> = {
   handler: JobHandler<T>
   /** Concurrency level */
   concurrency: number
+  /** How long a job lock is held before the job counts as stalled, in ms. */
+  lockDuration?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. */
+  maxStalledCount?: number
 }

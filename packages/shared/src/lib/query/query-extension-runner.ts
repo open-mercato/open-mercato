@@ -18,6 +18,9 @@ import { getEnrichersForEntity } from '../crud/enricher-registry'
 import { applyResponseEnrichers, applyResponseEnricherToRecord } from '../crud/enricher-runner'
 import type { SyncQueryEventPayload, SyncQueryEventResult } from './sync-query-event-types'
 import type { QueryOptions, QueryResult } from './types'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'query-extensions' })
 
 // ---------------------------------------------------------------------------
 // Entity-to-event-ID helpers
@@ -96,10 +99,7 @@ export async function runBeforeQueryEvent(
         currentQuery = { ...currentQuery, ...queryResult.modifiedQuery }
       }
     } catch (error) {
-      console.error(
-        `[query-extension] before-query subscriber failed: ${subscriber.metadata.id}`,
-        error,
-      )
+      logger.error('Before-query subscriber failed', { subscriberId: subscriber.metadata.id, err: error })
       return {
         ok: false,
         errorMessage: `Subscriber ${subscriber.metadata.id} threw unexpectedly`,
@@ -148,16 +148,11 @@ export async function runAfterQueryEvent(
         if (isValidQueryResult(queryResult.modifiedResult)) {
           currentResult = queryResult.modifiedResult
         } else {
-          console.warn(
-            `[query-extension] after-query subscriber ${subscriber.metadata.id} returned invalid modifiedResult shape — ignored`,
-          )
+          logger.warn('After-query subscriber returned invalid modifiedResult shape — ignored', { subscriberId: subscriber.metadata.id })
         }
       }
     } catch (error) {
-      console.error(
-        `[query-extension] after-query subscriber failed: ${subscriber.metadata.id}`,
-        error,
-      )
+      logger.error('After-query subscriber failed', { subscriberId: subscriber.metadata.id, err: error })
     }
   }
 

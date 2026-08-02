@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { User, Hash, Users, Building2 } from 'lucide-react'
@@ -52,6 +53,9 @@ import {
   type PersonOverview,
 } from '../../../../components/formConfig'
 import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -182,7 +186,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch((err) => console.warn('[people-v2] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'people-v2', err }))
   }, [loadData])
 
   React.useEffect(() => {
@@ -191,7 +195,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
-    loadData().catch((err) => console.warn('[people-v2] reload after activity failed', err))
+    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'people-v2', err }))
   }, [loadData])
 
   const plannedActivities = React.useMemo(() => {
@@ -499,8 +503,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection (third-party extensions) */}
-          <InjectionSpot spotId="detail:customers.person:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.person:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent person header */}
           <PersonDetailHeader
@@ -512,7 +516,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             isDirty={isDirty}
             isSaving={isSaving}
             onOpenCompaniesTab={() => setActiveTab('companies')}
-            onDataReload={() => { loadData().catch((err) => console.warn('[people-v2] onDataReload failed', err)) }}
+            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
                 primaryEmail: 'input[type="email"]',
@@ -534,7 +538,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 <CrudForm<PersonEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="crud-form:customers.person"
+                  injectionSpotId={extensionPoints.hosts.personForm.spotId}
                   entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
                   schema={formSchema}
                   fields={fields}
@@ -716,7 +720,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           })()}
 
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.person:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog — opened from PlannedActivities "+ Schedule" or other triggers */}
           <ScheduleActivityDialog

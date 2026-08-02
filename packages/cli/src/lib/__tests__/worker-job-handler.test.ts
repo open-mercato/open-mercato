@@ -1,4 +1,8 @@
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
+import {
+  getModuleResourceUsageReport,
+  resetModuleResourceUsage,
+} from '@open-mercato/shared/lib/modules/resource-usage'
 import { createPerJobWorkerHandler, type WorkerJobContainer } from '../worker-job-handler'
 
 type FakeContainer = WorkerJobContainer & {
@@ -32,6 +36,14 @@ function makeWorker(id: string, handler: ModuleWorker['handler']): ModuleWorker 
 const baseCtx = { jobId: 'job-1', attemptNumber: 1, queueName: 'test' }
 
 describe('createPerJobWorkerHandler', () => {
+  beforeEach(() => {
+    resetModuleResourceUsage()
+  })
+
+  afterEach(() => {
+    resetModuleResourceUsage()
+  })
+
   it('creates a fresh container for every job invocation', async () => {
     const { factory } = makeContainerFactory()
     const worker = makeWorker('w', jest.fn())
@@ -131,5 +143,21 @@ describe('createPerJobWorkerHandler', () => {
 
     await expect(handler({ id: 'a' }, baseCtx)).rejects.toBe(boom)
     expect(containers[0].em.clear).toHaveBeenCalledTimes(1)
+  })
+
+  it('attributes worker execution to the owning module', async () => {
+    const { factory } = makeContainerFactory()
+    const handler = createPerJobWorkerHandler(
+      [makeWorker('customers:workers:bulk-update', jest.fn())],
+      factory,
+    )
+
+    await handler({ id: 'a' }, baseCtx)
+
+    const report = getModuleResourceUsageReport()
+    expect(report.modules).toHaveLength(1)
+    expect(report.modules[0].moduleId).toBe('customers')
+    expect(report.modules[0].surfaces[0].surface).toBe('worker')
+    expect(report.modules[0].topOperations[0].operation).toBe('customers:workers:bulk-update')
   })
 })

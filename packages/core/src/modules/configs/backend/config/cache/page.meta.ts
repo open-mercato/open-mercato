@@ -27,7 +27,7 @@ export const metadata = {
   pageTitleKey: 'configs.config.nav.cache',
   pageGroup: 'System',
   pageGroupKey: 'settings.sections.system',
-  pageOrder: 2,
+  pageOrder: 3,
   icon: cacheIcon,
   pageContext: 'settings' as const,
   breadcrumb: [

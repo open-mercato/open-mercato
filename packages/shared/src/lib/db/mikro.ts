@@ -4,6 +4,9 @@ import { MikroORM } from '@mikro-orm/core'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { getSslConfig } from './ssl'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'orm' })
 
 export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
 
@@ -22,7 +25,7 @@ function setRegisteredEntities(entities: any[]): void {
 
 export function registerOrmEntities(entities: any[]) {
   if (getRegisteredEntities() !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] ORM entities re-registered (this may occur during HMR)')
+    logger.debug('ORM entities re-registered (this may occur during HMR)')
   }
   setRegisteredEntities(entities)
 }
@@ -106,7 +109,7 @@ export async function getOrm() {
   const sslConfig = getSslConfig()
 
   if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
-    console.log('[orm] pool config', {
+    logger.info('Pool config', {
       poolMin,
       poolMax,
       poolIdleTimeout,
@@ -149,8 +152,20 @@ export async function getOrm() {
       options: connectionOptions,
       ssl: sslConfig,
       onPoolCreated: (pool: any) => {
+        // node-postgres re-emits errors from IDLE pooled clients on the pool's
+        // 'error' event. Postgres terminates idle sessions on its own (admin
+        // termination, network drop, and — most relevantly for long-running
+        // daemons like the scheduler — `idle_in_transaction_session_timeout`,
+        // which defaults to 120s above). Without a listener here, such a
+        // termination surfaces as an unhandled 'error' event and crashes the
+        // whole process (e.g. "Scheduler polling engine exited unexpectedly
+        // with exit code 1"). Swallow it: the pool discards the dead client and
+        // opens a fresh connection on the next acquire.
+        pool.on('error', (err: unknown) => {
+          logger.warn('Idle pg pool client error (connection reaped/terminated)', { err })
+        })
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
-          console.log('[orm] pg pool created with options', {
+          logger.info('pg pool created with options', {
             max: pool.options?.max,
             min: pool.options?.min,
             idleTimeoutMillis: pool.options?.idleTimeoutMillis,

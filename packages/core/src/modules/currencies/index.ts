@@ -1,5 +1,3 @@
-import './commands/currencies'
-import './commands/exchange-rates'
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {

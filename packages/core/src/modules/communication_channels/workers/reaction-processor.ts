@@ -19,6 +19,9 @@ import {
 } from '../lib/reaction-processor-types'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import type { ChannelAdapterRegistry } from '../lib/registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'reaction-processor' })
 
 export type { ReactionProcessorPayload }
 
@@ -238,22 +241,16 @@ async function maybeRetry(
   if (result.status === 'ok') return
   if (result.status === 'no_adapter' || result.status === 'channel_inactive') {
     // Permanent — log and stop.
-    console.error(
-      `[communication_channels:reaction-processor] ${result.status}: ${result.message}`,
-    )
+    logger.error('reaction processing failed', { status: result.status, reason: result.message })
     return
   }
   if (!result.transient) {
-    console.error(
-      `[communication_channels:reaction-processor] permanent failure: ${result.message}`,
-    )
+    logger.error('permanent reaction processing failure', { reason: result.message })
     return
   }
   const attempt = payload.attempt ?? 1
   if (attempt >= REACTION_PROCESSOR_MAX_ATTEMPTS) {
-    console.error(
-      `[communication_channels:reaction-processor] giving up after attempt ${attempt}: ${result.message}`,
-    )
+    logger.error('giving up on reaction processing', { attempt, reason: result.message })
     return
   }
   const next: ReactionProcessorPayload = { ...payload, attempt: attempt + 1 }

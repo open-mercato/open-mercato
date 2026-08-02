@@ -9,12 +9,18 @@ import {
   createWidgetDataService,
   type WidgetDataRequest,
   WidgetDataValidationError,
+  WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
 } from '../../../../services/widgetDataService'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from '../schema'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOptionalBaseCurrencyResolver } from '../../../../lib/optionalBaseCurrency'
+
+const logger = createLogger('dashboards').child({ component: 'widgets-data-batch' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['analytics.view'] },
@@ -99,7 +105,13 @@ export async function POST(req: Request) {
   })()
 
   const cache = container.resolve<CacheStrategy>('cache')
-  const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
+  const service = createWidgetDataService(
+    em,
+    { tenantId, organizationIds },
+    analyticsRegistry,
+    cache,
+    resolveOptionalBaseCurrencyResolver(container),
+  )
 
   const rbacService = container.resolve<{
     userHasAllFeatures: (
@@ -122,12 +134,14 @@ export async function POST(req: Request) {
       fetchOne: (request) => service.fetchWidgetData(request),
       describeError: (error) =>
         error instanceof WidgetDataValidationError
+        || error instanceof WidgetDataScanLimitError
+        || error instanceof WidgetDataEncryptionUnavailableError
           ? error.message
           : 'An error occurred while processing your request',
     })
     return NextResponse.json({ results })
   } catch (err) {
-    console.error('[widgets/data/batch] Error:', err)
+    logger.error('Widget batch data request failed', { err })
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
       { status: 500 },

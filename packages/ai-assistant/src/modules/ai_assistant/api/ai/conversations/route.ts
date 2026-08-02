@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -12,6 +13,8 @@ import {
   createConversationStorage,
   serializeAiChatConversation,
 } from '../../../lib/conversation-storage'
+
+const logger = createLogger('ai_assistant')
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
 const MANAGE_CONVERSATIONS_FEATURE = 'ai_assistant.conversations.manage'
@@ -171,7 +174,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       nextCursor: result.nextCursor,
     })
   } catch (error) {
-    console.error('[AI Conversations GET] Failure:', error)
+    logger.error('AI Conversations GET — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to list conversations.',
@@ -234,7 +237,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (error instanceof Error && error.name === 'AiChatConversationAccessError') {
       return jsonError(404, error.message, 'conversation_not_found')
     }
-    console.error('[AI Conversations POST] Failure:', error)
+    logger.error('AI Conversations POST — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to create conversation.',

@@ -298,6 +298,8 @@ test('CLI bare scaffold applies explicit crm preset without prompting', () => {
     assert.match(modulesTs, /id: 'customers'/)
     assert.match(modulesTs, /id: 'dictionaries'/)
     assert.match(modulesTs, /id: 'feature_toggles'/)
+    assert.match(modulesTs, /id: 'currencies'/)
+    assert.match(modulesTs, /id: 'communication_channels'/)
     assert.doesNotMatch(modulesTs, /id: 'example'/)
     assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example')), false)
     assert.equal(existsSync(join(targetDir, '.mercato', 'starter-preset.json')), true)

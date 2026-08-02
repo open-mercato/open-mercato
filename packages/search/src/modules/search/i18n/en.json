@@ -17,6 +17,8 @@
   "search.api.errors.recreateFailed": "Failed to recreate vector table with new dimension.",
   "search.api.errors.reindexFailed": "Reindex operation failed.",
   "search.api.errors.reindexInProgress": "A reindex is already in progress.",
+  "search.api.errors.scopedQueueCancelFailed": "Failed to cancel queued reindex jobs.",
+  "search.api.errors.scopedQueueCancelUnavailable": "Scoped queue cancellation is not available.",
   "search.api.errors.searchFailed": "Search operation failed.",
   "search.api.errors.serviceUnavailable": "Search service is unavailable.",
   "search.api.errors.strategyUnavailable": "Requested search strategy is unavailable.",

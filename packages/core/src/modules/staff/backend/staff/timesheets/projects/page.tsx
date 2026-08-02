@@ -41,6 +41,9 @@ import {
   type ProjectCardData,
   type ProjectCardLabels,
 } from '../../../../lib/timesheets-projects-ui/ProjectCard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const PAGE_SIZE = 50
 const INCLUDE_FIELDS = 'hoursWeek,hoursTrend,members,myRole'
@@ -401,7 +404,7 @@ export default function TimesheetProjectsPage() {
           : Math.max(1, Math.ceil(items.length / PAGE_SIZE)),
       )
     } catch (error) {
-      console.error('staff.timesheets.projects.list', error)
+      logger.error('staff.timesheets.projects.list', { err: error })
       flash(labels.errors.load, 'error')
     } finally {
       setIsLoading(false)
@@ -477,7 +480,7 @@ export default function TimesheetProjectsPage() {
         handleRefresh()
       } catch (error) {
         if (surfaceRecordConflict(error, t)) { handleRefresh(); return }
-        console.error('staff.timesheets.projects.delete', error)
+        logger.error('staff.timesheets.projects.delete', { err: error })
         flash(labels.errors.delete, 'error')
       }
     },

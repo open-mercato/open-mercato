@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 export default function ResetWithTokenPage({ params }: { params: { token: string } }) {
   const router = useRouter()
@@ -42,6 +42,10 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
     }
     if (password !== confirmPassword) {
       setError(t('auth.profile.form.errors.passwordMismatch', 'Passwords do not match.'))
+      return
+    }
+    if (!validatePassword(password, passwordPolicy).ok) {
+      setError(t('auth.profile.form.errors.passwordRequirements', 'Password must meet the requirements.'))
       return
     }
 

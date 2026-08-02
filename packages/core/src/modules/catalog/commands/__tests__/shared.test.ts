@@ -50,7 +50,8 @@ describe('catalog command shared helpers', () => {
 
   it('enforces tenant scope when conflicting tenant id is provided', () => {
     expect(() => ensureTenantScope(createCtx(), 'tenant-1')).not.toThrow()
-    expect(() => ensureTenantScope(createCtx({ auth: { tenantId: null } }), 'tenant-2')).not.toThrow()
+    expect(() => ensureTenantScope(createCtx({ auth: { tenantId: null } }), 'tenant-2')).toThrow(CrudHttpError)
+    expect(() => ensureTenantScope(createCtx({ auth: null }), 'tenant-2')).not.toThrow()
     expect(() => ensureTenantScope(createCtx(), 'tenant-2')).toThrow(CrudHttpError)
   })
 

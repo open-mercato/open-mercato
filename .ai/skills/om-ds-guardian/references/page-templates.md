@@ -300,5 +300,17 @@ Every generated page must pass:
 - [ ] `apiCall` for data fetching — no raw `fetch`
 - [ ] No `text-red-*`, `bg-green-*`, etc. — semantic tokens only
 - [ ] No `text-[Npx]` — use typography scale
-- [ ] No `<Notice>` — use `<Alert>`
+- [ ] No `<Notice>` / `<ErrorNotice>` — use `<Alert>` (migration complete, guard-tested)
+- [ ] No legacy `<Alert variant=...>` — use `status="error|warning|success|information|feature"` (+ optional `style`/`size`)
 - [ ] No inline `<svg>` — use `lucide-react`
+- [ ] No arbitrary `z-[N]` — semantic z-index tokens (`z-modal`, `z-modal-elevated`, `z-popover`, …)
+- [ ] Custom focusables use `focus-visible:outline-none focus-visible:shadow-focus` (not `ring-2 ring-offset-2`)
+
+## Pattern add-ons (use when the page calls for them)
+
+| Pattern | Recipe |
+|---|---|
+| Filter tabs with counts | `<Tabs variant="underline"><TabsList><TabsTrigger value="all" count={total}>…` — never raw `<button role="tab">` + `<span>` badge |
+| Secondary form / detail pane | `Drawer` + `DrawerContent/Header(DrawerTitle 18px + DrawerDescription muted)/Body(px-6)/Footer(layout="equal")` — never a hand-rolled fixed side panel |
+| Single-month date field | `DatePicker` — its header opens the built-in month/year grid; no custom month nav |
+| Stage/category chips | `Tag`/`Badge` with `status-pink-*` allowed as categorical accent — never for outcome semantics |

@@ -7,7 +7,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -35,6 +35,9 @@ import {
   sortTodoRows,
   resolveLegacyTodoDetails,
 } from '../../lib/todoCompatibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -215,7 +218,7 @@ async function resolveCanonicalTodoTargetId(
 
   const legacyLink = await findLegacyTodoLink(em, target, tenantId)
   if (!legacyLink) {
-    if (!target.todoId) throw new CrudHttpError(404, { error: 'Todo not found' })
+    if (!target.todoId) throw notFound('Todo not found')
     return target.todoId
   }
 
@@ -312,7 +315,7 @@ export async function GET(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.get failed', err)
+    logger.error('customers.todos.get failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -416,7 +419,7 @@ export async function POST(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.post failed', err)
+    logger.error('customers.todos.post failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -513,7 +516,7 @@ export async function PUT(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.put failed', err)
+    logger.error('customers.todos.put failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )
@@ -593,7 +596,7 @@ export async function DELETE(request: Request): Promise<Response> {
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
       )
     }
-    console.error('customers.todos.delete failed', err)
+    logger.error('customers.todos.delete failed', { err })
     return withAdapterHeaders(
       NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
     )

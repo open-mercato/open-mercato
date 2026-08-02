@@ -1,3 +1,7 @@
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
+
 // Registration pattern for entity fields (for Turbopack compatibility)
 export type EntityFieldsRegistry = Record<string, Record<string, string>>
 
@@ -5,7 +9,7 @@ let _entityFieldsRegistry: EntityFieldsRegistry | null = null
 
 export function registerEntityFields(registry: EntityFieldsRegistry) {
   if (_entityFieldsRegistry !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Entity fields re-registered (this may occur during HMR)')
+    logger.debug('Entity fields re-registered (this may occur during HMR)')
   }
   _entityFieldsRegistry = registry
 }

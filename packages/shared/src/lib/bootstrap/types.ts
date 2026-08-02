@@ -1,4 +1,4 @@
-import type { DiRegistrar } from '../di/container'
+import type { AppDiRegistrar, DiRegistrar } from '../di/container'
 import type { EntityIds } from '../encryption/entityIds'
 import type { EntityFieldsRegistry } from '../encryption/entityFields'
 import type { Module, ModuleDashboardWidgetEntry, ModuleInjectionWidgetEntry } from '../../modules/registry'
@@ -44,6 +44,8 @@ export interface NotificationHandlerBootstrapEntry {
   handlers: import('../../modules/notifications/handler').NotificationHandler[]
 }
 
+export type CommandLoaderBootstrapEntry = import('../commands/registry').CommandLoader
+
 export interface BootstrapData {
   modules: Module[]
   entities: OrmEntity[]
@@ -60,10 +62,13 @@ export interface BootstrapData {
   componentOverrideEntries?: ComponentOverrideBootstrapEntry[]
   guardEntries?: GuardBootstrapEntry[]
   commandInterceptorEntries?: CommandInterceptorBootstrapEntry[]
+  commandLoaderEntries?: CommandLoaderBootstrapEntry[]
   notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
+  codeWorkflows?: import('../../modules/workflows/types').CodeWorkflowDefinition[]
 }
 
 export interface BootstrapOptions {
   skipSearchConfigs?: boolean
   onRegistrationComplete?: () => void
+  appDiRegistrar?: AppDiRegistrar
 }

@@ -23,6 +23,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '../../../lib/customFieldRouting'
+import { isOpenInteractionStatus, TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
@@ -42,6 +43,11 @@ import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/p
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -50,6 +56,63 @@ export const metadata = {
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })
+
+// Person detail is one of the heaviest custom GETs (decryption sweeps across
+// addresses, tags, labels, interactions, custom fields, plus per-link query
+// engine enrichment). Mirror the gated get-then-set cache from the roles list
+// (#3143) so a hit skips every sweep below. Writes flow through the customers
+// command bus, which already flushes the matching crud:<resourceKind> collection
+// tags post-commit — these set tags reuse the exact same shapes (see
+// invalidateCrudCache), so no new invalidation wiring is needed (#3663).
+// The resource ids below are canonicalized with canonicalizeResourceTag (just
+// like invalidateCrudCache does via expandResourceAliases) before building the
+// collection tags, so camelCase ids (tagAssignment, labelAssignment,
+// personCompanyLink) produce the SAME tag the command bus deletes on
+// write/undo/redo — otherwise the cache would never be invalidated for them.
+const PERSON_DETAIL_TTL_MS = 60_000
+const PERSON_DETAIL_TAG_RESOURCES = [
+  'customers.person',
+  'customers.address',
+  'customers.tagAssignment',
+  'customers.labelAssignment',
+  'customers.personCompanyLink',
+  'customers.interaction',
+  'customers.activity',
+] as const
+
+function buildPersonDetailCacheKey(params: {
+  personId: string
+  tenantId: string | null
+  organizationId: string | null
+  callerId: string | null
+  selectedOrganizationId: string | null
+  scopedOrganizationIds: string[]
+  interactionMode: 'canonical' | 'legacy'
+  includeTokens: string[]
+}): string {
+  const include = [...params.includeTokens].sort((a, b) => a.localeCompare(b)).join('|') || 'none'
+  const scoped = [...params.scopedOrganizationIds].sort((a, b) => a.localeCompare(b)).join('|') || 'null'
+  return [
+    'customers:person-detail',
+    params.personId,
+    `tenant=${params.tenantId ?? 'null'}`,
+    `org=${params.organizationId ?? 'null'}`,
+    `caller=${params.callerId ?? 'null'}`,
+    `selOrg=${params.selectedOrganizationId ?? 'null'}`,
+    `scope=${scoped}`,
+    `mode=${params.interactionMode}`,
+    `include=${include}`,
+  ].join(':')
+}
+
+function buildPersonDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
+  const tags: string[] = []
+  for (const resource of PERSON_DETAIL_TAG_RESOURCES) {
+    const canonical = canonicalizeResourceTag(resource) ?? resource
+    tags.push(...buildCollectionTags(canonical, tenantId, [organizationId]))
+  }
+  return tags
+}
 
 function parseIncludeParams(request: Request): Set<string> {
   const url = new URL(request.url)
@@ -224,7 +287,7 @@ function createRouteProfiler(scope: string): RouteProfiler {
       if (tail.extra && Object.keys(tail.extra).length > 0) payload.meta = tail.extra
       else if (extra && Object.keys(extra).length > 0) payload.meta = extra
       try {
-        console.info('[route:profile]', payload)
+        logger.info('route:profile', { payload })
       } catch {
         // ignore logging failures
       }
@@ -382,7 +445,7 @@ async function resolveTodoDetails(
       profiler?.mark('todo_items_processed', { source, enriched })
     } catch (err) {
       profiler?.mark('todo_query_failed', { source, error: err instanceof Error ? err.message : String(err) })
-      console.warn(`customers.people.detail: failed to resolve todos for source ${source}`, err)
+      logger.warn('customers.people.detail: failed to resolve todos', { source, err })
     }
   }
 
@@ -485,6 +548,39 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return forbidden('Access denied')
     }
 
+    // Gated get-then-set cache. Key on the resolved person plus the effective
+    // RBAC scope (caller identity, selected/visible orgs) and the payload-shaping
+    // inputs (interaction mode + include set). The lookup sits before the
+    // expensive sweeps below so a hit returns without touching the DB.
+    const personDetailTenantId = person.tenantId ?? auth.tenantId ?? null
+    const personDetailOrganizationId = person.organizationId ?? null
+    const personDetailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
+    const personDetailCacheKey = personDetailCache
+      ? buildPersonDetailCacheKey({
+          personId: person.id,
+          tenantId: personDetailTenantId,
+          organizationId: personDetailOrganizationId,
+          callerId: auth.sub ?? null,
+          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
+          interactionMode,
+          includeTokens: Array.from(includeTokens),
+        })
+      : null
+    const personDetailCacheTags = personDetailCache
+      ? buildPersonDetailCacheTags(personDetailTenantId, personDetailOrganizationId)
+      : []
+
+    if (personDetailCache && personDetailCacheKey) {
+      const cached = await runWithCacheTenant(personDetailTenantId, () => personDetailCache.get(personDetailCacheKey))
+      if (cached) {
+        statusCode = 200
+        profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
+        profiler.mark('cache_hit')
+        return NextResponse.json(cached)
+      }
+    }
+
     const [profileResult, personCompanyLinks] = await Promise.all([
       findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }),
       loadPersonCompanyLinks(em, person),
@@ -568,7 +664,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     const plannedPreviewInteractions = shouldLoadCanonicalInteractions
       ? (() => {
           const sorted = [...canonicalInteractions]
-            .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+            .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
             .sort((left, right) => {
               const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
               const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
@@ -590,7 +686,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
               organizationId: person.organizationId,
               tenantId: person.tenantId,
               deletedAt: null,
-              status: 'planned',
+              status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
               interactionType: { $ne: 'task' },
               ...emailVisibilityFilter,
             },
@@ -623,7 +719,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             profiler,
           )
         } catch (err) {
-          console.warn('customers.people.detail: failed to enrich todo links', err)
+          logger.warn('customers.people.detail: failed to enrich todo links', { err })
         }
         profiler.mark('todo_details_enriched', { count: todoDetails.size, links: todoLinks.length })
       }
@@ -801,7 +897,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       companies: companies.length,
     }
 
-    const response = NextResponse.json({
+    const payload = {
       interactionMode,
       person: {
         id: person.id,
@@ -1011,7 +1107,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         name: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.name ?? null : null,
         email: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.email ?? auth.email ?? null : auth.email ?? null,
       },
-    })
+    }
+
+    if (personDetailCache && personDetailCacheKey) {
+      try {
+        await runWithCacheTenant(personDetailTenantId, () =>
+          personDetailCache.set(personDetailCacheKey, payload, {
+            ttl: PERSON_DETAIL_TTL_MS,
+            tags: personDetailCacheTags,
+          }),
+        )
+      } catch {}
+    }
+
+    const response = NextResponse.json(payload)
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),

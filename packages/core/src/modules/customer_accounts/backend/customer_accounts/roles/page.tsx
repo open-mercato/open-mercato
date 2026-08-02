@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customer_accounts/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -101,8 +102,8 @@ export default function CustomerRolesPage() {
   }, [queryParams, reloadToken, t])
 
   const handleDelete = React.useCallback(async (role: RoleRow) => {
-    if (role.isSystem) {
-      flash(t('customer_accounts.admin.roles.error.deleteSystem', 'System roles cannot be deleted'), 'error')
+    if (role.isDefault) {
+      flash(t('customer_accounts.admin.roles.error.deleteDefault', 'The default role cannot be deleted. Set another role as default first.'), 'error')
       return
     }
     const confirmed = await confirm({
@@ -213,7 +214,7 @@ export default function CustomerRolesPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customer_accounts.admin.roles.searchPlaceholder', 'Search roles...')}
-          perspective={{ tableId: 'customer_accounts.admin.roles' }}
+          perspective={{ tableId: extensionPoints.hosts.rolesTable.tableId }}
           emptyState={(
             <ListEmptyState
               entityName={t('customer_accounts.admin.roles.title', 'Customer Roles')}
@@ -230,7 +231,7 @@ export default function CustomerRolesPage() {
                   label: t('customer_accounts.admin.roles.actions.edit', 'Edit'),
                   onSelect: () => { router.push(`/backend/customer_accounts/roles/${row.id}`) },
                 },
-                ...(!row.isSystem ? [{
+                ...(!row.isDefault ? [{
                   id: 'delete',
                   label: t('customer_accounts.admin.roles.actions.delete', 'Delete'),
                   destructive: true,

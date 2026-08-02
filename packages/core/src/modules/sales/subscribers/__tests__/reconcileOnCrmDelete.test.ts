@@ -1,3 +1,16 @@
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import reconcileOnCustomerDelete, { metadata as personMeta } from '@open-mercato/core/modules/sales/subscribers/reconcileOnCustomerDelete'
 import reconcileOnCompanyDelete, { metadata as companyMeta } from '@open-mercato/core/modules/sales/subscribers/reconcileOnCompanyDelete'
@@ -120,11 +133,11 @@ describe('sales reconcile subscribers on CRM delete', () => {
         throw new Error('db down')
       },
     }
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const loggerError = createLogger('sales').error as jest.Mock
+    loggerError.mockClear()
     await expect(
       reconcileOnAddressDelete({ id: 'addr-1', tenantId: 't' }, makeCtx(errorEm)),
     ).resolves.toBeUndefined()
-    expect(errorSpy).toHaveBeenCalled()
-    errorSpy.mockRestore()
+    expect(loggerError).toHaveBeenCalled()
   })
 })

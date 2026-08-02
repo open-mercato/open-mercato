@@ -13,6 +13,9 @@ import { GatewayTransaction } from '../../../data/entities'
 import { getPaymentGatewayQueue } from '../../../lib/queue'
 import { processPaymentGatewayWebhookJob } from '../../../lib/webhook-processor'
 import { paymentGatewaysTag } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('payment_gateways').child({ component: 'webhook' })
 
 export const metadata = {
   path: '/payment_gateways/webhook/[provider]',
@@ -122,7 +125,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
     return NextResponse.json({ received: true, queued: true }, { status: 202 })
   } catch (err: unknown) {
-    console.warn(`[payment_gateways] Webhook verification failed for provider "${providerKey}"`, err)
+    logger.warn('Webhook verification failed', { providerKey, err })
     return NextResponse.json({ error: WEBHOOK_VERIFICATION_FAILED }, { status: 401 })
   }
 }

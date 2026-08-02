@@ -9,6 +9,7 @@ export const CUSTOM_FIELD_KINDS = [
   'relation',
   'attachment',
   'dictionary',
+  'phone',
   'date',
   'datetime',
 ] as const

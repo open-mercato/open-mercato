@@ -28,6 +28,9 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -197,9 +200,13 @@ export function SalesDocumentAddressesSection({
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
-  const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(!!shippingAddressSnapshot)
+  const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(
+    !!shippingAddressSnapshot && !shippingAddressId
+  )
   const [useCustomBilling, setUseCustomBilling] = React.useState<boolean>(
-    billingAddressSnapshot ? true : !!shippingAddressSnapshot
+    billingAddressSnapshot && !billingAddressId
+      ? true
+      : !!shippingAddressSnapshot && !shippingAddressId
   )
   const [sameAsShipping, setSameAsShipping] = React.useState<boolean>(() => {
     if (shippingAddressSnapshot || billingAddressSnapshot) {
@@ -352,7 +359,7 @@ export function SalesDocumentAddressesSection({
         setDocumentAddresses([])
       }
     } catch (err) {
-      console.error('sales.documents.addresses.document.load', err)
+      logger.error('sales.documents.addresses.document.load', { err })
       const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
       flash(message, 'error')
       setDocumentAddressesError(message)
@@ -363,8 +370,8 @@ export function SalesDocumentAddressesSection({
   }, [documentId, kind, resolveAddressSummary, t])
 
   React.useEffect(() => {
-    const shippingCustom = !!shippingAddressSnapshot
-    const billingCustom = !!billingAddressSnapshot
+    const shippingCustom = !!shippingAddressSnapshot && !shippingAddressId
+    const billingCustom = !!billingAddressSnapshot && !billingAddressId
     const nextSame = shippingAddressSnapshot || billingAddressSnapshot
       ? deepEqual(shippingAddressSnapshot, billingAddressSnapshot)
       : !billingAddressId || billingAddressId === shippingAddressId
@@ -442,7 +449,7 @@ export function SalesDocumentAddressesSection({
           setAddressOptions([])
         }
       } catch (err) {
-        console.error('sales.documents.addresses.load', err)
+        logger.error('sales.documents.addresses.load', { err })
         const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
         setAddressesError(message)
         flash(message, 'error')
@@ -519,7 +526,7 @@ export function SalesDocumentAddressesSection({
           setAddressFormat(format)
         }
       } catch (err) {
-        console.error('sales.documents.addresses.format', err)
+        logger.error('sales.documents.addresses.format', { err })
       }
     }
     fetchAddressFormat().catch(() => {})
@@ -887,8 +894,12 @@ export function SalesDocumentAddressesSection({
         if (res?.result?.id) billingId = res.result.id
       }
 
-      payload.shippingAddressSnapshot = shippingSnapshot ?? null
-      payload.billingAddressSnapshot = billingSnapshot ?? null
+      if (shippingSnapshot || !shippingId) {
+        payload.shippingAddressSnapshot = shippingSnapshot ?? null
+      }
+      if (billingSnapshot || !billingId) {
+        payload.billingAddressSnapshot = billingSnapshot ?? null
+      }
       payload.shippingAddressId = shippingSnapshot ? null : shippingId
       payload.billingAddressId = billingSnapshot ? null : billingId
 
