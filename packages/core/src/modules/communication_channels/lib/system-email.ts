@@ -25,7 +25,7 @@ function resolveSystemEmailProvider(): string {
 }
 
 export function isSystemEmailTransportConfigured(): boolean {
-  return getSystemEmailProviderConfigResolver(resolveSystemEmailProvider())?.isConfigured() ?? true
+  return getSystemEmailProviderConfigResolver(resolveSystemEmailProvider())?.isConfigured() ?? false
 }
 
 async function renderReactEmail(react: ResolvedEmailPayload['react']): Promise<string | undefined> {
@@ -124,19 +124,22 @@ export async function sendSystemEmail(
     )
   }
 
-  let credentials: Record<string, unknown> = resolveEnvCredentials(channel.providerKey, payload.from)
+  let credentials: Record<string, unknown>
   if (payload.tenantId) {
-    try {
-      const credentialsService = container.resolve('integrationCredentialsService') as CredentialsServiceLike
-      credentials =
-        (await credentialsService.resolve(`channel_${channel.providerKey}`, {
-          tenantId: payload.tenantId,
-          organizationId: channel.organizationId ?? payload.organizationId ?? payload.tenantId,
-          userId: null,
-        })) ?? credentials
-    } catch {
-      credentials = resolveEnvCredentials(channel.providerKey, payload.from)
+    const credentialsService = container.resolve('integrationCredentialsService') as CredentialsServiceLike
+    const resolvedCredentials = await credentialsService.resolve(`channel_${channel.providerKey}`, {
+      tenantId: payload.tenantId,
+      organizationId: channel.organizationId ?? payload.organizationId ?? payload.tenantId,
+      userId: null,
+    })
+    if (!resolvedCredentials) {
+      throw new Error(
+        `SYSTEM_EMAIL_CREDENTIALS_NOT_CONFIGURED: configure tenant credentials for '${channel.providerKey}'`,
+      )
     }
+    credentials = resolvedCredentials
+  } else {
+    credentials = resolveEnvCredentials(channel.providerKey, payload.from)
   }
 
   const body = await resolveEmailBody(payload)

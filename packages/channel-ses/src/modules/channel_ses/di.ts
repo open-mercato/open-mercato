@@ -6,6 +6,7 @@ import {
 } from '@open-mercato/core/modules/communication_channels/lib/adapter-registry-singleton'
 import { getSesChannelAdapter } from './lib/adapter'
 import { registerSesSystemEmailConfigResolver } from './lib/system-email-config'
+import { channelSesHealthCheck } from './lib/health'
 
 export function register(container: AppContainer): void {
   registerSesSystemEmailConfigResolver()
@@ -14,5 +15,6 @@ export function register(container: AppContainer): void {
   }
   container.register({
     channelSesAdapter: asValue(getSesChannelAdapter()),
+    channelSesHealthCheck: asValue(channelSesHealthCheck),
   })
 }

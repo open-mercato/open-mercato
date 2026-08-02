@@ -18,7 +18,6 @@ import {
   stringOrUndefined,
   toAddressList,
 } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
-import { normalizeEnvString } from '@open-mercato/shared/lib/email/config'
 import { sesCapabilities } from '../capabilities'
 import { sesCredentialsSchema } from './credentials'
 
@@ -45,10 +44,6 @@ type SesMailOptions = Parameters<ReturnType<typeof nodemailer.createTransport>['
   ses?: {
     ConfigurationSetName?: string
   }
-}
-
-function resolveRegion(credentialsRegion: string | undefined): string | undefined {
-  return credentialsRegion || normalizeEnvString(process.env.AWS_SES_REGION) || normalizeEnvString(process.env.AWS_REGION)
 }
 
 function attachmentsFromMeta(value: unknown): SesAttachment[] | undefined {
@@ -87,8 +82,7 @@ class SesChannelAdapter implements ChannelAdapter {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires a subject' }
     }
 
-    const region = resolveRegion(credentials.region)
-    const sesClient = new SESv2Client(region ? { region } : {})
+    const sesClient = new SESv2Client({ region: credentials.region })
     const transporter = nodemailer.createTransport({
       SES: { sesClient, SendEmailCommand },
     } as Parameters<typeof nodemailer.createTransport>[0] & SesTransportOptions)

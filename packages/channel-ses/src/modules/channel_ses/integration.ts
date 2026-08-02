@@ -12,7 +12,7 @@ export const integration: IntegrationDefinition = {
   icon: 'mail',
   docsUrl: 'https://docs.aws.amazon.com/ses/',
   package: '@open-mercato/channel-ses',
-  version: '0.1.0',
+  version: '0.6.6',
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
@@ -29,15 +29,16 @@ export const integration: IntegrationDefinition = {
       changelog: 'Initial outbound transactional email adapter.',
     },
   ],
+  healthCheck: { service: 'channelSesHealthCheck' },
   credentials: {
     fields: [
       {
         key: 'region',
         label: 'AWS region',
         type: 'text',
-        required: false,
+        required: true,
         placeholder: 'eu-west-2',
-        helpText: 'SES region. If omitted, AWS_SES_REGION or AWS_REGION is used.',
+        helpText: 'SES region used for this tenant connection.',
       },
       {
         key: 'fromAddress',

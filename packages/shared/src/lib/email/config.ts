@@ -16,11 +16,17 @@ export function resolveDefaultEmailFromAddress(): string | undefined {
 }
 
 export function isEmailDeliveryDisabled(): boolean {
-  const explicitDisabled = normalizeEnvString(process.env.OM_DISABLE_EMAIL_DELIVERY)
-  if (explicitDisabled !== undefined) {
-    return parseBooleanWithDefault(explicitDisabled, false)
-  }
-  return parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
+  const explicitlyDisabled = parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false)
+  if (explicitlyDisabled) return true
+
+  const testMode = parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
+  if (!testMode) return false
+
+  const testCaptureDeliveryEnabled =
+    process.env.SYSTEM_EMAIL_PROVIDER === '__test_seed__'
+    && parseBooleanWithDefault(process.env.OM_ENABLE_TEST_CHANNEL_SEEDING, false)
+    && parseBooleanWithDefault(process.env.OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY, false)
+  return !testCaptureDeliveryEnabled
 }
 
 export function isEmailDeliveryConfigured(): boolean {

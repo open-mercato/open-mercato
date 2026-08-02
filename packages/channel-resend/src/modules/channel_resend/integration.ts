@@ -12,7 +12,7 @@ export const integration: IntegrationDefinition = {
   icon: 'mail',
   docsUrl: 'https://resend.com/docs',
   package: '@open-mercato/channel-resend',
-  version: '0.1.0',
+  version: '0.6.6',
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
@@ -29,6 +29,7 @@ export const integration: IntegrationDefinition = {
       changelog: 'Initial outbound transactional email adapter.',
     },
   ],
+  healthCheck: { service: 'channelResendHealthCheck' },
   credentials: {
     fields: [
       {

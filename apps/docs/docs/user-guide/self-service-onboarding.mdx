@@ -31,7 +31,7 @@ ADMIN_EMAIL=ops@your-domain.com
 - `SELF_SERVICE_ONBOARDING_ENABLED` - explicit opt-in toggle (defaults to `false`).
 - `SYSTEM_EMAIL_PROVIDER` - outbound system email provider registered through Communications Hub. Omit it or set `resend` for Resend; set `ses` for Amazon SES.
 - `RESEND_API_KEY` - required when `SYSTEM_EMAIL_PROVIDER` is unset or `resend`.
-- `AWS_SES_REGION` / `AWS_REGION` - AWS region when `SYSTEM_EMAIL_PROVIDER=ses`; otherwise the AWS SDK default region chain is used by the SES channel provider.
+- `AWS_SES_REGION` / `AWS_REGION` - required AWS region when `SYSTEM_EMAIL_PROVIDER=ses`; `AWS_SES_REGION` takes precedence.
 - `NOTIFICATIONS_EMAIL_FROM` - optional notification-specific sender override. If set, it is used before `EMAIL_FROM`.
 - `EMAIL_FROM` - default sender address visible to the recipient.
 - `APP_URL` - public base URL used to build verification links.

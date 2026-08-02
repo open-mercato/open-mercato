@@ -75,20 +75,6 @@ describe('SesChannelAdapter', () => {
     }))
   })
 
-  it('falls back to AWS_SES_REGION when credentials omit region', async () => {
-    process.env.AWS_SES_REGION = 'us-east-1'
-    const adapter = getSesChannelAdapter()
-
-    await adapter.sendMessage({
-      content: { text: 'Hello' },
-      credentials: { fromAddress: 'from@example.com' },
-      scope: { tenantId: 'tenant', organizationId: 'org' },
-      metadata: { to: ['user@example.com'], subject: 'Hello' },
-    })
-
-    expect(SESv2ClientMock).toHaveBeenCalledWith({ region: 'us-east-1' })
-  })
-
   it('returns a failed result when the SES transport rejects', async () => {
     sendMailMock.mockRejectedValueOnce(new Error('temporary outage'))
     const adapter = getSesChannelAdapter()

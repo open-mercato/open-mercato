@@ -94,6 +94,7 @@ Environment variables:
 - Resend adapter tests mock the Resend SDK and verify HTML/text rendering, `replyTo`, attachments, and provider failure handling.
 - SES adapter tests mock Nodemailer/AWS SDK and verify region resolution, HTML/text rendering, `replyTo`, attachments, configuration set mapping, and provider failure handling.
 - Communication hub tests cover system email dispatch through the adapter registry and pre-tenant env fallback.
+- Browser integration coverage visits `/start` at desktop and mobile widths and verifies the onboarding CTA, disabled superadmin control, connected database state, responsive layout, and absence of browser errors.
 - Run focused package tests/typechecks, `yarn check:dep-versions`, generated registry refresh, and the full contrib gate before moving the draft PR toward review.
 
 ## Risks & Impact Review

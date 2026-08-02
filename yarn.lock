@@ -7831,6 +7831,7 @@ __metadata:
     react-dom: "npm:19.2.7"
     resend: "npm:^6.12.4"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -7857,6 +7858,7 @@ __metadata:
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
+    typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"

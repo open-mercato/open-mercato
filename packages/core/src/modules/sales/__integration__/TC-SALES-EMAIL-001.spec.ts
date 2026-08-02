@@ -20,6 +20,12 @@ function extractQuoteToken(body: unknown): string {
   return match![1]
 }
 
+function appBaseUrl(): string {
+  const baseUrl = new URL(process.env.BASE_URL || 'http://localhost:3000')
+  if (baseUrl.hostname === '127.0.0.1') baseUrl.hostname = 'localhost'
+  return baseUrl.origin
+}
+
 test.describe('TC-SALES-EMAIL-001: Sales emails use system channel', () => {
   test('quote send and quote accept admin notification dispatch through Communications Hub', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
@@ -87,7 +93,7 @@ test.describe('TC-SALES-EMAIL-001: Sales emails use system channel', () => {
       const acceptanceToken = extractQuoteToken(quoteEmail.content.text ?? quoteEmail.content.html)
       await clearCapturedSystemEmails(request, token)
 
-      const origin = process.env.BASE_URL?.trim() || 'http://127.0.0.1:3000'
+      const origin = appBaseUrl()
       const accept = await request.post(`${origin}/api/sales/quotes/accept`, {
         data: { token: acceptanceToken },
         headers: { 'Content-Type': 'application/json', Origin: origin },
@@ -95,7 +101,6 @@ test.describe('TC-SALES-EMAIL-001: Sales emails use system channel', () => {
       expect(accept.status()).toBe(200)
       const acceptBody = await readJsonSafe<{ orderId?: string }>(accept)
       orderId = acceptBody?.orderId ?? null
-      quoteId = null
 
       const acceptedEmail = await waitForCapturedSystemEmail(
         request,

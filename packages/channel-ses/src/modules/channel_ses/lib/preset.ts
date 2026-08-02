@@ -20,7 +20,7 @@ type CredentialsServiceLike = {
   ) => Promise<void>
 }
 
-export function readSesEnvPreset(): { region?: string; fromAddress: string; configurationSetName?: string } | null {
+export function readSesEnvPreset(): { region: string; fromAddress: string; configurationSetName?: string } | null {
   const fromAddress = resolveDefaultEmailFromAddress()
   const region = normalizeEnvString(process.env.AWS_SES_REGION) || normalizeEnvString(process.env.AWS_REGION)
   if (!fromAddress || !region) return null

@@ -3,6 +3,6 @@ import type { ChannelCapabilities } from '@open-mercato/core/modules/communicati
 
 export const resendCapabilities: ChannelCapabilities = {
   ...baseEmailCapabilities,
-  fileSharing: true,
+  fileSharing: false,
   conversationHistory: false,
 }

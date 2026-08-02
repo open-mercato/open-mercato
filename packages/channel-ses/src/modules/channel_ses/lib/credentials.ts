@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const sesCredentialsSchema = z.object({
-  region: z.string().min(1).optional(),
+  region: z.string().min(1),
   fromAddress: z.string().email(),
   configurationSetName: z.string().min(1).optional(),
 })

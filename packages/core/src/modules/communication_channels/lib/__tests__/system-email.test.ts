@@ -1,5 +1,5 @@
 import React from 'react'
-import { sendSystemEmail } from '../system-email'
+import { isSystemEmailTransportConfigured, sendSystemEmail } from '../system-email'
 import type { ChannelAdapter } from '../adapter'
 import { registerSystemEmailProviderConfigResolver } from '../system-email-provider-config'
 
@@ -113,5 +113,76 @@ describe('sendSystemEmail', () => {
       }),
       undefined,
     )
+  })
+
+  it('fails closed when tenant credential resolution fails', async () => {
+    const adapter = { providerKey: 'test-email' } as ChannelAdapter
+    const channel = {
+      providerKey: 'test-email',
+      channelType: 'email',
+      organizationId: 'org-1',
+      isActive: true,
+      status: 'connected',
+    }
+    const container = {
+      resolve(name: string) {
+        if (name === 'em') return { fork: () => ({ findOne: jest.fn().mockResolvedValue(channel) }) }
+        if (name === 'channelAdapterRegistry') return { get: () => adapter }
+        if (name === 'integrationCredentialsService') {
+          return { resolve: jest.fn().mockRejectedValue(new Error('credential store unavailable')) }
+        }
+        throw new Error(`[internal] unexpected dependency ${name}`)
+      },
+    }
+
+    await expect(sendSystemEmail(container as never, {
+      to: 'user@example.com',
+      subject: 'Hello',
+      from: 'from@example.com',
+      text: 'Hello',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })).rejects.toThrow('credential store unavailable')
+  })
+
+  it('rejects missing tenant credentials instead of using environment credentials', async () => {
+    const adapter = { providerKey: 'test-email' } as ChannelAdapter
+    const channel = {
+      providerKey: 'test-email',
+      channelType: 'email',
+      organizationId: 'org-1',
+      isActive: true,
+      status: 'connected',
+    }
+    const container = {
+      resolve(name: string) {
+        if (name === 'em') return { fork: () => ({ findOne: jest.fn().mockResolvedValue(channel) }) }
+        if (name === 'channelAdapterRegistry') return { get: () => adapter }
+        if (name === 'integrationCredentialsService') return { resolve: jest.fn().mockResolvedValue(null) }
+        throw new Error(`[internal] unexpected dependency ${name}`)
+      },
+    }
+
+    await expect(sendSystemEmail(container as never, {
+      to: 'user@example.com',
+      subject: 'Hello',
+      from: 'from@example.com',
+      text: 'Hello',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })).rejects.toThrow('SYSTEM_EMAIL_CREDENTIALS_NOT_CONFIGURED')
+  })
+
+  it('reports unknown and disabled providers as unconfigured', () => {
+    process.env.SYSTEM_EMAIL_PROVIDER = 'unknown-email-provider'
+    expect(isSystemEmailTransportConfigured()).toBe(false)
+
+    registerSystemEmailProviderConfigResolver({
+      providerKey: 'disabled-email-provider',
+      isConfigured: () => false,
+      resolveCredentials: () => ({}),
+    })
+    process.env.SYSTEM_EMAIL_PROVIDER = 'disabled-email-provider'
+    expect(isSystemEmailTransportConfigured()).toBe(false)
   })
 })

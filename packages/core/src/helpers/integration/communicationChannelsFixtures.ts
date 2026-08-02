@@ -37,6 +37,18 @@ export type CapturedTestSeedEmail = {
 
 const TEST_SEED_PATH = '/api/communication_channels/test-seed';
 
+function resolveSystemCaptureCredentials(): {
+  accessToken: string;
+  captureCorrelationToken: string;
+} {
+  const accessToken = process.env.OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN?.trim();
+  const captureCorrelationToken = process.env.OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN?.trim();
+  if (!accessToken || !captureCorrelationToken) {
+    throw new Error('[internal] System email capture credentials are not configured by the integration harness');
+  }
+  return { accessToken, captureCorrelationToken };
+}
+
 /**
  * Probe whether the env-gated test-seed endpoint is enabled in the target app.
  * Returns false when the route answers 404 (flag off) so callers can `test.skip`.
@@ -97,9 +109,19 @@ export async function clearCapturedSystemEmails(
   token: string,
   options: { systemRecipient?: string } = {},
 ): Promise<void> {
+  const captureCredentials = options.systemRecipient ? resolveSystemCaptureCredentials() : null;
   const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
     token,
-    data: { action: 'clear-capture', ...options },
+    data: {
+      action: 'clear-capture',
+      ...options,
+      ...(captureCredentials
+        ? { captureCorrelationToken: captureCredentials.captureCorrelationToken }
+        : {}),
+    },
+    headers: captureCredentials
+      ? { 'x-om-test-email-capture-access-token': captureCredentials.accessToken }
+      : undefined,
   });
   expect(response.ok(), 'POST /api/communication_channels/test-seed (clear-capture) should succeed').toBeTruthy();
 }
@@ -109,9 +131,19 @@ export async function listCapturedSystemEmails(
   token: string,
   options: { systemRecipient?: string } = {},
 ): Promise<CapturedTestSeedEmail[]> {
+  const captureCredentials = options.systemRecipient ? resolveSystemCaptureCredentials() : null;
   const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
     token,
-    data: { action: 'list-capture', ...options },
+    data: {
+      action: 'list-capture',
+      ...options,
+      ...(captureCredentials
+        ? { captureCorrelationToken: captureCredentials.captureCorrelationToken }
+        : {}),
+    },
+    headers: captureCredentials
+      ? { 'x-om-test-email-capture-access-token': captureCredentials.accessToken }
+      : undefined,
   });
   expect(response.ok(), 'POST /api/communication_channels/test-seed (list-capture) should succeed').toBeTruthy();
   const body = await readJsonSafe<{ items?: CapturedTestSeedEmail[] }>(response);

@@ -159,9 +159,26 @@ describe('sendEmail', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
-  it('lets explicit OM_DISABLE_EMAIL_DELIVERY=0 override test-mode delivery suppression', async () => {
+  it('does not let OM_DISABLE_EMAIL_DELIVERY=0 override test-mode delivery suppression', async () => {
     process.env.OM_TEST_MODE = '1'
     process.env.OM_DISABLE_EMAIL_DELIVERY = '0'
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('allows test-mode delivery only for the explicitly enabled capture adapter', async () => {
+    process.env.OM_TEST_MODE = '1'
+    process.env.OM_DISABLE_EMAIL_DELIVERY = '0'
+    process.env.OM_ENABLE_TEST_CHANNEL_SEEDING = 'true'
+    process.env.OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY = 'true'
+    process.env.SYSTEM_EMAIL_PROVIDER = '__test_seed__'
     registerEmailTransport({ id: 'test', send: sendMock })
 
     await sendEmail({

@@ -1,4 +1,5 @@
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
 import type {
   ChannelAdapter,
@@ -17,6 +18,7 @@ import type {
 } from './adapter'
 import { baseEmailCapabilities } from './email-capabilities'
 import { hasChannelAdapter, registerChannelAdapter } from './adapter-registry-singleton'
+import { registerSystemEmailProviderConfigResolver } from './system-email-provider-config'
 
 /**
  * Test-only channel seeding support.
@@ -45,6 +47,8 @@ export const TEST_SEED_PROVIDER_KEY = '__test_seed__'
 
 /** Env flag that unlocks test-only channel seeding. Off in production. */
 export const TEST_CHANNEL_SEEDING_ENV = 'OM_ENABLE_TEST_CHANNEL_SEEDING'
+export const TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV = 'OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN'
+export const TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV = 'OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN'
 
 /**
  * True only when the test-seeding env flag is explicitly enabled. Accepts the
@@ -64,6 +68,7 @@ export type TestSeedCapturedMessage = {
   content: SendMessageInput['content']
   scope: SendMessageInput['scope']
   metadata?: SendMessageInput['metadata']
+  captureCorrelationToken?: string
 }
 
 type TestSeedCaptureScope = {
@@ -73,6 +78,26 @@ type TestSeedCaptureScope = {
 
 export type TestSeedCaptureOptions = {
   systemRecipient?: string
+  captureCorrelationToken?: string
+}
+
+function normalizeToken(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized.length >= 32 ? normalized : null
+}
+
+export function isTestEmailCaptureAccessAuthorized(providedToken: string | null): boolean {
+  const expectedToken = normalizeToken(process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV])
+  const normalizedProvidedToken = normalizeToken(providedToken)
+  if (!expectedToken || !normalizedProvidedToken) return false
+  const expected = Buffer.from(expectedToken)
+  const provided = Buffer.from(normalizedProvidedToken)
+  return expected.length === provided.length && timingSafeEqual(expected, provided)
+}
+
+export function resolveTestEmailCaptureCorrelationToken(): string | null {
+  return normalizeToken(process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV])
 }
 
 function resolveCapturePath(): string {
@@ -96,7 +121,9 @@ function matchesCaptureScope(
   if (
     message.scope.tenantId !== 'system' ||
     message.scope.organizationId !== 'system' ||
-    !options.systemRecipient
+    !options.systemRecipient ||
+    !options.captureCorrelationToken ||
+    message.captureCorrelationToken !== options.captureCorrelationToken
   ) {
     return false
   }
@@ -187,6 +214,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       content: input.content,
       scope: input.scope,
       metadata: input.metadata,
+      captureCorrelationToken: resolveTestEmailCaptureCorrelationToken() ?? undefined,
     })
     return {
       externalMessageId,
@@ -243,6 +271,11 @@ function getTestSeedChannelAdapter(): TestSeedChannelAdapter {
  */
 export function ensureTestSeedAdapterRegistered(): void {
   if (!isTestChannelSeedingEnabled()) return
+  registerSystemEmailProviderConfigResolver({
+    providerKey: TEST_SEED_PROVIDER_KEY,
+    isConfigured: isTestChannelSeedingEnabled,
+    resolveCredentials: ({ fromAddress }) => ({ testSeed: true, fromAddress }),
+  })
   if (hasChannelAdapter(TEST_SEED_PROVIDER_KEY)) return
   registerChannelAdapter(getTestSeedChannelAdapter())
 }
