@@ -8,6 +8,8 @@ import {
   createWidgetDataService,
   type WidgetDataRequest,
   WidgetDataValidationError,
+  WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
 import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
@@ -136,6 +138,15 @@ export async function POST(req: Request) {
     if (err instanceof WidgetDataValidationError) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
+    // The dataset is too large to group in application code; surface why rather than a masked 500.
+    if (err instanceof WidgetDataScanLimitError) {
+      return NextResponse.json({ error: err.message }, { status: 422 })
+    }
+    // Encryption is configured but currently unresolvable. Refusing the request keeps ciphertext and
+    // silently-wrong buckets out of the response, and 503 tells the client it is worth retrying.
+    if (err instanceof WidgetDataEncryptionUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 })
+    }
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
       { status: 500 },
@@ -163,8 +174,18 @@ const widgetDataPostDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid request payload', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    {
+      status: 422,
+      description: 'Too many rows to group an encrypted field in application code',
+      schema: dashboardsErrorSchema,
+    },
     { status: 403, description: 'Missing analytics.view feature', schema: dashboardsErrorSchema },
     { status: 500, description: 'Internal server error', schema: dashboardsErrorSchema },
+    {
+      status: 503,
+      description: 'Encryption is configured but the group source cannot currently be resolved',
+      schema: dashboardsErrorSchema,
+    },
   ],
 }
 

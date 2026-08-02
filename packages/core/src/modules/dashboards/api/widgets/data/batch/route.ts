@@ -9,6 +9,8 @@ import {
   createWidgetDataService,
   type WidgetDataRequest,
   WidgetDataValidationError,
+  WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
 } from '../../../../services/widgetDataService'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
@@ -132,6 +134,8 @@ export async function POST(req: Request) {
       fetchOne: (request) => service.fetchWidgetData(request),
       describeError: (error) =>
         error instanceof WidgetDataValidationError
+        || error instanceof WidgetDataScanLimitError
+        || error instanceof WidgetDataEncryptionUnavailableError
           ? error.message
           : 'An error occurred while processing your request',
     })

@@ -97,45 +97,74 @@ export type BuildAggregationQueryOptions = {
   registry: AnalyticsRegistry
 }
 
-export type ScopedQueryOptions = {
-  entityType: string
-  dateRange?: {
-    field: string
-    start: Date
-    end: Date
-  }
-  filters?: Array<{
-    field: string
-    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'not_in' | 'is_null' | 'is_not_null'
-    value?: unknown
-  }>
-  scope: {
-    tenantId: string
-    organizationIds?: string[]
-  }
-  registry: AnalyticsRegistry
+export type ResolvedGroupExpression = {
+  expression: string
+  /** Column the group expression reads from — the encryption map is keyed by this. */
+  dbColumn: string
+  /** JSONB path below `dbColumn`, when the groupBy field used path notation. */
+  jsonPath: string | null
 }
 
-function appendScopeWhereClauses(options: ScopedQueryOptions, params: unknown[]): { clauses: string[] } {
-  const { registry } = options
-  const clauses: string[] = []
+/**
+ * Resolves the SQL expression a groupBy field maps to, together with the underlying column so
+ * callers can decide whether the source is encrypted at rest before grouping over it (#4622).
+ */
+export function resolveGroupExpression(
+  registry: AnalyticsRegistry,
+  entityType: string,
+  groupBy: { field: string; granularity?: DateGranularity },
+): ResolvedGroupExpression | null {
+  const groupMapping = registry.getFieldMapping(entityType, groupBy.field)
 
-  clauses.push(`tenant_id = ?`)
+  // Handle JSONB path notation (e.g., shippingAddressSnapshot.region)
+  if (!groupMapping && groupBy.field.includes('.')) {
+    const [baseField, ...pathParts] = groupBy.field.split('.')
+    const baseMapping = registry.getFieldMapping(entityType, baseField)
+    if (baseMapping?.type !== 'jsonb') return null
+    const jsonPath = pathParts.join('.')
+    return {
+      expression: buildJsonbFieldExpression(baseMapping.dbColumn, jsonPath),
+      dbColumn: baseMapping.dbColumn,
+      jsonPath,
+    }
+  }
+
+  if (!groupMapping) return null
+
+  if (groupMapping.type === 'timestamp' && groupBy.granularity) {
+    return {
+      expression: buildDateTruncExpression(groupMapping.dbColumn, groupBy.granularity),
+      dbColumn: groupMapping.dbColumn,
+      jsonPath: null,
+    }
+  }
+
+  return { expression: groupMapping.dbColumn, dbColumn: groupMapping.dbColumn, jsonPath: null }
+}
+
+function buildWhereClause(
+  options: Pick<BuildAggregationQueryOptions, 'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'>,
+): { clause: string; params: unknown[] } {
+  const { registry } = options
+  const params: unknown[] = []
+  const whereClauses: string[] = []
+
+  whereClauses.push(`tenant_id = ?`)
   params.push(options.scope.tenantId)
 
   if (options.scope.organizationIds && options.scope.organizationIds.length > 0) {
-    clauses.push(`organization_id = ANY(?::uuid[])`)
+    whereClauses.push(`organization_id = ANY(?::uuid[])`)
     params.push(`{${options.scope.organizationIds.join(',')}}`)
   }
 
-  clauses.push(`deleted_at IS NULL`)
+  whereClauses.push(`deleted_at IS NULL`)
 
   if (options.dateRange) {
     const dateMapping = registry.getFieldMapping(options.entityType, options.dateRange.field)
     if (dateMapping) {
-      clauses.push(`${dateMapping.dbColumn} >= ?`)
+      whereClauses.push(`${dateMapping.dbColumn} >= ?`)
       params.push(options.dateRange.start)
-      clauses.push(`${dateMapping.dbColumn} <= ?`)
+      whereClauses.push(`${dateMapping.dbColumn} <= ?`)
       params.push(options.dateRange.end)
     }
   }
@@ -147,51 +176,58 @@ function appendScopeWhereClauses(options: ScopedQueryOptions, params: unknown[])
 
       switch (filter.operator) {
         case 'eq':
-          clauses.push(`${filterMapping.dbColumn} = ?`)
+          whereClauses.push(`${filterMapping.dbColumn} = ?`)
           params.push(filter.value)
           break
         case 'neq':
-          clauses.push(`${filterMapping.dbColumn} != ?`)
+          whereClauses.push(`${filterMapping.dbColumn} != ?`)
           params.push(filter.value)
           break
         case 'gt':
-          clauses.push(`${filterMapping.dbColumn} > ?`)
+          whereClauses.push(`${filterMapping.dbColumn} > ?`)
           params.push(filter.value)
           break
         case 'gte':
-          clauses.push(`${filterMapping.dbColumn} >= ?`)
+          whereClauses.push(`${filterMapping.dbColumn} >= ?`)
           params.push(filter.value)
           break
         case 'lt':
-          clauses.push(`${filterMapping.dbColumn} < ?`)
+          whereClauses.push(`${filterMapping.dbColumn} < ?`)
           params.push(filter.value)
           break
         case 'lte':
-          clauses.push(`${filterMapping.dbColumn} <= ?`)
+          whereClauses.push(`${filterMapping.dbColumn} <= ?`)
           params.push(filter.value)
           break
         case 'in':
-          clauses.push(`${filterMapping.dbColumn} = ANY(?)`)
+          whereClauses.push(`${filterMapping.dbColumn} = ANY(?)`)
           params.push(filter.value)
           break
         case 'not_in':
-          clauses.push(`${filterMapping.dbColumn} != ALL(?)`)
+          whereClauses.push(`${filterMapping.dbColumn} != ALL(?)`)
           params.push(filter.value)
           break
         case 'is_null':
-          clauses.push(`${filterMapping.dbColumn} IS NULL`)
+          whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
           break
         case 'is_not_null':
-          clauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
+          whereClauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
           break
       }
     }
   }
 
-  return { clauses }
+  return { clause: whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '', params }
 }
 
-export type BuildDistinctCurrencyQueryOptions = ScopedQueryOptions
+function resolveTableName(config: EntityTypeConfig): string {
+  return config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
+}
+
+export type BuildDistinctCurrencyQueryOptions = Pick<
+  BuildAggregationQueryOptions,
+  'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'
+>
 
 /**
  * Builds the query that reads the distinct per-row currencies of the rows an aggregation
@@ -209,22 +245,18 @@ export function buildDistinctCurrencyQuery(
   const currencyMapping = registry.getFieldMapping(options.entityType, config.currencyField)
   if (!currencyMapping || !isSafeIdentifier(currencyMapping.dbColumn)) return null
 
-  const params: unknown[] = []
-  const tableName = config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
-  const { clauses } = appendScopeWhereClauses(options, params)
-  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+  const where = buildWhereClause(options)
   const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyMapping.dbColumn}), ''))`
-
   const sql = [
     `SELECT DISTINCT ${normalizedCurrencyExpression} AS code`,
-    `FROM ${tableName}`,
-    whereClause,
+    `FROM ${resolveTableName(config)}`,
+    where.clause,
     'LIMIT 2',
   ]
     .filter(Boolean)
     .join(' ')
 
-  return { sql, params }
+  return { sql, params: where.params }
 }
 
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
@@ -235,9 +267,7 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   const metricMapping = registry.getFieldMapping(options.entityType, options.metric.field)
   if (!metricMapping) return null
 
-  const params: unknown[] = []
-
-  const tableName = config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
+  const tableName = resolveTableName(config)
   const aggregateExpr = buildAggregateExpression(options.metric.aggregate, metricMapping.dbColumn)
 
   let selectClause = `SELECT ${aggregateExpr} AS value`
@@ -246,28 +276,15 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   let limitClause = ''
 
   if (options.groupBy) {
-    let groupMapping = registry.getFieldMapping(options.entityType, options.groupBy.field)
-    let groupExpr: string | null = null
+    const resolved = resolveGroupExpression(registry, options.entityType, options.groupBy)
 
-    // Handle JSONB path notation (e.g., shippingAddressSnapshot.region)
-    if (!groupMapping && options.groupBy.field.includes('.')) {
-      const [baseField, ...pathParts] = options.groupBy.field.split('.')
-      const baseMapping = registry.getFieldMapping(options.entityType, baseField)
-      if (baseMapping?.type === 'jsonb') {
-        groupExpr = buildJsonbFieldExpression(baseMapping.dbColumn, pathParts.join('.'))
-      }
-    } else if (groupMapping) {
-      if (groupMapping.type === 'timestamp' && options.groupBy.granularity) {
-        groupExpr = buildDateTruncExpression(groupMapping.dbColumn, options.groupBy.granularity)
-      } else {
-        groupExpr = groupMapping.dbColumn
-      }
-    }
-
-    if (groupExpr) {
-      selectClause = `SELECT ${groupExpr} AS group_key, ${aggregateExpr} AS value`
-      groupByClause = `GROUP BY ${groupExpr}`
-      orderByClause = `ORDER BY value DESC`
+    if (resolved) {
+      selectClause = `SELECT ${resolved.expression} AS group_key, ${aggregateExpr} AS value`
+      groupByClause = `GROUP BY ${resolved.expression}`
+      // NULLS LAST is stated explicitly (PostgreSQL defaults DESC to NULLS FIRST) so a group limit
+      // keeps the highest-value buckets instead of the empty ones, and so the application-side
+      // encrypted path can mirror the same ordering (#4622).
+      orderByClause = `ORDER BY value DESC NULLS LAST`
 
       if (options.groupBy.limit && options.groupBy.limit > 0) {
         limitClause = `LIMIT ${Math.min(options.groupBy.limit, 100)}`
@@ -275,13 +292,48 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
     }
   }
 
-  const { clauses: whereClauses } = appendScopeWhereClauses(options, params)
+  const where = buildWhereClause(options)
 
-  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
-
-  const sql = [selectClause, `FROM ${tableName}`, whereClause, groupByClause, orderByClause, limitClause]
+  const sql = [selectClause, `FROM ${tableName}`, where.clause, groupByClause, orderByClause, limitClause]
     .filter(Boolean)
     .join(' ')
 
-  return { sql, params }
+  return { sql, params: where.params }
+}
+
+export type BuildGroupSourceRowsQueryOptions = Omit<BuildAggregationQueryOptions, 'groupBy'> & {
+  /** Column holding the (encrypted) group source, resolved via `resolveGroupExpression`. */
+  groupColumn: string
+  /** Hard cap on scanned rows; callers fetch `rowLimit + 1` to detect overflow. */
+  rowLimit: number
+}
+
+/**
+ * Builds a per-row query for group sources that cannot be grouped in SQL because the column is
+ * encrypted at rest. Returns the raw group source alongside the metric value so the caller can
+ * decrypt, then aggregate in application code (#4622).
+ */
+export function buildGroupSourceRowsQuery(options: BuildGroupSourceRowsQueryOptions): AggregationQuery | null {
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
+  if (!config) return null
+
+  const metricMapping = registry.getFieldMapping(options.entityType, options.metric.field)
+  if (!metricMapping) return null
+
+  if (!isSafeIdentifier(options.groupColumn)) {
+    throw new Error(`Invalid group column: ${options.groupColumn}`)
+  }
+
+  const where = buildWhereClause(options)
+  const sql = [
+    `SELECT ${options.groupColumn} AS group_source, ${metricMapping.dbColumn} AS metric_value`,
+    `FROM ${resolveTableName(config)}`,
+    where.clause,
+    `LIMIT ${Math.max(1, Math.floor(options.rowLimit)) + 1}`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return { sql, params: where.params }
 }

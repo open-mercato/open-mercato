@@ -61,6 +61,7 @@ Opt-in: `yarn install-skills --with automation`
 | `om-close-fixed-issues` | Close linked issues after merge, comment on abandoned PRs | `om-merge-buddy` | `om-auto-update-changelog` |
 | `om-auto-update-changelog` | Draft CHANGELOG.md release entry for merged PRs | after merge | — |
 | `om-auto-qa-scenarios` | Generate human QA report (P0/P1/P2 routes) for merged PRs | `om-implement-spec` | — |
+| `om-pr-autopilot` | Diagnose one open PR and dispatch the right chain of `om-*` skills to drive it to the end | — | `om-auto-continue-pr`, `om-auto-fix-pr` |
 
 ---
 
