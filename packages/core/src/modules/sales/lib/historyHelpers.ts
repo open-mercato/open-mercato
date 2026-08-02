@@ -1,4 +1,5 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { isRecord } from '@open-mercato/shared/lib/utils'
 import type { SalesNote } from '../data/entities'
 
 export type HistoryEntry = {
@@ -13,7 +14,88 @@ export type HistoryEntry = {
     statusTo?: string | null
     documentKind?: 'order' | 'quote'
     commandId?: string
+    changedFields?: string[]
   }
+}
+
+const DOCUMENT_LINE_UPSERT_COMMANDS = new Set([
+  'sales.orders.lines.upsert',
+  'sales.quotes.lines.upsert',
+])
+
+const USER_EDITABLE_LINE_FIELDS = [
+  'productId',
+  'productVariantId',
+  'name',
+  'description',
+  'comment',
+  'quantity',
+  'quantityUnit',
+  'currencyCode',
+  'unitPriceNet',
+  'unitPriceGross',
+  'discountAmount',
+  'discountPercent',
+  'taxRate',
+  'configuration',
+  'promotionCode',
+  'customFields',
+  'statusEntryId',
+] as const
+
+function readSnapshotLines(snapshot: unknown): Array<Record<string, unknown>> {
+  if (!isRecord(snapshot) || !Array.isArray(snapshot.lines)) return []
+  return snapshot.lines.filter(isRecord)
+}
+
+function historyValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  try {
+    return JSON.stringify(left) === JSON.stringify(right)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Derives a concise, user-editable field list for document line updates.
+ * Calculated totals and normalized UoM fields are intentionally excluded so
+ * the timeline describes the user's edit rather than downstream recalculation.
+ */
+function deriveDocumentLineChangedFields(log: ActionLog): string[] {
+  if (!DOCUMENT_LINE_UPSERT_COMMANDS.has(log.commandId)) return []
+
+  const beforeById = new Map(
+    readSnapshotLines(log.snapshotBefore)
+      .filter((line) => typeof line.id === 'string')
+      .map((line) => [line.id as string, line]),
+  )
+  const afterLines = readSnapshotLines(log.snapshotAfter)
+
+  const changedFields = new Set<string>()
+  for (const afterLine of afterLines) {
+    if (typeof afterLine.id !== 'string') continue
+    const beforeLine = beforeById.get(afterLine.id)
+    if (!beforeLine) continue
+
+    for (const field of USER_EDITABLE_LINE_FIELDS) {
+      if (!historyValuesEqual(beforeLine[field], afterLine[field])) {
+        changedFields.add(field)
+      }
+    }
+  }
+
+  return USER_EDITABLE_LINE_FIELDS.filter((field) => changedFields.has(field))
+}
+
+export function deriveHistoryChangedFields(log: ActionLog): string[] {
+  if (DOCUMENT_LINE_UPSERT_COMMANDS.has(log.commandId)) {
+    return deriveDocumentLineChangedFields(log)
+  }
+  const persisted = Array.isArray(log.changedFields)
+    ? log.changedFields.filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+    : []
+  return Array.from(new Set(persisted))
 }
 
 function extractStatusFromSnapshot(snapshot: unknown): string | null {
@@ -64,9 +146,14 @@ export function normalizeActionLogToHistoryEntry(
   displayUsers?: Record<string, string>,
 ): HistoryEntry {
   const statusChange = detectStatusChange(log)
+  const changedFields = deriveHistoryChangedFields(log)
   let entryKind: 'status' | 'action' = 'action'
   let action = log.actionLabel || log.commandId
-  let metadata: HistoryEntry['metadata'] = { documentKind: kind, commandId: log.commandId }
+  let metadata: HistoryEntry['metadata'] = {
+    documentKind: kind,
+    commandId: log.commandId,
+    ...(changedFields.length > 0 ? { changedFields } : {}),
+  }
   if (statusChange) {
     const hasStatusValues = statusChange.statusFrom != null || statusChange.statusTo != null
     if (hasStatusValues) {
