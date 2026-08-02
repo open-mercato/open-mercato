@@ -15,7 +15,7 @@ There is **no per-module opt-in for the engine**. There is no `queryIndex` metad
 
 `createRequestContainer()` registers a `BasicQueryEngine` (`packages/shared/src/lib/di/container.ts`). The `query_index` module's DI registrar then unconditionally replaces that registration with a `HybridQueryEngine` that wraps the basic one as its fallback delegate (`packages/core/src/modules/query_index/di.ts`).
 
-Because `query_index` is a core module, **every consumer of `queryEngine` gets the hybrid engine**. `BasicQueryEngine` runs directly only when the `query_index` registration is absent or threw; otherwise it is reachable only as the hybrid engine's fallback.
+The standard app enables `query_index`, so **every consumer of `queryEngine` in that configuration gets the hybrid engine**. `BasicQueryEngine` runs directly only when the `query_index` registration is absent or threw; otherwise it is reachable only as the hybrid engine's fallback.
 
 Both implement the same interface, which has exactly one method (`packages/shared/src/lib/query/types.ts`):
 
@@ -42,7 +42,7 @@ There are exactly four conditions, all in `packages/core/src/modules/query_index
 | Condition | Profiler `reason` | Notes |
 | --- | --- | --- |
 | The base table does not exist | `missing_base` | |
-| `opts.omitAutomaticTenantOrgScope === true` | `omit_automatic_tenant_org_scope` | The caller owns scoping. `BasicQueryEngine` still handles `cf:*` filters/sorts and `search_tokens` fulltext, but the JSONB index path and the vector-search branch are bypassed |
+| `opts.omitAutomaticTenantOrgScope === true` | `omit_automatic_tenant_org_scope` | The caller owns scoping. `BasicQueryEngine` still handles `cf:*` filters/sorts, but `search_tokens` fulltext, the JSONB index path, and the vector-search branch are bypassed |
 | No index rows exist for the entity type | `no_index_rows` | Only evaluated when the query wants custom fields |
 | A coverage gap was detected and `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES` is off | `partial_index` | Additionally requires the entity to have at least one active custom-field definition. See [Partial coverage](#partial-coverage) |
 
@@ -111,7 +111,7 @@ The query engine never writes index rows. Incremental maintenance runs through t
 | `query_index.purge` | Drop index rows for a scope |
 | `query_index.coverage.refresh` / `.warmup` | Recompute coverage snapshots |
 
-They are emitted by the DataEngine CRUD side-effect path when a route or command passes `indexer: { entityType }`, and by automatic `<module>.<entity>.created|updated|deleted` subscriptions that the `query_index` DI registrar installs for every entity id appearing in `custom_field_defs` (falling back to every generated entity id when that table is empty). Those handlers forward to the indexer only when the entity actually has an active custom-field definition for the scope.
+They are emitted by the DataEngine CRUD side-effect path when a route or command passes `indexer: { entityType }`, and by automatic `<module>.<entity>.created|updated|deleted` subscriptions that the `query_index` DI registrar installs for every entity id appearing in `custom_field_defs` (falling back to every generated entity id when that table is empty). The created/updated handlers forward only when the entity has an active custom-field definition for the scope; the deleted handler always forwards so stale index rows and search tokens are removed even after definitions change.
 
 To rebuild by hand, use the CLI (`mercato query_index rebuild`, `rebuild-all`, `reindex`, `purge`; `yarn mercato reindex` is shorthand for `query_index reindex`) or the admin UI at `/backend/query-indexes`. Flags and partitioning are documented in [JSONB indexing layer](./query-index#backfill).
 
