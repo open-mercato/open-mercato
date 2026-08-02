@@ -104,15 +104,15 @@ cross-org read (TC-NOTIF-007) and the stale-negative list that outlives TC-WMS-0
 
 ### Phase 6: DataTable column-width session scoping
 
-- [ ] 6.1 Establish the root cause of TC-CRM-087 and land the fix
+- [x] 6.1 Establish the root cause of TC-CRM-087 and land the fix — ba0e82436 (purge anchored to the rendered identity, not the login form's client handler)
 
 ### Phase 7: Catalog SEO helper i18n save-block
 
-- [ ] 7.1 Establish the root cause of TC-CAT-035 and land the fix
+- [x] 7.1 Establish the root cause of TC-CAT-035 and land the fix — NOT a job failure: Playwright counted it `1 flaky` (passed on retry), so it never blocked the lane. Reported as a suspected pre-hydration `.fill()` race rather than patched speculatively
 
 ### Phase 8: Sales shipments 400 under optimistic locking
 
-- [ ] 8.1 Establish the root cause of TC-LOCK-OSS-025 and land the fix
+- [x] 8.1 Establish the root cause of TC-LOCK-OSS-025 and land the fix — c2f7f4fe8 (seed-line filter never matched its timestamped name; selection fell through to unordered list order)
 
 ### Phase 9: Validation and wrap-up
 
