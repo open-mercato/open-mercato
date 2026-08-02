@@ -20,9 +20,10 @@ function isUnique(values: string[]): boolean {
 describe('module-facts BC resolve guard (T2)', () => {
   const repoRoot = findRepoRoot()
   const sources = discoverPackageModuleSources(createResolver(repoRoot))
-  const extractionStartedAt = performance.now()
+  const extractionStartedAt = process.cpuUsage()
   const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
-  const extractionDurationMs = performance.now() - extractionStartedAt
+  const extractionCpuUsage = process.cpuUsage(extractionStartedAt)
+  const extractionDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
 
   it('emits complete, deterministic extension catalogs for every resolved module', () => {
     const repeated = extractAllModuleFacts({ sources })
