@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import { apiCall } from './utils/apiCall'
-import { clearAllPerspectiveState } from './DataTable'
+import { clearAllPerspectiveState } from './perspectiveState'
 
 export const AUTH_IDENTITY_STORAGE_KEY = 'om:auth:identity'
 export const AUTH_IDENTITY_BROADCAST_CHANNEL = 'om-auth-identity'
