@@ -3,6 +3,8 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
+import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widgets/extension-points'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
@@ -1949,7 +1951,10 @@ export default function SalesDocumentDetailPage({
     () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
     [kind, record?.id],
   )
-  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const detailsInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'details' }),
+    [kind],
+  )
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     kind: SalesDocumentKind
     record: DocumentRecord | null
@@ -3988,7 +3993,10 @@ export default function SalesDocumentDetailPage({
   const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
   const canComposeMessages = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, 'messages.compose')
 
-  const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
+  const tabInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'tabs' }),
+    [kind],
+  )
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
     context: detailInjectionContext,
     triggerOnLoad: true,
@@ -4263,7 +4271,7 @@ export default function SalesDocumentDetailPage({
             onAddComment={appendShipmentComment}
           />
           <InjectionSpot
-            spotId="detail:sales.order:shipping"
+            spotId={extensionPoints.hosts.orderShipping.spotId}
             context={detailInjectionContext}
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}

@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { fieldsetCodeRegex } from '@open-mercato/shared/modules/entities/validators'
+
+const customFieldsetCodeSchema = z.string().trim().regex(fieldsetCodeRegex).max(100)
 
 const scopedCreateFields = {
   tenantId: z.string().uuid(),
@@ -52,6 +55,7 @@ export const resourcesResourceCreateSchema = z.object({
     .nullable(),
   isActive: z.boolean().optional(),
   availabilityRuleSetId: z.string().uuid().optional().nullable(),
+  customFieldsetCode: customFieldsetCodeSchema.optional().nullable(),
 })
 
 export const resourcesResourceUpdateSchema = z.object({
@@ -71,6 +75,7 @@ export const resourcesResourceUpdateSchema = z.object({
     .nullable(),
   isActive: z.boolean().optional(),
   availabilityRuleSetId: z.string().uuid().optional().nullable(),
+  customFieldsetCode: customFieldsetCodeSchema.optional().nullable(),
 })
 
 export const resourcesResourceTagCreateSchema = z.object({

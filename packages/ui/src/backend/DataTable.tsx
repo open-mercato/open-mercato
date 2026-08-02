@@ -59,6 +59,7 @@ import type {
   InjectionRowActionDefinition,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { dataTableExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type {
@@ -94,6 +95,11 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { clearAllPerspectiveState, PERSPECTIVE_COOKIE_PREFIX, PERSPECTIVE_STORAGE_PREFIX } from './perspectiveState'
+
+// Re-exported so `@open-mercato/ui/backend/DataTable` stays the published import
+// path for the purge (BACKWARD_COMPATIBILITY: import paths are a contract surface).
+export { clearAllPerspectiveState }
 
 const logger = createLogger('ui').child({ component: 'DataTable' })
 
@@ -469,8 +475,6 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
   return sections
 }
 
-const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
-const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
 
 // Bounds for user-driven column resizing (#1835). Widths outside this range are
 // clamped so a persisted/dragged value can never collapse a column to nothing or
@@ -1352,8 +1356,8 @@ export function DataTable<T>({
   }, [injectionSpotId, perspective?.tableId, extensionTableIdProp])
   const resolvedInjectionSpotId =
     injectionSpotId
-    ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
-    ?? (extensionTableIdProp ? `data-table:${extensionTableIdProp}` : null)
+    ?? (perspective?.tableId ? dataTableExtensionSpotId(perspective.tableId) : null)
+    ?? (extensionTableIdProp ? dataTableExtensionSpotId(extensionTableIdProp) : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
   const baseInjectionContext = React.useMemo(
     () => {
@@ -1376,32 +1380,32 @@ export function DataTable<T>({
     [injectionContext, perspective?.tableId, extensionTableId, title]
   )
   const headerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'header') : null),
     [resolvedInjectionSpotId]
   )
   const toolbarInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'toolbar') : null),
     [resolvedInjectionSpotId]
   )
   const searchTrailingInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:search-trailing` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'search-trailing') : null),
     [resolvedInjectionSpotId]
   )
   const footerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'footer') : null),
     [resolvedInjectionSpotId]
   )
   const { widgets: columnWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:columns` : '__disabled__:columns',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'columns') : '__disabled__:columns',
   )
   const { widgets: rowActionWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:row-actions` : '__disabled__:row-actions',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'row-actions') : '__disabled__:row-actions',
   )
   const { widgets: bulkActionWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:bulk-actions` : '__disabled__:bulk-actions',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'bulk-actions') : '__disabled__:bulk-actions',
   )
   const { widgets: filterWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:filters` : '__disabled__:filters',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'filters') : '__disabled__:filters',
   )
   const injectedColumnDefs = React.useMemo<{ def: ColumnDef<T, unknown>; placement: InjectionColumnDefinition['placement'] }[]>(() => {
     const entries: InjectionColumnDefinition[] = []
@@ -3031,23 +3035,29 @@ export function DataTable<T>({
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
                   const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
-                  const headerCellContent = header.isPlaceholder ? null : (
+                  const isColumnSortable = sortable && !!header.column.getCanSort?.()
+                  const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
+                  // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
+                  // interactive controls (Checkbox, etc.) in their header. Wrapping those in a <Button>
+                  // would nest a native <button> inside another, which is invalid HTML and triggers a
+                  // hydration error — so only sortable columns get the clickable Button affordance.
+                  const headerCellContent = header.isPlaceholder ? null : isColumnSortable ? (
                     <Button
                       variant="ghost"
                       type="button"
-                      className={`h-auto p-0 has-[>svg]:px-0 font-medium ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
-                      onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
+                      className="h-auto p-0 has-[>svg]:px-0 font-medium cursor-pointer select-none"
+                      onClick={() => header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
                     >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      {sortable && header.column.getCanSort?.() ? (
-                        (() => {
-                          const sortState = header.column.getIsSorted()
-                          if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-                          if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-                          return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
-                        })()
-                      ) : null}
+                      {headerContent}
+                      {(() => {
+                        const sortState = header.column.getIsSorted()
+                        if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                      })()}
                     </Button>
+                  ) : (
+                    <div className="h-auto p-0 has-[>svg]:px-0 font-medium">{headerContent}</div>
                   )
                   const columnId = header.column.id
                   const sizedWidth = enableColumnResize && columnId ? columnSizing[columnId] : undefined

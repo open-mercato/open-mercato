@@ -6,7 +6,8 @@ import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRun } from '../lib/nextRunCalculator.js'
+import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
+import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type {
   ScheduleCreateInput,
   ScheduleUpdateInput,
@@ -80,6 +81,14 @@ async function loadScheduleSnapshot(
 function toDate(value: Date | string | null | undefined): Date | null {
   if (!value) return null
   return value instanceof Date ? value : new Date(value)
+}
+
+function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
+  const auth = ctx.auth
+  if (!auth) return null
+  if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId.trim()
+  if (auth.isApiKey) return null
+  return typeof auth.sub === 'string' && auth.sub.trim().length > 0 ? auth.sub.trim() : null
 }
 
 /**
@@ -188,8 +197,12 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
+    if (input.isEnabled ?? true) {
+      await enforceTenantActiveScheduleLimit(em, input.tenantId)
+    }
+
     // Calculate next run time
-    const nextRunAt = calculateNextRun(
+    const nextRunAt = calculateNextRunForWrite(
       input.scheduleType,
       input.scheduleValue,
       input.timezone || 'UTC'
@@ -218,7 +231,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       sourceType: input.sourceType ?? 'user',
       sourceModule: input.sourceModule ?? null,
       nextRunAt,
-      createdByUserId: (ctx.auth?.userId as string | undefined) ?? null,
+      createdByUserId: resolveCommandActorUserId(ctx),
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -297,6 +310,23 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
     ensureCanManageSystemScopedJob(ctx, schedule)
 
+    if (input.isEnabled === true && schedule.isEnabled !== true) {
+      await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
+    }
+
+    const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined
+    const nextRunAt = scheduleChanged
+      ? calculateNextRunForWrite(
+        input.scheduleType ?? schedule.scheduleType,
+        input.scheduleValue ?? schedule.scheduleValue,
+        input.timezone ?? schedule.timezone,
+      )
+      : null
+
+    if (scheduleChanged && !nextRunAt) {
+      throw new CrudHttpError(422, { error: 'Invalid schedule value.' })
+    }
+
     // Update fields
     if (input.name !== undefined) schedule.name = input.name
     if (input.description !== undefined) schedule.description = input.description ?? null
@@ -326,20 +356,12 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
     }
 
-    // Recalculate next run if schedule changed
-    if (input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined) {
-      const nextRunAt = calculateNextRun(
-        schedule.scheduleType,
-        schedule.scheduleValue,
-        schedule.timezone
-      )
-      if (nextRunAt) {
-        schedule.nextRunAt = nextRunAt
-      }
+    if (nextRunAt) {
+      schedule.nextRunAt = nextRunAt
     }
 
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
+    schedule.updatedByUserId = resolveCommandActorUserId(ctx)
 
     await em.flush()
 
@@ -430,7 +452,7 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
     // Soft delete
     schedule.deletedAt = new Date()
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
+    schedule.updatedByUserId = resolveCommandActorUserId(ctx)
 
     await em.flush()
 

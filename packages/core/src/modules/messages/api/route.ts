@@ -13,6 +13,7 @@ import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { applyMessageParticipantScope } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
@@ -120,11 +121,9 @@ export async function GET(req: Request) {
         joinRecipient()
         break
       case 'all':
-        joinRecipient()
-        q = q.where((eb: any) => eb.or([
-          eb('m.sender_user_id', '=', scope.userId),
-          eb('r.message_id', 'is not', null),
-        ]))
+        // Sender-OR-recipient participant scope shared with the
+        // communication_channels message enricher — see participantScope.ts (#4133).
+        q = applyMessageParticipantScope(q, scope.userId)
         break
       default: {
         const unsupportedFolder: never = input.folder

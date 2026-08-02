@@ -257,6 +257,35 @@ describe('attachments API', () => {
     expect(payload.error).toMatch(/maximum upload size/i)
   })
 
+  it('rejects an oversized multipart body without a content length before materializing metadata', async () => {
+    process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '0.000001'
+    const { POST: upload } = await loadHandlers()
+    const boundary = 'oversized-metadata'
+    const body = new TextEncoder().encode([
+      `--${boundary}\r\nContent-Disposition: form-data; name="entityId"\r\n\r\nexample:todo\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="recordId"\r\n\r\nr1\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="fieldKey"\r\n\r\nattachments\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="customFields"\r\n\r\n`,
+      'x'.repeat(1024 * 1024),
+      `\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="small.pdf"\r\n`,
+      'Content-Type: application/pdf\r\n\r\n\u0001\r\n',
+      `--${boundary}--\r\n`,
+    ].join(''))
+    const req = new Request('http://x/api/attachments', {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      body,
+    })
+
+    expect(req.headers.get('content-length')).toBeNull()
+    const res = await upload(req)
+
+    expect(res.status).toBe(413)
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/maximum upload size/i),
+    })
+  })
+
   it('rejects uploads that exceed the tenant storage quota', async () => {
     const { POST: upload } = await loadHandlers()
     process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
