@@ -9,6 +9,8 @@ Implement complete page behavior through real APIs and stable extension hosts; d
 
 ## Workflow
 
+Apply the root spec-first gate before implementation planning. A new user-facing capability reaches this workflow from one covering spec or a current-request explicit skip/bypass; when neither exists, invoke `om-spec-writing` with `.ai/guides/spec-delivery.md` before code. Bounded UI bug fixes, minor corrections, and isolated refactors without new architecture/public contracts continue directly.
+
 Route before reading: an app-owned page and its page-metadata navigation stay `backend-ui`; do not probe the extension guide. Select/read UMES only when injecting, replacing, hiding, or reordering an installed module's surface.
 
 1. Read `.ai/guides/backend-ui.md`; choose backend, settings, profile, frontend, or portal path with `references/page-and-navigation.md`. For public/portal, visually substantial, responsive/mobile/touch, screen-reader, or explicit accessibility work, also load `references/frontend-and-design-system.md`.

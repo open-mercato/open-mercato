@@ -243,6 +243,30 @@ test('every built-in preset emits one path-stable spec route with resolvable ins
   const generatedRoots: string[] = []
   const emittedTierManifests: string[] = []
   const targets: string[] = []
+  const deliveryRoute = fs.readFileSync(
+    path.join(CREATE_APP_ROOT, 'agentic/shared/ai/skills/om-help/references/delivery-workflows.md'),
+    'utf8',
+  )
+  const moduleRoute = fs.readFileSync(
+    path.join(CREATE_APP_ROOT, 'agentic/shared/ai/skills/om-module-scaffold/SKILL.md'),
+    'utf8',
+  )
+  const uiRoute = fs.readFileSync(
+    path.join(CREATE_APP_ROOT, 'agentic/shared/ai/skills/om-backend-ui-design/SKILL.md'),
+    'utf8',
+  )
+
+  assert.match(deliveryRoute, /Before implementation planning, search `\.ai\/specs\/` once/)
+  assert.match(deliveryRoute, /Reuse or amend one covering spec instead of creating a duplicate/)
+  assert.match(deliveryRoute, /Bug fixes, minor behavioral corrections, small docs\/config changes, dependency maintenance, and isolated refactors/)
+  assert.match(deliveryRoute, /current request explicitly says to skip or bypass it/)
+  assert.match(deliveryRoute, /Ask one bounded classification question/)
+  for (const owner of [moduleRoute, uiRoute]) {
+    assert.match(owner, /Apply the root spec-first gate before implementation planning/)
+    assert.match(owner, /one covering spec or a current-request explicit skip\/bypass/)
+    assert.match(owner, /invoke `om-spec-writing` with `\.ai\/guides\/spec-delivery\.md` before code/)
+    assert.match(owner, /fixes, minor corrections, and isolated refactors without new architecture\/public contracts continue directly/)
+  }
 
   try {
     for (const presetId of VALID_PRESET_IDS) {
@@ -270,6 +294,16 @@ test('every built-in preset emits one path-stable spec route with resolvable ins
 
       assert.match(root, /MUST invoke `om-spec-writing`/)
       assert.match(root, /`\.ai\/guides\/spec-delivery\.md`/)
+      assert.equal(
+        root.match(/Before implementation planning, search `\.ai\/specs\/` once\./g)?.length,
+        1,
+        `${presetId} must emit the spec-first decision owner exactly once`,
+      )
+      assert.match(root, /reuse\/amend one covering spec/)
+      assert.match(root, /Fixes, minor docs\/config\/dependency work, and isolated no-new-contract refactors/)
+      assert.match(root, /current-request explicit skip\/bypass/)
+      assert.match(root, /urgency, “small feature”, silence, or earlier preference do not/)
+      assert.match(root, /classification materially ambiguous, ask one bounded question/)
       assert.equal(selectedExternalSkills.has('om-spec-writing'), true)
       assert.equal(tiers.external.skills.includes('om-spec-writing'), true)
       assert.deepEqual(tiers.external.dependencies['om-spec-writing'], [])

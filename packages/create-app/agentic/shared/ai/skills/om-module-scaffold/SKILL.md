@@ -14,6 +14,8 @@ Create the smallest working vertical slice under `src/modules/<id>/`, using inst
 
 ## Workflow
 
+Apply the root spec-first gate before implementation planning. A new module or capability reaches this workflow from one covering spec or a current-request explicit skip/bypass; when neither exists, invoke `om-spec-writing` with `.ai/guides/spec-delivery.md` before code. Bounded bug fixes, minor corrections, and isolated refactors without new architecture/public contracts continue directly.
+
 Route before reading: every specialist step below is conditional. Decide from the brief and the blueprint route key first, include each applicable route in the assembled route, and only then read that route's guide or skill. Never probe a specialist guide and discard its route. In particular, do not open the extension or framework-context skill as a precaution: select UMES only for an injected, overridden, enriched, or intercepted installed surface, and select framework context only after naming an unresolved exact-version detail. For an architecture-only plan, the root router's `architecture` + `module-data` exception wins: use the blueprint to name likely UI/workflow surfaces without loading their implementation guides or skills.
 
 For a complete one-shot module or CRUD vertical slice, steps 3, 4, and 7 are mandatory: before the first write, directly read the exact paths `.ai/skills/om-module-scaffold/references/api-and-domain.md`, `.ai/skills/om-module-scaffold/references/module-surfaces.md`, and `.ai/skills/om-module-scaffold/references/verification.md`. Specialist data/UI/UMES procedures add to these three; they never replace them.

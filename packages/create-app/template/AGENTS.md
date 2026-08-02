@@ -11,13 +11,13 @@ Extend this app. Route first; never probe unmatched context.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
-- Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
+- Run `yarn generate` after discovery/modules/routes/pages/events/widgets/agents/tools/workflows change.
 - Adding/changing/removing, preserving, or keeping stable a public route/schema/ID/export/seam/signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract surface.
 - Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and a11y states.
 
 ## Ask First
 
-- Ask before scope/architecture/public-contract/dependency/ejection/canonical-primitive changes; migrations/resets/DB targets; live credentials/providers; or weaker security, concurrency, retries, idempotency, audit, undo.
+- Ask before scope/architecture/contracts/dependencies/ejection/canonical primitives; DB/migrations/resets; live credentials/providers; or weaker security/concurrency/retries/idempotency/audit/undo.
 
 ## Never
 
@@ -37,7 +37,7 @@ Routes are additive: ownership says WHO; other axes say WHAT. Select every match
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
-`debugging` = reported bug/security/drift, not designed failure UI. Specs use `spec-pr`; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = reported bug/security/drift, not designed failure UI. Specs use `spec-pr`; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable UI adds `backend-ui`; requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
 
@@ -91,6 +91,8 @@ Match every work-unit row; OPEN its skill before selection.
 
 Pinned delivery skills: `yarn install-skills` (refresh: `--update`). Read BOTH `.agents/skills/<id>/SKILL.md` and a matching `.ai/skills/<id>/SKILL.md` override. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
 
+Before implementation planning, search `.ai/specs/` once. New capability, architecture, schema/API contract, cross-module, or multi-phase behavior is `spec-pr`: reuse/amend one covering spec or invoke `om-spec-writing` + `.ai/guides/spec-delivery.md` before code. Fixes, minor docs/config/dependency work, and isolated no-new-contract refactors run directly. Only a current-request explicit skip/bypass exempts a feature; urgency, “small feature”, silence, or earlier preference do not. If evidence leaves classification materially ambiguous, ask one bounded question.
+
 | Route ID | Delivery need | Skill |
 |---|---|---|
 | `spec-pr` | Write/revise spec | MUST invoke `om-spec-writing` (OMH-005) + `.ai/guides/spec-delivery.md` + config specs path |
@@ -103,12 +105,8 @@ Absent skill: run `yarn install-skills` once; never substitute.
 
 ### Token-Efficient Assembly Policy
 
-- Load matched guides once, then only needed references/facts.
-- Hard budgets: guide > skill > references; open a reference only for its named subject.
-- Specs: open one match; `spec-pr` reads template via spec-delivery.
-- Inspect app call sites before bounded `framework-context`.
-- Additive page/form/table/conflict UI skips it.
-- Never bulk-read guide, skill, fact, or source trees.
+- Load matched guides once; only needed refs/facts; budget guide > skill > refs; never bulk-read trees.
+- `spec-pr` reads template via spec-delivery; open one match. Inspect app calls before bounded `framework-context`. Additive page/form/table/conflict UI skips it.
 
 ## Module-Specific Facts
 
@@ -116,12 +114,5 @@ Load facts for every named/targeted module, not incidental use. Mechanisms: even
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
-
-## Working Sequence
-
-1. `spec-pr`: list `.ai/specs` once; open one match; plan-only skips specs.
-2. Route; load only matched guides/skills/facts.
-3. Implement the smallest complete slice through real call sites.
-4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
 
 Precedence: root → BC → installed `AGENTS.md` → facts; stop on skew/conflict; never guess.
