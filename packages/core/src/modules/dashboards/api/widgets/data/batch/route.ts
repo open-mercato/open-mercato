@@ -18,6 +18,7 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from '../schema'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOptionalBaseCurrencyResolver } from '../../../../lib/optionalBaseCurrency'
 
 const logger = createLogger('dashboards').child({ component: 'widgets-data-batch' })
 
@@ -104,7 +105,13 @@ export async function POST(req: Request) {
   })()
 
   const cache = container.resolve<CacheStrategy>('cache')
-  const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
+  const service = createWidgetDataService(
+    em,
+    { tenantId, organizationIds },
+    analyticsRegistry,
+    cache,
+    resolveOptionalBaseCurrencyResolver(container),
+  )
 
   const rbacService = container.resolve<{
     userHasAllFeatures: (
