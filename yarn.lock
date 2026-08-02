@@ -54,26 +54,26 @@ __metadata:
   linkType: hard
 
 "@ai-sdk/anthropic@npm:^4.0.23":
-  version: 4.0.23
-  resolution: "@ai-sdk/anthropic@npm:4.0.23"
+  version: 4.0.27
+  resolution: "@ai-sdk/anthropic@npm:4.0.27"
   dependencies:
     "@ai-sdk/provider": "npm:4.0.4"
-    "@ai-sdk/provider-utils": "npm:5.0.14"
+    "@ai-sdk/provider-utils": "npm:5.0.18"
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
-  checksum: 10/5115741a84dd3f17f1cb2bf30a77123189641a0a4cf23de86f8d3fad56ac8e0be24d566cdb2185b44d0e46b603c85e65eef92e59101616be1bbdfd31758009bc
+  checksum: 10/4241cddd473a58274363f5efb00820a71ca2f035ee0deb9d0519be63382d56d4571fa4a42fbf27b9dcc7c4608aa561db7fc18ddb848396f1cac9052e1537ba03
   languageName: node
   linkType: hard
 
 "@ai-sdk/cohere@npm:^4.0.14":
-  version: 4.0.14
-  resolution: "@ai-sdk/cohere@npm:4.0.14"
+  version: 4.0.18
+  resolution: "@ai-sdk/cohere@npm:4.0.18"
   dependencies:
     "@ai-sdk/provider": "npm:4.0.4"
-    "@ai-sdk/provider-utils": "npm:5.0.14"
+    "@ai-sdk/provider-utils": "npm:5.0.18"
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
-  checksum: 10/8c80f95c414ccc8913a6c139d8d09909e88de3d9bcbd15b64759fac4b20c6cdd87c3fdd2e3429ff0d89bd10352283406ab723bd061aff81a2cd4e12f48f7df77
+  checksum: 10/840962bd23c6578b50a1e233932745062193e6d5531b59674c981bc4afdbff0f7748217f51200635543391bb603e6fa1dcdf27f74ee40cb349048959d6a33cc0
   languageName: node
   linkType: hard
 
@@ -103,14 +103,14 @@ __metadata:
   linkType: hard
 
 "@ai-sdk/mistral@npm:^4.0.16":
-  version: 4.0.16
-  resolution: "@ai-sdk/mistral@npm:4.0.16"
+  version: 4.0.20
+  resolution: "@ai-sdk/mistral@npm:4.0.20"
   dependencies:
     "@ai-sdk/provider": "npm:4.0.4"
-    "@ai-sdk/provider-utils": "npm:5.0.14"
+    "@ai-sdk/provider-utils": "npm:5.0.18"
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
-  checksum: 10/92809adb801494ffb634541ff8a544b697e64b88fe1365cc762cf45cda8d1622375d7dd3d61e1fd5246c80b7ea0871fe7dcaa890029eba3e37f411381075f195
+  checksum: 10/4d803040bc20dd8453c2f1294d76f9480447a7d6329e25f4027c81b021d334ca72f1bbedb9fe0e6ce8901ff8fb75434392b27f0bf645a981d1f889e045333106
   languageName: node
   linkType: hard
 
@@ -140,17 +140,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/provider-utils@npm:5.0.14, @ai-sdk/provider-utils@npm:^5.0.11":
-  version: 5.0.14
-  resolution: "@ai-sdk/provider-utils@npm:5.0.14"
+"@ai-sdk/provider-utils@npm:5.0.18, @ai-sdk/provider-utils@npm:^5.0.11":
+  version: 5.0.18
+  resolution: "@ai-sdk/provider-utils@npm:5.0.18"
   dependencies:
     "@ai-sdk/provider": "npm:4.0.4"
     "@standard-schema/spec": "npm:^1.1.0"
     "@workflow/serde": "npm:4.1.0"
     eventsource-parser: "npm:^3.0.8"
+    undici: "npm:^7.28.0"
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
-  checksum: 10/19f13ce4a927e572915d5fe1519bf8ea174dd556fffe2128e10a6cb8781fb15885bf980df501f0431df4bf00fe29156fddbebbe13b61431e295c2ef70f18e873
+  checksum: 10/f08f3fc291b8bf97c6375a3aaa8d66852a5ee3dc1f0f883270e78660b3befc8f3c9a8f1960ee7c6a20c4fcd6043bb5f1363ddc91306e21958cdf9cd65bc12bb0
   languageName: node
   linkType: hard
 
@@ -6676,46 +6677,46 @@ __metadata:
   linkType: hard
 
 "@mikro-orm/core@npm:^7.1.8":
-  version: 7.1.8
-  resolution: "@mikro-orm/core@npm:7.1.8"
+  version: 7.1.9
+  resolution: "@mikro-orm/core@npm:7.1.9"
   peerDependencies:
     dataloader: 2.2.3
   peerDependenciesMeta:
     dataloader:
       optional: true
-  checksum: 10/5550c8cb1683d43310ecad0cac7e769c0d0c04072c0abcfee3734a07242330b0e3606d3258decb65f1ad6a8036f7772f8aad7ea1c0e189f917a52a4d86385351
+  checksum: 10/30645a80ee4f59c63c30eed8a00f883e42115c567cab8c07bc2ba1e87ae08fb813adbf3d3309193e1c2e4d9d05ffb5ad0a430b3e2b547762939096210f7adb91
   languageName: node
   linkType: hard
 
 "@mikro-orm/decorators@npm:^7.1.8":
-  version: 7.1.8
-  resolution: "@mikro-orm/decorators@npm:7.1.8"
+  version: 7.1.9
+  resolution: "@mikro-orm/decorators@npm:7.1.9"
   peerDependencies:
-    "@mikro-orm/core": 7.1.8
+    "@mikro-orm/core": 7.1.9
     reflect-metadata: ^0.1.0 || ^0.2.0
   peerDependenciesMeta:
     reflect-metadata:
       optional: true
-  checksum: 10/0e1dc6a81a8199f577f484e3e805ad797ade9a901922752d53856a21ee44c5df3af129d6ee84f5593f69752bd31cb7fddd1a724487b8191831aa27e588f4e879
+  checksum: 10/f36ae0b7284255d697f1a3804a505c24fc275de2ffc048feb920a6378697a5e1fa382043536c0fdb2ce38b72952dee244e37eaf4667318aa7934e5f732c78582
   languageName: node
   linkType: hard
 
 "@mikro-orm/migrations@npm:^7.1.8":
-  version: 7.1.8
-  resolution: "@mikro-orm/migrations@npm:7.1.8"
+  version: 7.1.9
+  resolution: "@mikro-orm/migrations@npm:7.1.9"
   dependencies:
-    "@mikro-orm/sql": "npm:7.1.8"
+    "@mikro-orm/sql": "npm:7.1.9"
   peerDependencies:
-    "@mikro-orm/core": 7.1.8
-  checksum: 10/5308410ae4e6df8030a0c92b24a5c9246f918f859bd32ab92485929dc7646a9cc59bc57ff824437d9c4ca226cc4d3f1a41dc04226457f9f39898fe845b59dfee
+    "@mikro-orm/core": 7.1.9
+  checksum: 10/5c73c1a11a0a0470ec2838a68d2741869ae68baf1f3a4d1074d81229671ddcc350f66fd3b9e7f76a28d72861b2d48512f2c86768cf3b552399ad42235f3af7b8
   languageName: node
   linkType: hard
 
 "@mikro-orm/postgresql@npm:^7.1.8":
-  version: 7.1.8
-  resolution: "@mikro-orm/postgresql@npm:7.1.8"
+  version: 7.1.9
+  resolution: "@mikro-orm/postgresql@npm:7.1.9"
   dependencies:
-    "@mikro-orm/sql": "npm:7.1.8"
+    "@mikro-orm/sql": "npm:7.1.9"
     kysely: "npm:0.29.4"
     pg: "npm:8.22.0"
     pg-cursor: "npm:2.21.0"
@@ -6723,19 +6724,19 @@ __metadata:
     postgres-date: "npm:2.1.0"
     postgres-interval: "npm:4.1.0"
   peerDependencies:
-    "@mikro-orm/core": 7.1.8
-  checksum: 10/53f0073ba46cee7515cae58fb0a62319ccde3c89620fe36f00231b32e3514fe2f87ef6047d6671dc6a4163e64d9bfa9a86a49591438b1f90621ccac3e15d66fb
+    "@mikro-orm/core": 7.1.9
+  checksum: 10/9b544ee9266fa1ee0623b9ec9b5ccd142fdb3207c8d4417a5db0fe7914bd8c47ea44b769659b54b3510c886b5628b010f6a4f6e5312e709cefd5db76cb5c51cd
   languageName: node
   linkType: hard
 
-"@mikro-orm/sql@npm:7.1.8":
-  version: 7.1.8
-  resolution: "@mikro-orm/sql@npm:7.1.8"
+"@mikro-orm/sql@npm:7.1.9":
+  version: 7.1.9
+  resolution: "@mikro-orm/sql@npm:7.1.9"
   dependencies:
     kysely: "npm:0.29.4"
   peerDependencies:
-    "@mikro-orm/core": 7.1.8
-  checksum: 10/370efe0eda2bce1c79cc0619dbd8922933a46a06d03f8e6b580215139706e8153ebff02221ee5dccf63b3135b429ad9f12734c134abd1c67f497a5750388c13b
+    "@mikro-orm/core": 7.1.9
+  checksum: 10/2c53b6648722feb4270651378cc159520ed7dec0bbe3dfc04e61297d00e4913a1541b25fea11c501a849648a64a0d6baceb4d9eaee2cb5f26294589b59d630d1
   languageName: node
   linkType: hard
 
@@ -8429,13 +8430,13 @@ __metadata:
   linkType: hard
 
 "@playwright/test@npm:^1.62.0":
-  version: 1.62.0
-  resolution: "@playwright/test@npm:1.62.0"
+  version: 1.62.1
+  resolution: "@playwright/test@npm:1.62.1"
   dependencies:
-    playwright: "npm:1.62.0"
+    playwright: "npm:1.62.1"
   bin:
     playwright: cli.js
-  checksum: 10/90b504f3933b97687580d7e6ba42ce9e73a9cdd41da5ae59441104b3dfa1508142ed17e5742acc70fdc2aef79078365859c6a463cebf46a8f7db9506a3ece1d6
+  checksum: 10/a84fdc2b0c0f01131fa4c0f0aaebf2698a618ca4a459e3b71ebec4b0b8a5be5b7b1a3cfc063e316d4d75f403a04078d214baf69c4bcbc9606ba12be696d4ff14
   languageName: node
   linkType: hard
 
@@ -11413,44 +11414,44 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@turbo/darwin-64@npm:2.10.7":
-  version: 2.10.7
-  resolution: "@turbo/darwin-64@npm:2.10.7"
+"@turbo/darwin-64@npm:2.10.8":
+  version: 2.10.8
+  resolution: "@turbo/darwin-64@npm:2.10.8"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
-"@turbo/darwin-arm64@npm:2.10.7":
-  version: 2.10.7
-  resolution: "@turbo/darwin-arm64@npm:2.10.7"
+"@turbo/darwin-arm64@npm:2.10.8":
+  version: 2.10.8
+  resolution: "@turbo/darwin-arm64@npm:2.10.8"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
-"@turbo/linux-64@npm:2.10.7":
-  version: 2.10.7
-  resolution: "@turbo/linux-64@npm:2.10.7"
-  conditions: os=linux & cpu=x64
+"@turbo/linux-64@npm:2.10.8":
+  version: 2.10.8
+  resolution: "@turbo/linux-64@npm:2.10.8"
+  conditions: (os=android | os=linux) & cpu=x64
   languageName: node
   linkType: hard
 
-"@turbo/linux-arm64@npm:2.10.7":
-  version: 2.10.7
-  resolution: "@turbo/linux-arm64@npm:2.10.7"
-  conditions: os=linux & cpu=arm64
+"@turbo/linux-arm64@npm:2.10.8":
+  version: 2.10.8
+  resolution: "@turbo/linux-arm64@npm:2.10.8"
+  conditions: (os=android | os=linux) & cpu=arm64
   languageName: node
   linkType: hard
 
-"@turbo/windows-64@npm:2.10.7":
-  version: 2.10.7
-  resolution: "@turbo/windows-64@npm:2.10.7"
+"@turbo/windows-64@npm:2.10.8":
+  version: 2.10.8
+  resolution: "@turbo/windows-64@npm:2.10.8"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
-"@turbo/windows-arm64@npm:2.10.7":
-  version: 2.10.7
-  resolution: "@turbo/windows-arm64@npm:2.10.7"
+"@turbo/windows-arm64@npm:2.10.8":
+  version: 2.10.8
+  resolution: "@turbo/windows-arm64@npm:2.10.8"
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
@@ -14542,12 +14543,12 @@ __metadata:
   linkType: hard
 
 "bullmq@npm:^5.81.2":
-  version: 5.81.2
-  resolution: "bullmq@npm:5.81.2"
+  version: 5.81.3
+  resolution: "bullmq@npm:5.81.3"
   dependencies:
     cron-parser: "npm:4.9.0"
     ioredis: "npm:5.11.1"
-    msgpackr: "npm:2.0.4"
+    msgpackr: "npm:2.0.5"
     node-abort-controller: "npm:3.1.1"
     semver: "npm:7.8.5"
     tslib: "npm:2.8.1"
@@ -14556,7 +14557,7 @@ __metadata:
   peerDependenciesMeta:
     redis:
       optional: true
-  checksum: 10/5e0a1de81bdd517ba2592c102c1f6b6a8c61055d21faf0529748f1de0a041da764b1e290145f4d4a59434b104a0edfb2479744f901029b9bc830b710c8c5129a
+  checksum: 10/95105db56513798fcc8309146acbcf7b724bebf724a59b8e1e6a212c1a8b60162f089add33417ef3e01e0089fd4d22b7704e3d837043df845e42630df18b0352
   languageName: node
   linkType: hard
 
@@ -22160,11 +22161,11 @@ __metadata:
   linkType: hard
 
 "lucide-react@npm:^1.27.0":
-  version: 1.27.0
-  resolution: "lucide-react@npm:1.27.0"
+  version: 1.28.0
+  resolution: "lucide-react@npm:1.28.0"
   peerDependencies:
     react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10/d6a3b62351f06fbf8615a9d3f850707e1b6a1306212dd48ea28642485887636c364aeeb4acf208f5e489f8cbd2e0968c559beb1e9d30ce043f966e384be61c8d
+  checksum: 10/8797d879a4a7767565807333b430bda73d935274fd8ec9fe6f2d6932bb973085684bbf305f03c74aab8ba9732ae2c699868a0d109874be55a2bbc36d8c100dec
   languageName: node
   linkType: hard
 
@@ -23604,15 +23605,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"msgpackr@npm:2.0.4":
-  version: 2.0.4
-  resolution: "msgpackr@npm:2.0.4"
+"msgpackr@npm:2.0.5":
+  version: 2.0.5
+  resolution: "msgpackr@npm:2.0.5"
   dependencies:
     msgpackr-extract: "npm:^3.0.4"
   dependenciesMeta:
     msgpackr-extract:
       optional: true
-  checksum: 10/fb5eb85dee3b8b2ed83b81f5360f58cc3f3c290e79586d01c12cf54710b837ccc5d11abce4b5324b861e152fee9131a843cb4511ef03fcc037061c43f72b7195
+  checksum: 10/2eda64f30bf89a8195d732b9eea82a79091c56e2da4a0146a03ccf68b87a2871b18aa371a9f881f6bec53b09a5d63057de4e28942b08aaf8b0cb024b38e9daee
   languageName: node
   linkType: hard
 
@@ -25053,27 +25054,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright-core@npm:1.62.0":
-  version: 1.62.0
-  resolution: "playwright-core@npm:1.62.0"
+"playwright-core@npm:1.62.1":
+  version: 1.62.1
+  resolution: "playwright-core@npm:1.62.1"
   bin:
     playwright-core: cli.js
-  checksum: 10/1cf036e9ed51ea80d311ac25a871dddbc57d5e7e7a5ad23fc2741452aa8406c95e820901ec38aeecc6fca2ddc383ccc8acb0e2f29a4c12942dd0a1a63e7134a2
+  checksum: 10/2dab88793a6a5cbfa27641664548ded72a4f869d7eab8d3541e070081b5e09595253aa3dbd42eb4e6eca1b03d96a727c60704359b5b309e71ca58b12549a4c06
   languageName: node
   linkType: hard
 
-"playwright@npm:1.62.0":
-  version: 1.62.0
-  resolution: "playwright@npm:1.62.0"
+"playwright@npm:1.62.1":
+  version: 1.62.1
+  resolution: "playwright@npm:1.62.1"
   dependencies:
     fsevents: "npm:2.3.2"
-    playwright-core: "npm:1.62.0"
+    playwright-core: "npm:1.62.1"
   dependenciesMeta:
     fsevents:
       optional: true
   bin:
     playwright: cli.js
-  checksum: 10/52401b5f2b67abcb555c1b1c229e5204a3ac72a604343a99e60b00bd0cd46ad661a9471ced4e6c3ff39de957a0b1f413810d191ce81cd40e455700d73a6a80a5
+  checksum: 10/f99546873ab2545160ad5a0145fef8e2c1d805efd1ba77356f5b0ee3d8688192b3a2af08cd948bece36ca386fdfad889ef7e53b7aaad309940744c0bbccc0a19
   languageName: node
   linkType: hard
 
@@ -29217,16 +29218,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tar@npm:7.5.20":
-  version: 7.5.20
-  resolution: "tar@npm:7.5.20"
+"tar@npm:7.5.21":
+  version: 7.5.21
+  resolution: "tar@npm:7.5.21"
   dependencies:
     "@isaacs/fs-minipass": "npm:^4.0.0"
     chownr: "npm:^3.0.0"
     minipass: "npm:^7.1.2"
     minizlib: "npm:^3.1.0"
     yallist: "npm:^5.0.0"
-  checksum: 10/90a0fe423ac921197ad5eefc5e5f7ad7f42b06e80444c8c347c1e4112384cbe9cb53ade3ef71748eed3684888756869c2aeef6b6303c766101f3217e254d4be9
+  checksum: 10/a1b7dcee15e4f7dbef7f07c3cf0fe946248efabd1cb029b54c698d817dfc2876c75bcaa164a12dd21191e385759ce3e37fea562cf4aabaa00984ef9ed3c48d17
   languageName: node
   linkType: hard
 
@@ -29683,15 +29684,15 @@ __metadata:
   linkType: hard
 
 "turbo@npm:^2.10.7":
-  version: 2.10.7
-  resolution: "turbo@npm:2.10.7"
+  version: 2.10.8
+  resolution: "turbo@npm:2.10.8"
   dependencies:
-    "@turbo/darwin-64": "npm:2.10.7"
-    "@turbo/darwin-arm64": "npm:2.10.7"
-    "@turbo/linux-64": "npm:2.10.7"
-    "@turbo/linux-arm64": "npm:2.10.7"
-    "@turbo/windows-64": "npm:2.10.7"
-    "@turbo/windows-arm64": "npm:2.10.7"
+    "@turbo/darwin-64": "npm:2.10.8"
+    "@turbo/darwin-arm64": "npm:2.10.8"
+    "@turbo/linux-64": "npm:2.10.8"
+    "@turbo/linux-arm64": "npm:2.10.8"
+    "@turbo/windows-64": "npm:2.10.8"
+    "@turbo/windows-arm64": "npm:2.10.8"
   dependenciesMeta:
     "@turbo/darwin-64":
       optional: true
@@ -29707,7 +29708,7 @@ __metadata:
       optional: true
   bin:
     turbo: bin/turbo
-  checksum: 10/4bf030663f92e2d9a36f91e9d498ecd55f8b475476ef8a95ab8323bf05a4c68f44233680f03dc09cc01c260f3aa1ad0f0f1011a63f367b3e94898382f068aff2
+  checksum: 10/a6b1f9abc9f7fb54efbdcbaa909faf189dfcfd3b86f1988af26d808d7ee7d45e7eb869ba8f6df608d9ba0e4f19e24a723a4bc80e85f77e36b755b01b7bc973c8
   languageName: node
   linkType: hard
 
@@ -30126,6 +30127,13 @@ __metadata:
   version: 7.28.0
   resolution: "undici@npm:7.28.0"
   checksum: 10/154423b280d623278a61decb437f8a7e581fb18b8c95556ef956b32a58cd668eadbb812d28e20678cb2dc545a566f35a3afc0962307ca801da30f4741117986d
+  languageName: node
+  linkType: hard
+
+"undici@npm:^7.28.0":
+  version: 7.29.0
+  resolution: "undici@npm:7.29.0"
+  checksum: 10/ca73639071bdcbc41e57be1800847fa18f86f8fbf7a5641ff9899f7bbb6f5cecdd593e225f5fd94e31703dcbfaea4a722a3b81cab90c5c4e2b406aec1ae55732
   languageName: node
   linkType: hard
 

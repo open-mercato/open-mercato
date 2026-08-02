@@ -208,6 +208,7 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
     requiredDecisions: string[]
     requiredSkills: string[]
     expectedRouter: { required: string[] }
+    source?: { paths?: string[] }
   }>
   assert.equal(cases.length, 202)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
@@ -217,10 +218,42 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
     'OMH-039': { contexts: ['.ai/guides/modules/communication_channels.md', '.ai/guides/modules/channel_gmail.md', '.ai/guides/modules/channel_imap.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
     'OMH-052': { contexts: ['.ai/guides/modules/attachments.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
     'OMH-087': { contexts: ['.ai/guides/ai-workflows.md', '.ai/guides/modules/api_keys.md', '.ai/guides/modules/configs.md', '.ai/guides/modules/dictionaries.md', '.ai/guides/modules/gateway_stripe.md', '.ai/guides/modules/perspectives.md', '.ai/guides/modules/resources.md', '.ai/guides/modules/sync_akeneo.md', '.ai/guides/modules/sync_excel.md', '.ai/guides/modules/dashboards.md', '.ai/guides/modules/notifications.md', '.ai/guides/modules/messages.md', '.ai/guides/modules/inbox_ops.md', '.ai/guides/modules/ai_assistant.md'], decisions: ['mfa-and-sudo-contributions', 'dashboard-notification-message-inbox-surfaces', 'typed-tool-versus-mcp', 'mcp-opencode-code-mode', 'mcp-two-tier-auth'] },
-    'OMH-088': { contexts: ['.ai/skills/om-system-extension/references/extension-branches.md'], decisions: ['command-interceptor-execute-undo', 'command-interceptor-acl-scope', 'safe-command-block-rewrite'] },
+    'OMH-026': { contexts: ['.ai/guides/extensions.md'], decisions: ['facts-first-target', 'bound-crud-form-host', 'correlated-roundtrip'] },
+    'OMH-027': { contexts: ['.ai/guides/extensions.md'], decisions: ['facts-first-target', 'bound-data-table-host', 'base-prefix-not-mountable'] },
+    'OMH-028': { contexts: ['.ai/guides/framework-extension-points.md'], decisions: ['framework-facts-first', 'exact-framework-menu-host'] },
+    'OMH-031': { contexts: ['.ai/guides/extensions.md'], decisions: ['facts-first-target', 'interceptor-activation', 'interceptor-phases-and-failure-posture'] },
+    'OMH-032': { contexts: ['.ai/guides/extensions.md'], decisions: ['facts-first-target', 'guard-operations-and-capabilities', 'locking-preserved'] },
+    'OMH-035': { contexts: ['.ai/guides/modules/events.md'], decisions: ['facts-first-event', 'broadcast-audience-scope', 'exact-browser-hook'] },
+    'OMH-088': {
+      contexts: [
+        '.ai/skills/om-system-extension/references/extension-branches.md',
+        '.ai/guides/framework-extension-points.md',
+      ],
+      decisions: [
+        'facts-first-target-resolution',
+        'exact-pattern-fact-ref-resolution',
+        'unresolved-first-party-blocker',
+        'querying-queried-caller-opt-in',
+        'all-bound-crud-form-families',
+        'all-bound-data-table-families',
+        'reject-helper-only-hosts',
+        'dom-portal-audience-scope',
+        'correlated-roundtrip-verification',
+      ],
+    },
+    'OMH-089': {
+      contexts: [],
+      decisions: ['facts-first-override-resolution', 'override-fact-ref-provenance', 'override-mode-from-facts', 'unresolved-first-party-blocker'],
+    },
+    'OMH-091': { contexts: ['.ai/guides/framework-extension-points.md'], decisions: ['facts-first-portal-host', 'portal-broadcast-audience-scope', 'exact-portal-hook'] },
     'OMH-097': { contexts: ['.ai/guides/modules/onboarding.md'], decisions: ['on-tenant-created-hook', 'seed-defaults-versus-examples', 'translated-welcome-invitation-email'] },
     'OMH-106': { contexts: ['.ai/guides/modules/staff.md'], decisions: ['staff-assignable-route', 'staff-availability-resolver', 'optional-staff-module'] },
     'OMH-157': { contexts: ['.ai/guides/modules/attachments.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
+    'OMH-179': { contexts: ['.ai/guides/modules/customers.md'], decisions: ['facts-first-target', 'enricher-host-opt-in', 'enricher-list-detail-posture'] },
+    'OMH-180': { contexts: ['.ai/guides/modules/customers.md'], decisions: ['facts-first-target', 'bound-crud-form-host', 'correlated-roundtrip', 'reject-helper-only-host'] },
+    'OMH-181': { contexts: ['.ai/guides/modules/sales.md'], decisions: ['facts-first-target', 'bound-data-table-host', 'base-prefix-not-mountable', 'correlated-execution-guard'] },
+    'OMH-182': { contexts: ['.ai/guides/modules/sales.md'], decisions: ['facts-first-target', 'guard-operations-and-capabilities', 'locking-preserved'] },
+    'OMH-183': { contexts: ['.ai/guides/modules/sales.md'], decisions: ['facts-first-event', 'subscriber-delivery-posture', 'optional-external-provenance'] },
     'OMH-185': {
       contexts: [
         '.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md',
@@ -327,6 +360,14 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
   assert.deepEqual(byId.get('OMH-192')?.expectedRouter.required, ['module-data', 'umes', 'testing'])
   assert.deepEqual(byId.get('OMH-193')?.expectedRouter.required, ['module-data', 'backend-ui', 'umes'])
 
+  const optionalUmesSpec = '.ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md'
+  for (const caseId of ['OMH-088', 'OMH-089']) {
+    const record = byId.get(caseId)
+    assert.ok(record?.source?.paths?.includes(optionalUmesSpec), `${caseId}: UMES spec must remain provenance`)
+    assert.ok(!record?.context.allowedExtra?.includes(optionalUmesSpec), `${caseId}: source-only provenance must not become scaffold context`)
+    assert.ok(!record?.context.required.includes(optionalUmesSpec), `${caseId}: standalone must not require the UMES spec`)
+  }
+
   // Every reuse-installed case observes its module fact-sheet; the skill that governs the
   // decision differs by framing. "Does something already own this?" opens om-help; a named
   // provider or file-feed opens om-integration-builder, which is what live routing selects.
@@ -366,12 +407,14 @@ test('the business-language cohort includes the OMH-185 parity case without leak
   const cohort = cases.filter((entry) => entry.tags.includes('business-language'))
   const releaseMatrix = JSON.parse(read('shared/ai/harness/release-matrix.json')) as {
     generatedCodeReview: { maxChangedFiles: number }
+    generativeJudge: { maxChangedFiles: number }
   }
 
   assert.equal(new Set(cases.map((entry) => entry.id)).size, cases.length, 'catalog case IDs must be unique')
   assert.equal(cohort.length, 93)
   assert.deepEqual(cohort.map((entry) => entry.id), expectedIds)
   assert.ok(releaseMatrix.generatedCodeReview.maxChangedFiles >= 22, 'complete library review must admit its canonical artifact layout')
+  assert.ok(releaseMatrix.generativeJudge.maxChangedFiles >= 22, 'complete library judge must admit its canonical artifact layout')
 
   const prohibitedImplementationVocabulary = /(?:\b(?:IntegrationDefinition|ChannelAdapter|GatewayAdapter|ShippingAdapter|availabilityAccessResolver|checkAttachmentAccess|onTenantCreated|seedDefaults|seedExamples|registerGatewayAdapter|registerWebhookHandler|registerPaymentGatewayDescriptor|registerShippingAdapter|tenantId|organizationId)\b|\/api\/staff\/team-members\/assignable\b|--no-examples\b|\bsetup\.ts\b)/
   for (const entry of cohort) {
@@ -439,7 +482,7 @@ test('every published case count states the shipped catalog or the portability s
   // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
   // "46 writable implementation/regression cases" and "202 live-routing cases" are checked too; a
   // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
-  const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)(?:[- ][a-z/-]+)*?[- ]cases?\b/g
+  const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)[ -][a-z/ -]{0,120}cases?\b/g
   const allowed = new Map([
     [cases.length, 'the shipped catalog'],
     [validators.catalog.writableCaseIds.length, 'the writable/portability sample'],

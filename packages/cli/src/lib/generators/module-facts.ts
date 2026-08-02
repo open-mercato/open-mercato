@@ -1,7 +1,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
+import type { ModuleExtensionContributionFact, ModuleExtensionSurfaceFacts } from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
+import {
+  assertNoUnresolvedExtensionTargets,
+  correlateModuleExtensionFacts,
+  extractKnownApiRouteIds,
+  extractKnownCommandIds,
+  extractModuleExtensionFacts,
+  renderFrameworkExtensionPointsMarkdown,
+} from './module-extension-facts'
 
 export interface ModuleEntityFact {
   id: string
@@ -21,6 +30,27 @@ export interface ModuleApiRouteFact {
   path: string
   methods: string[]
   auth: Record<string, ApiRouteAuthRule>
+  sourcePath: string | null
+}
+
+export interface ModulePageFact {
+  path: string
+  sourcePath: string
+}
+
+export interface ModuleCliCommandFact {
+  command: string
+  sourcePath: string
+}
+
+export interface ModuleAiToolFact {
+  name: string
+  sourcePath: string
+}
+
+export interface ModuleAiAgentFact {
+  id: string
+  sourcePath: string
 }
 
 export interface ModuleEventFact {
@@ -28,6 +58,8 @@ export interface ModuleEventFact {
   label?: string
   category: string | null
   entity: string | null
+  clientBroadcast?: boolean
+  portalBroadcast?: boolean
 }
 
 export interface ModuleHostTokens {
@@ -42,6 +74,7 @@ export interface ModuleFacts {
   coreVersion: string | null
   sourcePackage: string | null
   sourceVersion: string | null
+  sourceRoot: string
   entities: ModuleEntityFact[]
   events: ModuleEventFact[]
   aclFeatures: string[]
@@ -51,6 +84,12 @@ export interface ModuleFacts {
   hostTokens: ModuleHostTokens
   notifications: string[]
   cli: string[]
+  backendPages: ModulePageFact[]
+  frontendPages: ModulePageFact[]
+  cliCommands: ModuleCliCommandFact[]
+  aiTools: ModuleAiToolFact[]
+  aiAgents: ModuleAiAgentFact[]
+  extensionSurfaces?: ModuleExtensionSurfaceFacts
   warnings: string[]
 }
 
@@ -387,7 +426,11 @@ function extractEvents(eventsFilePath: string | null): ModuleEventFact[] {
       category: category ?? null,
       entity: entity ?? null,
     }
+    const clientBroadcast = readBooleanPropertyInitializer(element, 'clientBroadcast')
+    const portalBroadcast = readBooleanPropertyInitializer(element, 'portalBroadcast')
     if (label !== undefined) fact.label = label
+    if (clientBroadcast !== undefined) fact.clientBroadcast = clientBroadcast
+    if (portalBroadcast !== undefined) fact.portalBroadcast = portalBroadcast
     facts.push(fact)
   }
 
@@ -495,13 +538,14 @@ function parseApiRouteEntry(entryLiteral: ts.ObjectLiteralExpression): ModuleApi
     }
   }
 
-  return { path: routePath, methods, auth }
+  return { path: routePath, methods, auth, sourcePath: null }
 }
 
 function extractApiRoutes(
   moduleId: string,
   registrySource: string | null,
   registryDescription: string,
+  routeSourcePaths: ReadonlyMap<string, string>,
   warnings: string[],
 ): ModuleApiRouteFact[] {
   if (registrySource == null) {
@@ -529,7 +573,7 @@ function extractApiRoutes(
           const route = parseApiRouteEntry(element)
           if (route && !seenPaths.has(route.path)) {
             seenPaths.add(route.path)
-            routes.push(route)
+            routes.push({ ...route, sourcePath: routeSourcePaths.get(route.path) ?? null })
           }
         }
       }
@@ -717,6 +761,190 @@ function listSourceFilesRecursive(directory: string): string[] {
   return files
 }
 
+function toPortableSourceRoot(moduleId: string, sourcePackage: string | null): string {
+  return path.posix.join('node_modules', sourcePackage ?? '@open-mercato/core', 'src', 'modules', moduleId)
+}
+
+function toPortableSourcePath(moduleRoot: string, sourceRoot: string, filePath: string): string {
+  const relativePath = path.relative(moduleRoot, filePath).split(path.sep).join('/')
+  return path.posix.join(sourceRoot, relativePath)
+}
+
+function sourceHasDefaultExport(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some((statement) => {
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) return true
+    if (!ts.isFunctionDeclaration(statement) && !ts.isClassDeclaration(statement)) return false
+    return statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ?? false
+  })
+}
+
+function readRouteMetadataPath(sourceFile: ts.SourceFile): string | null {
+  const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
+  return metadata ? readStringPropertyInitializer(metadata, 'path') ?? null : null
+}
+
+function extractApiRouteSourcePaths(
+  moduleId: string,
+  moduleRoot: string,
+  sourceRoot: string,
+): Map<string, string> {
+  const apiRoot = path.join(moduleRoot, 'api')
+  const sources = new Map<string, string>()
+  if (!fs.existsSync(apiRoot)) return sources
+  const methodDirectories = new Set(['get', 'post', 'put', 'patch', 'delete'])
+
+  for (const filePath of listSourceFilesRecursive(apiRoot)) {
+    const relativePath = path.relative(apiRoot, filePath).split(path.sep).join('/')
+    const segments = relativePath.split('/')
+    const fileName = segments.pop() as string
+    const fileStem = fileName.replace(/\.tsx?$/, '')
+    let routeSegments: string[]
+    if (fileStem === 'route') {
+      routeSegments = segments
+    } else if (segments[0] && methodDirectories.has(segments[0].toLowerCase())) {
+      routeSegments = [...segments.slice(1), fileStem]
+    } else {
+      routeSegments = [...segments, fileStem]
+    }
+    const defaultPath = `/${[moduleId, ...routeSegments].filter(Boolean).join('/')}`
+    const sourceFile = readSourceFile(filePath)
+    const routePath = sourceFile ? readRouteMetadataPath(sourceFile) ?? defaultPath : defaultPath
+    sources.set(routePath, toPortableSourcePath(moduleRoot, sourceRoot, filePath))
+  }
+  return sources
+}
+
+function extractModulePages(
+  moduleId: string,
+  moduleRoot: string,
+  sourceRoot: string,
+  surface: 'backend' | 'frontend',
+): ModulePageFact[] {
+  const pageRoot = path.join(moduleRoot, surface)
+  if (!fs.existsSync(pageRoot)) return []
+  const pages: ModulePageFact[] = []
+  const seen = new Set<string>()
+
+  for (const filePath of listSourceFilesRecursive(pageRoot)) {
+    if (!filePath.endsWith('.tsx')) continue
+    const relativePath = path.relative(pageRoot, filePath).split(path.sep).join('/')
+    const segments = relativePath.split('/')
+    const fileName = segments.pop() as string
+    const fileStem = fileName.replace(/\.tsx$/, '')
+    const isModernPage = fileStem === 'page'
+    if (!isModernPage && (fileStem.endsWith('.meta') || /^[A-Z]/.test(fileStem))) continue
+    const sourceFile = readSourceFile(filePath)
+    if (!sourceFile || !sourceHasDefaultExport(sourceFile)) continue
+    const routeSegments = isModernPage ? segments : [...segments, fileStem]
+    const routePath = surface === 'frontend'
+      ? `/${routeSegments.filter(Boolean).join('/')}`
+      : isModernPage
+        ? `/backend/${routeSegments.join('/') || moduleId}`
+        : `/backend/${routeSegments[0] === moduleId
+            ? routeSegments.filter(Boolean).join('/')
+            : [moduleId, ...routeSegments].filter(Boolean).join('/')}`
+    if (seen.has(routePath)) continue
+    seen.add(routePath)
+    pages.push({
+      path: routePath,
+      sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, filePath),
+    })
+  }
+  return pages.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function findAncestorVariableDeclaration(node: ts.Node): ts.VariableDeclaration | null {
+  let current: ts.Node | undefined = node.parent
+  while (current) {
+    if (ts.isVariableDeclaration(current)) return current
+    current = current.parent
+  }
+  return null
+}
+
+function findAncestorCallExpression(node: ts.Node): ts.CallExpression | null {
+  let current: ts.Node | undefined = node.parent
+  while (current) {
+    if (ts.isCallExpression(current)) return current
+    if (ts.isVariableDeclaration(current) || ts.isStatement(current)) return null
+    current = current.parent
+  }
+  return null
+}
+
+function extractNamedAiFacts(
+  filePaths: readonly string[],
+  moduleRoot: string,
+  sourceRoot: string,
+  propertyName: 'name' | 'id',
+): Array<{ value: string; sourcePath: string }> {
+  const facts: Array<{ value: string; sourcePath: string }> = []
+  const seen = new Set<string>()
+  for (const filePath of filePaths) {
+    const sourceFile = readSourceFile(filePath)
+    if (!sourceFile) continue
+    const initializers = buildVariableInitializerMap(sourceFile)
+    const readDefinitionValue = (objectLiteral: ts.ObjectLiteralExpression): string | undefined => {
+      const initializer = getObjectPropertyInitializer(objectLiteral, propertyName)
+      if (!initializer) return undefined
+      const resolved = unwrapExpression(initializer)
+      if (ts.isStringLiteralLike(resolved)) return resolved.text
+      if (ts.isIdentifier(resolved)) {
+        const declarationInitializer = initializers.get(resolved.text)
+        if (declarationInitializer) {
+          const declarationValue = unwrapExpression(declarationInitializer)
+          if (ts.isStringLiteralLike(declarationValue)) return declarationValue.text
+        }
+      }
+      return undefined
+    }
+    const visit = (node: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(node)) {
+        const value = readDefinitionValue(node)
+        if (value && !seen.has(value)) {
+          const declaration = findAncestorVariableDeclaration(node)
+          const declarationName = declaration && ts.isIdentifier(declaration.name) ? declaration.name.text : ''
+          const declarationType = declaration?.type?.getText(sourceFile) ?? ''
+          const call = findAncestorCallExpression(node)
+          const callee = call?.expression.getText(sourceFile) ?? ''
+          const isDefinition = propertyName === 'name'
+            ? /AiTool/.test(declarationType) || /tool$/i.test(declarationName) || /AiTool/.test(callee)
+            : /AiAgentDefinition/.test(declarationType) || /agent$/i.test(declarationName) || /defineAiAgent/.test(callee)
+          if (isDefinition) {
+            seen.add(value)
+            facts.push({
+              value,
+              sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, filePath),
+            })
+          }
+        }
+      }
+      node.forEachChild(visit)
+    }
+    sourceFile.forEachChild(visit)
+  }
+  return facts.sort((left, right) => left.value.localeCompare(right.value))
+}
+
+function extractAiTools(moduleRoot: string, sourceRoot: string): ModuleAiToolFact[] {
+  const files = new Set<string>()
+  const rootFile = resolveConventionFile(moduleRoot, 'ai-tools')
+  if (rootFile) files.add(rootFile)
+  const toolsDirectory = path.join(moduleRoot, 'ai-tools')
+  if (fs.existsSync(toolsDirectory)) {
+    for (const filePath of listSourceFilesRecursive(toolsDirectory)) files.add(filePath)
+  }
+  return extractNamedAiFacts([...files], moduleRoot, sourceRoot, 'name')
+    .map((fact) => ({ name: fact.value, sourcePath: fact.sourcePath }))
+}
+
+function extractAiAgents(moduleRoot: string, sourceRoot: string): ModuleAiAgentFact[] {
+  const agentsFile = resolveConventionFile(moduleRoot, 'ai-agents')
+  if (!agentsFile) return []
+  return extractNamedAiFacts([agentsFile], moduleRoot, sourceRoot, 'id')
+    .map((fact) => ({ id: fact.value, sourcePath: fact.sourcePath }))
+}
+
 function extractTableIds(moduleRoot: string): string[] {
   if (!fs.existsSync(moduleRoot)) return []
 
@@ -780,6 +1008,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   if (!moduleRoot) {
     throw new Error(`[internal] extractModuleFacts requires moduleRoot or coreSrcRoot for module "${moduleId}"`)
   }
+  const sourceRoot = toPortableSourceRoot(moduleId, sourcePackage)
 
   const entitiesFilePath =
     resolveConventionFile(path.join(moduleRoot, 'data'), 'entities') ??
@@ -802,15 +1031,38 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   const aclFeatures = extractAclFeatures(aclFilePath)
 
   const { source: registrySource, description: registryDescription } = resolveRegistrySource(options)
-  const apiRoutes = extractApiRoutes(moduleId, registrySource, registryDescription, warnings)
+  const apiRouteSourcePaths = extractApiRouteSourcePaths(moduleId, moduleRoot, sourceRoot)
+  const apiRoutes = extractApiRoutes(moduleId, registrySource, registryDescription, apiRouteSourcePaths, warnings)
   const diTokens = extractDiTokens(diFilePath)
   const searchEntities = extractSearchEntities(searchFilePath, warnings)
   const notifications = extractNotifications(notificationsFilePath, warnings)
   const cli = extractCli(cliFilePath, warnings)
+  const cliCommands = cliFilePath
+    ? cli.map((command) => ({
+        command,
+        sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, cliFilePath),
+      }))
+    : []
+  const backendPages = extractModulePages(moduleId, moduleRoot, sourceRoot, 'backend')
+  const frontendPages = extractModulePages(moduleId, moduleRoot, sourceRoot, 'frontend')
+  const aiTools = extractAiTools(moduleRoot, sourceRoot)
+  const aiAgents = extractAiAgents(moduleRoot, sourceRoot)
   const hostTokens: ModuleHostTokens = {
     entityIds: extractHostEntityIds(entities),
     tableIds: extractTableIds(moduleRoot),
   }
+  const extensionSurfaces = extractModuleExtensionFacts({
+    moduleId,
+    moduleRoot,
+    sourceRoot,
+    entities,
+    events,
+    apiRoutes,
+    searchEntities,
+    notifications,
+    aiTools,
+    aiAgents,
+  })
 
   return {
     module: moduleId,
@@ -819,6 +1071,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     coreVersion,
     sourcePackage,
     sourceVersion,
+    sourceRoot,
     entities,
     events,
     aclFeatures,
@@ -828,6 +1081,12 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     hostTokens,
     notifications,
     cli,
+    backendPages,
+    frontendPages,
+    cliCommands,
+    aiTools,
+    aiAgents,
+    extensionSurfaces,
     warnings,
   }
 }
@@ -836,6 +1095,8 @@ export interface ModuleFactsJsonEvent {
   id: string
   category: string | null
   entity: string | null
+  clientBroadcast?: boolean
+  portalBroadcast?: boolean
 }
 
 export interface ModuleFactsJsonEntry {
@@ -844,6 +1105,7 @@ export interface ModuleFactsJsonEntry {
   coreVersion: string | null
   sourcePackage: string | null
   sourceVersion: string | null
+  sourceRoot: string
   entities: ModuleEntityFact[]
   events: ModuleFactsJsonEvent[]
   aclFeatures: string[]
@@ -853,6 +1115,12 @@ export interface ModuleFactsJsonEntry {
   hostTokens: ModuleHostTokens
   notifications: string[]
   cli: string[]
+  backendPages: ModulePageFact[]
+  frontendPages: ModulePageFact[]
+  cliCommands: ModuleCliCommandFact[]
+  aiTools: ModuleAiToolFact[]
+  aiAgents: ModuleAiAgentFact[]
+  extensionSurfaces?: ModuleExtensionSurfaceFacts
 }
 
 const EMPTY_SECTION_MARKER = '_none_'
@@ -883,15 +1151,23 @@ function renderEntitiesSection(entities: ModuleEntityFact[]): string {
 function renderEventsSection(events: ModuleEventFact[]): string {
   const heading = `## Events  (${events.length})`
   if (events.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| ID | Category | Entity |'
-  const divider = '|---|---|---|'
-  const rows = events.map((event) => `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} |`)
+  const header = '| ID | Category | Entity | Browser transport |'
+  const divider = '|---|---|---|---|'
+  const rows = events.map((event) => {
+    const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
+      .filter((value): value is string => value !== null)
+    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} |`
+  })
   return [heading, '', header, divider, ...rows].join('\n')
 }
 
 function renderInlineListSection(heading: string, values: string[]): string {
   if (values.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
   return `${heading}\n\n${values.join(' · ')}`
+}
+
+function renderSourceLink(sourcePath: string): string {
+  return `[${sourcePath}](../../../${sourcePath})`
 }
 
 function describeAuthRule(rule: ApiRouteAuthRule | undefined): string {
@@ -916,12 +1192,21 @@ function renderApiRouteAuthCell(route: ModuleApiRouteFact): string {
 
 function renderApiRoutesSection(routes: ModuleApiRouteFact[]): string {
   if (routes.length === 0) return `## API routes\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| Path | Methods | Auth (per-method requireFeatures) |'
-  const divider = '|---|---|---|'
+  const header = '| Path | Methods | Auth (per-method requireFeatures) | Source |'
+  const divider = '|---|---|---|---|'
   const rows = routes.map(
-    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} |`,
+    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} | ${route.sourcePath ? renderSourceLink(route.sourcePath) : '—'} |`,
   )
   return ['## API routes', '', header, divider, ...rows].join('\n')
+}
+
+function renderLinkedFactsSection(
+  heading: string,
+  facts: ReadonlyArray<{ label: string; sourcePath: string }>,
+): string {
+  if (facts.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
+  const rows = facts.map((fact) => `| ${fact.label} | ${renderSourceLink(fact.sourcePath)} |`)
+  return [heading, '', '| ID / path | Source |', '|---|---|', ...rows].join('\n')
 }
 
 function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
@@ -930,10 +1215,75 @@ function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
   return ['## Host extension points', '', `- Entity IDs: ${entityIdsLine}`, `- Table IDs: ${tableIdsLine}`].join('\n')
 }
 
+function renderExtensionHostContext(host: ModuleExtensionSurfaceFacts['hosts'][number]): string {
+  return host.contextContract ?? host.runtimeContract ?? host.scopeContract ?? '—'
+}
+
+function renderExtensionHostsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const boundHosts = extensionSurfaces.hosts.filter((host) => host.bound)
+  if (boundHosts.length === 0) return `## UMES hosts\n\n${EMPTY_SECTION_MARKER}`
+  const rows = boundHosts.map((host) =>
+    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} |`,
+  )
+  return [
+    '## UMES hosts',
+    '',
+    '| ID / pattern | Family | Supports | Context | Stability |',
+    '|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function compactContributionDetails(contribution: ModuleExtensionContributionFact): string {
+  const details = contribution.details as unknown as Record<string, unknown>
+  return Object.keys(details).sort((left, right) => left.localeCompare(right)).flatMap((key) => {
+    const value = details[key]
+    if (value === undefined) return []
+    if (Array.isArray(value)) return [`${key}=${value.join(',') || 'none'}`]
+    if (value && typeof value === 'object') {
+      const nested = Object.keys(value as Record<string, unknown>).sort((left, right) => left.localeCompare(right)).map((nestedKey) => {
+        const nestedValue = (value as Record<string, unknown>)[nestedKey]
+        return `${nestedKey}:${Array.isArray(nestedValue) ? nestedValue.join(',') : String(nestedValue)}`
+      })
+      return [`${key}={${nested.join(';')}}`]
+    }
+    return [`${key}=${String(value)}`]
+  }).join('; ')
+}
+
+function renderExtensionContributionsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  if (extensionSurfaces.contributions.length === 0) return `## UMES contributions\n\n${EMPTY_SECTION_MARKER}`
+  const rows = extensionSurfaces.contributions.map((contribution) => {
+    const targets = contribution.targets.map((entry) => entry.id).join(', ')
+    const resolution = contribution.targets.map((entry) => entry.resolution).join(', ')
+    const phases = [...(contribution.phases ?? []), ...(contribution.operations ?? [])].join(', ') || '—'
+    return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} |`
+  })
+  return [
+    '## UMES contributions',
+    '',
+    '| ID | Kind | Target | Phase / operations | Contract | Resolution |',
+    '|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function renderExtensionDiagnosticsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const unbound = extensionSurfaces.hosts.filter((host) => !host.bound)
+  if (unbound.length === 0 && extensionSurfaces.unresolved.length === 0) return ''
+  const diagnostics = [
+    ...unbound.map((host) => `- unbound-helper: ${host.id}`),
+    ...extensionSurfaces.unresolved.map((entry) => `- ${entry.reason}: ${entry.key} (${entry.source.path})`),
+  ]
+  return ['## UMES diagnostics', '', ...diagnostics].join('\n')
+}
+
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
+  const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
   const sections = [
     `# ${facts.module} — module facts (generated, do not edit)`,
     renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
+    `Source root: ${renderSourceLink(facts.sourceRoot)}`,
     '',
     renderEntitiesSection(facts.entities),
     '',
@@ -943,15 +1293,29 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderApiRoutesSection(facts.apiRoutes),
     '',
+    renderLinkedFactsSection('## Backend pages', facts.backendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
+    '',
+    renderLinkedFactsSection('## Frontend pages', facts.frontendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
+    '',
     renderInlineListSection('## DI service tokens', facts.diTokens),
     '',
     renderInlineListSection('## Search entities', facts.searchEntities),
     '',
     renderHostTokensSection(facts.hostTokens),
     '',
+    renderExtensionHostsSection(extensionSurfaces),
+    '',
+    renderExtensionContributionsSection(extensionSurfaces),
+    '',
+    renderExtensionDiagnosticsSection(extensionSurfaces),
+    '',
     renderInlineListSection('## Notifications', facts.notifications),
     '',
-    renderInlineListSection('## CLI', facts.cli),
+    renderLinkedFactsSection('## CLI commands', facts.cliCommands.map((command) => ({ label: command.command, sourcePath: command.sourcePath }))),
+    '',
+    renderLinkedFactsSection('## AI tools / MCP capabilities', facts.aiTools.map((tool) => ({ label: tool.name, sourcePath: tool.sourcePath }))),
+    '',
+    renderLinkedFactsSection('## AI agents', facts.aiAgents.map((agent) => ({ label: agent.id, sourcePath: agent.sourcePath }))),
     '',
   ]
   return sections.join('\n')
@@ -964,8 +1328,15 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     coreVersion: facts.coreVersion,
     sourcePackage: facts.sourcePackage,
     sourceVersion: facts.sourceVersion,
+    sourceRoot: facts.sourceRoot,
     entities: facts.entities,
-    events: facts.events.map((event) => ({ id: event.id, category: event.category, entity: event.entity })),
+    events: facts.events.map((event) => ({
+      id: event.id,
+      category: event.category,
+      entity: event.entity,
+      ...(event.clientBroadcast !== undefined ? { clientBroadcast: event.clientBroadcast } : {}),
+      ...(event.portalBroadcast !== undefined ? { portalBroadcast: event.portalBroadcast } : {}),
+    })),
     aclFeatures: facts.aclFeatures,
     apiRoutes: facts.apiRoutes,
     diTokens: facts.diTokens,
@@ -973,6 +1344,12 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     hostTokens: facts.hostTokens,
     notifications: facts.notifications,
     cli: facts.cli,
+    backendPages: facts.backendPages,
+    frontendPages: facts.frontendPages,
+    cliCommands: facts.cliCommands,
+    aiTools: facts.aiTools,
+    aiAgents: facts.aiAgents,
+    ...(facts.extensionSurfaces ? { extensionSurfaces: facts.extensionSurfaces } : {}),
   }
 }
 
@@ -1009,6 +1386,7 @@ export interface ExtractAllModuleFactsResult {
   factsByModule: Record<string, ModuleFacts>
   markdownByModule: Record<string, string>
   warnings: string[]
+  frameworkMarkdown: string
 }
 
 export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
@@ -1035,8 +1413,31 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
       registrySource: options.registrySource ?? null,
     })
     factsByModule[source.moduleId] = facts
-    markdownByModule[source.moduleId] = renderModuleFactsMarkdown(facts)
     warnings.push(...facts.warnings)
   }
-  return { factsByModule, markdownByModule, warnings }
+  const surfacesByModule = Object.fromEntries(
+    Object.entries(factsByModule).map(([moduleId, facts]) => [
+      moduleId,
+      facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] },
+    ]),
+  )
+  const correlated = correlateModuleExtensionFacts({
+    surfacesByModule,
+    entityIds: new Set(Object.values(factsByModule).flatMap((facts) => facts.entities.map((entity) => entity.id))),
+    eventIds: new Set(Object.values(factsByModule).flatMap((facts) => facts.events.map((event) => event.id))),
+    apiRoutes: new Set([
+      ...Object.values(factsByModule).flatMap((facts) => facts.apiRoutes.map((route) => route.path)),
+      ...sources.flatMap((source) => extractKnownApiRouteIds(source.moduleId, source.moduleRoot)),
+    ]),
+    commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
+  })
+  assertNoUnresolvedExtensionTargets(correlated)
+  for (const moduleId of Object.keys(factsByModule).sort((left, right) => left.localeCompare(right))) {
+    factsByModule[moduleId].extensionSurfaces = correlated[moduleId]
+    markdownByModule[moduleId] = renderModuleFactsMarkdown(factsByModule[moduleId])
+    warnings.push(...correlated[moduleId].unresolved.map((entry) =>
+      `[module-facts] ${moduleId} ${entry.reason}: ${entry.key} (${entry.source.path})`,
+    ))
+  }
+  return { factsByModule, markdownByModule, warnings, frameworkMarkdown: renderFrameworkExtensionPointsMarkdown() }
 }

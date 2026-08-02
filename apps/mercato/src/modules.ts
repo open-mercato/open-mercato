@@ -127,11 +127,11 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
-      // Applied (not just catalogued) so integration coverage can prove a real nav override survives
-      // bootstrap, mirroring how the override-probe route below is proven by TC-UMES-022.
-      nav: {
-        groupOrder: ['example.nav.group'],
-      },
+      // Keep the real-bootstrap nav override probe isolated from normal app behavior. The integration
+      // runner sets OM_INTEGRATION_TEST, while development and production keep Example at the tail.
+      nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
+        ? { groupOrder: ['example.nav.group'] }
+        : undefined,
       routes: {
         api: {
           'GET /api/example/override-probe': {

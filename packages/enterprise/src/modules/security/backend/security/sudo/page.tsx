@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/enterprise/modules/security/extension-points'
 import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
@@ -257,7 +258,7 @@ function SecuritySudoPageInner() {
               </Link>
             </Button>
           )}
-          perspective={{ tableId: 'security.sudo.list' }}
+          perspective={{ tableId: extensionPoints.hosts.sudoTable.tableId }}
           isLoading={loading}
           error={error ? <span>{error}</span> : null}
         />
