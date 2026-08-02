@@ -39,8 +39,12 @@ Rebase the app-level DI override diagnostics from PR #4298 onto the current `dev
 - Module-not-found messages differ between CommonJS, ESM, Jest, and Next.js; tests cover the supported quoted `Cannot find module/package '@/di'` forms and explicitly reject nested specifiers.
 - Process-scoped guards must survive duplicate module loading without leaking into tests; global state is reset only through the existing test-only cache-reset helper.
 - The original PR targets `main` and conflicts with `develop`; the migration preserves current `develop` behavior instead of replaying the old file wholesale.
+- GitHub's authoritative `prepare`, `test`, and `lint` jobs passed the replacement head. A supplementary local full-suite run reproduced only the unrelated `develop` sales-test regression tracked by #4824; the focused shared suites and all other local gates passed.
+- The replacement preserves the original commit authorship and explicit PR-body credit. GitHub currently reports its contributor CLA check as pending, so branch protection will continue to hold the merge until that external check resolves.
 
 ## Progress
+
+PR: #4827
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
