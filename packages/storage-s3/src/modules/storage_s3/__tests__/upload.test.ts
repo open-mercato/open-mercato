@@ -7,7 +7,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 const mockResolveCredentials = jest.fn()
 const mockCreateRequestContainer = jest.fn(async () => ({
-  resolve: () => ({ resolve: mockResolveCredentials }),
+  resolve: (key: string) => {
+    if (key === 'integrationCredentialsService') return { resolve: mockResolveCredentials }
+    throw new Error(`Unexpected dependency: ${key}`)
+  },
 }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: () => mockCreateRequestContainer(),
