@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { User, Hash, Users, Building2 } from 'lucide-react'
@@ -520,8 +521,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection (third-party extensions) */}
-          <InjectionSpot spotId="detail:customers.person:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.person:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent person header */}
           <PersonDetailHeader
@@ -555,7 +556,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 <CrudForm<PersonEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="crud-form:customers.person"
+                  injectionSpotId={extensionPoints.hosts.personForm.spotId}
                   entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
                   schema={formSchema}
                   fields={fields}
@@ -737,7 +738,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           })()}
 
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.person:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog — opened from PlannedActivities "+ Schedule" or other triggers */}
           <ScheduleActivityDialog

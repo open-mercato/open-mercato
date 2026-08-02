@@ -1,5 +1,6 @@
 "use client"
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -135,7 +136,10 @@ export default function LoginPage() {
       try {
         const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-om-unauthorized-redirect': '0',
+          },
           body: JSON.stringify({ features: [] }),
           cache: 'no-store',
         })
@@ -423,7 +427,7 @@ export default function LoginPage() {
                 />
               </div>
               <InjectionSpot<LoginFormWidgetContext>
-                spotId="auth.login:form"
+                spotId={extensionPoints.hosts.loginForm.spotId}
                 context={loginFormContext}
               />
               {authOverride?.hidePassword ? null : (

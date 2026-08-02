@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/currencies/extension-points'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -333,7 +334,7 @@ export default function ExchangeRatesPage() {
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
-          perspective={{ tableId: 'exchange-rates.list' }}
+          perspective={{ tableId: extensionPoints.hosts.exchangeRatesTable.tableId }}
         />
       </PageBody>
       {ConfirmDialogElement}

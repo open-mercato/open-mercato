@@ -1,9 +1,25 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import type { AggregateSearchOptions } from '../lib/document'
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(),
 }))
+
+// Lets a single test force the aggregate-search-field step to throw while every other test
+// keeps the real implementation. The `mock` prefix is what allows jest's hoisted factory to
+// close over it.
+let mockAggregateOverride: ((doc: Record<string, unknown>) => Record<string, unknown>) | null = null
+
+jest.mock('../lib/document', () => {
+  const actual = jest.requireActual('../lib/document')
+  return {
+    ...actual,
+    attachAggregateSearchField: (doc: Record<string, unknown>, options?: AggregateSearchOptions) => (
+      mockAggregateOverride ? mockAggregateOverride(doc) : actual.attachAggregateSearchField(doc, options)
+    ),
+  }
+})
 
 type TableData = {
   baseTable: string
@@ -116,6 +132,7 @@ const resolveEncryptionMock = resolveTenantEncryptionService as jest.Mock
 describe('Indexer', () => {
   beforeEach(() => {
     resolveEncryptionMock.mockReset()
+    mockAggregateOverride = null
   })
 
   test('buildIndexDoc composes base row and custom fields (singleton and arrays)', async () => {
@@ -138,6 +155,38 @@ describe('Indexer', () => {
     expect(doc!.search_text).toContain('b')
   })
 
+  test('buildIndexDoc applies the entity-scoped aggregate field blocklist', async () => {
+    const originalBlocklist = process.env.OM_SEARCH_FIELD_BLOCKLIST
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'example:todo@title'
+    try {
+      const fake = createFakeKysely({
+        baseTable: 'todos',
+        baseRows: [{
+          id: '1',
+          title: 'Blocked title',
+          description: 'Visible description',
+          organization_id: 'org1',
+          tenant_id: 't1',
+        }],
+        cfValues: [],
+      })
+      const em: any = { getKysely: () => fake.db }
+
+      const doc = await buildIndexDoc(em, {
+        entityType: 'example:todo',
+        recordId: '1',
+        organizationId: 'org1',
+        tenantId: 't1',
+      })
+
+      expect(doc?.search_text).toContain('Visible description')
+      expect(doc?.search_text).not.toContain('Blocked title')
+    } finally {
+      if (originalBlocklist === undefined) delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+      else process.env.OM_SEARCH_FIELD_BLOCKLIST = originalBlocklist
+    }
+  })
+
   test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {
     resolveEncryptionMock.mockReturnValue({
       isEnabled: () => true,
@@ -156,6 +205,78 @@ describe('Indexer', () => {
     expect(doc).toBeTruthy()
     expect(doc!.title).toBe('Encrypted')
     expect(doc!['cf:secret']).toBe('enc')
+  })
+
+  test('buildIndexDoc returns the encrypted document when encryption succeeds', async () => {
+    resolveEncryptionMock.mockReturnValue({
+      isEnabled: () => true,
+      encryptEntityPayload: async (_entityId: string, payload: Record<string, unknown>) => ({
+        ...payload,
+        title: 'enc:A',
+      }),
+    })
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'A', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [],
+    })
+    const em: any = { getKysely: () => fake.db }
+    const doc = await buildIndexDoc(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' })
+    expect(doc!.title).toBe('enc:A')
+  })
+
+  test('buildIndexDoc rejects instead of returning the plaintext document when encryption throws', async () => {
+    resolveEncryptionMock.mockReturnValue({
+      isEnabled: () => true,
+      encryptEntityPayload: async () => { throw new Error('kms unavailable') },
+    })
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'Sensitive', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [{ field_key: 'secret', value_text: 'plaintext-secret' }],
+    })
+    const em: any = { getKysely: () => fake.db }
+    await expect(
+      buildIndexDoc(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' }),
+    ).rejects.toThrow('kms unavailable')
+  })
+
+  test('upsertIndexRow writes nothing and keeps the existing row when encryption throws', async () => {
+    resolveEncryptionMock.mockReturnValue({
+      isEnabled: () => true,
+      encryptEntityPayload: async () => { throw new Error('kms unavailable') },
+    })
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'Sensitive', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [],
+      indexRows: [{ entity_type: 'example:todo', entity_id: '1', organization_id: 'org1', deleted_at: null }],
+    })
+    const em: any = { getKysely: () => fake.db }
+    await expect(
+      upsertIndexRow(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' }),
+    ).rejects.toThrow('kms unavailable')
+    // No plaintext document reaches `entity_indexes`, and the healthy row is not treated as
+    // a missing record and deleted.
+    expect(fake.inserts.filter((entry) => entry.table === 'entity_indexes')).toHaveLength(0)
+    expect(fake.updates.filter((entry) => entry.table === 'entity_indexes')).toHaveLength(0)
+    expect(fake.deletes.filter((entry) => entry.table === 'entity_indexes')).toHaveLength(0)
+  })
+
+  test('buildIndexDoc surfaces an aggregate-search-field failure instead of skipping encryption', async () => {
+    mockAggregateOverride = () => { throw new TypeError('scoped.includes is not a function') }
+    const encryptEntityPayload = jest.fn()
+    resolveEncryptionMock.mockReturnValue({ isEnabled: () => true, encryptEntityPayload })
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'Sensitive', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [],
+    })
+    const em: any = { getKysely: () => fake.db }
+    await expect(
+      buildIndexDoc(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' }),
+    ).rejects.toThrow('scoped.includes is not a function')
+    expect(encryptEntityPayload).not.toHaveBeenCalled()
   })
 
   test('upsertIndexRow inserts or merges index row with built doc', async () => {

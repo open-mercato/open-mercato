@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { Building2, UserSearch, Users } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -389,7 +390,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showAssociationsGroup={false}
         showVersionHistory={false}
         showCancelAction={false}
-        injectionSpotId="crud-form:customers.deal"
+        injectionSpotId={extensionPoints.hosts.dealForm.spotId}
         optimisticLockUpdatedAt={data.deal.updatedAt}
         onDirtyChange={setIsDirty}
         initialPipelineOptions={formPipelineOptions}
@@ -616,7 +617,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <InjectionSpot spotId="detail:customers.deal:header" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />
 
           <DealDetailHeader
             deal={data.deal}
@@ -634,7 +635,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isSaving={isSaving}
           />
 
-          <InjectionSpot spotId="detail:customers.deal:status-badges" context={injectionContext} data={data} onDataChange={setData} />
+          <InjectionSpot spotId={extensionPoints.hosts.dealStatusBadges.spotId} context={injectionContext} data={data} onDataChange={setData} />
 
           <PipelineStepper
             stages={data.pipelineStages}
@@ -669,7 +670,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             />
           </DealDetailTabs>
 
-          <InjectionSpot spotId="detail:customers.deal:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.dealFooter.spotId} context={injectionContext} data={data} />
         </div>
 
         {ConfirmDialogElement}
