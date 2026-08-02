@@ -6,7 +6,7 @@ import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
   recoverMikroOrmV7GeneratedCacheFromImportError,
 } from './generatedCacheRecovery'
-import { createClientOnlyStubPlugin } from './clientOnlyModules'
+import { CLIENT_ONLY_STUB_NAMESPACE, createClientOnlyStubPlugin } from './clientOnlyModules'
 import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
@@ -241,6 +241,7 @@ function collectDependencyHashes(
 ): Record<string, string> {
   return Object.fromEntries(
     Object.keys(inputs)
+      .filter((inputPath) => !inputPath.startsWith(`${CLIENT_ONLY_STUB_NAMESPACE}:`))
       .map((inputPath) => {
         const absolutePath = path.isAbsolute(inputPath)
           ? inputPath

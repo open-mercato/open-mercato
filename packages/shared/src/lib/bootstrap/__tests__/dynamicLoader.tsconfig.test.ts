@@ -216,6 +216,22 @@ describe('dynamic loader app tsconfig and content-addressed cache', () => {
     expect(after.inputHash).not.toBe(before.inputHash)
   })
 
+  it('excludes client-only virtual inputs from cache dependencies', async () => {
+    const appRoot = createAppRoot()
+    const generatedDir = path.join(appRoot, '.mercato', 'generated')
+    fs.writeFileSync(path.join(generatedDir, 'modules.cli.generated.ts'), `
+      export const modules = [{ widget: () => import('./widget.client') }]
+    `)
+
+    loadBootstrapDataInNode(appRoot)
+
+    const metadata = readCacheMetadata(appRoot, 'modules.cli')
+    expect(Object.keys(metadata.dependencies)).not.toContain('om-client-only-stub:./widget.client')
+    expect(
+      fs.readFileSync(path.join(generatedDir, 'modules.cli.generated.mjs'), 'utf8'),
+    ).toContain('clientOnlyModuleUnavailable')
+  })
+
   it('invalidates compiled output when only a bundled local dependency changes', async () => {
     const appRoot = createAppRoot()
     const generatedSourcePath = path.join(
