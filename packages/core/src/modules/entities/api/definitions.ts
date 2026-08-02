@@ -14,6 +14,7 @@ import {
 } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
+import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fieldsets'
 import { installCustomEntitiesFromModules } from '../lib/install-from-ce'
@@ -24,6 +25,12 @@ import {
   beginEntitiesMutationGuard,
   FIELD_DEFINITION_RESOURCE_KIND,
 } from './definitions.mutation-guard'
+import {
+  canReadAllEntityMetadata,
+  canReadEntityMetadata,
+  getDeclaredCustomEntityRestriction,
+  resolveEntityAclRequirement,
+} from '../lib/entityAcl'
 import {
   createExactDefinitionWhere,
   createScopedDefinitionTombstone,
@@ -226,8 +233,8 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const entityIds = filterSelectableSystemEntityIds(requestedEntityIds)
-  if (!entityIds.length) {
+  const selectableEntityIds = filterSelectableSystemEntityIds(requestedEntityIds)
+  if (!selectableEntityIds.length) {
     return NextResponse.json({ items: [] })
   }
 
@@ -241,6 +248,48 @@ export async function GET(req: Request) {
   const organizationId = definitionScope.organizationId
   const { resolve } = container
   const em = resolve('em') as any
+  const rbac = resolve('rbacService') as RbacService
+  const acl = await rbac.loadAcl(auth.sub ?? '', {
+    tenantId,
+    organizationId,
+  })
+  const designerCanRead = canReadAllEntityMetadata(acl)
+  const customEntityRestrictions = new Map<string, boolean>()
+  for (const entityId of selectableEntityIds) {
+    if (isOrmBackedSystemEntityId(em, entityId)) continue
+    const declaredRestriction = getDeclaredCustomEntityRestriction(entityId)
+    if (declaredRestriction !== undefined) customEntityRestrictions.set(entityId, declaredRestriction)
+  }
+  if (!designerCanRead) {
+    const unresolvedEntityIds = selectableEntityIds.filter(
+      (entityId) => !resolveEntityAclRequirement(entityId) && !customEntityRestrictions.has(entityId),
+    )
+    if (unresolvedEntityIds.length) {
+      const registrations = await em.find(CustomEntity as any, {
+        entityId: { $in: unresolvedEntityIds },
+        isActive: true,
+        $and: [
+          { $or: [{ tenantId }, { tenantId: null }] },
+          { $or: [{ organizationId }, { organizationId: null }] },
+        ],
+      } as any)
+      for (const registration of registrations as any[]) {
+        const entityId = String(registration.entityId)
+        if (!isOrmBackedSystemEntityId(em, entityId)) {
+          customEntityRestrictions.set(entityId, registration.accessRestricted === true)
+        }
+      }
+    }
+  }
+  const entityIds = selectableEntityIds.filter((entityId) => canReadEntityMetadata({
+    entityId,
+    isCustomEntity: customEntityRestrictions.has(entityId),
+    isRestricted: customEntityRestrictions.get(entityId) === true,
+    acl,
+  }))
+  if (!entityIds.length) {
+    return NextResponse.json({ items: [], fieldsetsByEntity: {}, entitySettings: {} })
+  }
   let cache: CacheStrategy | undefined
   try {
     cache = resolve('cache') as CacheStrategy
@@ -249,7 +298,6 @@ export async function GET(req: Request) {
   let canManageDefinitions = false
   if (typeof auth.sub === 'string' && auth.sub.length > 0) {
     try {
-      const rbac = resolve('rbacService') as RbacService
       canManageDefinitions = await rbac.userHasAllFeatures(auth.sub, ['entities.definitions.manage'], {
         tenantId,
         organizationId,
@@ -421,6 +469,8 @@ export async function GET(req: Request) {
         // attachments config passthrough
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
+        // phone config passthrough
+        defaultCountryIso2: typeof d.configJson?.defaultCountryIso2 === 'string' ? d.configJson.defaultCountryIso2 : undefined,
         entityId,
         fieldset: normalizedFieldset ?? effectiveFieldsets[0],
         fieldsets: effectiveFieldsets.length > 0 ? effectiveFieldsets : undefined,

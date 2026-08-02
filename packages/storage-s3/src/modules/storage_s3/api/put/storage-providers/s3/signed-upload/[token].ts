@@ -106,7 +106,11 @@ export async function PUT(req: Request, ctx: RouteContext) {
     return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
   }
 
-  const driver = new S3StorageDriver(credentials)
+  const driver = new S3StorageDriver({
+    ...credentials,
+    organizationId: reservation.organizationId,
+    tenantId: reservation.tenantId,
+  })
   let objectStored = false
   try {
     await driver.putObject(reservation.storagePath, buffer, contentType)

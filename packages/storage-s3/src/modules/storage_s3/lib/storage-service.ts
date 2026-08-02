@@ -3,6 +3,11 @@ import { S3StorageDriver } from './s3-driver'
 import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 import { resolveAttachmentMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import { reconcileTenantS3Objects } from './quota-accounting'
+import {
+  assertS3KeyAddressableByTenantScope,
+  assertS3KeyScopedToTenant,
+  assertS3ListPrefixScopedToTenant,
+} from './key-scope'
 
 type TenantScope = {
   tenantId: string | null | undefined
@@ -54,6 +59,9 @@ type S3Config = {
   sessionToken?: string
   quotaService?: AttachmentQuotaService
   quotaRecoveryScheduler?: (reservationId: string, delayMs: number) => Promise<void>
+  pathPrefix?: string
+  organizationId?: string | null
+  tenantId?: string | null
 }
 
 function sanitizeSegment(value: string): string {
@@ -85,10 +93,12 @@ export function createStorageService(config: S3Config): StorageService {
   const driver = new S3StorageDriver(config as Record<string, unknown>)
   const quotaService = config.quotaService
   const quotaRecoveryScheduler = config.quotaRecoveryScheduler
+  const pathPrefix = config.pathPrefix
 
   return {
     async upload({ namespace, fileName, buffer, contentType, scope }): Promise<StorageResult> {
       const storagePath = buildKey(namespace, scope, fileName)
+      assertS3KeyScopedToTenant(storagePath, scope, pathPrefix)
       let reservation = null as Awaited<ReturnType<AttachmentQuotaService['reserve']>> | null
       let storageStarted = false
       let objectStored = false
@@ -156,11 +166,13 @@ export function createStorageService(config: S3Config): StorageService {
       }
     },
 
-    async download({ key }): Promise<{ buffer: Buffer; contentType?: string }> {
+    async download({ key, scope }): Promise<{ buffer: Buffer; contentType?: string }> {
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.read('', key)
     },
 
     async delete({ key, scope }): Promise<void> {
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.deleteStrict('', key)
         .then(async () => {
           if (quotaService && scope.tenantId) {
@@ -174,6 +186,11 @@ export function createStorageService(config: S3Config): StorageService {
     },
 
     async getSignedUrl({ key, operation, expiresIn = 3600, contentType, size, scope }) {
+      if (operation === 'upload') {
+        assertS3KeyScopedToTenant(key, scope, pathPrefix)
+      } else {
+        assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
+      }
       const expiresAt = new Date(Date.now() + expiresIn * 1000)
       if (operation === 'upload' && quotaService && scope.tenantId && scope.organizationId) {
         const compatibilityToken = randomBytes(32).toString('base64url')
@@ -206,19 +223,21 @@ export function createStorageService(config: S3Config): StorageService {
           throw error
         }
       }
-      const url = await driver.getSignedUrl(key, operation, expiresIn, contentType)
+      const url = await driver.getSignedUrl(key, operation, expiresIn, contentType, scope)
       return { url, expiresAt }
     },
 
-    async list({ prefix, maxKeys = 100, continuationToken }): Promise<{
+    async list({ prefix, maxKeys = 100, continuationToken, scope }): Promise<{
       files: Array<{ key: string; size: number; lastModified: Date }>
       truncated: boolean
       nextContinuationToken?: string
     }> {
-      return driver.listObjects(prefix, maxKeys, continuationToken)
+      assertS3ListPrefixScopedToTenant(prefix, scope, pathPrefix)
+      return driver.listObjects(prefix, maxKeys, continuationToken, scope)
     },
 
-    async toLocalPath({ key }) {
+    async toLocalPath({ key, scope }) {
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.toLocalPath('', key)
     },
   }

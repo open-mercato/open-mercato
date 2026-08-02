@@ -94,7 +94,10 @@ async function fetchAnyOrderLineId(
   )
   expect(response.status(), 'GET /api/sales/order-lines should return 200').toBe(200)
   const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
-  const lineId = body.items?.find((item) => typeof item?.id === 'string')?.id
+  // Skip the zero-priced seed line created by the fixture (issue #4021) so the
+  // caller operates on the line it actually added.
+  const lineId = (body.items?.find((item) => typeof item?.id === 'string' && item?.name !== 'QA seed line')
+    ?? body.items?.find((item) => typeof item?.id === 'string'))?.id
   expect(typeof lineId, 'order should have at least one line to return').toBe('string')
   return lineId as string
 }

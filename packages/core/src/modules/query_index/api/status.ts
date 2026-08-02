@@ -11,7 +11,13 @@ import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+import {
+  envDisablesAutoIndexing,
+  SEARCH_AUTO_INDEX_CONFIG_KEY,
+  SEARCH_AUTO_INDEX_CONFIG_MODULE,
+} from '@open-mercato/shared/lib/search/auto-indexing'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
@@ -97,10 +103,9 @@ export async function GET(req: Request) {
   const byId = new Map<string, { entityId: string; label: string }>()
   for (const g of generated) byId.set(g.entityId, g)
 
-  let entityIds = generatedIds.slice()
-
-  // Resolve search module configs to determine vector-enabled entities
-  // Entities with buildSource defined are vector-search enabled
+  // Resolve search module configs to determine which entities each search backend covers.
+  // Entities with buildSource defined are vector-search capable; entities with a fieldPolicy
+  // are fulltext-capable.
   let searchModuleConfigs: SearchModuleConfig[] = []
   try {
     searchModuleConfigs = container.resolve('searchModuleConfigs') as SearchModuleConfig[]
@@ -108,33 +113,66 @@ export async function GET(req: Request) {
     // Search module configs not available
   }
 
-  const vectorEnabledEntities = new Set<string>()
+  const vectorConfiguredEntities = new Set<string>()
   const fulltextEnabledEntities = new Set<string>()
+  const searchConfiguredEntities = new Set<string>()
   for (const moduleConfig of searchModuleConfigs) {
     for (const entity of moduleConfig.entities ?? []) {
       if (entity.enabled !== false) {
         // Vector: entities with buildSource defined
         if (typeof entity.buildSource === 'function') {
-          vectorEnabledEntities.add(entity.entityId)
+          vectorConfiguredEntities.add(entity.entityId)
+          searchConfiguredEntities.add(entity.entityId)
         }
         // Fulltext: entities with fieldPolicy defined
         if (entity.fieldPolicy && typeof entity.fieldPolicy === 'object') {
           fulltextEnabledEntities.add(entity.entityId)
+          searchConfiguredEntities.add(entity.entityId)
         }
       }
     }
   }
 
-  // Resolve fulltext strategy for entity counts
-  let fulltextStrategy: FullTextSearchStrategy | null = null
+  let searchStrategies: unknown[] = []
   try {
-    const searchStrategies = container.resolve('searchStrategies') as unknown[]
-    fulltextStrategy = (searchStrategies?.find(
-      (s: unknown) => (s as { id?: string })?.id === 'fulltext',
-    ) as FullTextSearchStrategy) ?? null
+    searchStrategies = (container.resolve('searchStrategies') as unknown[]) ?? []
   } catch {
-    fulltextStrategy = null
+    searchStrategies = []
   }
+
+  // Resolve fulltext strategy for entity counts
+  const fulltextStrategy = (searchStrategies.find(
+    (s: unknown) => (s as { id?: string })?.id === 'fulltext',
+  ) as FullTextSearchStrategy) ?? null
+
+  // Vector coverage is only a meaningful signal when embeddings can actually be written:
+  // the instance has not switched auto-indexing off, an embedding provider is reachable,
+  // and the tenant has not opted out. Reporting a permanent `0 / n` gap on installs with
+  // no embedding provider trains operators to ignore this page.
+  const vectorRuntimeEnabled = await (async () => {
+    if (vectorConfiguredEntities.size === 0) return false
+    if (envDisablesAutoIndexing()) return false
+    const vectorStrategy = searchStrategies.find(
+      (s: unknown) => (s as { id?: string })?.id === 'vector',
+    ) as { isAvailable?: () => Promise<boolean> } | undefined
+    if (typeof vectorStrategy?.isAvailable !== 'function') return false
+    try {
+      if (!(await vectorStrategy.isAvailable())) return false
+    } catch {
+      return false
+    }
+    try {
+      const moduleConfigService = container.resolve('moduleConfigService') as ModuleConfigService
+      const value = await moduleConfigService.getValue<boolean>(
+        SEARCH_AUTO_INDEX_CONFIG_MODULE,
+        SEARCH_AUTO_INDEX_CONFIG_KEY,
+        { defaultValue: true, scope: { tenantId } },
+      )
+      return value !== false
+    } catch {
+      return true
+    }
+  })()
 
   // Fetch fulltext entity counts
   let fulltextEntityCounts: Record<string, number> | null = null
@@ -146,7 +184,9 @@ export async function GET(req: Request) {
     }
   }
 
-  // Limit to entities that have active custom field definitions in current scope
+  // Entities with active custom field definitions in the current scope. This is reported
+  // per row so the client can filter on it — it is NOT a gate on which entities are listed.
+  const customFieldEntities = new Set<string>()
   try {
     let cfQuery = db
       .selectFrom('custom_field_defs' as any)
@@ -168,20 +208,30 @@ export async function GET(req: Request) {
       ]))
     }
     const cfRows = await cfQuery.execute() as Array<{ entity_id: string }>
-    const enabled = new Set<string>((cfRows || []).map((r) => String(r.entity_id)))
-    entityIds = entityIds.filter((id) => enabled.has(id))
+    for (const row of cfRows || []) customFieldEntities.add(String(row.entity_id))
   } catch {}
 
   const HEARTBEAT_STALE_MS = 60_000
   const COVERAGE_STALE_MS = 60_000
   const COVERAGE_REFRESH_CONCURRENCY = 8
 
-  async function fetchJobSummary(entityType: string, tenantIdParam: string | null, organizationIdParam: string | null) {
+  const idleJobSummary = () => ({ status: 'idle' as const, partitions: [] as any[] })
+
+  // Job rows for every listed entity are fetched in a single query. This endpoint is polled
+  // every few seconds and the entity list is no longer capped at custom-field entities, so a
+  // per-entity round trip here would scale the poll cost with the number of indexed entities.
+  async function fetchJobSummaries(
+    entityTypes: string[],
+    tenantIdParam: string | null,
+    organizationIdParam: string | null,
+  ): Promise<Map<string, ReturnType<typeof buildJobSummary>>> {
+    const byEntity = new Map<string, ReturnType<typeof buildJobSummary>>()
+    if (!entityTypes.length) return byEntity
     try {
       let jobQuery = db
         .selectFrom('entity_index_jobs' as any)
         .selectAll()
-        .where('entity_type' as any, '=', entityType)
+        .where('entity_type' as any, 'in', entityTypes)
         .where(sql<boolean>`tenant_id is not distinct from ${tenantIdParam ?? null}`)
       if (organizationIdParam != null) {
         jobQuery = jobQuery.where((eb: any) => eb.or([
@@ -195,118 +245,146 @@ export async function GET(req: Request) {
         .orderBy('started_at' as any, 'desc')
         .execute() as Array<Record<string, any>>
 
-      if (!rows.length) {
-        return { status: 'idle' as const, partitions: [] as any[] }
-      }
-
-      const preferOrg =
-        organizationIdParam != null && rows.some((row: any) => row.organization_id === organizationIdParam)
-      const pickPreferred = <T extends { startedTs: number; tenantMatch: boolean; orgMatch: boolean }>(
-        existing: T | null,
-        candidate: T,
-      ): T => {
-        if (!existing) return candidate
-        if (preferOrg) {
-          if (candidate.orgMatch && !existing.orgMatch) return candidate
-          if (!candidate.orgMatch && existing.orgMatch) return existing
-        }
-        if (candidate.tenantMatch && !existing.tenantMatch) return candidate
-        if (!candidate.tenantMatch && existing.tenantMatch) return existing
-        return candidate.startedTs > existing.startedTs ? candidate : existing
-      }
-
-      const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean }>()
-      let scopeRow: { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean } | null = null
+      const rowsByEntity = new Map<string, Array<Record<string, any>>>()
       for (const row of rows) {
-        const key = String(row.partition_index ?? '__null__')
-        const startedTs = row.started_at ? new Date(row.started_at).getTime() : 0
-        const tenantMatch = tenantIdParam != null ? row.tenant_id === tenantIdParam : true
-        const orgMatch = organizationIdParam != null ? row.organization_id === organizationIdParam : row.organization_id == null
-        const candidate = { row, startedTs, tenantMatch, orgMatch }
-        if (row.partition_index == null) {
-          scopeRow = pickPreferred(scopeRow, candidate)
-          continue
-        }
-        const existing = partitionRows.get(key)
-        partitionRows.set(key, pickPreferred(existing ?? null, candidate))
+        const entityType = String(row.entity_type ?? '')
+        if (!entityType) continue
+        const bucket = rowsByEntity.get(entityType)
+        if (bucket) bucket.push(row)
+        else rowsByEntity.set(entityType, [row])
       }
-
-      const partitions = Array.from(partitionRows.values())
-        .filter((entry) => !preferOrg || entry.orgMatch)
-        .map(({ row }) => {
-          const heartbeatDate = row.heartbeat_at ? new Date(row.heartbeat_at) : null
-          const startedDate = row.started_at ? new Date(row.started_at) : null
-          const finishedDate = row.finished_at ? new Date(row.finished_at) : null
-          const stalled =
-            !finishedDate && (!heartbeatDate || Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS)
-          const state = finishedDate
-            ? 'completed'
-            : stalled
-              ? 'stalled'
-              : (row.status as string) || 'reindexing'
-          return {
-            partitionIndex: row.partition_index ?? null,
-            partitionCount: row.partition_count ?? null,
-            status: state,
-            startedAt: startedDate ? startedDate.toISOString() : null,
-            finishedAt: finishedDate ? finishedDate.toISOString() : null,
-            heartbeatAt: heartbeatDate ? heartbeatDate.toISOString() : null,
-            processedCount: row.processed_count ?? null,
-            totalCount: row.total_count ?? null,
-          }
-        })
-        .sort((a, b) => (a.partitionIndex ?? 0) - (b.partitionIndex ?? 0))
-      const activePartitions = partitions.filter((p) => !p.finishedAt)
-      const runningPartitions = activePartitions.filter(
-        (p) => p.status === 'reindexing' || p.status === 'purging',
-      )
-      const stalledPartitions = activePartitions.filter((p) => p.status === 'stalled')
-      let status: 'idle' | 'reindexing' | 'purging' | 'stalled' = 'idle'
-      if (activePartitions.length) {
-        if (runningPartitions.length) {
-          status = runningPartitions.some((p) => p.status === 'purging') ? 'purging' : 'reindexing'
-        } else if (stalledPartitions.length) {
-          status = 'stalled'
-        }
-      }
-
-      const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
-      const finishedAt = status === 'idle' ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null) : null
-      const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
-      const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
-      const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
-      const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
-      const scopeCandidate = !preferOrg || !scopeRow || scopeRow.orgMatch ? scopeRow : null
-
-      return {
-        status,
-        startedAt,
-        finishedAt,
-        heartbeatAt,
-        processedCount: jobTotalCount ? processedCount : scopeCandidate?.row?.processed_count ?? null,
-        totalCount: jobTotalCount ? jobTotalCount : scopeCandidate?.row?.total_count ?? null,
-        partitions,
-        scope: scopeCandidate
-          ? {
-              status: (() => {
-                const heartbeatDate = scopeCandidate!.row.heartbeat_at ? new Date(scopeCandidate!.row.heartbeat_at) : null
-                const finishedDate = scopeCandidate!.row.finished_at ? new Date(scopeCandidate!.row.finished_at) : null
-                if (finishedDate) return 'completed'
-                if (
-                  !heartbeatDate ||
-                  Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS
-                ) {
-                  return 'stalled'
-                }
-                return (scopeCandidate!.row.status as string) || 'reindexing'
-              })(),
-              processedCount: scopeCandidate.row.processed_count ?? null,
-              totalCount: scopeCandidate.row.total_count ?? null,
-            }
-          : null,
+      for (const [entityType, entityRows] of rowsByEntity) {
+        byEntity.set(entityType, buildJobSummary(entityRows, organizationIdParam, tenantIdParam))
       }
     } catch {
-      return { status: 'idle' as const, partitions: [] as any[] }
+      return byEntity
+    }
+    return byEntity
+  }
+
+  function buildJobSummary(
+    rows: Array<Record<string, any>>,
+    organizationIdParam: string | null,
+    tenantIdParam: string | null,
+  ) {
+    if (!rows.length) {
+      return idleJobSummary()
+    }
+
+    const preferOrg =
+      organizationIdParam != null && rows.some((row: any) => row.organization_id === organizationIdParam)
+    const pickPreferred = <T extends { startedTs: number; tenantMatch: boolean; orgMatch: boolean }>(
+      existing: T | null,
+      candidate: T,
+    ): T => {
+      if (!existing) return candidate
+      if (preferOrg) {
+        if (candidate.orgMatch && !existing.orgMatch) return candidate
+        if (!candidate.orgMatch && existing.orgMatch) return existing
+      }
+      if (candidate.tenantMatch && !existing.tenantMatch) return candidate
+      if (!candidate.tenantMatch && existing.tenantMatch) return existing
+      return candidate.startedTs > existing.startedTs ? candidate : existing
+    }
+
+    const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean }>()
+    let scopeRow: { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean } | null = null
+    for (const row of rows) {
+      const key = String(row.partition_index ?? '__null__')
+      const startedTs = row.started_at ? new Date(row.started_at).getTime() : 0
+      const tenantMatch = tenantIdParam != null ? row.tenant_id === tenantIdParam : true
+      const orgMatch = organizationIdParam != null ? row.organization_id === organizationIdParam : row.organization_id == null
+      const candidate = { row, startedTs, tenantMatch, orgMatch }
+      if (row.partition_index == null) {
+        scopeRow = pickPreferred(scopeRow, candidate)
+        continue
+      }
+      const existing = partitionRows.get(key)
+      partitionRows.set(key, pickPreferred(existing ?? null, candidate))
+    }
+
+    const partitions = Array.from(partitionRows.values())
+      .filter((entry) => !preferOrg || entry.orgMatch)
+      .map(({ row }) => {
+        const heartbeatDate = row.heartbeat_at ? new Date(row.heartbeat_at) : null
+        const startedDate = row.started_at ? new Date(row.started_at) : null
+        const finishedDate = row.finished_at ? new Date(row.finished_at) : null
+        const stalled =
+          !finishedDate && (!heartbeatDate || Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS)
+        const state = finishedDate
+          ? (row.status === 'failed' ? 'failed' : 'completed')
+          : stalled
+            ? 'stalled'
+            : (row.status as string) || 'reindexing'
+        return {
+          partitionIndex: row.partition_index ?? null,
+          partitionCount: row.partition_count ?? null,
+          status: state,
+          startedAt: startedDate ? startedDate.toISOString() : null,
+          finishedAt: finishedDate ? finishedDate.toISOString() : null,
+          heartbeatAt: heartbeatDate ? heartbeatDate.toISOString() : null,
+          processedCount: row.processed_count ?? null,
+          totalCount: row.total_count ?? null,
+        }
+      })
+      .sort((a, b) => (a.partitionIndex ?? 0) - (b.partitionIndex ?? 0))
+    const activePartitions = partitions.filter((p) => !p.finishedAt)
+    const runningPartitions = activePartitions.filter(
+      (p) => p.status === 'reindexing' || p.status === 'purging',
+    )
+    const stalledPartitions = activePartitions.filter((p) => p.status === 'stalled')
+    const scopeCandidate = !preferOrg || !scopeRow || scopeRow.orgMatch ? scopeRow : null
+    let status: 'idle' | 'reindexing' | 'purging' | 'stalled' | 'failed' = 'idle'
+    if (activePartitions.length) {
+      if (runningPartitions.length) {
+        status = runningPartitions.some((p) => p.status === 'purging') ? 'purging' : 'reindexing'
+      } else if (stalledPartitions.length) {
+        status = 'stalled'
+      }
+    } else if (
+      partitions.some((p) => p.status === 'failed')
+      || (scopeCandidate?.row.finished_at && scopeCandidate.row.status === 'failed')
+    ) {
+      // The run finished but lost records; without this it reports "idle" and the only
+      // hint that anything went wrong is the coverage percentage.
+      status = 'failed'
+    }
+
+    const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
+    const finishedAt = status === 'idle' || status === 'failed'
+      ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null)
+      : null
+    const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
+    const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
+    const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
+    const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
+
+    return {
+      status,
+      startedAt,
+      finishedAt,
+      heartbeatAt,
+      processedCount: jobTotalCount ? processedCount : scopeCandidate?.row?.processed_count ?? null,
+      totalCount: jobTotalCount ? jobTotalCount : scopeCandidate?.row?.total_count ?? null,
+      partitions,
+      scope: scopeCandidate
+        ? {
+            status: (() => {
+              const heartbeatDate = scopeCandidate!.row.heartbeat_at ? new Date(scopeCandidate!.row.heartbeat_at) : null
+              const finishedDate = scopeCandidate!.row.finished_at ? new Date(scopeCandidate!.row.finished_at) : null
+              if (finishedDate) return scopeCandidate!.row.status === 'failed' ? 'failed' : 'completed'
+              if (
+                !heartbeatDate ||
+                Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS
+              ) {
+                return 'stalled'
+              }
+              return (scopeCandidate!.row.status as string) || 'reindexing'
+            })(),
+            processedCount: scopeCandidate.row.processed_count ?? null,
+            totalCount: scopeCandidate.row.total_count ?? null,
+          }
+        : null,
     }
   }
 
@@ -328,7 +406,23 @@ export async function GET(req: Request) {
   // polled by the status table every few seconds, so the poll path must stay read-cheap:
   // stale snapshots are refreshed asynchronously via the query_index.coverage.refresh
   // event emitted below, never inline per entity.
-  const snapshotByEntity = await readCoverageSnapshots(db, { entityTypes: entityIds, ...coverageScope })
+  const snapshotByEntity = await readCoverageSnapshots(db, { entityTypes: generatedIds, ...coverageScope })
+
+  const hasIndexCoverage = (entityId: string): boolean => {
+    const snapshot = snapshotByEntity.get(entityId)
+    if (!snapshot) return false
+    return snapshot.baseCount > 0 || snapshot.indexedCount > 0 || snapshot.vectorIndexedCount > 0
+  }
+
+  // Nothing this page reports is custom-field dependent: `lib/indexer.ts` builds the index
+  // doc from the base row and only attaches `cf:*`/`l10n:*` keys when they exist, and
+  // `applyEntityIndexesJoin` runs on every query regardless of custom fields. Gating the
+  // list on `custom_field_defs` hid every fully-indexed entity that happens to have no
+  // custom fields, so its coverage could neither be inspected nor reindexed from here.
+  // List whatever any backend actually covers and let the client filter.
+  const entityIds = generatedIds.filter(
+    (id) => searchConfiguredEntities.has(id) || customFieldEntities.has(id) || hasIndexCoverage(id),
+  )
 
   // An explicit refresh action (?refresh) may block, but only when the durable
   // coverage snapshots are stale. Recent persisted snapshots survive workers/restarts,
@@ -343,7 +437,7 @@ export async function GET(req: Request) {
 
   const coverageSnapshots = entityIds.map((entityId) => snapshotByEntity.get(entityId) ?? null)
 
-  const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId, organizationId)))
+  const jobsByEntity = await fetchJobSummaries(entityIds, tenantId, organizationId)
 
   const items: any[] = []
   for (let idx = 0; idx < entityIds.length; idx += 1) {
@@ -354,30 +448,47 @@ export async function GET(req: Request) {
     const isStale = !coverage || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
     if (isStale) entitiesNeedingRefresh.add(eid)
 
-    const job = jobs[idx]
+    const job = jobsByEntity.get(eid) ?? idleJobSummary()
     const label = (byId.get(eid)?.label) || eid
     const baseCountNumber = normalizeCount(coverage?.baseCount)
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
-    const vectorEnabled = vectorEnabledEntities.has(eid)
-    const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
+    // `vectorEnabled` and `vectorCount` keep their published meaning — "the entity declares
+    // buildSource" and its raw coverage — so existing consumers see no change. Whether vector
+    // indexing can actually run ships additively as `vectorIndexingActive`.
+    const vectorEnabled = vectorConfiguredEntities.has(eid)
+    const vectorCountNumber = vectorEnabled
+      ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count)
+      : null
     const fulltextEnabled = fulltextEnabledEntities.has(eid)
     const fulltextCountNumber = fulltextEnabled ? (fulltextEntityCounts?.[eid] ?? 0) : null
+
+    // `ok` keeps its published aggregate meaning (query index AND configured vector coverage)
+    // so consumers using it as a health signal are unaffected. The narrower signal this page
+    // needs — is the query index in sync with the base table — ships additively as
+    // `queryIndexOk`. Folding vector into the badge is what made every vector-capable entity
+    // read "Out of sync" while base == indexed.
     const ok = (() => {
       if (baseCountNumber == null || indexCountNumber == null) return false
       if (baseCountNumber !== indexCountNumber) return false
       if (!vectorEnabled) return true
       return vectorCountNumber != null && vectorCountNumber === baseCountNumber
     })()
+    const queryIndexOk = baseCountNumber != null
+      && indexCountNumber != null
+      && baseCountNumber === indexCountNumber
     items.push({
       entityId: eid,
       label,
       baseCount: baseCountNumber,
       indexCount: indexCountNumber,
-      vectorCount: vectorEnabled ? vectorCountNumber : null,
+      vectorCount: vectorCountNumber,
       vectorEnabled,
+      vectorIndexingActive: vectorEnabled && vectorRuntimeEnabled,
       fulltextCount: fulltextCountNumber,
       fulltextEnabled,
+      hasCustomFields: customFieldEntities.has(eid),
       ok,
+      queryIndexOk,
       job,
       refreshedAt: refreshedAt ?? null,
     })
@@ -415,10 +526,7 @@ export async function GET(req: Request) {
     errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    errorQuery = errorQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    errorQuery = errorQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     errorQuery = errorQuery.where('organization_id' as any, 'is', null as any)
   }
@@ -456,10 +564,7 @@ export async function GET(req: Request) {
     logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    logsQuery = logsQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    logsQuery = logsQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     logsQuery = logsQuery.where('organization_id' as any, 'is', null as any)
   }

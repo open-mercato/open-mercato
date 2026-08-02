@@ -2,7 +2,7 @@
 
 UI usage patterns based on customers, sales, and staff modules. Use these defaults when building new UI in `packages/ui` or consuming from other modules.
 
-> **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md).
+> **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md). **Backend component families (charts, filters, detail sections, schedule, messages, page scaffolding):** [`.ai/ui-backend-components.md`](../../.ai/ui-backend-components.md) — check it before building any of these from scratch.
 
 ## Always
 

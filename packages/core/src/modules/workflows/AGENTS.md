@@ -142,6 +142,28 @@ Configure automatic workflow starts from domain events:
 5. Configure `contextMapping` to extract event payload into workflow context
 6. Use `debounceMs` and `maxConcurrentInstances` to prevent trigger storms
 
+### Trigger Sources And Precedence
+
+`loadTriggersForTenant()` (`lib/event-trigger-service.ts`) merges three sources into `UnifiedTrigger`s, each tagged with a `source` discriminator:
+
+| `source` | Origin | Notes |
+|----------|--------|-------|
+| `legacy` | `workflow_event_triggers` rows | Backward compatibility with triggers created before triggers were embedded in definitions |
+| `embedded` | `triggers[]` inside a `workflow_definitions` row's `definition` JSONB | What the visual editor and the definitions API write |
+| `code` | `triggers[]` on a code-defined workflow in the in-memory registry (`defineWorkflow`) | Projected by `loadCodeTriggers()`; no DB row required (#4425) |
+
+Precedence: **a DB-backed definition wins over its code counterpart.** Any non-deleted `workflow_definitions` row shadows the code projection for the same `workflowId` — including a disabled row, and including a customization whose `triggers[]` was emptied. This preserves `customize` semantics: once an operator materializes a code workflow, the DB row alone decides which triggers are live.
+
+MUST invalidate the trigger cache after any write that changes which source owns a workflow's triggers — `loadTriggersForTenant()` caches per tenant/organization for `TRIGGER_CACHE_TTL` (5 min), so without invalidation the wildcard subscriber keeps matching a stale snapshot:
+
+```typescript
+import { invalidateTriggerCache } from '../lib/event-trigger-service'
+
+if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
+```
+
+This covers definition create/update/delete **and** `POST .../[id]/customize` (code projection → embedded row) and `POST .../[id]/reset-to-code` (embedded row → code projection). Invalidate for the **written row's own** tenant/organization rather than the caller's — `customize` looks an override up by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization. Omitting `organizationId` clears every organization under the tenant.
+
 ## Widget Injection
 
 The module injects an order-approval widget into the sales module:
