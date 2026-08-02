@@ -9,7 +9,9 @@ import {
   isActiveContentAttachment,
 } from '@open-mercato/core/modules/attachments/lib/security'
 import {
+  isMultipartUploadLimitError,
   isMultipartRequestWithinUploadLimit,
+  parseMultipartFormDataWithinUploadLimit,
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '@open-mercato/core/modules/attachments/lib/upload-limits'
@@ -82,7 +84,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
   }
 
-  const form = await req.formData()
+  let form: FormData
+  try {
+    form = await parseMultipartFormDataWithinUploadLimit(req)
+  } catch (error) {
+    if (isMultipartUploadLimitError(error)) {
+      return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    }
+    throw error
+  }
   const file = form.get('file') as File | null
   if (!file) {
     return NextResponse.json({ error: 'file field is required' }, { status: 400 })
