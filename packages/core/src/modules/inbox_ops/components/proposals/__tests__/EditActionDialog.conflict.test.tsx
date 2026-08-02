@@ -117,7 +117,7 @@ afterEach(() => {
 })
 
 describe('EditActionDialog optimistic-lock conflict handling', () => {
-  it('surfaces the persistent conflict bar and does not flash the raw key on a 409 conflict', async () => {
+  it('closes the dialog to reveal the persistent conflict bar without flashing the raw key', async () => {
     apiCallOrThrowMock.mockRejectedValue(buildOptimisticLockError())
     const { onSaved, onClose } = renderDialog()
 
@@ -131,7 +131,7 @@ describe('EditActionDialog optimistic-lock conflict handling', () => {
     // key regression the QA reviewer reported).
     expect(flashMock).not.toHaveBeenCalled()
     expect(onSaved).not.toHaveBeenCalled()
-    expect(onClose).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('flashes the server message for a non-conflict error without touching the conflict bar', async () => {

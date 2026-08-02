@@ -476,13 +476,12 @@ export function EditActionDialog({
       onSaved()
       onClose()
     } catch (error) {
-      // On a 409 optimistic-lock conflict useGuardedMutation already surfaced the
-      // persistent RecordConflictBanner; skip the transient toast so the raw
-      // `record_modified` key never flashes.
-      if (!extractOptimisticLockConflict(error)) {
-        const message = error instanceof Error ? error.message.trim() : ''
-        flash(message || t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
+      if (extractOptimisticLockConflict(error)) {
+        onClose()
+        return
       }
+      const message = error instanceof Error ? error.message.trim() : ''
+      flash(message || t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
     } finally {
       setIsSaving(false)
     }
