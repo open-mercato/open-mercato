@@ -537,7 +537,7 @@ export type IntrospectionBootstrapData = BootstrapData & {
   messageTypes: unknown[]
   messageObjectTypes: unknown[]
   aiToolConfigEntries: Array<{ moduleId: string; tools: unknown[] }>
-  codeWorkflows: unknown[]
+  codeWorkflows: NonNullable<BootstrapData['codeWorkflows']>
   runBootstrapRegistrations: (() => void) | null
 }
 
@@ -640,7 +640,7 @@ export async function loadIntrospectionBootstrapData(
     messageTypes: (messageTypes as unknown[]) ?? [],
     messageObjectTypes: (messageObjectTypes as unknown[]) ?? [],
     aiToolConfigEntries: (aiToolConfigEntries as IntrospectionBootstrapData['aiToolConfigEntries']) ?? [],
-    codeWorkflows: (codeWorkflows as unknown[]) ?? [],
+    codeWorkflows: (codeWorkflows as NonNullable<BootstrapData['codeWorkflows']>) ?? [],
     runBootstrapRegistrations:
       bootstrapRegsModule && typeof (bootstrapRegsModule as GeneratedImport).runBootstrapRegistrations === 'function'
         ? ((bootstrapRegsModule as GeneratedImport).runBootstrapRegistrations as () => void)

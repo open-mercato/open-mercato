@@ -249,7 +249,10 @@ function expectedGuideOutputNames(): string[] {
   // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
   // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
   // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
-  // emitted (#3754).
+  // emitted (#3754). Framework UMES hosts land in framework-extension-points.md
+  // (spec 2026-08-01-module-extension-point-catalog / #4810) — emitted by the CLI
+  // build, not checked into create-app/agentic/guides as a static file.
+  collected.add('framework-extension-points.md')
   collected.add('module-facts.json')
   collected.add('upstream/AGENTS.md')
   collected.add('upstream/BACKWARD_COMPATIBILITY.md')
