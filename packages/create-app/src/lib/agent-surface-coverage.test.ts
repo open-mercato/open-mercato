@@ -482,7 +482,7 @@ test('every published case count states the shipped catalog or the portability s
   // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
   // "46 writable implementation/regression cases" and "202 live-routing cases" are checked too; a
   // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
-  const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)(?:[- ][a-z/-]+)*?[- ]cases?\b/g
+  const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)[ -][a-z/ -]{0,120}cases?\b/g
   const allowed = new Map([
     [cases.length, 'the shipped catalog'],
     [validators.catalog.writableCaseIds.length, 'the writable/portability sample'],

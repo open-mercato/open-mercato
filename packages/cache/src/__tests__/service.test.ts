@@ -181,6 +181,33 @@ describe('Cache Service', () => {
       }
     })
 
+    it('uses SHA-256 identifiers for scoped storage keys and tags', async () => {
+      const root = fs.mkdtempSync(path.join(process.cwd(), '.cache-hash-'))
+      const jsonFilePath = path.join(root, 'cache.json')
+      try {
+        const cache = createCacheService({ strategy: 'jsonfile', jsonFilePath })
+        await runWithCacheTenant('tenant-a', async () => {
+          await cache.set('customer:user-123', 'value', { tags: ['customer:user-123'] })
+        })
+        await cache.close?.()
+
+        const storage = JSON.parse(fs.readFileSync(jsonFilePath, 'utf8')) as {
+          entries: Record<string, unknown>
+          tagIndex: Record<string, string[]>
+        }
+        expect(Object.keys(storage.entries)).toHaveLength(2)
+        expect(Object.keys(storage.entries)).toEqual(expect.arrayContaining([
+          expect.stringMatching(/^tenant:tenant-a:key:k:[0-9a-f]{64}$/),
+          expect.stringMatching(/^tenant:tenant-a:key:meta:[0-9a-f]{64}$/),
+        ]))
+        expect(Object.keys(storage.tagIndex)).toEqual(expect.arrayContaining([
+          expect.stringMatching(/^tenant:tenant-a:tag:t:[0-9a-f]{64}$/),
+        ]))
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
+
     it('should handle concurrent operations', async () => {
       const cache = createCacheService()
       
