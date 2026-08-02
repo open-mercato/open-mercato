@@ -130,7 +130,7 @@ No API or UI path changes, so integration/UI coverage is not applicable. Automat
 - [x] Standalone availability is an explicit invariant.
 - [x] Versioned skills remain opt-in.
 - [x] No database/API/UI integration coverage required.
-- [ ] Implementation and validation complete.
+- [x] Implementation and validation complete.
 
 ## Changelog
 

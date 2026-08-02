@@ -55,4 +55,4 @@ Make release changelog preparation finalize matching upgrade-note windows and gu
 
 ### Phase 3: Verify and review
 
-- [ ] 3.1 Focused and full validation
+- [x] 3.1 Focused and full validation — 7eb7249f8
