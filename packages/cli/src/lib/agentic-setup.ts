@@ -140,7 +140,7 @@ export function renderModuleGuidesBlock(selected: string[]): string {
   return [
     `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`,
     '',
-    'Load `.ai/guides/modules/<id>.md` only when `<id>` is explicitly named or is the targeted installed module/host; never preload all module facts.',
+    'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all facts.',
   ].join('\n')
 }
 
