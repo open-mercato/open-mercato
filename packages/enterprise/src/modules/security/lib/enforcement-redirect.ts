@@ -66,7 +66,17 @@ function resolveEnforcementService(
       || typeof resolved !== 'object'
       || typeof (resolved as { checkUserCompliance?: unknown }).checkUserCompliance !== 'function'
     ) {
-      return { service: null }
+      const receivedShape = resolved === null
+        ? 'null'
+        : Array.isArray(resolved)
+          ? 'array'
+          : typeof resolved === 'object'
+            ? `object with keys: ${Object.keys(resolved).sort((left, right) => left.localeCompare(right)).join(', ') || '(none)'}`
+            : typeof resolved
+      return {
+        error: new TypeError(`[internal] Malformed MFA enforcement service (${receivedShape}); expected checkUserCompliance()`),
+        service: null,
+      }
     }
     return { service: resolved as MfaEnforcementServiceLike }
   } catch (error) {

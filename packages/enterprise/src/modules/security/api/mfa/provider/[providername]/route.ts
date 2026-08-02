@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
 import { securityApiError } from '../../../i18n'
-import { mapMfaError, readJsonRecord, readString, resolveMfaRequestContext } from '../../_shared'
+import {
+  authorizeMfaEnrollmentMutation,
+  mapMfaError,
+  readJsonRecord,
+  readString,
+  resolveMfaRequestContext,
+} from '../../_shared'
 
 const paramsSchema = z.object({
   providername: z.string().min(1),
@@ -25,13 +31,15 @@ const confirmResponseSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['security.mfa.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['security.mfa.manage'] },
+  POST: { requireAuth: true },
+  PUT: { requireAuth: true },
 }
 
 export async function POST(req: Request, context: { params: Promise<{ providername: string }> }) {
   const requestContext = await resolveMfaRequestContext(req)
   if (requestContext instanceof NextResponse) return requestContext
+  const authorizationError = await authorizeMfaEnrollmentMutation(requestContext)
+  if (authorizationError) return authorizationError
 
   const body = await readJsonRecord(req)
   const params = await context.params
@@ -61,6 +69,8 @@ export async function POST(req: Request, context: { params: Promise<{ providerna
 export async function PUT(req: Request, context: { params: Promise<{ providername: string }> }) {
   const requestContext = await resolveMfaRequestContext(req)
   if (requestContext instanceof NextResponse) return requestContext
+  const authorizationError = await authorizeMfaEnrollmentMutation(requestContext)
+  if (authorizationError) return authorizationError
 
   const body = await readJsonRecord(req)
   const params = await context.params
@@ -106,6 +116,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid provider type or payload', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'MFA enrollment is not permitted', schema: securityErrorSchema },
       ],
     },
     PUT: {
@@ -119,6 +130,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid provider type or payload', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'MFA enrollment is not permitted', schema: securityErrorSchema },
       ],
     },
   },

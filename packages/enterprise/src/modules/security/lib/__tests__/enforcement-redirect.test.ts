@@ -1,3 +1,11 @@
+const mockLoggerError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({
+    child: () => ({ error: mockLoggerError }),
+  }),
+}))
+
 import { resolveMfaEnrollmentRedirect } from '../enforcement-redirect'
 
 type ResolveArgs = Parameters<typeof resolveMfaEnrollmentRedirect>[0]
@@ -26,6 +34,7 @@ function buildArgs(overrides?: Partial<ResolveArgs>): ResolveArgs {
 describe('resolveMfaEnrollmentRedirect', () => {
   beforeEach(() => {
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
+    mockLoggerError.mockClear()
   })
 
   test('returns redirect immediately when deadline is not set', async () => {
@@ -71,6 +80,25 @@ describe('resolveMfaEnrollmentRedirect', () => {
     )
   })
 
+  test('logs a diagnostic shape when the enforcement service is malformed', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({ configured: true }),
+        },
+      }),
+    )
+
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Unable to resolve MFA enforcement service; redirecting to enrollment',
+      { err: expect.any(TypeError) },
+    )
+    const error = mockLoggerError.mock.calls[0]?.[1]?.err
+    expect(error).toBeInstanceOf(TypeError)
+    expect((error as TypeError).message).toContain('object with keys: configured')
+  })
+
   test('redirects when resolving the enforcement service throws', async () => {
     const redirect = await resolveMfaEnrollmentRedirect(
       buildArgs({
@@ -105,9 +133,24 @@ describe('resolveMfaEnrollmentRedirect', () => {
     const redirect = await resolveMfaEnrollmentRedirect(
       buildArgs({
         auth: {
-          sub: 'user-1',
-          orgId: 'org-1',
-          roles: ['superadmin'],
+          ...buildArgs().auth,
+          tenantId: null,
+        },
+        container: {
+          resolve: () => null,
+        },
+      }),
+    )
+
+    expect(redirect).toBeNull()
+  })
+
+  test('does not fail closed for an empty tenant id', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        auth: {
+          ...buildArgs().auth,
+          tenantId: '',
         },
         container: {
           resolve: () => null,

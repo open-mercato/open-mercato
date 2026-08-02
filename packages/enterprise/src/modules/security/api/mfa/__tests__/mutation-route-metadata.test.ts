@@ -5,9 +5,9 @@ import { metadata as recoveryCodeMetadata } from '../recovery-codes/regenerate/r
 const requiredFeature = ['security.mfa.manage']
 
 describe('security MFA mutation route metadata', () => {
-  test('requires the MFA management feature for provider setup and confirmation', () => {
-    expect(providerMetadata.POST.requireFeatures).toEqual(requiredFeature)
-    expect(providerMetadata.PUT.requireFeatures).toEqual(requiredFeature)
+  test('keeps provider enrollment authenticated so the handler can apply the enforcement-aware feature guard', () => {
+    expect(providerMetadata.POST).toEqual({ requireAuth: true })
+    expect(providerMetadata.PUT).toEqual({ requireAuth: true })
   })
 
   test('requires the MFA management feature for recovery-code regeneration', () => {

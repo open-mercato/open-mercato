@@ -12,12 +12,13 @@ import {
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 test.describe('TC-SEC-009: MFA mutation feature authorization', () => {
-  test('rejects every self-service MFA mutation without security.mfa.manage', async ({ request }) => {
-    const adminToken = await getAuthToken(request, 'admin')
-    const { organizationId } = getTokenContext(adminToken)
-    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  test('permits compelled enrollment while retaining the MFA management gate', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'superadmin')
+    const { organizationId, tenantId } = getTokenContext(adminToken)
+    const stamp = randomUUID()
     const email = `qa-mfa-guard-${stamp}@acme.com`
     const password = 'Valid1!Pass'
+    let policyId: string | null = null
     let roleId: string | null = null
     let userId: string | null = null
 
@@ -71,7 +72,61 @@ test.describe('TC-SEC-009: MFA mutation feature authorization', () => {
         { token: userToken },
       )
       expect(deleteMethod.status(), 'MFA method deletion should require security.mfa.manage').toBe(403)
+
+      const policyResponse = await apiRequest(
+        request,
+        'POST',
+        '/api/security/enforcement',
+        {
+          token: adminToken,
+          data: {
+            scope: 'organisation',
+            tenantId,
+            organizationId,
+            isEnforced: true,
+            allowedMethods: ['totp'],
+          },
+        },
+      )
+      expect(policyResponse.status(), 'enforcement policy fixture should be created').toBe(201)
+      const policyBody = await policyResponse.json() as { id?: string }
+      expect(typeof policyBody.id).toBe('string')
+      policyId = policyBody.id ?? null
+
+      const compelledEnrollment = await apiRequest(
+        request,
+        'POST',
+        '/api/security/mfa/provider/totp',
+        { token: userToken, data: {} },
+      )
+      expect(compelledEnrollment.status(), 'active enforcement should permit enrollment setup').toBe(200)
+      const setupBody = await compelledEnrollment.json() as { setupId?: string }
+      expect(typeof setupBody.setupId).toBe('string')
+
+      const compelledConfirmation = await apiRequest(
+        request,
+        'PUT',
+        '/api/security/mfa/provider/totp',
+        {
+          token: userToken,
+          data: { setupId: setupBody.setupId, code: '000000' },
+        },
+      )
+      expect(compelledConfirmation.status(), 'active enforcement should reach provider confirmation').not.toBe(403)
+
+      const stillProtectedRecoveryCodes = await apiRequest(
+        request,
+        'POST',
+        '/api/security/mfa/recovery-codes/regenerate',
+        { token: userToken, data: {} },
+      )
+      expect(stillProtectedRecoveryCodes.status(), 'non-enrollment management should remain feature-gated').toBe(403)
     } finally {
+      if (policyId) {
+        await apiRequest(request, 'DELETE', `/api/security/enforcement/${policyId}`, {
+          token: adminToken,
+        }).catch(() => undefined)
+      }
       await deleteUserIfExists(request, adminToken, userId)
       await deleteRoleIfExists(request, adminToken, roleId)
     }
