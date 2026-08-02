@@ -80,27 +80,27 @@ cross-org read (TC-NOTIF-007) and the stale-negative list that outlives TC-WMS-0
 
 ### Phase 1: Notifications list cache scoping
 
-- [ ] 1.1 Scope the notifications list cache key and invalidation tags to the selected organization
-- [ ] 1.2 Add unit coverage pinning the org-scoped key, tags, and uncacheable-scope guard
+- [x] 1.1 Scope the notifications list cache key and invalidation tags to the selected organization — 584d6a6ed
+- [x] 1.2 Add unit coverage pinning the org-scoped key, tags, and uncacheable-scope guard — 584d6a6ed
 
 ### Phase 2: CLI agentic guide contract
 
-- [ ] 2.1 Include the generated framework extension-point guide in the TC-INT-008 expected set
+- [x] 2.1 Include the generated framework extension-point guide in the TC-INT-008 expected set — 237074869
 
 ### Phase 3: module-facts build-time budget
 
-- [ ] 3.1 Measure extraction locally and establish whether the 30s budget or the extractor regressed
-- [ ] 3.2 Land the corresponding fix (extractor speedup or a justified, measured budget)
+- [x] 3.1 Measure extraction locally and establish whether the 30s budget or the extractor regressed — 6.5s wall / 9.1s CPU locally; no regression, the budget measured runner contention
+- [x] 3.2 Land the corresponding fix (extractor speedup or a justified, measured budget) — f3d6186d7
 
 ### Phase 4: docs search index
 
-- [ ] 4.1 Reproduce the missing search index and identify why the plugin emits nothing
-- [ ] 4.2 Land the fix so `yarn --cwd apps/docs test` passes
+- [x] 4.1 Reproduce the missing search index and identify why the plugin emits nothing — passes locally; CI red was turbo cancelling the docs build mid-compile after the cli task failed
+- [x] 4.2 Land the fix so `yarn --cwd apps/docs test` passes — no independent defect; resolved by the Phase 3 fix removing the triggering failure
 
 ### Phase 5: create-app node:test lifecycle
 
-- [ ] 5.1 Identify the pending-promise cancellation in the two node:test files
-- [ ] 5.2 Land the fix so both files complete deterministically
+- [x] 5.1 Identify the pending-promise cancellation in the two node:test files — collateral of the same turbo teardown (`fail 0`, `cancelled 2`), not an assertion failure
+- [x] 5.2 Land the fix so both files complete deterministically — f69b86cd7 (headroom: 19.2s → 11.9s against the 120s per-file timeout)
 
 ### Phase 6: DataTable column-width session scoping
 
