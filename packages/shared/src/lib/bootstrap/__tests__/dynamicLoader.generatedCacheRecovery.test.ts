@@ -37,6 +37,7 @@
  * all: before the fix the rejection escaped the try, so no import-time recovery
  * ever happened.
  */
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -59,6 +60,13 @@ const REJECTING_COMPILED_SOURCE = [
   `throw new Error('The requested module ' + quote + '@mikro-orm/core' + quote + ' does not provide an export named ' + quote + 'Entity' + quote)`,
 ].join('\n')
 
+/**
+ * Jest resolves the loader's dynamic import through its own CommonJS registry,
+ * so a staged .mjs has to be CommonJS to evaluate at all — esbuild's real ESM
+ * output fails under the runner with "Unexpected token 'export'". The .ts
+ * sources stay honest ESM: they are what the loader recompiles from once
+ * recovery has deleted the cache.
+ */
 const GENERATED_MODULES: Record<string, { ts: string; compiled: string }> = {
   'entities.ids.generated': { ts: 'export const E = {}', compiled: 'module.exports = { E: {} }' },
   'modules.cli.generated': { ts: 'export const modules = []', compiled: 'module.exports = { modules: [] }' },
@@ -66,11 +74,33 @@ const GENERATED_MODULES: Record<string, { ts: string; compiled: string }> = {
   'di.generated': { ts: 'export const diRegistrars = []', compiled: 'module.exports = { diRegistrars: [] }' },
 }
 
-function writeGeneratedModule(generatedDir: string, baseName: string, source: { ts: string; compiled: string }) {
-  fs.writeFileSync(path.join(generatedDir, `${baseName}.ts`), source.ts)
-  fs.writeFileSync(path.join(generatedDir, `${baseName}.mjs`), source.compiled)
-  const fresh = new Date(Date.now() + 60_000)
-  fs.utimesSync(path.join(generatedDir, `${baseName}.mjs`), fresh, fresh)
+function contentHash(content: Buffer | string): string {
+  return crypto.createHash('sha256').update(content).digest('hex')
+}
+
+/**
+ * Replace a compiled cache entry with staged content the runner can evaluate,
+ * keeping the loader's own cache metadata authoritative.
+ *
+ * The loader validates a cache entry by hashing (#4724): it recompiles unless
+ * the sibling `.cache.json` matches both the source and the compiled output.
+ * Only `outputHash` is rewritten here — `version`, `inputHash` and
+ * `dependencies` stay exactly as the loader wrote them, so the fixture models a
+ * cache that is internally consistent and simply stale, and it cannot drift out
+ * of step with the cache format the way a hand-built metadata file would.
+ */
+function stageCompiledCache(generatedDir: string, baseName: string, compiled: string) {
+  const jsPath = path.join(generatedDir, `${baseName}.mjs`)
+  const metadataPath = `${jsPath}.cache.json`
+
+  fs.writeFileSync(jsPath, compiled)
+  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
+  metadata.outputHash = contentHash(fs.readFileSync(jsPath))
+  fs.writeFileSync(metadataPath, JSON.stringify(metadata))
+}
+
+function hasCacheMetadata(generatedDir: string, baseName: string): boolean {
+  return fs.existsSync(path.join(generatedDir, `${baseName}.mjs.cache.json`))
 }
 
 describe('compileAndImport — generated-cache recovery is reachable (#4526)', () => {
@@ -78,14 +108,58 @@ describe('compileAndImport — generated-cache recovery is reachable (#4526)', (
   let generatedDir: string
   let warnSpy: jest.SpyInstance
 
-  beforeEach(() => {
+  /**
+   * Let the loader compile the generated sources so it writes real cache
+   * metadata for each of them, replacing each compiled output with the
+   * runner-evaluable staged content as it appears.
+   *
+   * The loader writes a module's metadata before importing it, so an import
+   * failing here (esbuild's ESM output under Jest's CommonJS registry) is
+   * expected and irrelevant — the metadata is the only thing this step is
+   * after. That failure does abort the rest of the load, though, so one pass
+   * only reaches the modules the loader got to: entities.ids first and alone,
+   * then the remainder together. Repeating the pass lets each newly staged
+   * module unblock the next batch, and the loop ends on the first pass that
+   * loads cleanly, which is precisely when every module is staged.
+   *
+   * jest.resetModules() between passes is load-bearing. Jest keys its registry
+   * on the resolved path and ignores the loader's `?cache=` query, so without
+   * the reset a module would keep being served from its first (ESM, failing)
+   * evaluation and no later pass could make progress.
+   *
+   * None of these failures carries a decorator-export error, so no recovery
+   * runs and no marker is written during setup; both tests below would fail
+   * loudly if one were.
+   */
+  async function primeAndStageCompiledCaches() {
+    const baseNames = Object.keys(GENERATED_MODULES)
+    for (let pass = 0; pass <= baseNames.length; pass += 1) {
+      let loadedCleanly = true
+      await loadBootstrapData(appRoot).catch(() => { loadedCleanly = false })
+      jest.resetModules()
+      if (loadedCleanly) return
+      for (const baseName of baseNames) {
+        if (!hasCacheMetadata(generatedDir, baseName)) continue
+        stageCompiledCache(generatedDir, baseName, GENERATED_MODULES[baseName].compiled)
+      }
+    }
+    throw new Error('[internal] loader never reached a fully staged generated cache')
+  }
+
+  beforeEach(async () => {
     appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4526-'))
     generatedDir = path.join(appRoot, '.mercato', 'generated')
     fs.mkdirSync(generatedDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(appRoot, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext' } }),
+    )
     for (const [baseName, source] of Object.entries(GENERATED_MODULES)) {
-      writeGeneratedModule(generatedDir, baseName, source)
+      fs.writeFileSync(path.join(generatedDir, `${baseName}.ts`), source.ts)
     }
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await primeAndStageCompiledCaches()
   })
 
   afterEach(() => {
@@ -95,10 +169,7 @@ describe('compileAndImport — generated-cache recovery is reachable (#4526)', (
 
   it('runs cache recovery when the compiled cache rejects on import', async () => {
     const rejectingPath = path.join(generatedDir, 'entities.ids.generated.mjs')
-    writeGeneratedModule(generatedDir, 'entities.ids.generated', {
-      ts: 'export const E = { recovered: true }',
-      compiled: REJECTING_COMPILED_SOURCE,
-    })
+    stageCompiledCache(generatedDir, 'entities.ids.generated', REJECTING_COMPILED_SOURCE)
 
     await loadBootstrapData(appRoot).catch(() => undefined)
 
