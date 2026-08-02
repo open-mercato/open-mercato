@@ -10,10 +10,13 @@ import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/modules/c
  * The live/unsaved column widths are persisted in a browser-local perspective
  * snapshot keyed only by tableId, so before the fix they were shared by every
  * account that logged in on the same browser profile — one account's resize
- * leaked to whoever logged in next (a different tenant in the report). The fix
- * purges every perspective snapshot when a new identity signs in through the
- * login form, so a fresh login always starts from the default, auto-computed
- * widths.
+ * leaked to whoever logged in next (a different tenant in the report). The purge
+ * is anchored to the identity the backend shell actually renders for
+ * (AuthSessionGuard), with the login form purging on submit as well, so a fresh
+ * login always starts from the default, auto-computed widths — including when
+ * the form is submitted before its client handler has hydrated, which is how
+ * this test failed on loaded ephemeral shards while passing on the standalone
+ * lane.
  *
  * Self-contained: creates two companies so the grid has rows, drives the real
  * DataTable on `/backend/customers/companies`, exercises the real login form for
