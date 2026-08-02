@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -121,7 +122,7 @@ export default function CheckoutTemplatesPage() {
           onFiltersApply={(next) => { setFilters(next); setPage(1) }}
           onFiltersClear={() => { setFilters({}); setPage(1) }}
           pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
-          perspective={{ tableId: 'checkout-templates' }}
+          perspective={{ tableId: extensionPoints.hosts.templatesTable.tableId }}
           actions={(
             <Button asChild>
               <Link href="/backend/checkout/templates/create">

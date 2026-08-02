@@ -8,6 +8,7 @@ const events = [
     entity: 'notification',
     category: 'system',
     clientBroadcast: true,
+    portalBroadcast: true,
   },
   {
     id: NOTIFICATION_SSE_EVENTS.BATCH_CREATED,
@@ -15,6 +16,7 @@ const events = [
     entity: 'notification',
     category: 'system',
     clientBroadcast: true,
+    portalBroadcast: true,
   },
 ] as const
 

@@ -25,3 +25,12 @@ packages/core/src/modules/customer_accounts/  @open-mercato/maintainers
 # Security policy and tooling
 SECURITY.md                            @open-mercato/maintainers
 .github/CODEOWNERS                     @open-mercato/maintainers
+
+# Certified partner gate. These two files decide who may run `/label` on pull
+# requests, so each one needs sign-off from @matgren specifically — a single
+# owner, because any owner on a line can approve alone.
+#
+# Listed last on purpose: CODEOWNERS applies the LAST matching pattern, so these
+# lines must stay below the `.github/workflows/` rule above to take effect.
+.github/certified-partners.yml         @matgren
+.github/workflows/community-labels.yml @matgren

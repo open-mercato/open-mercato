@@ -1,5 +1,6 @@
 "use client"
 import { useCallback, useMemo, useState } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -14,7 +15,6 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 type SignupResponse = { ok: boolean; error?: string; details?: Record<string, string[]> }
@@ -134,7 +134,7 @@ export default function PortalSignupPage({ params }: Props) {
         <p className="mt-1.5 text-sm text-muted-foreground">{t('portal.signup.description', 'Sign up for a portal account.')}</p>
       </div>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('signup')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.signupBefore.spotId} context={injectionContext} />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error ? (
@@ -173,7 +173,7 @@ export default function PortalSignupPage({ params }: Props) {
         </p>
       </form>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('signup')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.signupAfter.spotId} context={injectionContext} />
     </div>
   )
 }

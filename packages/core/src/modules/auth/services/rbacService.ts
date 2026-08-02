@@ -9,6 +9,7 @@ import {
   authorizeFeatures,
   resolveEffectiveFeatures,
 } from '@open-mercato/shared/security/featurePolicy'
+import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
 
 interface AclData {
   isSuperAdmin: boolean
@@ -347,35 +348,6 @@ export class RbacService {
   }
 
   /**
-   * Returns the user's granted feature strings for a given scope.
-   *
-   * Used by infrastructure that needs the raw grant list rather than a yes/no
-   * authorization check (for example response enrichers gating themselves with
-   * `features: [...]`). Callers MUST apply wildcard-aware matching against the
-   * returned array — grants like `module.*` or `*` are part of the ACL contract.
-   *
-   * @param userId - The ID of the user
-   * @param scope - The tenant and organization context for ACL evaluation
-   * @returns Array of feature strings (may include wildcards); empty array when
-   *          the user has no grants in scope
-   */
-  async getGrantedFeatures(
-    userId: string,
-    scope: { tenantId: string | null; organizationId: string | null },
-  ): Promise<string[]> {
-    const acl = await this.loadAcl(userId, scope)
-    return Array.isArray(acl.features) ? acl.features : []
-  }
-
-  async getEffectiveFeatures(
-    userId: string,
-    scope: { tenantId: string | null; organizationId: string | null },
-  ): Promise<string[]> {
-    const acl = await this.loadAcl(userId, scope)
-    return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
-  }
-
-  /**
    * Checks whether any tenant role grants a feature.
    *
    * This supports non-user runtimes such as scheduler workers that execute with
@@ -455,5 +427,42 @@ export class RbacService {
       unrestricted: acl.isSuperAdmin,
       scopeAllowed: organizationAllowed,
     })
+  }
+
+  /**
+   * Returns the user's infrastructure grant list, filtered to enabled modules.
+   * The result may contain wildcards; authoritative checks must still go through
+   * `authorizeFeatures` or `userHasAllFeatures` so null overrides are enforced.
+   */
+  async getGrantedFeatures(
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<string[]> {
+    const acl = await this.loadAcl(userId, scope)
+    if (acl.isSuperAdmin) return filterGrantsByEnabledModules(['*'])
+    if (
+      acl.organizations &&
+      scope.organizationId &&
+      !acl.organizations.includes(scope.organizationId) &&
+      !acl.organizations.includes('__all__')
+    ) {
+      return []
+    }
+    return filterGrantsByEnabledModules(acl.features)
+  }
+
+  /** Returns concrete active feature IDs for browser capability payloads. */
+  async getEffectiveFeatures(
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<string[]> {
+    const acl = await this.loadAcl(userId, scope)
+    const organizationAllowed = acl.isSuperAdmin
+      || !acl.organizations
+      || !scope.organizationId
+      || acl.organizations.includes(scope.organizationId)
+      || acl.organizations.includes('__all__')
+    if (!organizationAllowed) return []
+    return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
   }
 }

@@ -156,6 +156,7 @@ Each phase is a focused PR that:
 | 16 | ACL features | `acl.features` | feature id | **YES** |
 | 17 | DI bindings | `di` | container key | **YES** |
 | 18 | Encryption maps | `encryption.maps` | entity id | **YES** |
+| 19 | Sidebar nav ordering | `nav.groupOrder` | nav group id | **YES** |
 
 Phase 1 is the AI domain (already shipped via spec [`2026-04-30-ai-overrides-and-module-disable.md`](2026-04-30-ai-overrides-and-module-disable.md), now folded under the unified umbrella through one rename — see "Migration & BC" below).
 
@@ -181,6 +182,7 @@ Phases 2-18 now ship through PR #1960. The dispatcher still supports the "not ye
 - [x] Phase 16 — ACL feature overrides.
 - [x] Phase 17 — DI binding overrides.
 - [x] Phase 18 — encryption map overrides.
+- [x] Phase 19 — sidebar nav ordering overrides.
 - [x] Documentation follow-up — bb2030e1b.
 
 ## Migration & backward compatibility
@@ -302,3 +304,13 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
 - **2026-05-18 — Phases 3-18 wired.** Page routes, subscribers, workers, widgets, notifications, API interceptors, command interceptors, response enrichers, page guards, CLI commands, setup hooks, ACL features, DI bindings, and encryption maps now have typed override maps, programmatic helpers, dispatcher appliers, registry hooks, and unit coverage. The example app and create-app template include `GET /api/example/override-probe`, override it through `modules.ts`, and add Playwright integration coverage (`TC-UMES-022`) proving the downstream API route override wins. Docs now include `framework/modules/overrides` with examples for every phase.
 - **2026-05-18 — Documentation/examples follow-up.** The example app and create-app template now export a non-applied `moduleOverrideExamples` catalog for every wired domain, the standalone template AGENTS guidance points developers at it, and the AI override docs no longer describe the non-AI domains as pending.
 - **2026-07-23 — ACL runtime semantics consolidated.** A final `acl.features[id] = null` now denies that exact feature at runtime before wildcard or admin bypasses. Existing stored grants are preserved and browser capability payloads project concrete effective IDs.
+
+- **2026-07-31 — Phase 19 wired (`nav.groupOrder`).** Sidebar nav group ordering became an override
+  domain: `overrides.nav.groupOrder` prepends group ids ahead of the built-in `defaultGroupOrder`, with
+  unnamed groups keeping their current position. It is a default, applied beneath role and per-user
+  sidebar preferences, and with nothing configured group ordering is byte-identical to before.
+  Programmatic tier: `applyNavGroupOrderOverrides(groupOrder | null)`, taking precedence over the
+  `modules.ts` declaration like every other domain. State persists on `globalThis` because this domain's
+  reader lives in `@open-mercato/core` while its writer is the app bootstrap — see `.ai/lessons.md`,
+  "Global registries in publishable packages must use `globalThis`" — with isolated-module regression
+  coverage. Spec: `.ai/specs/2026-07-30-nav-group-order-override-domain.md`.

@@ -40,8 +40,8 @@ function isTestFile(path: string): boolean {
 }
 
 function isBrowserFile(path: string, source: string): boolean {
-  return source.trimStart().startsWith("'use client'")
-    || source.trimStart().startsWith('"use client"')
+  const startsWithClientDirective = /^(?:(?:\s*\/\/[^\n]*\n)|(?:\s*\/\*[\s\S]*?\*\/))*\s*['"]use client['"]/.test(source)
+  return startsWithClientDirective
     || path.includes('/components/')
     || path.includes('/widgets/injection/')
     || path.endsWith('.client.ts')

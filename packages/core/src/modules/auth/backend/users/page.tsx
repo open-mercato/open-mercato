@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -428,7 +429,7 @@ export default function UsersListPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
-          perspective={{ tableId: 'auth.users.list' }}
+          perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
           emptyState={(
             <ListEmptyState
               entityName={t('auth.users.list.title', 'Users')}

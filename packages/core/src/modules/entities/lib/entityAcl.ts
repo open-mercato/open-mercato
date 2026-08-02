@@ -1,5 +1,7 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { deriveCustomEntityRecordFeature } from './recordFeatures'
 
 export type EntityAclRequirement = {
@@ -64,8 +66,72 @@ const ENTITY_ACL_REQUIREMENTS: Record<string, EntityAclRequirement> = {
   },
 }
 
+let declaredCustomEntityRestrictions: Map<string, boolean> | null = null
+
+function loadDeclaredCustomEntityRestrictions(): Map<string, boolean> {
+  if (declaredCustomEntityRestrictions === null) {
+    try {
+      const modules = getModules() as Array<{
+        customEntities?: Array<{ id?: string; accessRestricted?: boolean }>
+      }>
+      const restrictions = new Map<string, boolean>()
+      for (const moduleEntry of modules ?? []) {
+        for (const spec of moduleEntry.customEntities ?? []) {
+          if (spec.id) restrictions.set(spec.id, spec.accessRestricted === true)
+        }
+      }
+      declaredCustomEntityRestrictions = restrictions
+    } catch {}
+  }
+  return declaredCustomEntityRestrictions ?? new Map<string, boolean>()
+}
+
+export function getDeclaredCustomEntityRestriction(entityId: string): boolean | undefined {
+  return loadDeclaredCustomEntityRestrictions().get(entityId)
+}
+
+export function isDeclaredCustomEntity(entityId: string): boolean {
+  return loadDeclaredCustomEntityRestrictions().has(entityId)
+}
+
 export function resolveEntityAclRequirement(entityId: string): EntityAclRequirement | null {
   return ENTITY_ACL_REQUIREMENTS[entityId] ?? null
+}
+
+export function canReadAllEntityMetadata(acl: {
+  isSuperAdmin?: boolean
+  features?: readonly string[]
+}): boolean {
+  return authorizeFeatures(['entities.definitions.view'], {
+    grantedFeatures: acl.features ?? [],
+    unrestricted: Boolean(acl.isSuperAdmin),
+  })
+}
+
+export function canReadEntityMetadata(args: {
+  entityId: string
+  isCustomEntity: boolean
+  isRestricted?: boolean
+  acl: { isSuperAdmin?: boolean; features?: readonly string[] }
+}): boolean {
+  const requirement = resolveEntityAclRequirement(args.entityId)
+  if (requirement?.platformOnly) return false
+  if (canReadAllEntityMetadata(args.acl)) return true
+  if (args.isCustomEntity) {
+    const requiredFeatures = ['entities.records.view']
+    if (args.isRestricted) {
+      requiredFeatures.push(deriveCustomEntityRecordFeature(args.entityId, 'view'))
+    }
+    return authorizeFeatures(requiredFeatures, {
+      grantedFeatures: args.acl.features ?? [],
+      unrestricted: Boolean(args.acl.isSuperAdmin),
+    })
+  }
+  if (!requirement) return false
+  return authorizeFeatures(requirement.view, {
+    grantedFeatures: args.acl.features ?? [],
+    unrestricted: Boolean(args.acl.isSuperAdmin),
+  })
 }
 
 type EntityAclActor = {
