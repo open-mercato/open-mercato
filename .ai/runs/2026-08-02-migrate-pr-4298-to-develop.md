@@ -50,7 +50,7 @@ Rebase the app-level DI override diagnostics from PR #4298 onto the current `dev
 
 ### Phase 2: Apply requested review changes
 
-- [ ] 2.1 Add exact optional-hook absence detection plus independent process-scoped load/register warning guards, and extend regression tests to cover nested alias misses and repeated failures.
+- [x] 2.1 Add exact optional-hook absence detection plus independent process-scoped load/register warning guards, and extend regression tests to cover nested alias misses and repeated failures. — 596f89ec1
 
 ### Phase 3: Verify and supersede
 
