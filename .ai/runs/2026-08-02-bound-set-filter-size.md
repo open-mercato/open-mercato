@@ -81,7 +81,7 @@ as a Minor finding in the review of [#4821](https://github.com/open-mercato/open
 
 ## Progress
 
-PR: _pending_
+PR: #4855
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
