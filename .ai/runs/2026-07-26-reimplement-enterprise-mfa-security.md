@@ -7,7 +7,7 @@ Independently implement the two approved enterprise MFA security corrections on 
 ## Scope
 
 - Fail closed when MFA-enforcement verification cannot determine a user's compliance, while retaining safe bypass and enrollment-page access.
-- Require the established MFA-management feature for self-service MFA mutations, ensure the default employee role retains self-service access, and document the upgrade action for existing tenants.
+- Require the established MFA-management feature for ordinary self-service MFA mutations, preserve provider enrollment while enforcement compels a non-compliant tenant user, ensure the default employee role retains voluntary self-service access, and document the upgrade action for existing tenants.
 - Add focused regression coverage and run the repository validation gate.
 
 ## Non-goals
@@ -28,8 +28,8 @@ MFA enforcement and authorization failures can lock users out. Regression tests 
 
 ### Phase 2: MFA mutation authorization
 
-1. Require `security.mfa.manage` on each self-service MFA mutation route.
-2. Preserve employee self-service access, document the existing-tenant ACL-sync action, and add route metadata coverage.
+1. Require `security.mfa.manage` for ordinary self-service MFA management while conditionally exempting provider enrollment during active enforcement.
+2. Preserve employee self-service access, document the existing-tenant ACL-sync action, and add route and enforcement-exemption coverage.
 
 ### Phase 3: Verification and delivery
 
@@ -49,8 +49,8 @@ PR: #4530
 
 ### Phase 2: MFA mutation authorization
 
-- [x] 2.1 Require `security.mfa.manage` on each self-service MFA mutation route — c5d45ce5b
-- [x] 2.2 Preserve employee self-service access, document the existing-tenant ACL-sync action, and add route metadata coverage — c5d45ce5b
+- [x] 2.1 Require `security.mfa.manage` for ordinary self-service MFA management while keeping compelled provider enrollment reachable — fbea98972
+- [x] 2.2 Preserve employee self-service access, document the existing-tenant ACL-sync action, and add route plus enforcement-exemption coverage — fbea98972
 
 ### Phase 3: Verification and delivery
 
