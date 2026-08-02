@@ -342,8 +342,30 @@ The `OM_SEARCH_*` flags below are **token/Postgres-only** — they tune the `sea
 | `OM_SEARCH_ENABLE_PARTIAL` | `true` | Prefix/partial expansion — indexing "john" stores hashes for `joh`,`john`. Enables prefix matching at the cost of ~5–6× more `search_tokens` rows. |
 | `OM_SEARCH_HASH_ALGO` | `sha256` | Token hash algorithm (`sha1`/`md5` also accepted). |
 | `OM_SEARCH_STORE_RAW_TOKENS` | `false` | Store plaintext token alongside the hash — **security-sensitive**; avoid in production. |
-| `OM_SEARCH_FIELD_BLOCKLIST` | — | Comma-separated extra field names excluded from tokenization (merged with built-in `password,token,secret,hash`). |
+| `OM_SEARCH_FIELD_BLOCKLIST` | — | Comma-separated extra field names excluded from tokenization (merged with built-in `password,token,secret,hash`). See below for entity-scoped entries. |
 | `OM_SEARCH_DEBUG` | `false` | Verbose token/indexing debug logging (redacted — never logs raw tokens or PII). |
+
+### Excluding fields from the token index
+
+`OM_SEARCH_FIELD_BLOCKLIST` gates both the per-field tokens and the aggregate `search_text`
+field that every entity's search actually queries. Because `search_text` concatenates the
+record's string fields, a field must be blocklisted for it to stay out of the index — you
+cannot blocklist `search_text` itself without disabling search for that entity.
+
+Each comma-separated entry matches field names by substring (case-insensitive), and may carry
+an optional `entityType@` prefix to scope it to a single entity type:
+
+```bash
+# `body` is excluded everywhere; `notes` only on customer interactions
+OM_SEARCH_FIELD_BLOCKLIST=body,customers:customer_interaction@notes
+```
+
+This matters for volume as much as for privacy: with prefix expansion enabled, a large
+free-text column such as an imported e-mail body can dominate `search_tokens`.
+
+Changes take effect for documents built after the change — **reindex the affected entities**
+(`yarn mercato query_index reindex --entity <entityType>`) to drop tokens that are already
+stored.
 
 ## Adding Custom Strategies
 

@@ -54,7 +54,7 @@ const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
 const mockLoadAcl = jest.fn<Promise<{ isSuperAdmin: boolean; features: string[] }>, [string, { tenantId: string | null; organizationId: string | null }]>()
 const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { tenantId: string | null; organizationId: string | null }]>()
-const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[] }]>()
+const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[]; ttl?: number }]>()
 const mockCacheGet = jest.fn<Promise<null>, [string]>()
 const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[]) => groups)
 const mockLoadSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
@@ -410,6 +410,48 @@ describe('GET /api/auth/admin/nav', () => {
 
     expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
     expect(mockUserHasAllFeatures).toHaveBeenCalled()
+  })
+
+  describe('cache key survives a deploy that changes the module surface', () => {
+    async function cacheKeyForRoutes(routes: BackendRouteManifest[]): Promise<string> {
+      mockGetBackendRouteManifests.mockReturnValue(routes)
+      setupCustomEntities([])
+      const response = await GET(makeRequest())
+      expect(response.status).toBe(200)
+      const [key] = mockCacheSet.mock.calls[mockCacheSet.mock.calls.length - 1]
+      return key
+    }
+
+    const dashboardRoute: BackendRouteManifest = {
+      moduleId: 'dashboard',
+      pattern: '/backend/dashboard',
+      title: 'Dashboard',
+      group: 'Dashboard',
+      order: 1,
+    }
+
+    it('reads and writes the same key within one deploy', async () => {
+      const writtenKey = await cacheKeyForRoutes([dashboardRoute])
+
+      expect(mockCacheGet).toHaveBeenCalledWith(writtenKey)
+    })
+
+    it('writes a different key once a new module contributes backend routes', async () => {
+      const before = await cacheKeyForRoutes([dashboardRoute])
+      const after = await cacheKeyForRoutes([
+        dashboardRoute,
+        { moduleId: 'search', pattern: '/backend/search', title: 'Search', group: 'Search', order: 2 },
+      ])
+
+      expect(after).not.toBe(before)
+    })
+
+    it('bounds any surface change the fingerprint cannot see with a TTL', async () => {
+      await cacheKeyForRoutes([dashboardRoute])
+
+      const [, , options] = mockCacheSet.mock.calls[mockCacheSet.mock.calls.length - 1]
+      expect(options.ttl).toBe(30 * 60 * 1000)
+    })
   })
 
   it('returns 401 when not authenticated', async () => {

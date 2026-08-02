@@ -1,13 +1,87 @@
 import type { BootstrapData } from './types'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
+import { createLogger } from '../logger'
 import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
   recoverMikroOrmV7GeneratedCacheFromImportError,
 } from './generatedCacheRecovery'
+import { createClientOnlyStubPlugin } from './clientOnlyModules'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
+
+const logger = createLogger('shared').child({ component: 'bootstrap' })
+
+/**
+ * Thrown when an expected generated source file is absent.
+ *
+ * Optional registries treat this as the supported compatibility case (an app
+ * that never generated the file), which is what makes it distinguishable from
+ * a file that exists but fails to compile or import.
+ */
+class GeneratedFileNotFoundError extends Error {
+  readonly filePath: string
+
+  constructor(filePath: string) {
+    super(`Generated file not found: ${filePath}`)
+    this.name = 'GeneratedFileNotFoundError'
+    this.filePath = filePath
+  }
+}
+
+/**
+ * esbuild plugins for the CLI bundle, in resolution order. The client-only stub must come
+ * first so it wins over the alias and external plugins for `*.client` dynamic imports.
+ *
+ * Exported so the wiring itself is testable: a test that only exercises
+ * `createClientOnlyStubPlugin` in isolation stays green if the plugin is dropped from this
+ * list, which would silently reintroduce #4623.
+ */
+export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugin[] {
+  // Plugin to resolve @/ alias to app root (works for @app modules)
+  const aliasPlugin: import('esbuild').Plugin = {
+    name: 'alias-resolver',
+    setup(build) {
+      // Resolve @/ alias to app root
+      build.onResolve({ filter: /^@\// }, (args) => {
+        const resolved = path.join(appRoot, args.path.slice(2))
+        // Try with .ts extension if base path doesn't exist
+        if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
+          return { path: resolved + '.ts' }
+        }
+        // Also check for /index.ts if it's a directory
+        if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
+          return { path: path.join(resolved, 'index.ts') }
+        }
+        return { path: resolved }
+      })
+    },
+  }
+
+  // Plugin to mark non-JSON package imports as external
+  const externalNonJsonPlugin: import('esbuild').Plugin = {
+    name: 'external-non-json',
+    setup(build) {
+      // Mark all package imports as external EXCEPT JSON files
+      // Filter matches paths that don't start with . or / (package imports like @open-mercato/shared)
+      build.onResolve({ filter: /^[^./]/ }, (args) => {
+        // Skip Windows absolute paths (e.g., C:\...) - they're local files, not packages
+        if (/^[a-zA-Z]:/.test(args.path)) {
+          return null // Let esbuild handle it
+        }
+        // If it's a JSON file, let esbuild bundle it
+        if (args.path.endsWith('.json')) {
+          return null // Let esbuild handle it
+        }
+        // Otherwise mark as external
+        return { path: args.path, external: true }
+      })
+    },
+  }
+
+  return [createClientOnlyStubPlugin(), aliasPlugin, externalNonJsonPlugin]
+}
 
 /**
  * Compile a TypeScript file to JavaScript using esbuild bundler.
@@ -23,7 +97,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   const jsExists = fs.existsSync(jsPath)
 
   if (!tsExists) {
-    throw new Error(`Generated file not found: ${tsPath}`)
+    throw new GeneratedFileNotFoundError(tsPath)
   }
 
   const needsCompile = !jsExists ||
@@ -33,47 +107,6 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
     // Dynamically import esbuild only when needed
     const esbuild = await import('esbuild')
 
-    // Plugin to resolve @/ alias to app root (works for @app modules)
-    const aliasPlugin: import('esbuild').Plugin = {
-      name: 'alias-resolver',
-      setup(build) {
-        // Resolve @/ alias to app root
-        build.onResolve({ filter: /^@\// }, (args) => {
-          const resolved = path.join(appRoot, args.path.slice(2))
-          // Try with .ts extension if base path doesn't exist
-          if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
-            return { path: resolved + '.ts' }
-          }
-          // Also check for /index.ts if it's a directory
-          if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
-            return { path: path.join(resolved, 'index.ts') }
-          }
-          return { path: resolved }
-        })
-      },
-    }
-
-    // Plugin to mark non-JSON package imports as external
-    const externalNonJsonPlugin: import('esbuild').Plugin = {
-      name: 'external-non-json',
-      setup(build) {
-        // Mark all package imports as external EXCEPT JSON files
-        // Filter matches paths that don't start with . or / (package imports like @open-mercato/shared)
-        build.onResolve({ filter: /^[^./]/ }, (args) => {
-          // Skip Windows absolute paths (e.g., C:\...) - they're local files, not packages
-          if (/^[a-zA-Z]:/.test(args.path)) {
-            return null // Let esbuild handle it
-          }
-          // If it's a JSON file, let esbuild bundle it
-          if (args.path.endsWith('.json')) {
-            return null // Let esbuild handle it
-          }
-          // Otherwise mark as external
-          return { path: args.path, external: true }
-        })
-      },
-    }
-
     // Use esbuild.build with bundling to handle JSON imports
     await esbuild.build({
       entryPoints: [tsPath],
@@ -82,7 +115,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
       format: 'esm',
       platform: 'node',
       target: 'node18',
-      plugins: [aliasPlugin, externalNonJsonPlugin],
+      plugins: createCliBundlePlugins(appRoot),
       // Allow JSON imports
       loader: { '.json': 'json' },
     })
@@ -91,7 +124,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   // Import the compiled JavaScript
   try {
     const fileUrl = `${pathToFileURL(jsPath).href}?mtime=${fs.statSync(jsPath).mtimeMs}`
-    return import(fileUrl)
+    return await import(fileUrl)
   } catch (error) {
     if (!allowRecovery) {
       throw error
@@ -106,6 +139,39 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   }
 }
 
+
+/**
+ * Load a generated registry that older apps may not have generated yet.
+ *
+ * An absent source file is the supported compatibility case and resolves to
+ * `fallback` quietly. Any other failure — a compile error, a broken import, a
+ * runtime throw at module scope — still resolves to `fallback` so bootstrap
+ * keeps working, but is reported at error level: a registry that silently
+ * degrades to nothing is exactly how command interceptors stopped applying in
+ * worker/CLI processes (#4327, #4491).
+ */
+async function loadOptionalGeneratedModule(
+  tsPath: string,
+  fallback: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  try {
+    return await compileAndImport(tsPath)
+  } catch (error) {
+    if (error instanceof GeneratedFileNotFoundError) {
+      logger.debug('Optional generated registry not present, using empty fallback', {
+        file: path.basename(tsPath),
+      })
+      return fallback
+    }
+
+    logger.error('Failed to load generated registry, continuing without its entries', {
+      file: path.basename(tsPath),
+      filePath: tsPath,
+      err: error,
+    })
+    return fallback
+  }
+}
 
 /**
  * Dynamically load bootstrap data from a resolved app directory.
@@ -161,10 +227,12 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     compileAndImport(path.join(generatedDir, 'modules.cli.generated.ts')),
     compileAndImport(path.join(generatedDir, 'entities.generated.ts')),
     compileAndImport(path.join(generatedDir, 'di.generated.ts')),
-    compileAndImport(path.join(generatedDir, 'search.generated.ts')).catch(() => ({ searchModuleConfigs: [] })),
-    compileAndImport(path.join(generatedDir, 'command-loaders.generated.ts')).catch(() => ({ commandLoaderEntries: [] })),
-    compileAndImport(path.join(generatedDir, 'command-interceptors.generated.ts')).catch(() => ({ commandInterceptorEntries: [] })),
-    compileAndImport(path.join(generatedDir, 'workflows.generated.ts')).catch(() => ({ allCodeWorkflows: [] })),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'search.generated.ts'), { searchModuleConfigs: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'command-loaders.generated.ts'), { commandLoaderEntries: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'command-interceptors.generated.ts'), {
+      commandInterceptorEntries: [],
+    }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'workflows.generated.ts'), { allCodeWorkflows: [] }),
   ])
 
   return {

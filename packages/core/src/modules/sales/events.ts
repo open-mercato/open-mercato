@@ -10,6 +10,8 @@ const events = [
   { id: 'sales.order.created', label: 'Sales Order Created', entity: 'order', category: 'crud' },
   { id: 'sales.order.updated', label: 'Sales Order Updated', entity: 'order', category: 'crud' },
   { id: 'sales.order.deleted', label: 'Sales Order Deleted', entity: 'order', category: 'crud' },
+  { id: 'sales.order.confirmed', label: 'Sales Order Confirmed', entity: 'order', category: 'lifecycle' },
+  { id: 'sales.order.cancelled', label: 'Sales Order Cancelled', entity: 'order', category: 'lifecycle' },
 
   // Quotes
   { id: 'sales.quote.created', label: 'Quote Created', entity: 'quote', category: 'crud' },

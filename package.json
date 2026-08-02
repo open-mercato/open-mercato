@@ -107,7 +107,8 @@
     "check:client-boundaries": "node scripts/check-client-boundaries.mjs",
     "check:client-boundaries:fail": "node scripts/check-client-boundaries.mjs --fail",
     "check:time-bombs": "node scripts/time-bomb-scanner.mjs",
-    "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail"
+    "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail",
+    "agents:check-budget": "node scripts/check-agents-md-budget.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.2",
@@ -201,7 +202,7 @@
     "flatted": "3.4.2",
     "socket.io-parser": "4.2.6",
     "engine.io": "6.6.9",
-    "tar": "7.5.20",
+    "tar": "7.5.21",
     "undici@npm:7.24.0": "7.28.0",
     "undici@npm:^7.19.0": "7.28.0",
     "undici@npm:^8.3.0": "8.5.0",

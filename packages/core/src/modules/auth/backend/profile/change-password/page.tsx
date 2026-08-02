@@ -17,6 +17,7 @@ const logger = createLogger('auth').child({ component: 'change-password-page' })
 
 type ProfileResponse = {
   email?: string | null
+  name?: string | null
 }
 
 type ProfileUpdateResponse = {

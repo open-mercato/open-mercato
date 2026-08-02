@@ -283,6 +283,8 @@ test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', ()
         customerEntityId: customerId,
         shippingAddressId: selectedAddress.id,
         billingAddressId: selectedAddress.id,
+        // A sales order must contain at least one line (issue #4021).
+        lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }],
       })
       orderLineId = await createOrderLineFixture(request, token, orderId, {
         name: `QA Sales Select Line ${stamp}`,

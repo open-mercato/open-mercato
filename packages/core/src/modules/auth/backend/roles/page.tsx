@@ -73,9 +73,14 @@ export default function RolesListPage() {
     return () => { cancelled = true }
   }, [page, search, reloadToken, scopeVersion, t])
 
+  const formatRoleName = React.useCallback(
+    (name: string) => t(`auth.roles.${name}`, name),
+    [t],
+  )
+
   const handleDelete = React.useCallback(async (row: Row) => {
     const confirmed = await confirm({
-      title: t('auth.roles.list.confirmDelete', 'Delete role "{{name}}"?').replace('{{name}}', row.name),
+      title: t('auth.roles.list.confirmDelete', 'Delete role "{{name}}"?').replace('{{name}}', formatRoleName(row.name)),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -96,7 +101,7 @@ export default function RolesListPage() {
       const message = error instanceof Error ? error.message : t('auth.roles.list.error.delete', 'Failed to delete role')
       flash(message, 'error')
     }
-  }, [confirm, t])
+  }, [confirm, formatRoleName, t])
 
   const showTenantColumn = React.useMemo(
     () => isSuperAdmin && rows.some((row) => row.tenantName),
@@ -104,14 +109,18 @@ export default function RolesListPage() {
   )
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
-      { accessorKey: 'name', header: t('auth.roles.list.columns.role', 'Role') },
+      {
+        accessorKey: 'name',
+        header: t('auth.roles.list.columns.role', 'Role'),
+        cell: ({ row }) => formatRoleName(row.original.name),
+      },
       { accessorKey: 'usersCount', header: t('auth.roles.list.columns.users', 'Users') },
     ]
     if (showTenantColumn) {
       base.splice(1, 0, { accessorKey: 'tenantName', header: t('auth.roles.list.columns.tenant', 'Tenant') })
     }
     return base
-  }, [showTenantColumn, t])
+  }, [formatRoleName, showTenantColumn, t])
 
   return (
     <Page>
