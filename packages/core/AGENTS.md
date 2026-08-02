@@ -503,10 +503,8 @@ When extending another module's data, add a separate extension entity — never 
 - Features declared per module in `acl.ts`, naming: `<module>.<action>`
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
 - Special flags: `isSuperAdmin` (all active features), organization visibility list
-- Treat wildcard grants as part of the ACL contract: `module.*` and `*` satisfy matching concrete features.
-- Nulled ACL overrides and disabled modules are denied before super-admin or wildcard matching.
-- When only an already-loaded ACL snapshot exists, call `authorizeFeatures` from `@open-mercato/shared/security/featurePolicy`; do not reproduce policy ordering.
-- Browser capability payloads MUST come from the realm service's `getEffectiveFeatures` and contain concrete IDs, never wildcard grants.
+- Policy order: invalid scope and nulled/disabled features deny before super-admin or wildcard grants.
+- For loaded ACL snapshots use shared `authorizeFeatures`; browser payloads use realm `getEffectiveFeatures` (concrete IDs only).
 
 ```typescript
 // acl.ts
