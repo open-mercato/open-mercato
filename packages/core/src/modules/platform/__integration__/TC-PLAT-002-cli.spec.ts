@@ -2,8 +2,10 @@ import { expect, test } from '@playwright/test'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const execFileAsync = promisify(execFile)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * TC-PLAT-002: mercato inspect CLI

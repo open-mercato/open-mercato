@@ -3,6 +3,7 @@
 > Status: **DRAFT — ready for review** (Open Questions gate cleared 2026-06-17)
 > Scope: OSS — developer tooling (DX), no business behavior
 > Date: 2026-06-17
+> Related: [Complete UMES Extension-Point Catalog](2026-08-01-module-extension-point-catalog.md) (package-time module facts; #4788 / #4810), standalone harness coordination (#4802)
 
 ## TLDR
 
@@ -20,6 +21,12 @@ module registry (Tier 1, static), the runtime DI container (Tier 2, DI keys), an
 tenant-scoped DB read (Tier 3, live ACL grants + user-created custom fields). It ships first as
 a `mercato inspect` CLI (all ~25 surfaces, `--json` for machines, derived views for event flow
 and the ACL feature×role matrix), with a dev-gated backoffice page as a later phase.
+
+**Boundary vs UMES catalog (#4802 / #4788):** the merged UMES extension-point catalog extends
+**package-time** module facts (`.ai/guides/modules/*`, `extensionSurfaces`) for standalone agents.
+Platform Map remains the **runtime** view of the wired app (enabled modules + live registries +
+optional tenant Tier 3). Do not re-implement the catalog inside this change; later adaptation may
+project `extensionSurfaces` into a Platform Map surface, but v1 keeps the surfaces separate.
 
 ### Decisions locked at the gate
 
@@ -327,3 +334,7 @@ Verification: `yarn dev:profile --label platform-map-idle` (do not open `/backen
 - `yarn workspace @open-mercato/app generate` — pass (403 API routes incl. `/api/platform/inspect`)
 - Jest unit tests — blocked locally by `TS5103: Invalid value for '--ignoreDeprecations'` (pre-existing env/tooling)
 - Integration tests added: `TC-PLAT-001` (API), `TC-PLAT-002-cli` (CLI JSON smoke)
+- Ephemeral integration runtime sets `OM_PLATFORM_MAP_ENABLED=true` because shards run with
+  `NODE_ENV=production` (documented Q3 opt-in); ACL still gates unauthorized roles.
+- Compatibility with #4802: UMES CLI (`umes:list` / `umes:inspect` / `umes:check`) and the
+  extension-point catalog remain the package-time path; `mercato inspect` does not subsume them.

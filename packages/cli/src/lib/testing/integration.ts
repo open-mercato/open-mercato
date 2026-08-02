@@ -1695,6 +1695,9 @@ function buildReusableEnvironment(
     OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
     OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
     OM_INTEGRATION_TEST: 'true',
+    // Ephemeral shards run NODE_ENV=production; opt the Platform Map API/UI in
+    // via the documented production gate so TC-PLAT-* can exercise /api/platform/inspect.
+    OM_PLATFORM_MAP_ENABLED: process.env.OM_PLATFORM_MAP_ENABLED ?? 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
@@ -3025,6 +3028,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       DB_IDLE_SESSION_TIMEOUT_MS: '30000',
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '30000',
       OM_INTEGRATION_TEST: 'true',
+      // See buildReusableEnvironment: production NODE_ENV needs the opt-in for Platform Map.
+      OM_PLATFORM_MAP_ENABLED: process.env.OM_PLATFORM_MAP_ENABLED ?? 'true',
       OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
       OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,

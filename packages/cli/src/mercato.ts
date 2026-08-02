@@ -1372,7 +1372,7 @@ export async function run(argv = process.argv) {
 
   if (first === 'inspect') {
     const { runInspect } = await import('./lib/inspect/run')
-    return runWithCapturedExitCode(() => runInspect(parts.slice(1)))
+    return runInspect(parts.slice(1))
   }
 
   if (first === 'seed:defaults') {
