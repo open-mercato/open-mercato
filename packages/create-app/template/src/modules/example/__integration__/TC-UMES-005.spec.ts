@@ -74,10 +74,16 @@ test.describe('TC-UMES-005: Phase L — Integration Extensions', () => {
     await expect(freqTrigger).toBeVisible({ timeout: 10_000 })
     await freqTrigger.click()
     await page.getByRole('option', { name: 'Daily', exact: true }).click()
-    await page.getByRole('button', { name: 'Complete', exact: true }).click()
+    await expect(freqTrigger).toContainText('Daily', { timeout: 10_000 })
 
     // Verify wizard result output
     const wizardResult = page.getByTestId('phase-l-wizard-result')
+    const completeButton = page.getByRole('button', { name: 'Complete', exact: true })
+    await expect(completeButton).toBeEnabled()
+    await expect(async () => {
+      await completeButton.click()
+      await expect(wizardResult).not.toContainText('wizardResult=null', { timeout: 1_000 })
+    }).toPass({ timeout: 10_000 })
     await expect(wizardResult).toContainText('test-key-123')
     await expect(wizardResult).toContainText('test-secret-456')
     await expect(wizardResult).toContainText('bidirectional')
