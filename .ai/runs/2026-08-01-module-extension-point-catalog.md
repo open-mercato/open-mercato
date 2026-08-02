@@ -60,6 +60,8 @@ Generate a complete, deterministic, bidirectional catalog of every package-provi
 
 ## Progress
 
+PR: #4810
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Canonical host taxonomy and parity
@@ -71,20 +73,20 @@ Generate a complete, deterministic, bidirectional catalog of every package-provi
 
 ### Phase 2: Contribution extraction and correlation
 
-- [x] 2.1 Factor reusable convention and registry readers. — a2ff3136f
-- [x] 2.2 Normalize complete outgoing contribution details. — a2ff3136f
+- [x] 2.1 Factor reusable convention and registry readers. — a2ff3136f, 5fda9356a
+- [x] 2.2 Normalize complete outgoing contribution details. — a2ff3136f, 5fda9356a
 - [x] 2.3 Correlate targets and reject unresolved first-party contracts. — a2ff3136f
 
 ### Phase 3: Generated facts and compatibility
 
 - [x] 3.1 Extend deterministic ModuleFacts Markdown/JSON output. — a2ff3136f
-- [ ] 3.2 Preserve legacy facts and add framework catalogs.
+- [x] 3.2 Preserve legacy facts and add framework catalogs. — 0d62b3a07
 - [x] 3.3 Add compatibility, determinism, size, and timing evidence. — a2ff3136f
 
 ### Phase 4: Standalone routing and harness
 
-- [ ] 4.1 Route standalone agents through module/framework facts.
-- [ ] 4.2 Expand OMH-088/OMH-089 and targeted harness cases.
-- [ ] 4.3 Add optional UMES spec provenance coverage.
-- [ ] 4.4 Add optional UMES guidance links.
+- [x] 4.1 Route standalone agents through module/framework facts. — 0d62b3a07
+- [x] 4.2 Expand OMH-088/OMH-089 and targeted harness cases. — 0d62b3a07
+- [x] 4.3 Add optional UMES spec provenance coverage. — 0d62b3a07
+- [x] 4.4 Add optional UMES guidance links. — 0d62b3a07
 - [ ] 4.5 Update contracts/docs and pass focused/full validation.
