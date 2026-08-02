@@ -22,6 +22,7 @@ const defaultOrganizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const defaultTenantId = '123e4567-e89b-12d3-a456-426614174000'
 
 let mockUserFeatures: string[] | undefined
+let mockUserId = 'u1'
 
 const em = {}
 
@@ -60,15 +61,15 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => {
-  const auth = {
-    sub: 'u1',
+  const resolveAuth = () => ({
+    sub: mockUserId,
     orgId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     tenantId: '123e4567-e89b-12d3-a456-426614174000',
     roles: ['admin'],
-  }
+  })
   return {
-    getAuthFromCookies: async () => auth,
-    getAuthFromRequest: async () => auth,
+    getAuthFromCookies: async () => resolveAuth(),
+    getAuthFromRequest: async () => resolveAuth(),
   }
 })
 
@@ -147,6 +148,7 @@ const route = makeCrudRoute({
     entityId: 'example.todo',
     fields: ['id', 'title'],
     sortFieldMap: { id: 'id', title: 'title' },
+    cacheVaryByUser: true,
     buildFilters: () => ({} as any),
     transformItem: (i: any) => ({ id: i.id, title: i.title }),
   },
@@ -170,6 +172,7 @@ describe('CRUD Factory — response enrichers + list cache (#2222)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     store.clear()
+    mockUserId = 'u1'
     mockUserFeatures = ['example.view']
     registerApiInterceptors([])
     registerResponseEnrichers([{ moduleId: 'example', enrichers: [gatedEnricher] }])
@@ -228,6 +231,20 @@ describe('CRUD Factory — response enrichers + list cache (#2222)', () => {
     expect(aAgain.headers.get('x-om-cache')).toBe('hit')
     expect(aAgainBody.items[0]._example).toEqual({ flagged: true })
   })
+
+  it('partitions user-scoped list payloads by authenticated user', async () => {
+    const first = await route.GET(new Request(url))
+    expect(first.headers.get('x-om-cache')).toBe('miss')
+
+    mockUserId = 'u2'
+    const second = await route.GET(new Request(url))
+    expect(second.headers.get('x-om-cache')).toBe('miss')
+    expect(store.size).toBe(2)
+
+    mockUserId = 'u1'
+    const firstAgain = await route.GET(new Request(url))
+    expect(firstAgain.headers.get('x-om-cache')).toBe('hit')
+  })
 })
 
 describe('CRUD Factory — fail-closed enrichers re-run on cache hits (#2222)', () => {
@@ -245,6 +262,7 @@ describe('CRUD Factory — fail-closed enrichers re-run on cache hits (#2222)', 
   beforeEach(() => {
     jest.clearAllMocks()
     store.clear()
+    mockUserId = 'u1'
     liveExternalValue = 'v1'
     mockUserFeatures = ['example.view']
     registerApiInterceptors([])

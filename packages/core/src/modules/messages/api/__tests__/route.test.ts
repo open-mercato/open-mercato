@@ -241,6 +241,7 @@ describe('messages /api/messages GET crud route', () => {
     expect(opts.list).toEqual(expect.objectContaining({
       schema: expect.any(Object),
       entityId: 'messages:message',
+      cacheVaryByUser: true,
       buildFilters: expect.any(Function),
       transformItem: expect.any(Function),
     }))

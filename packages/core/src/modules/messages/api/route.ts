@@ -426,6 +426,7 @@ const crud = makeCrudRoute<never, never, ListMessagesInput>({
       updatedAt: 'updated_at',
       updated_at: 'updated_at',
     },
+    cacheVaryByUser: true,
     buildFilters: buildMessageListIdFilter,
     transformItem: transformMessageListItem,
   },

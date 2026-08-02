@@ -230,6 +230,11 @@ export type ListConfig<TList> = {
   omitAutomaticTenantOrgScope?: boolean
   /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
   disableListCache?: boolean
+  /**
+   * When true, partition cached list payloads by the authenticated user ID.
+   * Required when `buildFilters` or list hooks produce user-specific rows.
+   */
+  cacheVaryByUser?: boolean
 }
 
 export type CrudExportColumnConfig = {
@@ -901,6 +906,7 @@ function buildCrudCacheKey(
   request: Request,
   ctx: CrudCtx,
   enricherSignature = '',
+  varyByUser = false,
 ): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
@@ -917,6 +923,9 @@ function buildCrudCacheKey(
     `scope:${scopeSegment}`,
     `query:${serializeSearchParams(url.searchParams)}`,
   ]
+  if (varyByUser) {
+    segments.push(`user:${normalizeTagSegment(ctx.auth?.sub ?? null)}`)
+  }
   // The cached list payload already embeds enricher output (enrichment runs before
   // the cache store), so the cache key MUST partition by the set of enrichers a
   // request's entitlements actually select. Two callers in the same tenant/org
@@ -1470,7 +1479,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
       const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
-      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature) : null
+      const cacheKey = cacheEnabled
+        ? buildCrudCacheKey(
+            resourceKind,
+            request,
+            ctx,
+            enricherCachePlan.signature,
+            opts.list.cacheVaryByUser === true,
+          )
+        : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
 
