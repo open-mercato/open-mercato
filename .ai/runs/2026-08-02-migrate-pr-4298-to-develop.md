@@ -58,4 +58,4 @@ PR: #4827
 
 ### Phase 3: Verify and supersede
 
-- [ ] 3.1 Run targeted shared-package checks and the configured full validation gate, complete the authoritative review/autofix pass, finalize the replacement PR, and close PR #4298 as superseded.
+- [x] 3.1 Run targeted shared-package checks and the configured full validation gate, complete the authoritative review/autofix pass, finalize the replacement PR, and close PR #4298 as superseded. — 220fafbfe
