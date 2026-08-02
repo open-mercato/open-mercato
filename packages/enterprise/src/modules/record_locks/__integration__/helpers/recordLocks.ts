@@ -920,7 +920,22 @@ export async function createOrderFixture(
   token: string,
   currencyCode = 'USD',
 ): Promise<string> {
-  return createSalesEntity(request, token, '/api/sales/orders', { currencyCode }, ['id', 'orderId']);
+  return createSalesEntity(
+    request,
+    token,
+    '/api/sales/orders',
+    {
+      currencyCode,
+      lines: [{
+        currencyCode,
+        quantity: 1,
+        name: `Record-lock order line ${Date.now()}`,
+        unitPriceNet: 10,
+        unitPriceGross: 10,
+      }],
+    },
+    ['id', 'orderId'],
+  );
 }
 
 export async function createQuoteFixture(
