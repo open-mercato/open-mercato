@@ -10,6 +10,17 @@ export const DEFAULT_MEMORY_TRACE_INTERVAL_MS = 1_000
 export const DEFAULT_PROFILE_INTERVAL_MS = 2_000
 export const TOP_PROCESS_LIMIT = 20
 
+export function parseCpuTimeSeconds(raw) {
+  const match = String(raw ?? '').trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/)
+  if (!match) return null
+  const days = Number(match[1] ?? 0)
+  const hours = Number(match[2] ?? 0)
+  const minutes = Number(match[3])
+  const seconds = Number(match[4])
+  const total = (((days * 24) + hours) * 60 + minutes) * 60 + seconds
+  return Number.isFinite(total) ? total : null
+}
+
 export function parsePsOutput(stdout) {
   const processes = []
   const lines = String(stdout ?? '').split('\n')
@@ -21,9 +32,13 @@ export function parsePsOutput(stdout) {
     const pid = Number(match[1])
     const ppid = Number(match[2])
     const rssKb = Number(match[3])
-    const command = (match[4] ?? '').trim()
+    const remainder = (match[4] ?? '').trim()
+    const firstToken = remainder.match(/^(\S+)(?:\s+(.*))?$/)
+    const parsedCpuTime = parseCpuTimeSeconds(firstToken?.[1])
+    const cpuTimeSeconds = parsedCpuTime == null ? null : parsedCpuTime
+    const command = cpuTimeSeconds == null ? remainder : (firstToken?.[2] ?? '').trim()
     if (!Number.isFinite(pid) || !Number.isFinite(ppid) || !Number.isFinite(rssKb)) continue
-    processes.push({ pid, ppid, rssKb, command })
+    processes.push({ pid, ppid, rssKb, cpuTimeSeconds, command })
   }
   return processes
 }
@@ -148,7 +163,7 @@ export function readCgroupMemory(cgroupRoot = '/sys/fs/cgroup') {
 }
 
 async function runPsSnapshot(execFileImpl = execFileAsync) {
-  const { stdout } = await execFileImpl('ps', ['-A', '-o', 'pid=,ppid=,rss=,args='], {
+  const { stdout } = await execFileImpl('ps', ['-A', '-o', 'pid=,ppid=,rss=,time=,args='], {
     maxBuffer: 16 * 1024 * 1024,
   })
   return parsePsOutput(stdout)
@@ -170,6 +185,7 @@ export async function sampleProcessTreeMemory(rootPid, options = {}) {
       ppid: p.ppid,
       rssMb,
       rssBytes: p.rssKb * 1024,
+      cpuTimeSeconds: p.cpuTimeSeconds ?? null,
       processClass,
       command: p.command.length > 240 ? `${p.command.slice(0, 240)}...` : p.command,
     }
@@ -237,6 +253,10 @@ export function summarizeMemorySamples(samples, markers = []) {
       peakTimestamp: null,
       peakNearestMarkers: { before: null, after: null },
       peakCgroup: null,
+      cpuCoreSeconds: null,
+      meanTotalCpuPercent: null,
+      peakTotalCpuPercent: null,
+      peakCpuTimestamp: null,
       sampleCount: 0,
     }
   }
@@ -248,6 +268,51 @@ export function summarizeMemorySamples(samples, markers = []) {
       peakSample = sample
     }
     totalSum += sample.totalRssMb
+  }
+
+  const chronologicalSamples = samples.slice().sort((left, right) => {
+    const leftTimestamp = Date.parse(left.timestamp)
+    const rightTimestamp = Date.parse(right.timestamp)
+    if (!Number.isFinite(leftTimestamp) || !Number.isFinite(rightTimestamp)) return 0
+    return leftTimestamp - rightTimestamp
+  })
+  const previousCpuByPid = new Map()
+  let cpuCoreSeconds = 0
+  let cpuBearingSamples = false
+  let cpuPercentSum = 0
+  let cpuPercentCount = 0
+  let peakTotalCpuPercent = null
+  let peakCpuTimestamp = null
+  let previousTimestamp = null
+
+  for (const sample of chronologicalSamples) {
+    let intervalCoreSeconds = 0
+    for (const proc of sample.processes ?? []) {
+      if (!Number.isFinite(proc.cpuTimeSeconds) || proc.cpuTimeSeconds < 0) continue
+      cpuBearingSamples = true
+      const previous = previousCpuByPid.get(proc.pid)
+      const delta = previous == null
+        ? proc.cpuTimeSeconds
+        : Math.max(0, proc.cpuTimeSeconds - previous)
+      previousCpuByPid.set(proc.pid, proc.cpuTimeSeconds)
+      intervalCoreSeconds += delta
+    }
+    cpuCoreSeconds += intervalCoreSeconds
+
+    const timestamp = Date.parse(sample.timestamp)
+    if (previousTimestamp != null && Number.isFinite(timestamp)) {
+      const elapsedSeconds = (timestamp - previousTimestamp) / 1_000
+      if (elapsedSeconds > 0) {
+        const intervalCpuPercent = (intervalCoreSeconds / elapsedSeconds) * 100
+        cpuPercentSum += intervalCpuPercent
+        cpuPercentCount += 1
+        if (peakTotalCpuPercent == null || intervalCpuPercent > peakTotalCpuPercent) {
+          peakTotalCpuPercent = intervalCpuPercent
+          peakCpuTimestamp = sample.timestamp
+        }
+      }
+    }
+    if (Number.isFinite(timestamp)) previousTimestamp = timestamp
   }
 
   const peakTopProcesses = (peakSample.topProcesses ?? peakSample.processes ?? [])
@@ -264,6 +329,14 @@ export function summarizeMemorySamples(samples, markers = []) {
     peakProcessClassTotals: peakSample.processClassTotals ?? {},
     peakNearestMarkers: findNearestMarkers(markers, peakSample.timestamp),
     peakCgroup: peakSample.cgroup ?? null,
+    cpuCoreSeconds: cpuBearingSamples ? Math.round(cpuCoreSeconds * 100) / 100 : null,
+    meanTotalCpuPercent: cpuBearingSamples && cpuPercentCount > 0
+      ? Math.round((cpuPercentSum / cpuPercentCount) * 100) / 100
+      : null,
+    peakTotalCpuPercent: cpuBearingSamples && peakTotalCpuPercent != null
+      ? Math.round(peakTotalCpuPercent * 100) / 100
+      : null,
+    peakCpuTimestamp: cpuBearingSamples ? peakCpuTimestamp : null,
     sampleCount: samples.length,
   }
 }

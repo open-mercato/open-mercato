@@ -8,10 +8,30 @@ import {
   createMemoryTraceSession,
   findNearestMarkers,
   inferDevMemoryMarkerFromLine,
+  parseCpuTimeSeconds,
+  parsePsOutput,
   readCgroupMemory,
   sampleProcessTreeMemory,
   summarizeMemorySamples,
 } from '../dev-memory-sampler.mjs'
+
+test('parseCpuTimeSeconds accepts Darwin and Linux ps time formats', () => {
+  assert.equal(parseCpuTimeSeconds('0:01.25'), 1.25)
+  assert.equal(parseCpuTimeSeconds('01:02:03'), 3723)
+  assert.equal(parseCpuTimeSeconds('2-03:04:05'), 183845)
+  assert.equal(parseCpuTimeSeconds('not-a-time'), null)
+})
+
+test('parsePsOutput keeps legacy snapshots and adds cpu time when present', () => {
+  const processes = parsePsOutput([
+    '100 1 1024 0:01.50 node ./scripts/dev.mjs',
+    '101 100 2048 node next-server (v16.2.11)',
+  ].join('\n'))
+  assert.equal(processes[0].cpuTimeSeconds, 1.5)
+  assert.equal(processes[0].command, 'node ./scripts/dev.mjs')
+  assert.equal(processes[1].cpuTimeSeconds, null)
+  assert.equal(processes[1].command, 'node next-server (v16.2.11)')
+})
 
 test('classifyProcessCommand maps dev process commands to attribution classes', () => {
   assert.equal(classifyProcessCommand('node ./scripts/dev.mjs'), 'dev-orchestrator')
@@ -25,7 +45,7 @@ test('classifyProcessCommand maps dev process commands to attribution classes', 
 
 test('sampleProcessTreeMemory returns totals, top processes, and dominant process class', async () => {
   const processes = [
-    { pid: 100, ppid: 1, rssKb: 100, command: 'node ./scripts/dev.mjs' },
+    { pid: 100, ppid: 1, rssKb: 100, cpuTimeSeconds: 1.5, command: 'node ./scripts/dev.mjs' },
     { pid: 101, ppid: 100, rssKb: 1000, command: 'node packages/cli/dist/bin.js server dev' },
     { pid: 102, ppid: 100, rssKb: 300, command: 'node ./scripts/watch-packages.mjs' },
     { pid: 999, ppid: 1, rssKb: 9999, command: 'unrelated' },
@@ -36,6 +56,8 @@ test('sampleProcessTreeMemory returns totals, top processes, and dominant proces
   assert.equal(sample.dominantProcessClass, 'next-turbopack')
   assert.equal(sample.topProcesses[0].pid, 101)
   assert.equal(sample.processClassTotals['next-turbopack'].processCount, 1)
+  assert.equal(sample.processes.find((process) => process.pid === 100).cpuTimeSeconds, 1.5)
+  assert.equal(sample.processes.find((process) => process.pid === 101).cpuTimeSeconds, null)
 })
 
 test('readCgroupMemory reads cgroup v2 current and peak files', () => {
@@ -81,6 +103,44 @@ test('summarizeMemorySamples correlates peak sample with nearest markers', () =>
   assert.equal(summary.peakNearestMarkers.before.type, 'route-compile:start')
   assert.equal(summary.peakNearestMarkers.after.type, 'route-compile:end')
   assert.equal(summary.peakCgroup.peakMb, 400)
+})
+
+test('summarizeMemorySamples accumulates CPU time across child churn', () => {
+  const summary = summarizeMemorySamples([
+    {
+      timestamp: '2026-06-19T10:00:00.000Z',
+      totalRssMb: 100,
+      processes: [
+        { pid: 10, cpuTimeSeconds: 1 },
+        { pid: 12, cpuTimeSeconds: 0.25 },
+      ],
+    },
+    {
+      timestamp: '2026-06-19T10:00:02.000Z',
+      totalRssMb: 120,
+      processes: [
+        { pid: 10, cpuTimeSeconds: 2.5 },
+        { pid: 11, cpuTimeSeconds: 0.5 },
+      ],
+    },
+  ])
+
+  assert.equal(summary.cpuCoreSeconds, 3.25)
+  assert.equal(summary.peakTotalCpuPercent, 100)
+  assert.equal(summary.meanTotalCpuPercent, 100)
+  assert.equal(summary.peakCpuTimestamp, '2026-06-19T10:00:02.000Z')
+})
+
+test('summarizeMemorySamples leaves CPU fields null for historical RSS-only samples', () => {
+  const summary = summarizeMemorySamples([
+    { timestamp: '2026-06-19T10:00:00.000Z', totalRssMb: 100, processes: [] },
+    { timestamp: '2026-06-19T10:00:02.000Z', totalRssMb: 120, processes: [] },
+  ])
+
+  assert.equal(summary.cpuCoreSeconds, null)
+  assert.equal(summary.meanTotalCpuPercent, null)
+  assert.equal(summary.peakTotalCpuPercent, null)
+  assert.equal(summary.peakCpuTimestamp, null)
 })
 
 test('findNearestMarkers handles missing or invalid inputs', () => {
