@@ -83,6 +83,9 @@ export class ResourcesResource {
   @Property({ name: 'availability_rule_set_id', type: 'uuid', nullable: true })
   availabilityRuleSetId?: string | null
 
+  @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
+  customFieldsetCode?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
