@@ -36,8 +36,11 @@ Remove the React development-console error caused by rendering the theme initial
 - Changing script placement or strategy could allow a light-theme flash before hydration; the fix therefore retains `beforeInteractive` execution and the existing initializer body.
 - Updating only the monorepo app would leave newly scaffolded apps broken; both layout copies are changed and reviewed together.
 - No matching feature specification exists because this is a narrow regression fix rather than a new capability.
+- The full gate is externally blocked by repository-wide baseline issue [#4824](https://github.com/open-mercato/open-mercato/issues/4824): an unchanged sales payment-ledger test and integration case omit newly required order lines. Expanding this app-shell PR into the sales module requires maintainer approval.
 
 ## Progress
+
+PR: #4825
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
