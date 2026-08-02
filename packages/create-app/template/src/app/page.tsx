@@ -2,22 +2,20 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 
-function isAutoLoginEnabled(): boolean {
-  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)
-}
-
 // The home route is a pure router: it never renders. Unless the visitor has
 // dismissed the start page, it sends them there; otherwise into the app
 // (backend when authenticated, login otherwise).
 export default async function Home() {
   const auth = await getAuthFromCookies()
+  const autoLoginEmail = process.env.OM_AUTOLOGIN_EMAIL?.trim()
+  const autoLoginPassword = process.env.OM_AUTOLOGIN_PASSWORD
 
   // Demo autologin: when OM_AUTOLOGIN_* credentials are configured and there is
   // no active session, hand off to the autologin route which signs the visitor
   // in and drops them into the app. Fully gated behind env vars — with them
   // unset, behavior below is unchanged. The route falls back to /login when the
   // credentials are invalid, so a misconfigured demo can never loop.
-  if (!auth && isAutoLoginEnabled()) {
+  if (!auth && autoLoginEmail && autoLoginPassword) {
     redirect('/api/auth/autologin')
   }
 
