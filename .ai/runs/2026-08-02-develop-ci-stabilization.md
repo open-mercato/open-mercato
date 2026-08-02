@@ -97,6 +97,7 @@ cross-org read (TC-NOTIF-007) and the stale-negative list that outlives TC-WMS-0
 
 - [x] 4.1 Reproduce the missing search index and identify why the plugin emits nothing — passes locally; CI red was turbo cancelling the docs build mid-compile after the cli task failed
 - [x] 4.2 Land the fix so `yarn --cwd apps/docs test` passes — no independent defect; resolved by the Phase 3 fix removing the triggering failure
+- [x] 4.3 Keep the full unfiltered test gate within its memory budget while giving Docusaurus enough heap to emit the index — d981f3fec (768 MB reproduced an OOM twice; 1024 MB passed all 24 package tasks at concurrency 2)
 
 ### Phase 5: create-app node:test lifecycle
 
