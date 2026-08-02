@@ -82,6 +82,7 @@ cross-org read (TC-NOTIF-007) and the stale-negative list that outlives TC-WMS-0
 
 - [x] 1.1 Scope the notifications list cache key and invalidation tags to the selected organization — 584d6a6ed
 - [x] 1.2 Add unit coverage pinning the org-scoped key, tags, and uncacheable-scope guard — 584d6a6ed
+- [x] 1.3 Invalidate cached notification reads after service mutations so worker-created notifications converge immediately — 92af34d3e
 
 ### Phase 2: CLI agentic guide contract
 
