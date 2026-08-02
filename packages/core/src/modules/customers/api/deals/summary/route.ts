@@ -9,6 +9,7 @@ import type { ExchangeRateService, RateResult } from '@open-mercato/core/modules
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
 import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
+import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
 import {
   computeDelta,
   convertSumsToBase,
@@ -186,11 +187,11 @@ export async function GET(req: Request) {
 
   const connection = em.getConnection()
 
-  const baseCurrency: Array<{ code: string }> = await connection.execute<Array<{ code: string }>>(
-    `SELECT code FROM currencies WHERE tenant_id = ? AND organization_id = ? AND is_base = true AND deleted_at IS NULL LIMIT 1`,
-    [effectiveTenantId, orgFilterIds[0]],
+  const baseCurrencyCode = await resolveOptionalBaseCurrencyCode(
+    container,
+    effectiveTenantId,
+    orgFilterIds[0],
   )
-  const baseCurrencyCode = baseCurrency[0]?.code ?? null
 
   const orgPlaceholders = orgFilterIds.map(() => '?').join(',')
   const scopeWhere = `tenant_id = ? AND organization_id IN (${orgPlaceholders}) AND deleted_at IS NULL`
