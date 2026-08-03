@@ -61,7 +61,7 @@ The two repository copies are not currently identical: 20 paths differ, includin
 - Removal or registry-gating of example-only home quick links while the module is disabled.
 - Progressive-disclosure README, surface map, finite inventory, activation/copy/rename checklist, and exact source links.
 - Reuse of the current Todo CRUD/command/UI slice and current UMES/widget/integration examples.
-- A reference-quality audit of every file exposed by the capability map; unsafe QA/demo-only files remain present but are classified `qa-only` and forbidden to harness reads until remediated.
+- A reference-quality audit of every file exposed by the capability map; unsafe QA/demo-only files remain present but use `referenceStatus: "qa-only"` and are forbidden to harness reads until remediated.
 - Focused additions to `example` for verified gaps such as encryption, explicit data extensions/links, search registration, DI cache use and invalidation, queued import/worker/progress, client notification rendering, translatable-field registration, and default/example seeding.
 - Standalone skill links, harness source-selection behavior, bounded example reads, preset tests, sync tests, and activated-fixture validation.
 
@@ -109,7 +109,7 @@ The implementation must classify each existing differing path before synchroniza
 
 ## Reuse Inventory
 
-Implementation starts by recording every row in `references/surface-inventory.json`. Each row has a stable `capabilityId`, one rule owner, a coverage kind (`example`, `authoritative-source`, or `specialist-route`), and exact paths. `references/surface-map.md` renders the same inventory for humans. Paths have no line anchors.
+Implementation starts by recording every row in `references/surface-inventory.json`. Each row has a stable `capabilityId`, one rule owner, a `coverageKind` (`example`, `authoritative-source`, or `specialist-route`), a `referenceStatus` (`canonical` or `qa-only`), and exact paths. `coverageKind` says where the capability is implemented or routed; `referenceStatus` independently controls whether harness cases may read that row. `references/surface-map.md` renders the same inventory for humans. Paths have no line anchors.
 
 ### Existing Example Surfaces to Reuse
 
@@ -146,7 +146,7 @@ The current tree does not have executable owners for the following required refe
 | Complete optimistic locking | Return `updatedAt` from list/detail projections, pass it through edit `initialValues`, and enforce it in command writes without narrowing legacy schema columns. | Update/delete stale writes return the standard 409 and the unified conflict UI can reload/retry. |
 | Standalone override reference | Move or mirror the typed inactive override examples from root `src/modules.ts` into a compileable file under `example/references/` so lean preset registry replacement does not erase the reference. | Every override domain remains typed, inactive, linked, and covered by TC-UMES-022 or its focused successor. |
 
-The capability audit must not bless existing code by location alone. Files linked as canonical examples must satisfy current rules: no unscoped lookup, no raw `.json().catch`, no hard-coded status colors, and no `any`-based shortcut where a runtime-narrowed type is possible. Current QA/demo files that do not yet meet that bar remain in the synchronized tree but receive `qa-only` inventory classification and are denied by `allowedCapabilityIds`; implementation either remediates them before linking or points to a safer exact file. The existing nullable Todo scope columns are a stable schema surface: new writes and queries must require effective tenant/organization scope, but the columns are not narrowed to non-null without a separately approved additive bridge for legacy rows.
+The capability audit must not bless existing code by location alone. Files linked as canonical examples must satisfy current rules: no unscoped lookup, no raw `.json().catch`, no hard-coded status colors, and no `any`-based shortcut where a runtime-narrowed type is possible. Current QA/demo files that do not yet meet that bar remain in the synchronized tree but receive `referenceStatus: "qa-only"` and are denied by `allowedCapabilityIds`; implementation either remediates them before linking or points to a safer exact file. The existing nullable Todo scope columns are a stable schema surface: new writes and queries must require effective tenant/organization scope, but the columns are not narrowed to non-null without a separately approved additive bridge for legacy rows.
 
 Highly specialized AI, provider, workflow, portal-auth, security-provider, vector-search, analytics, messages/inbox, and generator-plugin branches stay `authoritative-source` or `specialist-route`. The surface map must name the owning installed skill and exact source file; it must not claim local implementation.
 
@@ -363,13 +363,13 @@ None at design level. Implementation remains blocked from completion until the b
 
 - 2026-07-31: Initial draft based on the observed `ratelimit_probe` selection trace and the standalone harness merged in PR #4529.
 - 2026-08-01: Expanded the proposed reference coverage and split spec-first routing, generic read policy, and harness governance into companion specs.
-- 2026-08-03: Replaced the proposed duplicate teaching module with the existing `example` module as the sole standalone reference; required source-present/runtime-disabled delivery in every preset, additive gap extensions, exact skill/harness source links, and byte-identical synchronization from `apps/mercato` to the create-app template.
+- 2026-08-03: Replaced the proposed duplicate teaching module with the existing `example` module as the sole standalone reference; required source-present/runtime-disabled delivery in every preset, additive gap extensions, exact skill/harness source links, byte-identical synchronization from `apps/mercato` to the create-app template, and an explicit `referenceStatus` separate from capability coverage kind.
 
 ### Review — 2026-08-03
 
 - **Reviewer:** Agent, with independent fresh-context scope-cohesion and cross-spec consistency passes.
 - **Scope cohesion:** The fresh pass recommended splitting delivery/sync, capability-gap closure, and harness consumption. The user-selected boundary is retained as Q7 because these are phased acceptance surfaces of one canonical-example contract; independently reusable generic policies remain in the three companion specs.
-- **Security:** Passed at design level; exposed example files require scoped, locked, encrypted, reference-quality behavior or `qa-only` exclusion.
+- **Security:** Passed at design level; exposed example files require scoped, locked, encrypted, reference-quality behavior or `referenceStatus: "qa-only"` exclusion.
 - **Performance:** Passed; emitted-size facts, bounded reads, and focused-file growth constraints replace the invalid small-module budget.
 - **Cache:** Passed at design level; the missing cache example is DI-resolved, tenant/org tagged, and invalidated on every Todo write path.
 - **Commands:** Passed; existing scoped command, undo/redo, and optimistic-lock behavior is preserved and regression-tested.

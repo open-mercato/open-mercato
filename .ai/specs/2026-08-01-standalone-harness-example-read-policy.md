@@ -42,7 +42,7 @@ Extend the case schema with:
 }
 ```
 
-Paths are case-root relative, normalized through realpath, and reject absolute paths, `..`, symlink escapes, generated caches, credentials, secrets, local ops files, and writable-target reads outside the existing case contract. The evaluator permits multiple exact files under a root up to both budgets. Reading starts from an entrypoint; subsequent reads must map to an `allowedCapabilityId` referenced by the prompt/plan. For the canonical root, IDs and exact files are validated against `src/modules/example/references/surface-inventory.json`; missing IDs, stale paths, `qa-only` entries, and files outside the mapped capability fail. Directory-wide reads, glob dumps, and unrelated capability files fail even below the byte budget.
+Paths are case-root relative, normalized through realpath, and reject absolute paths, `..`, symlink escapes, generated caches, credentials, secrets, local ops files, and writable-target reads outside the existing case contract. The evaluator permits multiple exact files under a root up to both budgets. Reading starts from an entrypoint; subsequent reads must map to an `allowedCapabilityId` referenced by the prompt/plan. For the canonical root, IDs and exact files are validated against `src/modules/example/references/surface-inventory.json`; missing IDs, stale paths, entries with `referenceStatus: "qa-only"`, and files outside the mapped capability fail. Directory-wide reads, glob dumps, and unrelated capability files fail even below the byte budget.
 
 An example root is read-only context. A case may not write, rename, delete, chmod, or replace anything under a declared root, even when a broader writable pattern such as `src/modules/**` would otherwise match. Root immutability is resolved before writable-pattern matching and cannot be overridden by case configuration.
 
@@ -68,7 +68,7 @@ Focused fixtures cover:
 4. A named installed-version gap is recorded after local inspection and a bounded fallback passes.
 5. Fallback before local inspection, an unknown reason, broad traversal, budget overflow, symlink escape, generated cache, or sensitive path fails.
 6. A writable case attempts to mutate the canonical example through a broad `src/modules/**` grant and fails before the write.
-7. A legacy root, stale capability mapping, `qa-only` source, or ordinary-surface fallback fails schema/evaluator validation.
+7. A legacy root, stale capability mapping, source with `referenceStatus: "qa-only"`, or ordinary-surface fallback fails schema/evaluator validation.
 
 The result records ordered reads, matched root/capability, cumulative files/bytes, fallback reason, and the first violation. It never records file contents or secret values.
 
@@ -132,7 +132,7 @@ The schema is additive and cases without it keep current semantics. Main risks a
 ## Changelog
 
 - 2026-08-01: Initial draft established bounded multi-file example reads and installed-version fallback.
-- 2026-08-03: Pointed the policy at the shipped `src/modules/example` tree, added inventory validation and read-only precedence, restricted fallback to specialist/versioned gaps, rejected legacy shadow roots, and added generated-empty fixtures.
+- 2026-08-03: Pointed the policy at the shipped `src/modules/example` tree, added inventory validation and read-only precedence, restricted fallback to specialist/versioned gaps, rejected legacy shadow roots, added generated-empty fixtures, and made `referenceStatus: "qa-only"` a deterministic read denial.
 
 ### Review — 2026-08-03
 
