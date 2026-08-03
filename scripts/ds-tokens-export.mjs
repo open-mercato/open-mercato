@@ -342,7 +342,7 @@ export function buildSnapshot(css) {
   }
 
   const sorted = {}
-  for (const name of Object.keys(tokens).sort()) {
+  for (const name of Object.keys(tokens).sort((left, right) => left.localeCompare(right))) {
     sorted[name] = orderTokenFields(tokens[name])
   }
   return { source: SOURCE_CSS, generator: 'scripts/ds-tokens-export.mjs', tokens: sorted }
@@ -368,13 +368,13 @@ export function serializeSnapshot(snapshot) {
 export function diffSnapshots(committed, live) {
   const diffs = []
   const names = new Set([...Object.keys(committed.tokens), ...Object.keys(live.tokens)])
-  for (const name of [...names].sort()) {
+  for (const name of [...names].sort((left, right) => left.localeCompare(right))) {
     const before = committed.tokens[name]
     const after = live.tokens[name]
     if (!before) { diffs.push({ token: name, field: '(token)', from: '(absent)', to: 'added' }); continue }
     if (!after) { diffs.push({ token: name, field: '(token)', from: 'present', to: '(removed)' }); continue }
     const fields = new Set([...Object.keys(before), ...Object.keys(after)])
-    for (const field of [...fields].sort()) {
+    for (const field of [...fields].sort((left, right) => left.localeCompare(right))) {
       const beforeValue = JSON.stringify(before[field])
       const afterValue = JSON.stringify(after[field])
       if (beforeValue !== afterValue) {

@@ -84,6 +84,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
         scans: 'packages/ and apps/ — CRUD indexer configuration',
       },
+      {
+        path: 'src/modules/design_system/gallery/__tests__/gallery-coverage.test.ts',
+        scans: 'packages/ui/src/primitives — design-system gallery coverage',
+      },
     ],
   },
   {

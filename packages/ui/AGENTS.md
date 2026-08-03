@@ -1,8 +1,8 @@
 # UI Package - Agent Guidelines
 
-UI usage patterns based on customers, sales, and staff modules. Use these defaults when building new UI in `packages/ui` or consuming from other modules.
+UI defaults for `packages/ui` and its consumers.
 
-> **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md). **Backend component families (charts, filters, detail sections, schedule, messages, page scaffolding):** [`.ai/ui-backend-components.md`](../../.ai/ui-backend-components.md) — check it before building any of these from scratch.
+> References: [DS rules](../../.ai/ds-rules.md), [component contracts](../../.ai/ui-components.md), and [backend component families](../../.ai/ui-backend-components.md).
 
 ## Always
 
@@ -14,7 +14,7 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 - Use i18n keys and `useT()` for user-facing copy.
 - Keep UMES spot IDs, replacement handles, field/group IDs, and portal page metadata stable.
 - Follow `.ai/ds-rules.md` and `.ai/ui-components.md` for tokens, primitives, and component contracts.
-- When adding or renaming a primitive documented in `.ai/ui-components.md`, update its Code Connect mapping in `figma/*.figma.tsx` in the same PR (new primitives in the mapped families get a new mapping); `yarn ds:code-connect:check` must pass.
+- Keep documented primitive additions/renames and their `figma/*.figma.tsx` mappings in the same PR; run `yarn ds:code-connect:check`.
 
 ## Ask First
 
