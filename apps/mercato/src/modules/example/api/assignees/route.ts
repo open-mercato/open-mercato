@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getAuthFromCookies, getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   assigneeQuerySchema,
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
     })
   }
 
-  const rawBody = await req.json().catch(() => ({}))
+  const rawBody = await readJsonSafe<unknown>(req, {})
   const parsed = emitSseTestSchema.safeParse(rawBody)
   if (!parsed.success) {
     return new Response(JSON.stringify({ error: 'Invalid payload', issues: parsed.error.issues }), {

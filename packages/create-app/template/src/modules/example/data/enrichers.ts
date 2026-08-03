@@ -12,6 +12,7 @@
  * may opt into being served from the list cache on a hit.
  */
 
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { ExampleCustomerPriority, Todo } from './entities'
 
@@ -54,6 +55,15 @@ function buildBucketStats(todos: Todo[]): Map<number, { todoCount: number; openT
   return stats
 }
 
+/**
+ * `EnricherContext.em` is typed `unknown` precisely so each consumer narrows it to the
+ * handle it actually needs. Narrowing to `EntityManager` keeps every downstream
+ * `em.find` / `em.findOne` typed; `as any` would erase all of them.
+ */
+function forkEnricherEntityManager(context: EnricherContext): EntityManager {
+  return (context.em as EntityManager).fork()
+}
+
 const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment> = {
   id: 'example.customer-todo-count',
   targetEntity: 'customers.person',
@@ -65,7 +75,7 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
   },
 
   async enrichOne(record, context) {
-    const em = (context.em as any).fork()
+    const em = forkEnricherEntityManager(context)
     const todos = await em.find(Todo, {
       organizationId: context.organizationId,
       tenantId: context.tenantId,
@@ -91,7 +101,7 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
   },
 
   async enrichMany(records, context) {
-    const em = (context.em as any).fork()
+    const em = forkEnricherEntityManager(context)
     const todos = await em.find(Todo, {
       organizationId: context.organizationId,
       tenantId: context.tenantId,

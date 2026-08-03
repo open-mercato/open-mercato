@@ -25,7 +25,7 @@ Rule owners named per row own the *normative* rule. This module owns only *one c
 | `module.acl-features` | Feature ids with `dependsOn` chains | [`../acl.ts`](../acl.ts) | readable |
 | `module.setup-role-features` | `ModuleSetupConfig` default role grants applied at tenant init | [`../setup.ts`](../setup.ts) | readable |
 | `module.di-registration` | `register(container)` registering gateway / carrier / webhook adapters and provider descriptors | [`../di.ts`](../di.ts) | readable |
-| `module.cli-command` | Module CLI entrypoint, custom-entity install, idempotent seeding | [`../cli.ts`](../cli.ts) | **qa-only** |
+| `module.cli-command` | Module CLI entrypoint, custom-entity install, idempotent seeding | [`../cli.ts`](../cli.ts) | readable |
 | `module.i18n-catalogs` | Per-module locale catalogs for `useT()` / `resolveTranslations()` | [`../i18n/en.json`](../i18n/en.json), [`../i18n/de.json`](../i18n/de.json), [`../i18n/es.json`](../i18n/es.json), [`../i18n/pl.json`](../i18n/pl.json) | readable |
 
 Rule owners: `om-module-scaffold`, `om-integration-builder` (DI adapters).
@@ -48,8 +48,8 @@ Rule owner: `om-data-model-design`.
 | `api.crud-factory` | The smallest complete `makeCrudRoute`: per-method ACL, ORM/scope/soft-delete binding, list schema + sort map, `mapToEntity`/`applyToEntity`, scoped cross-module cache invalidation hooks | [`../api/customer-priorities/route.ts`](../api/customer-priorities/route.ts) | readable |
 | `api.crud-query-engine-custom-fields` | Query-engine list fields, `cf:*` projection and filtering, per-request custom-field discovery published on the request context, command-backed actions, CSV export config | [`../api/todos/route.ts`](../api/todos/route.ts) | readable |
 | `api.openapi` | Module OpenAPI factory over the shared CRUD OpenAPI helpers | [`../api/openapi.ts`](../api/openapi.ts) | readable |
-| `api.custom-route` | Hand-written route: own request container, cookie auth, query-engine read | [`../api/organizations/route.ts`](../api/organizations/route.ts) | **qa-only** |
-| `api.option-source-routes` | Backends for `optionsUrl` on tags/listbox custom fields | [`../api/tags/route.ts`](../api/tags/route.ts), [`../api/assignees/route.ts`](../api/assignees/route.ts), [`../api/notifications/route.ts`](../api/notifications/route.ts) | **qa-only** |
+| `api.custom-route` | Hand-written route: own request container, cookie auth, query-engine read | [`../api/organizations/route.ts`](../api/organizations/route.ts) | readable |
+| `api.option-source-routes` | Backends for `optionsUrl` on tags/listbox custom fields | [`../api/tags/route.ts`](../api/tags/route.ts), [`../api/assignees/route.ts`](../api/assignees/route.ts), [`../api/notifications/route.ts`](../api/notifications/route.ts) | readable |
 | `api.interceptors` | Exact-route and wildcard interceptors: rejection, timeout, thrown error, query rewrite, cross-module `?ids=` narrowing, `after` response merge via metadata | [`../api/interceptors.ts`](../api/interceptors.ts) | readable |
 
 Evidence: `__integration__/TC-UMES-004.spec.ts`, `__integration__/TC-UMES-021.spec.ts`, `api/__tests__/tags.tenant-scope.test.ts`, `api/__tests__/todos.request-scope.test.ts`.
@@ -66,7 +66,7 @@ Rule owners: `om-module-scaffold`, `om-system-extension` (interceptors).
 | `events.typed-definitions` | `createModuleEvents` with an `as const` table, typed emitter, event-id union, `clientBroadcast` | [`../events.ts`](../events.ts) | readable |
 | `events.crud-indexer-bridge` | `CrudEventsConfig` + `CrudIndexerConfig` shared by the command module and the CRUD route | [`../commands/todos.ts`](../commands/todos.ts) | readable |
 | `events.sync-subscribers` | Before-create payload rewrite, before-update rejection with status, non-blocking after-delete | [`../subscribers/auto-default-priority.ts`](../subscribers/auto-default-priority.ts), [`../subscribers/prevent-uncomplete.ts`](../subscribers/prevent-uncomplete.ts), [`../subscribers/audit-delete.ts`](../subscribers/audit-delete.ts) | readable |
-| `events.ephemeral-subscriber` | `persistent: false` subscriber resolving a service from the DI context | [`../subscribers/example-event.ts`](../subscribers/example-event.ts) | **qa-only** |
+| `events.ephemeral-subscriber` | `persistent: false` subscriber resolving a service from the DI context | [`../subscribers/example-event.ts`](../subscribers/example-event.ts) | readable |
 
 Evidence: `commands/__tests__/todos.update.test.ts`, `commands/__tests__/todos.prepare-scope.test.ts`, `commands/__tests__/todos.undo.test.ts`, `__integration__/TC-UMES-003.spec.ts`, `__integration__/TC-UMES-006-mutation-lifecycle.spec.ts`, `__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts`.
 
@@ -93,7 +93,7 @@ Rule owner: `om-backend-ui-design`.
 | Capability | Demonstrates | Source | Status |
 |---|---|---|---|
 | `umes.mutation-guard` | `MutationGuard` bound to an entity kind + operations, returning `{ ok: false, message, status }` | [`../data/guards.ts`](../data/guards.ts) | readable |
-| `umes.response-enricher` | `ResponseEnricher` adding a namespaced `_example` block to another module's list/detail responses, with `enrichMany` batching, `fallback`, timeout, explicit `cacheableOnListHit` | [`../data/enrichers.ts`](../data/enrichers.ts) | **qa-only** |
+| `umes.response-enricher` | `ResponseEnricher` adding a namespaced `_example` block to another module's list/detail responses, with `enrichMany` batching, `fallback`, timeout, explicit `cacheableOnListHit` | [`../data/enrichers.ts`](../data/enrichers.ts) | readable |
 | `umes.injection-table` | Every supported spot-id shape mapped to widget ids: portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menus, detail spots, tab groups, nested widget addon | [`../widgets/injection-table.ts`](../widgets/injection-table.ts) | readable |
 | `umes.injection.crud-form-field` | Headless field contribution into another module's CrudForm plus an `onSave` upsert handler | [`../widgets/injection/customer-priority-field/widget.ts`](../widgets/injection/customer-priority-field/widget.ts) | readable |
 | `umes.injection.datatable-column` | Headless column reading an enricher-provided accessor path | [`../widgets/injection/customer-priority-column/widget.ts`](../widgets/injection/customer-priority-column/widget.ts) | readable |
@@ -136,14 +136,7 @@ These files stay in the tree because the module is also the platform's QA surfac
 
 | Source | Gate | Exact defect |
 |---|---|---|
-| [`../data/enrichers.ts`](../data/enrichers.ts) | 4 | `enrichOne` and `enrichMany` both open their ORM handle with `(context.em as any).fork()`. `EnricherContext.em` is typed `unknown` so consumers narrow it; `as EntityManager` works and `as any` additionally erases the types of every following `em.find` call. |
-| [`../widgets/components.ts`](../widgets/components.ts) | 3 | Wrapper class names use raw Tailwind palette shades — `border-amber-300 bg-amber-50/40`, `border-blue-300 bg-blue-50/40` — instead of semantic/status tokens. Also demonstrates only the `wrapper` mode and exports a conditionally spread array, so static fact extraction cannot read its entries. |
-| [`../cli.ts`](../cli.ts) | 4 | `installCustomEntitiesFromModules(em as any, cache, ...)` erases the `EntityManager` type on an ORM handle used to mutate data; `EntityManager` is already imported in the same file. |
-| [`../api/organizations/route.ts`](../api/organizations/route.ts) | 4 | `res.items.map((org: any) => ...)` erases the query-engine result type where the response is shaped. Also uses raw `new Response(JSON.stringify(...))` and raw `console.error` instead of the shared response/logging helpers. |
-| [`../api/tags/route.ts`](../api/tags/route.ts) | 4 | `resolve('em') as any` and `(r as any).valueText` / `(r as any).valueMultiline` reach ORM rows and their columns untyped. |
-| [`../api/assignees/route.ts`](../api/assignees/route.ts) | 2 | `await req.json().catch(() => ({}))` instead of `readJsonSafe(...)`. |
-| [`../api/notifications/route.ts`](../api/notifications/route.ts) | 2 | `await request.json().catch(() => ({}))` instead of `readJsonSafe(...)`. |
-| [`../subscribers/example-event.ts`](../subscribers/example-event.ts) | 4 | The exported handler signature is `(payload: any, ctx: { resolve: <T=any>(name: string) => T })` — both the event payload and every resolved service are untyped at the module's public boundary. |
+| [`../widgets/components.ts`](../widgets/components.ts) | — | Gate 3 is clean (wrapper class names use `status-info-*` / `status-warning-*` tokens). Still `qa-only` because the file demonstrates only the `wrapper` mode — `replacement` and `propsTransform` are absent — and exports a conditionally spread array, so static fact extraction cannot read its entries. Tracked as the registry static-readability slice. |
 
 ### Not in the inventory at all
 
