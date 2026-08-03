@@ -969,6 +969,514 @@ test('compatibility: the deterministic catalog still validates end to end with t
   assert.deepEqual(jsonSchemaErrors(cases, schema), [], 'the published catalog must still satisfy its own schema')
 })
 
+// ---------------------------------------------------------------------------------------------
+// Oracle family 9 — redaction. The trace is the evaluator's private working record; the result
+// record carries only `exampleReadPolicySummary(trace)` passed through `recursivelySanitize`.
+// These fixtures pin the two halves of that guarantee: the published contract admits no field
+// that could carry content, and every value the summary is built from is drawn from the case
+// declaration or the shipped inventory rather than from a path the agent chose.
+// ---------------------------------------------------------------------------------------------
+
+const REASON_CODES = ['SPECIALIST_ROUTE_NOT_DECLARED', 'INSTALLED_VERSION_CONTRACT_MISMATCH']
+const REDACTION_SECRET = 'om-fixture-credential-must-not-appear'
+
+type SummarySchema = {
+  additionalProperties: boolean
+  required: string[]
+  properties: {
+    roots: { items: { additionalProperties: boolean; required: string[] } }
+    fallback: { additionalProperties: boolean; required: string[]; properties: { reason: { enum: Array<string | null> } } }
+  }
+}
+
+function summarySchema(): SummarySchema {
+  const schema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'result.schema.json'), 'utf8')) as {
+    properties: { exampleReadPolicy: SummarySchema }
+  }
+  return schema.properties.exampleReadPolicy
+}
+
+function evaluatorSource(): string {
+  return fs.readFileSync(sourceEvaluator, 'utf8')
+}
+
+test('family 9: the published result contract admits no summary field that could carry content', () => {
+  const schema = summarySchema()
+  assert.equal(schema.additionalProperties, false)
+  assert.deepEqual([...schema.required].sort(), ['fallback', 'roots'])
+  assert.equal(schema.properties.roots.items.additionalProperties, false)
+  assert.deepEqual([...schema.properties.roots.items.required].sort(), ['bytes', 'capabilities', 'entrypoints', 'files', 'root'])
+  assert.equal(schema.properties.fallback.additionalProperties, false)
+  assert.deepEqual([...schema.properties.fallback.required].sort(), ['bytes', 'files', 'reason'])
+  assert.deepEqual(schema.properties.fallback.properties.reason.enum, [...REASON_CODES, null])
+
+  const lawful = {
+    roots: [{ root: EXAMPLE_ROOT, entrypoints: [...ENTRYPOINTS], capabilities: ['api.crud-factory'], files: 3, bytes: 4096 }],
+    fallback: { reason: null, files: 0, bytes: 0 },
+  }
+  // `fallback.reason` is nullable, so the local mirror must share the evaluator's null-type rule.
+  assert.ok(evaluatorSource().includes("if (expected === 'null') return value === null"))
+  assert.deepEqual(jsonSchemaErrors(null, { type: ['string', 'null'] }), [])
+  assert.deepEqual(jsonSchemaErrors(lawful, schema as unknown as Record<string, any>), [])
+  assert.deepEqual(jsonSchemaErrors({ ...lawful, fallback: { reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH', files: 1, bytes: 64 } }, schema as unknown as Record<string, any>), [])
+  // The two trace fields that carry an agent-chosen string — the ordered reads and the first
+  // violation — are inadmissible in the published record, as is any smuggled content field.
+  for (const leak of [
+    { ...lawful, reads: [{ path: '/etc/shadow' }] },
+    { ...lawful, firstViolation: `example-root read targets a credential or secret file: ${EXAMPLE_ROOT}/.env.local` },
+    { ...lawful, roots: [{ ...lawful.roots[0], content: 'export const marker' }] },
+    { ...lawful, fallback: { ...lawful.fallback, reason: 'BECAUSE_I_SAID_SO' } },
+    { ...lawful, fallback: { ...lawful.fallback, sanitizedError: REDACTION_SECRET } },
+  ]) assert.ok(jsonSchemaErrors(leak, schema as unknown as Record<string, any>).length > 0, JSON.stringify(leak))
+})
+
+test('family 9: the evaluator projects only the contract keys into the result and sanitizes them first', () => {
+  const source = evaluatorSource()
+  assert.ok(
+    source.includes('recursivelySanitize(exampleReadPolicySummary(trace.exampleReadPolicy), runRoot)'),
+    'the summary must reach the result record only through recursivelySanitize',
+  )
+  const start = source.indexOf('function exampleReadPolicySummary(trace) {')
+  assert.ok(start > 0, 'the summary projection must exist')
+  const body = source.slice(start, source.indexOf('\n}\n', start))
+  for (const key of ['roots', 'root', 'entrypoints', 'capabilities', 'files', 'bytes', 'fallback', 'reason']) {
+    assert.match(body, new RegExp(`\\b${key}\\b`), key)
+  }
+  assert.doesNotMatch(body, /trace\.reads|firstViolation/, 'the projection must drop the agent-chosen fields entirely')
+  assert.ok(
+    source.includes("function recursivelySanitize(value, root) {\n  if (typeof value === 'string') return sanitize(value, root)"),
+    'recursivelySanitize must apply sanitize to every string it reaches',
+  )
+})
+
+test('family 9: only declaration-derived values reach the summary, so an adversarial read cannot smuggle a path, a home directory, or a credential into it', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    fs.writeFileSync(path.join(root, EXAMPLE_ROOT, '.env.local'), `OM_TOKEN=${REDACTION_SECRET}\n`)
+    const caseRecord = declaredCase({})
+    const declaration = (caseRecord.context.exampleRoots as Array<{ entrypoints: string[]; allowedCapabilityIds: string[] }>)[0]
+    const tokenShapedCapability = `sk-${'A'.repeat(32)}`
+    const adversarial: PolicyRead[] = [
+      { path: '/etc/shadow' },
+      { path: '~/.aws/credentials' },
+      { path: 'C:\\Users\\pkarw\\.npmrc' },
+      { path: `${EXAMPLE_ROOT}/.env.local` },
+      { path: `${EXAMPLE_ROOT}/../../../etc/passwd` },
+      { path: `${EXAMPLE_ROOT}/%2e%2e/secrets.json` },
+      // This one is ACCEPTED by the policy: the version-mismatch branch never inspects the
+      // supplied capability id, so an unbounded agent string does survive into `trace.reads`.
+      // It must still be absent from everything the summary is built from.
+      { path: INSTALLED_SOURCE, fallbackReason: 'INSTALLED_VERSION_CONTRACT_MISMATCH', capabilityId: tokenShapedCapability },
+    ]
+    for (const read of adversarial) {
+      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord, appRoot: root, reads: [...entrypointReads(), read] })
+      for (const rootTrace of trace.roots) {
+        assert.equal(rootTrace.root, EXAMPLE_ROOT, JSON.stringify(read))
+        assert.ok(rootTrace.entrypoints.every((entry) => declaration.entrypoints.includes(entry)), JSON.stringify(read))
+        assert.ok(rootTrace.capabilities.every((entry) => declaration.allowedCapabilityIds.includes(entry)), JSON.stringify(read))
+        assert.ok(Number.isInteger(rootTrace.files) && Number.isInteger(rootTrace.bytes), JSON.stringify(read))
+      }
+      assert.ok(trace.fallback.reason === null || REASON_CODES.includes(trace.fallback.reason), JSON.stringify(read))
+      const summaryInputs = JSON.stringify({ roots: trace.roots, fallback: trace.fallback })
+      for (const forbidden of [os.homedir(), root, REDACTION_SECRET, tokenShapedCapability, '/etc', 'C:', '~/', '.env', 'passwd']) {
+        assert.equal(summaryInputs.includes(forbidden), false, `${forbidden} leaked for ${JSON.stringify(read)}`)
+      }
+      assert.doesNotMatch(summaryInputs, /export const marker/, JSON.stringify(read))
+    }
+
+    const accepted = evaluator.evaluateExampleReadPolicy({
+      caseRecord,
+      appRoot: root,
+      reads: [...entrypointReads(), adversarial.at(-1) as PolicyRead],
+    })
+    assert.equal(accepted.firstViolation, null)
+    assert.equal(accepted.reads.at(-1)?.capabilityId, tokenShapedCapability, 'the working record does keep the agent string')
+
+    // The live runner channel behaves identically: the reason and capability id it carries reach
+    // the working record, never the summary inputs.
+    const live = evaluator.observedContext(
+      [
+        ...ENTRYPOINTS.map((entrypoint) => readEvent(`${EXAMPLE_ROOT}/${entrypoint}`)),
+        readEvent(INSTALLED_SOURCE, { reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH', capabilityId: tokenShapedCapability }),
+      ].join('\n'),
+      root,
+      caseRecord,
+      false,
+    )
+    assert.equal(live.exampleReadPolicy.firstViolation, null)
+    assert.equal(live.exampleReadPolicy.reads.at(-1)?.capabilityId, tokenShapedCapability)
+    const liveSummaryInputs = JSON.stringify({ roots: live.exampleReadPolicy.roots, fallback: live.exampleReadPolicy.fallback })
+    assert.equal(liveSummaryInputs.includes(tokenShapedCapability), false)
+    assert.equal(liveSummaryInputs.includes(root), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 9: the sanitize path recursivelySanitize delegates to redacts the run root, its home directory, and a credential value', () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-example-policy-home-')))
+  try {
+    const scenarios: Array<{ content: string; expect: RegExp }> = [
+      { content: 'not json at all', expect: /<redacted-path>/ },
+      { content: `token=${REDACTION_SECRET}`, expect: /<redacted>/ },
+    ]
+    for (const [index, scenario] of scenarios.entries()) {
+      const appRoot = path.join(home, `app-${index}`)
+      fs.mkdirSync(path.join(appRoot, '.ai', 'harness'), { recursive: true })
+      fs.writeFileSync(path.join(appRoot, '.ai', 'harness', 'cases.json'), scenario.content)
+      const result = spawnSync(process.execPath, [sourceEvaluator, '--root', appRoot], {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home },
+      })
+      assert.notEqual(result.status, 0, scenario.content)
+      assert.match(result.stderr, scenario.expect, scenario.content)
+      assert.equal(result.stderr.includes(appRoot), false, 'the absolute run root must never reach the output')
+      assert.equal(result.stderr.includes(home), false, 'the home directory must never reach the output')
+      assert.equal(result.stderr.includes(REDACTION_SECRET), false, 'a credential value must never reach the output')
+    }
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------------------------
+// Oracle family 10 — an installed source reached through the reason-gated fallback is read-only.
+// Family 6 proves the canonical example half of the spec's immutability oracle; this proves the
+// installed-package half, and pins WHERE the guarantee actually lives so a later change cannot
+// remove it silently.
+// ---------------------------------------------------------------------------------------------
+
+const INSTALLED_SOURCE_CONTENT = 'export async function GET() { return new Response() }\n'
+
+function spawnToolServer(
+  root: string,
+  allowedReads: string[],
+  allowedWrites: string[],
+  calls: Array<{ name: string; arguments: Record<string, unknown> }>,
+) {
+  const messages = [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
+    ...calls.map((entry, index) => ({ jsonrpc: '2.0', id: index + 2, method: 'tools/call', params: entry })),
+  ]
+  return spawnSync(process.execPath, [sourceToolServer, root, 'writable', JSON.stringify(allowedReads), JSON.stringify(allowedWrites)], {
+    input: `${messages.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+    encoding: 'utf8',
+    env: { OM_HARNESS_IMMUTABLE_ROOTS: '[]' },
+  })
+}
+
+/**
+ * Reproduce the writable-target layout `verifyWritableTarget` mandates: a disposable app root
+ * whose `node_modules` is a link into the controller's own protected dependency tree. The
+ * unlinked variant exists only to show that the mandate is load-bearing.
+ */
+function stageInstalledSourceTarget(symlinkDependencies: boolean): { controller: string; target: string } {
+  const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-installed-controller-')))
+  fs.mkdirSync(path.join(controller, path.dirname(INSTALLED_SOURCE)), { recursive: true })
+  fs.writeFileSync(path.join(controller, INSTALLED_SOURCE), INSTALLED_SOURCE_CONTENT)
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-installed-target-')))
+  if (symlinkDependencies) fs.symlinkSync(path.join(controller, 'node_modules'), path.join(target, 'node_modules'), linkType)
+  else fs.cpSync(path.join(controller, 'node_modules'), path.join(target, 'node_modules'), { recursive: true })
+  fs.writeFileSync(path.join(target, 'package.json'), '{"name":"om-installed-fixture","private":true}\n')
+  return { controller, target }
+}
+
+test('family 10: an installed source read through the fallback cannot be written, even under a wildcard write grant', () => {
+  const { controller, target } = stageInstalledSourceTarget(true)
+  const injected = 'node_modules/@open-mercato/core/src/modules/customers/api/injected.ts'
+  try {
+    const replies = callToolServer(target, 'writable', [INSTALLED_SOURCE], ['**'], [EXAMPLE_ROOT], [
+      { name: 'read', arguments: { path: INSTALLED_SOURCE, reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH' } },
+      { name: 'write', arguments: { path: INSTALLED_SOURCE, content: 'tampered\n' } },
+      { name: 'write', arguments: { path: injected, content: 'export const injected = 1\n' } },
+    ])
+    assert.equal(replies[1].result.isError, undefined, 'the reason-gated fallback read still succeeds')
+    assert.equal(replies[1].result.content[0].text, INSTALLED_SOURCE_CONTENT)
+    for (const reply of replies.slice(2)) {
+      assert.equal(reply.result.isError, true)
+      assert.match(reply.result.content[0].text, /write ancestor must be a regular directory/)
+    }
+    assert.equal(fs.readFileSync(path.join(target, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+    assert.equal(fs.readFileSync(path.join(controller, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+    assert.equal(fs.existsSync(path.join(controller, injected)), false, 'nothing new may appear in the dependency tree')
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('family 10: a glob write grant that could reach an installed source is refused before the tool server starts', () => {
+  const { controller, target } = stageInstalledSourceTarget(true)
+  try {
+    for (const grant of ['node_modules/**', 'node_modules/@open-mercato/**', 'node_modules/@open-mercato/core/src/**']) {
+      const result = spawnToolServer(target, [INSTALLED_SOURCE], [grant], [
+        { name: 'write', arguments: { path: INSTALLED_SOURCE, content: 'tampered\n' } },
+      ])
+      assert.equal(result.status, 2, grant)
+      assert.match(result.stderr, /allowed write set is invalid/, grant)
+    }
+    assert.equal(fs.readFileSync(path.join(controller, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('family 10: installed-source immutability rests on the enforced dependency link and the protected-tree fingerprint, not on the write allowlist', () => {
+  const source = evaluatorSource()
+  assert.ok(
+    source.includes("errors.push('writable root node_modules must link to the controller protected dependency tree')"),
+    'the writable target must be rejected when its dependency root is not the controller link',
+  )
+  assert.ok(source.includes('fs.realpathSync(targetDependencies) !== fs.realpathSync(controllerDependencies)'))
+  const verifyIndex = source.indexOf('const targetErrors = verifyWritableTarget(runRoot, root, caseRecord, fixtures)')
+  const snapshotIndex = source.indexOf('const before = writable ? snapshot(runRoot) : undefined')
+  assert.ok(verifyIndex > 0 && snapshotIndex > 0, 'both live-run steps must exist')
+  assert.ok(verifyIndex < snapshotIndex, 'the layout is verified before the run is snapshotted')
+  assert.ok(source.includes("for (const relative of ['.git', 'node_modules', '.next', 'dist', '.ai/harness/results']) {"))
+  assert.ok(source.includes('result.set(relative, protectedTreeFingerprint(path.join(root, relative)))'))
+  assert.ok(source.includes("if (protectedChanges.length) violations.push(`writes to protected roots: ${protectedChanges.join(', ')}`)"))
+
+  // Characterization of why those two guards are load-bearing rather than decorative: replace the
+  // mandated dependency link with a plain directory and the same wildcard grant does reach the
+  // installed source, because the write allowlist alone never protects `node_modules`.
+  const { controller, target } = stageInstalledSourceTarget(false)
+  try {
+    const replies = callToolServer(target, 'writable', [INSTALLED_SOURCE], ['**'], [], [
+      { name: 'write', arguments: { path: INSTALLED_SOURCE, content: 'tampered\n' } },
+    ])
+    assert.equal(replies[1].result.isError, undefined)
+    assert.equal(fs.readFileSync(path.join(target, INSTALLED_SOURCE), 'utf8'), 'tampered\n')
+    assert.equal(fs.readFileSync(path.join(controller, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------------------------
+// Coverage ledger — the spec enumerates TWELVE oracle families; this file labels its fixtures
+// `family 1`..`family 10` in implementation order, and the two numbering schemes are NOT the
+// same. The ledger states which spec family each fixture family serves, which spec families are
+// covered today, and which are not. Every "uncovered" claim names a surface whose absence is
+// checked here, so implementing that surface fails this test until the ledger is updated.
+// ---------------------------------------------------------------------------------------------
+
+const specPath = fileURLToPath(new URL('../../../../.ai/specs/2026-08-01-standalone-harness-example-read-policy.md', import.meta.url))
+
+type LedgerRow = {
+  specFamily: number
+  status: 'covered' | 'partial' | 'uncovered'
+  fixtures: string[]
+  blockedBy: string[]
+  note?: string
+}
+
+const FIXTURE_FAMILY_TO_SPEC_FAMILIES: Record<number, number[]> = {
+  1: [1],
+  2: [2],
+  3: [3],
+  4: [5],
+  5: [6],
+  6: [7],
+  7: [8],
+  8: [5],
+  // Fixture family 9 serves the cross-cutting "output redaction" requirement in the spec's
+  // Testing and Validation section and Phase 2 step 1, not one of the twelve numbered families.
+  9: [],
+  10: [7],
+}
+
+const COVERAGE_LEDGER: LedgerRow[] = [
+  {
+    specFamily: 1,
+    status: 'covered',
+    fixtures: [
+      'family 1: a relevant case reads the example entrypoints and several exact CRUD, data, and UI files',
+      'family 1: the read allowlist resolves the declared capabilities to exact inventory files',
+    ],
+    blockedBy: [],
+  },
+  {
+    specFamily: 2,
+    status: 'covered',
+    fixtures: ['family 2: an unrelated capability under the allowed root fails, in the evaluator and at the tool server'],
+    blockedBy: [],
+  },
+  {
+    specFamily: 3,
+    status: 'covered',
+    fixtures: ['family 3: a case without a declared example root cannot reach the canonical example at all'],
+    blockedBy: [],
+  },
+  {
+    specFamily: 4,
+    status: 'uncovered',
+    fixtures: [],
+    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json', 'a shipped case declaring context.exampleRoots'],
+    note: 'Declared installed-source references — reference id, package, version, hash — do not exist. The only installed-source route implemented is the reason-gated fallback of spec family 5.',
+  },
+  {
+    specFamily: 5,
+    status: 'covered',
+    fixtures: [
+      'family 4: a named installed-version contract mismatch after local inspection is a bounded passing fallback',
+      'family 7: an ordinary example surface is never a specialist-route fallback reason',
+      'family 8: a live trace carries the declared reason code into the fallback accounting',
+      'family 8: the live channel carries the capability id a specialist-route fallback needs',
+      'family 8: one trace may not mix two declared fallback reasons',
+      'family 8: the tool server refuses a read whose declared reason is outside the enum',
+    ],
+    blockedBy: [],
+  },
+  {
+    specFamily: 6,
+    status: 'partial',
+    fixtures: [
+      'family 5: fallback before local inspection, an unknown reason, and an undeclared reason all fail',
+      'family 5: reading must start from a declared entrypoint before any capability file',
+      'family 5: directory-wide reads and glob dumps fail even when both budgets are untouched',
+      'family 5: both cumulative budgets are enforced independently',
+      'family 5: symlink escapes, generated caches, and sensitive paths fail closed',
+      'path normalization accepts Windows-style separators and rejects every escape spelling',
+    ],
+    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json'],
+    note: 'Fallback ordering, unknown reason, traversal, budget overflow, symlink escape, generated cache, and sensitive path are covered. The absent/dead/directory/wildcard/orphan DECLARED LINK half has no implementation to test.',
+  },
+  {
+    specFamily: 7,
+    status: 'covered',
+    fixtures: [
+      'family 6: root immutability is resolved before writable-pattern matching and the write is refused before it happens',
+      'family 6: the immutable-root refusal precedes the write allowlist inside the tool server source',
+      'family 6: the immutable roots travel by environment so the positional allowlist contract is unchanged',
+      'family 10: an installed source read through the fallback cannot be written, even under a wildcard write grant',
+      'family 10: a glob write grant that could reach an installed source is refused before the tool server starts',
+      'family 10: installed-source immutability rests on the enforced dependency link and the protected-tree fingerprint, not on the write allowlist',
+    ],
+    blockedBy: [],
+    note: 'The canonical-example half is enforced by the immutable-root list. The installed-package half is enforced by the mandated symlinked dependency root plus the protected-tree fingerprint, NOT by the write allowlist — see the last fixture.',
+  },
+  {
+    specFamily: 8,
+    status: 'partial',
+    fixtures: [
+      'family 7: the published schema rejects legacy roots, duplicates, missing entrypoints, bad budgets, unsafe paths, and unknown reasons',
+      'family 7: the published schema rejects every malformed declaration it must reject',
+      'family 7: a legacy root, a stale capability mapping, and a qa-only source fail evaluator validation',
+      'family 7: an ordinary example surface is never a specialist-route fallback reason',
+    ],
+    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json'],
+    note: 'Legacy root, stale mapping, qa-only status, and ordinary-surface fallback are covered. Wrong preset/tier, wrong installed version, unpublished path, and workspace-only target need packed-package resolution that does not exist.',
+  },
+  {
+    specFamily: 9,
+    status: 'uncovered',
+    fixtures: [],
+    blockedBy: ['an operation-progress capability in surface-inventory.json', 'a shipped case declaring context.exampleRoots'],
+    note: 'The inventory declares umes.injection.datatable-bulk-action but no operation-progress capability, and no writable case declares an example root, so the connected progressJobId lane cannot be asserted.',
+  },
+  {
+    specFamily: 10,
+    status: 'uncovered',
+    fixtures: [],
+    blockedBy: ['the generated local example reference sheet', 'a shipped case declaring context.exampleRoots'],
+    note: 'The PR #4883 reference-fact and topology surfaces are not emitted.',
+  },
+  {
+    specFamily: 11,
+    status: 'uncovered',
+    fixtures: [],
+    blockedBy: ['a design-system gallery record in surface-inventory.json', 'a shipped case declaring context.exampleRoots'],
+    note: 'The PR #4301 gallery surfaces are not emitted.',
+  },
+  {
+    specFamily: 12,
+    status: 'uncovered',
+    fixtures: [],
+    blockedBy: [
+      'a PR #4277 designFoundation record in surface-inventory.json',
+      'a design-system gallery record in surface-inventory.json',
+      'a shipped case declaring context.exampleRoots',
+    ],
+    note: 'The PR #4277 design-foundation surfaces are not emitted.',
+  },
+]
+
+const MISSING_SURFACES: Record<string, () => boolean> = {
+  'context.sourceReferenceIds': () => !fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8').includes('sourceReferenceIds')
+    && !evaluatorSource().includes('sourceReferenceIds'),
+  'source-link-inventory.json': () => !fs.existsSync(path.join(sourceHarness, 'source-link-inventory.json')),
+  'a shipped case declaring context.exampleRoots': () => shippedCases().every((entry) => entry.context.exampleRoots === undefined),
+  'an operation-progress capability in surface-inventory.json': () => !inventoryCapabilities().some((entry) => entry.capabilityId.includes('progress')),
+  'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
+  'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
+  'the generated local example reference sheet': () => !fs.existsSync(path.join(sharedRoot, 'ai', 'guides', 'reference-modules', 'example.md')),
+}
+
+test('ledger: the spec still enumerates exactly twelve oracle families', () => {
+  const specText = fs.readFileSync(specPath, 'utf8')
+  const start = specText.indexOf('## Evaluator Oracles')
+  assert.ok(start > 0, 'the spec must still carry an Evaluator Oracles section')
+  const section = specText.slice(start, specText.indexOf('\n## ', start + 1))
+  const numbered = [...section.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]))
+  assert.deepEqual(numbered, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 'the ledger is written against exactly twelve families')
+  assert.deepEqual(COVERAGE_LEDGER.map((row) => row.specFamily), numbered, 'the ledger must cover every spec family exactly once')
+})
+
+test('ledger: the fixture family labels in this file are distinct from the spec family numbers and every mapping is honest', () => {
+  const ownSource = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  const labels = [...ownSource.matchAll(/\btest\('family (\d+):/g)].map((match) => Number(match[1]))
+  const fixtureFamilies = [...new Set(labels)].sort((left, right) => left - right)
+  assert.deepEqual(fixtureFamilies, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'fixture families are contiguous and stop at ten')
+  assert.deepEqual(Object.keys(FIXTURE_FAMILY_TO_SPEC_FAMILIES).map(Number).sort((left, right) => left - right), fixtureFamilies)
+
+  const claimed = new Set(Object.values(FIXTURE_FAMILY_TO_SPEC_FAMILIES).flat())
+  for (const row of COVERAGE_LEDGER) {
+    if (row.status === 'uncovered') {
+      assert.equal(claimed.has(row.specFamily), false, `spec family ${row.specFamily} is called uncovered but a fixture family claims it`)
+      assert.deepEqual(row.fixtures, [], `spec family ${row.specFamily} is called uncovered but names fixtures`)
+    } else {
+      assert.ok(claimed.has(row.specFamily), `spec family ${row.specFamily} is called ${row.status} but no fixture family claims it`)
+      assert.ok(row.fixtures.length > 0, `spec family ${row.specFamily} is called ${row.status} but names no fixture`)
+    }
+  }
+})
+
+test('ledger: every fixture the ledger cites exists in this file', () => {
+  const ownSource = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  for (const row of COVERAGE_LEDGER) {
+    for (const title of row.fixtures) {
+      assert.ok(ownSource.includes(`test('${title}'`), `the ledger cites a fixture that does not exist: ${title}`)
+    }
+  }
+})
+
+test('ledger: every gap the ledger claims is a surface that is genuinely absent today', () => {
+  for (const row of COVERAGE_LEDGER) {
+    if (row.status === 'covered') {
+      assert.deepEqual(row.blockedBy, [], `spec family ${row.specFamily} is covered, so it may not name a blocker`)
+      continue
+    }
+    assert.ok(row.blockedBy.length > 0, `spec family ${row.specFamily} is ${row.status} and must name what blocks it`)
+    assert.ok(typeof row.note === 'string' && row.note.length > 0, `spec family ${row.specFamily} must explain its gap`)
+    for (const surface of row.blockedBy) {
+      const probe = MISSING_SURFACES[surface]
+      assert.ok(probe, `the ledger names an unverifiable blocker: ${surface}`)
+      assert.ok(probe(), `${surface} now exists, so the ledger entry for spec family ${row.specFamily} is stale`)
+    }
+  }
+})
+
+test('ledger: the honest coverage count is five covered, two partial, and five uncovered of twelve', () => {
+  const tally = (status: LedgerRow['status']) => COVERAGE_LEDGER.filter((row) => row.status === status).map((row) => row.specFamily)
+  assert.deepEqual(tally('covered'), [1, 2, 3, 5, 7])
+  assert.deepEqual(tally('partial'), [6, 8])
+  assert.deepEqual(tally('uncovered'), [4, 9, 10, 11, 12])
+  assert.equal(COVERAGE_LEDGER.length, 12)
+})
+
 /**
  * A minimal draft-2020-12 subset mirroring the evaluator's own validator, so schema fixtures do
  * not depend on an external validator the harness does not ship.
@@ -982,12 +1490,13 @@ function jsonSchemaErrors(value: unknown, schema: Record<string, any>, location 
   }
   const errors: string[] = []
   const isObject = value !== null && typeof value === 'object' && !Array.isArray(value)
-  const matchesType = (type: string) => (type === 'array' ? Array.isArray(value)
-    : type === 'object' ? isObject
-      : type === 'integer' ? Number.isInteger(value)
-        : type === 'number' ? typeof value === 'number'
-          : type === 'boolean' ? typeof value === 'boolean'
-            : type === 'string' ? typeof value === 'string' : false)
+  const matchesType = (type: string) => (type === 'null' ? value === null
+    : type === 'array' ? Array.isArray(value)
+      : type === 'object' ? isObject
+        : type === 'integer' ? Number.isInteger(value)
+          : type === 'number' ? typeof value === 'number'
+            : type === 'boolean' ? typeof value === 'boolean'
+              : type === 'string' ? typeof value === 'string' : false)
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []
   if (types.length && !types.some(matchesType)) return [`${location} must be ${types.join(' or ')}`]
   if (Object.hasOwn(schema, 'const') && value !== schema.const) errors.push(`${location} must equal its constant`)
