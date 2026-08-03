@@ -269,8 +269,7 @@ describe('module extension activations and incoming index', () => {
   it('binds api and command interceptor contributions to exact host identities across modules', () => {
     write(moduleRoot('host'), 'api/records/route.ts', `
       import { makeCrudRoute } from 'x'
-      export const crud = makeCrudRoute({ orm: { entity: Rec } })
-      export const POST = crud.POST
+      export const { POST } = makeCrudRoute({ orm: { entity: Rec } })
     `)
     write(moduleRoot('host'), 'commands/update.ts', `
       const updateCommand = { id: 'host.records.update', async execute() {} }
@@ -302,6 +301,12 @@ describe('module extension activations and incoming index', () => {
     expect(commandIncoming?.resolution).toBe('bound')
     expect(commandIncoming?.target).toEqual(expect.objectContaining({ kind: 'command', id: 'host.records.update', moduleId: 'host' }))
     expect(commandIncoming?.activationId).toBe('command:host.records.update:command-interceptor-bridge')
+    const commandActivation = (result.host.activations ?? [])
+      .find((activation) => activation.id === 'command:host.records.update:command-interceptor-bridge')
+    expect(commandActivation?.bridge).toEqual({
+      factSection: 'ownedContracts.command',
+      factKey: 'host.records.update',
+    })
   })
 
   it('binds widget-spot and replaceable-component consumption to the declared host', () => {
@@ -622,6 +627,37 @@ describe('module extension activations and incoming index', () => {
       .find((entry) => entry.contributionId === 'ext.rec-create')
     expect(resolution?.resolution).toBe('capability-only')
     expect(resolution?.activationIds).toEqual([])
+  })
+
+  it('unions operations from multiple mutation-guard bridges for the same entity', () => {
+    write(moduleRoot('host'), 'api/records/route.ts', `
+      import { validateCrudMutationGuard } from 'x'
+      export async function POST(container) {
+        return validateCrudMutationGuard(container, { resourceKind: 'host:record', operation: 'create' })
+      }
+      export async function DELETE(container) {
+        return validateCrudMutationGuard(container, { resourceKind: 'host:record', operation: 'delete' })
+      }
+    `)
+    write(moduleRoot('ext'), 'data/guards.ts', `
+      export const guards = [
+        { id: 'ext.rec-create', targetEntity: 'host:record', operations: ['create'], async validate() {} },
+        { id: 'ext.rec-delete', targetEntity: 'host:record', operations: ['delete'], async validate() {} },
+      ]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', entities: [{ id: 'host:record' }] },
+      { id: 'ext' },
+    ])
+
+    const activation = (result.host.activations ?? []).find((entry) => entry.kind === 'mutation-guard')
+    expect(activation?.operations).toEqual(['create', 'delete'])
+    const resolutions = new Map(
+      (result.ext.contributionResolutions ?? []).map((entry) => [entry.contributionId, entry]),
+    )
+    expect(resolutions.get('ext.rec-create')?.resolution).toBe('bound')
+    expect(resolutions.get('ext.rec-delete')?.resolution).toBe('bound')
   })
 
   it('maps a custom action endpoint onto the update registry operation', () => {

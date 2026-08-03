@@ -807,10 +807,19 @@ function exportedHttpMethods(file: ts.SourceFile): Array<(typeof HTTP_METHODS)[n
   const consider = (name: string | undefined): void => {
     if (name && isHttpMethodName(name)) methods.add(name)
   }
+  const considerBindingName = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      consider(name.text)
+      return
+    }
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) considerBindingName(element.name)
+    }
+  }
   const visit = (node: ts.Node): void => {
     if (ts.isVariableStatement(node) && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
       for (const declaration of node.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name)) consider(declaration.name.text)
+        considerBindingName(declaration.name)
       }
     }
     if (
@@ -1658,10 +1667,19 @@ function isQueryWithExtensionsCall(node: ts.Node, context: StaticContext): node 
 
 function extractCallSiteActivations(options: ExtractModuleExtensionFactsOptions): ModuleExtensionActivation[] {
   const activations: ModuleExtensionActivation[] = []
-  const seen = new Set<string>()
+  const byId = new Map<string, ModuleExtensionActivation>()
   const push = (activation: ModuleExtensionActivation): void => {
-    if (seen.has(activation.id)) return
-    seen.add(activation.id)
+    const existing = byId.get(activation.id)
+    if (existing) {
+      if (!existing.operations || !activation.operations) {
+        delete existing.operations
+      } else {
+        existing.operations = [...new Set([...existing.operations, ...activation.operations])]
+          .sort((left, right) => left.localeCompare(right))
+      }
+      return
+    }
+    byId.set(activation.id, activation)
     activations.push(activation)
   }
   const scannedFiles = MUTATION_GUARD_SOURCE_DIRECTORIES
@@ -1802,7 +1820,7 @@ export function correlateExtensionTarget(
     return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'events', factKey: targetFact.id } }
   }
   if (options.commandIds?.has(targetFact.id)) {
-    return factTarget(targetFact.id, 'commands')
+    return factTarget(targetFact.id, 'ownedContracts.command')
   }
   const route = [...options.apiRoutes].find((apiRoute) => apiRoute === targetFact.id || apiRoute.endsWith(`/${targetFact.id}`))
   if (route) return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'apiRoutes', factKey: route } }
@@ -2223,7 +2241,7 @@ function resolveReferenceBinding(input: {
           host,
           contributionKinds: ['command-interceptor'],
           source: owner.source,
-          bridge: { factSection: 'commands', factKey: input.targetRef.id },
+          bridge: { factSection: 'ownedContracts.command', factKey: input.targetRef.id },
         }],
       }
     }

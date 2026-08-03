@@ -175,6 +175,11 @@ describe('module override targets — invariants', () => {
     }
   })
 
+  it('points CLI override targets at the source-bearing command fact', () => {
+    const cli = targetFor(facts, 'cli', 'demo:seed')
+    expect(cli?.factRef).toEqual({ factSection: 'cliCommands', factKey: 'demo:seed' })
+  })
+
   it('exposes DI tokens with the safe-metadata-only note and no runtime value/body', () => {
     const di = targetFor(facts, 'di', 'demoService')
     expect(di?.notes).toEqual(['safe-metadata-only'])

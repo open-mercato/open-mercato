@@ -626,7 +626,7 @@ const cliAdapter: InternalAdapter = {
       }
       pushTarget(targets, diagnostics, {
         moduleId, domain: 'cli', path, key: command.command, dottedHost: 'cli',
-        factRef: { factSection: 'cli', factKey: command.command },
+        factRef: { factSection: 'cliCommands', factKey: command.command },
         source: { sourcePath: command.sourcePath },
       })
     }

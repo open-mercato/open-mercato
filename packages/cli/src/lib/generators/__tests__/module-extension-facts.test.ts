@@ -161,7 +161,9 @@ describe('module extension facts', () => {
       }),
       expect.objectContaining({
         id: 'alpha.records.command',
-        targets: [expect.objectContaining({ factRef: { factSection: 'commands', factKey: 'alpha.records.update' } })],
+        targets: [expect.objectContaining({
+          factRef: { factSection: 'ownedContracts.command', factKey: 'alpha.records.update' },
+        })],
         details: expect.objectContaining({ phases: ['before-execute', 'after-undo'] }),
       }),
       expect.objectContaining({ id: 'alpha.records.guard', details: expect.objectContaining({ optimisticLock: 'preserved' }) }),
