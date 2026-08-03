@@ -10,6 +10,7 @@ const mockCreateInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockEmit = jest.fn(async () => undefined)
+const mockSendInvitationEmail = jest.fn(async () => undefined)
 const mockIsOwnedCompanyEntity = jest.fn()
 const mockIsOwnedPersonEntity = jest.fn()
 const mockResolveOwnedCompanyForPerson = jest.fn()
@@ -45,6 +46,10 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerEntityOwners
   isOwnedCompanyEntity: (...args: unknown[]) => mockIsOwnedCompanyEntity(...args),
   isOwnedPersonEntity: (...args: unknown[]) => mockIsOwnedPersonEntity(...args),
   resolveOwnedCompanyForPerson: (...args: unknown[]) => mockResolveOwnedCompanyForPerson(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', () => ({
+  sendCustomerInvitationEmail: (...args: unknown[]) => mockSendInvitationEmail(...args),
 }))
 
 const tenantId = '22222222-2222-4222-8222-222222222222'

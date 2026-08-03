@@ -16,7 +16,10 @@ import {
   customerInviteIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
+
+const logger = createLogger('customer_accounts').child({ component: 'portal-users-invite' })
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -110,11 +113,11 @@ export async function POST(req: Request) {
       rawToken,
     })
   } catch (error) {
-    console.error('[customer_accounts.portal.users-invite] invitation email failed', error)
+    logger.error('Invitation email failed', { err: error })
     try {
       await customerInvitationService.rollbackInvitation(invitation, rollbackState)
     } catch (rollbackError) {
-      console.error('[customer_accounts.portal.users-invite] invitation rollback failed', rollbackError)
+      logger.error('Invitation rollback failed', { err: rollbackError })
     }
     return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
   }
