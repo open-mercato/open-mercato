@@ -76,10 +76,10 @@ PR: #4878
 
 ### Phase 3: Whole-harness source-link parity
 
-- [ ] 3.1 Inventory prior-main snippets and all emitted harness knowledge owners
-- [ ] 3.2 Define visible direct-link and installed-source resolution contracts
-- [ ] 3.3 Specify DataTable bulk-operation progress and extension integration coverage
-- [ ] 3.4 Complete independent review and docs-only validation
+- [x] 3.1 Inventory prior-main snippets and all emitted harness knowledge owners — b42b1755d, 3d0ff4c0d
+- [x] 3.2 Define visible direct-link and installed-source resolution contracts — b42b1755d
+- [x] 3.3 Specify DataTable bulk-operation progress and extension integration coverage — b42b1755d, 3d0ff4c0d
+- [x] 3.4 Complete independent review and docs-only validation — 3d0ff4c0d
 
 ## Validation Evidence
 
@@ -88,3 +88,7 @@ PR: #4878
 - The first `yarn test` run exposed an unrelated timing flake in `agent-harness-evaluator.test.ts`; its exact test passed immediately on rerun.
 - The full `yarn test` rerun exposed pre-existing `backendChrome.current-organization.test.ts` expectations that omit the runtime's `preserveAspectRatio: false`; the exact test reproduces independently of this Markdown-only diff.
 - `yarn template:sync` intentionally reports the existing 29-file repository/template baseline drift, including the `example` differences this design requires the implementation phase to reconcile. No sync fix was applied in this specs-only run.
+- Phase 3 passed two independent adversarial re-reviews after fixes: direct-link/baseline/bulk durability and cross-spec read-policy/integration consistency reported no remaining blockers.
+- Phase 3 passed local Markdown-link resolution, `git diff --check`, and direct `node scripts/check-agents-md-budget.mjs`; the budget script reported only existing ratcheted nested-chain overages and confirmed the root instruction remains within its configured limit.
+- A pinned-baseline verifier loaded the eight exact assets from `f7c941570003f3abe920b1765995cbef98dcad0b`, matched every recorded SHA-256, and confirmed the per-asset CommonMark fence counts sum to 136.
+- Direct `yarn` invocations were not repeated in the isolated continuation worktree because its dependency state is absent. The PR's prior package/generator/typecheck/build validation remains recorded above; this continuation changes Markdown specifications and the tracking plan only.
