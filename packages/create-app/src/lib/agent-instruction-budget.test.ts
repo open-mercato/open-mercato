@@ -97,12 +97,12 @@ test('compatibility routing covers existing public contracts without pulling in 
   for (const relativePath of ROOT_SOURCES) {
     const source = fs.readFileSync(path.join(CREATE_APP_ROOT, relativePath), 'utf8')
     // The trigger names the guide's real path: a bare filename does not tell the agent
-    // where to read it. It deliberately ties preservation/stability to a named public
-    // surface so the tenant/organization boilerplate carried by many prompts cannot fire it.
-    assert.match(source, /Adding\/changing\/removing, preserving, or keeping stable a public route\/schema\/ID\/export\/seam\/signature\/event-payload\/CLI MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+    // where to read it. It deliberately ties compatibility review to named contract
+    // surfaces so the tenant/organization boilerplate carried by many prompts cannot fire it.
+    assert.match(source, /Contract-surface changes \(route\/schema\/ID\/export\/seam\/signature\/event payload\/CLI\) MUST read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
     // The trigger must exclude the tenant-scope boilerplate every prompt carries, or it
     // fires on nearly all 184 cases and burns the refused-read budget.
-    assert.match(source, /tenant\/org scope alone is not a contract surface/)
+    assert.match(source, /tenant\/org scope alone is not a contract/)
     assert.match(source, /Additive page\/form\/table\/conflict UI skips it/)
   }
 })
