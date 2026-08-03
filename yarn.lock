@@ -7902,7 +7902,7 @@ __metadata:
     sanitize-html: "npm:^2.17.5"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:7.0.2"
-    undici: "npm:^8.7.0"
+    undici: "npm:^8.9.0"
   languageName: unknown
   linkType: soft
 
@@ -29948,10 +29948,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"undici@npm:^8.5.0, undici@npm:^8.7.0":
+"undici@npm:^8.5.0":
   version: 8.8.0
   resolution: "undici@npm:8.8.0"
   checksum: 10/38817588326d78646f068466a95d8355874cb8846cbecf320edd06bc344370ac308cfb3d8a207af846dd9d8ed8eb9341a31794cc8cbb213957871d54220629ce
+  languageName: node
+  linkType: hard
+
+"undici@npm:^8.9.0":
+  version: 8.9.0
+  resolution: "undici@npm:8.9.0"
+  checksum: 10/dfad3e233087eafdf1d361acd17c4d45a9590d5db9400458f1c03f47d8f1ef68647e2109ebb982c862e50c227093abd2d5f44b154904fc0b3d22576b6e95cfe7
   languageName: node
   linkType: hard
 
