@@ -31,6 +31,7 @@ Recreate the exact `actions/setup-node` v7 dependency update from PR #4885 on a 
 - **Action runtime compatibility:** `actions/setup-node@v7` changes the action runtime and dependencies; the repository uses GitHub-hosted runners, and the full validation plus PR CI provide the available project-level regression coverage.
 - **Scope drift:** the source PR contains one workflow-line change, so the migrated diff is compared directly with PR #4885 and any unrelated edit is rejected.
 - **Duplicate work:** the replacement is opened before the original is closed for watchable progress, but the two PRs are cross-linked and only the `develop` replacement remains open at completion.
+- **Base validation blockers:** the local full gate cannot complete on the current `develop` baseline. `yarn i18n:check-usage` reports 21 pre-existing missing keys, and `yarn test` reports five pre-existing `storage-s3-routes` failures caused by an unregistered module registry. Both failures reproduce on clean `origin/develop`; fixing them is unrelated to this workflow-only migration and would expand the change into UI/i18n and storage test infrastructure.
 
 ## Progress
 
