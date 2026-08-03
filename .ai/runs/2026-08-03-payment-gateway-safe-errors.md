@@ -38,6 +38,7 @@ Prevent internal payment-session failures from leaking through the sessions API 
 
 - Some clients may have read raw provider error text from the 502 `error` field. The field and status remain stable, but the value becomes intentionally generic to prevent internal information disclosure.
 - The typed 422 mapping must preserve the existing unsupported-provider behavior without relying on message substring matching.
+- The configured validation gate is blocked on current `develop` by 21 unrelated missing i18n keys and unrelated app/docs test fixture failures; branch-specific tests, builds, generation, typecheck, and the app production build pass.
 
 ## Progress
 
@@ -50,5 +51,5 @@ Prevent internal payment-session failures from leaking through the sessions API 
 
 ### Phase 2: Test robustness and validation
 
-- [ ] 2.1 Expand the idempotency suite logger mock
+- [x] 2.1 Expand the idempotency suite logger mock — 88cf0de486
 - [ ] 2.2 Run the configured validation and compatibility review
