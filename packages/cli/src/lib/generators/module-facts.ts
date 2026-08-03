@@ -3,6 +3,7 @@ import path from 'node:path'
 import ts from 'typescript-js'
 import type {
   ModuleExtensionContributionFact,
+  ModuleExtensionHostFact,
   ModuleExtensionSurfaceFacts,
   ModuleExtensionTargetRef,
 } from '@open-mercato/shared/modules/widgets/extension-points'
@@ -24,6 +25,7 @@ import {
   type ModuleOverrideTarget,
   type ModuleOverrideTargetDiagnostic,
 } from './module-override-targets'
+import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
 
 export interface ModuleEntityFact {
   id: string
@@ -158,10 +160,26 @@ export type ModuleOwnedContracts = Partial<
   Record<ModuleOwnedContractKind, ModuleOwnedContractFact[]>
 >
 
+/**
+ * Provenance pointer into a fact section that already serializes the declaration site.
+ * `factKey` is omitted when it equals the owning entry's `id`, which is the common case.
+ */
+export type ModuleFactIndexRef = {
+  factSection: string
+  factKey?: string
+}
+
+/**
+ * One provenance entry per proven `(kind, id)` in the module. Exactly one of `source`
+ * (the declaration site, for facts that have no other home in the JSON) or `factRef`
+ * (a deterministic pointer into a fact section that already carries the source inline)
+ * is present, so a consumer resolves any fact's origin through this single index.
+ */
 export type ModuleFactSourceEntry = {
   kind: ModuleFactSourceKind
   id: string
-  source: ModuleFactSourceRef
+  source?: ModuleFactSourceRef
+  factRef?: ModuleFactIndexRef
 }
 
 export type ModuleFactDiagnostic = {
@@ -1654,32 +1672,38 @@ function sameSourceRef(left: ModuleFactSourceRef, right: ModuleFactSourceRef): b
   )
 }
 
-// factSources deliberately covers only facts whose source is not already reachable
-// inline: scalar contract facts (entities, events, ACL features, search, notifications)
-// plus the reused rich AI/subscriber/vector/integration facts. Facts that already expose
-// `sourcePath` (pages, CLI, routes) and the owned families (which carry `source` inside
-// `ownedContracts`) are referenced by identity, not duplicated — keeping the shared JSON
-// within its byte budget. Duplicate detection still runs over ALL candidates.
-const INDEXED_SOURCE_KINDS = new Set<ModuleFactSourceKind>([
-  'entity',
-  'event',
-  'acl-feature',
-  'search',
-  'vector',
-  'notification',
-  'subscriber',
-  'integration',
-  'ai-tool',
-  'ai-agent',
-])
+// Every proven `(kind, id)` reaches `factSources`. Facts whose declaration site is already
+// serialized inline (pages, CLI commands, routes, AI tools/agents, reused contributions) and
+// the owned families (which carry `source` inside `ownedContracts`) are emitted as a typed
+// `factRef` pointer instead of a duplicated source ref, so the index stays uniform without
+// copying provenance payloads past the determinism byte guard. Duplicate detection runs over
+// ALL candidates regardless of which projection they take.
+type ProvenanceCandidate = {
+  kind: ModuleFactSourceKind
+  id: string
+  source?: ModuleFactSourceRef
+  factRef?: ModuleFactRef
+}
 
-function buildProvenanceIndex(candidates: readonly ModuleFactSourceEntry[]): {
+function provenanceCandidateOrderKey(candidate: ProvenanceCandidate): string {
+  if (candidate.source) {
+    return JSON.stringify([
+      0,
+      candidate.source.sourcePath,
+      candidate.source.line ?? 0,
+      candidate.source.exportName ?? '',
+    ])
+  }
+  return JSON.stringify([1, candidate.factRef?.factSection ?? '', candidate.factRef?.factKey ?? ''])
+}
+
+function buildProvenanceIndex(candidates: readonly ProvenanceCandidate[]): {
   factSources: ModuleFactSourceEntry[]
   diagnostics: ModuleFactDiagnostic[]
 } {
-  const grouped = new Map<string, ModuleFactSourceEntry[]>()
+  const grouped = new Map<string, ProvenanceCandidate[]>()
   for (const candidate of candidates) {
-    const key = `${candidate.kind}\u0000${candidate.id}`
+    const key = JSON.stringify([candidate.kind, candidate.id])
     const group = grouped.get(key) ?? []
     group.push(candidate)
     grouped.set(key, group)
@@ -1690,26 +1714,41 @@ function buildProvenanceIndex(candidates: readonly ModuleFactSourceEntry[]): {
   const factSources: ModuleFactSourceEntry[] = []
   const diagnostics: ModuleFactDiagnostic[] = []
   for (const group of grouped.values()) {
-    const sorted = [...group].sort((left, right) => compareSourceRefs(left.source, right.source))
+    const sorted = [...group].sort(
+      (left, right) => provenanceCandidateOrderKey(left).localeCompare(provenanceCandidateOrderKey(right)),
+    )
     const canonical = sorted[0]
-    if (INDEXED_SOURCE_KINDS.has(canonical.kind)) {
-      factSources.push({ kind: canonical.kind, id: canonical.id, source: { sourcePath: canonical.source.sourcePath } })
-    }
+    factSources.push(
+      canonical.factRef
+        ? {
+            kind: canonical.kind,
+            id: canonical.id,
+            factRef: {
+              factSection: canonical.factRef.factSection,
+              ...(canonical.factRef.factKey === canonical.id
+                ? {}
+                : { factKey: canonical.factRef.factKey }),
+            },
+          }
+        : {
+            kind: canonical.kind,
+            id: canonical.id,
+            source: { sourcePath: (canonical.source as ModuleFactSourceRef).sourcePath },
+          },
+    )
+    const canonicalKey = provenanceCandidateOrderKey(canonical)
     for (const rejected of sorted.slice(1)) {
-      if (sameSourceRef(rejected.source, canonical.source)) continue
+      if (provenanceCandidateOrderKey(rejected) === canonicalKey) continue
       diagnostics.push({
         code: 'duplicate-source',
         kind: rejected.kind,
         id: rejected.id,
-        source: rejected.source,
+        ...(rejected.source ? { source: rejected.source } : {}),
       })
     }
   }
   factSources.sort(
-    (left, right) =>
-      left.kind.localeCompare(right.kind) ||
-      left.id.localeCompare(right.id) ||
-      compareSourceRefs(left.source, right.source),
+    (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
   )
   diagnostics.sort(
     (left, right) =>
@@ -1869,11 +1908,31 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     ['generator-plugin', generatorPlugins.facts],
   ])
 
-  const provenanceCandidates: ModuleFactSourceEntry[] = []
+  const provenanceCandidates: ProvenanceCandidate[] = []
   const pushSource = (kind: ModuleFactSourceKind, id: string, source: ModuleFactSourceRef): void => {
     provenanceCandidates.push({ kind, id, source })
   }
-  if (moduleMetadataFact) pushSource('module-metadata', moduleId, moduleMetadataFact.source)
+  const pushRef = (
+    kind: ModuleFactSourceKind,
+    id: string,
+    source: ModuleFactSourceRef,
+    factSection: string,
+    factKey: string,
+  ): void => {
+    provenanceCandidates.push({ kind, id, source, factRef: { factSection, factKey } })
+  }
+  const pushOwnedRefs = (kind: ModuleOwnedContractKind, facts: readonly ModuleOwnedContractFact[]): void => {
+    for (const fact of facts) pushRef(kind, fact.id, fact.source, `ownedContracts.${kind}`, fact.id)
+  }
+  if (moduleMetadataFact) {
+    pushRef(
+      'module-metadata',
+      moduleId,
+      moduleMetadataFact.source,
+      'ownedContracts.module-metadata',
+      moduleMetadataFact.id,
+    )
+  }
   if (entitiesFilePath) {
     const entitiesSourcePath = portableOf(entitiesFilePath) as string
     for (const entity of entities) {
@@ -1889,9 +1948,10 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     for (const feature of aclFeatures) pushSource('acl-feature', feature, { sourcePath: aclSourcePath, exportName: 'features' })
   }
   for (const route of apiRoutes) {
-    if (route.sourcePath) pushSource('api-route', route.path, { sourcePath: route.sourcePath })
+    if (route.sourcePath) {
+      pushRef('api-route', route.path, { sourcePath: route.sourcePath }, 'apiRoutes', route.path)
+    }
   }
-  for (const fact of diRegistrations.facts) pushSource('di-registration', fact.token, fact.source)
   if (searchFilePath) {
     const searchSourcePath = portableOf(searchFilePath) as string
     for (const entityId of searchEntities) pushSource('search', entityId, { sourcePath: searchSourcePath, exportName: 'searchConfig' })
@@ -1900,51 +1960,85 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     const notificationsSourcePath = portableOf(notificationsFilePath) as string
     for (const id of notifications) pushSource('notification', id, { sourcePath: notificationsSourcePath })
   }
-  for (const command of cliCommands) pushSource('cli-command', command.command, { sourcePath: command.sourcePath })
-  for (const page of backendPages) pushSource('backend-page', page.path, { sourcePath: page.sourcePath })
-  for (const page of frontendPages) pushSource('frontend-page', page.path, { sourcePath: page.sourcePath })
-  for (const tool of aiTools) pushSource('ai-tool', tool.name, { sourcePath: tool.sourcePath })
-  for (const agent of aiAgents) pushSource('ai-agent', agent.id, { sourcePath: agent.sourcePath })
-  for (const candidate of commandCandidates) pushSource('command', candidate.id, { sourcePath: candidate.sourcePath })
-  for (const fact of workers.facts) pushSource('worker', fact.id, fact.source)
-  for (const fact of pageMiddleware.facts) pushSource('page-middleware', fact.id, fact.source)
-  if (setupFact) pushSource('setup', setupFact.id, setupFact.source)
-  for (const fact of encryptionFacts) pushSource('encryption', fact.id, fact.source)
-  for (const fact of customEntityFacts) pushSource('custom-entity', fact.id, fact.source)
-  for (const fact of aiExtensionFacts) pushSource('ai-extension', fact.id, fact.source)
-  for (const fact of generatorPlugins.facts) pushSource('generator-plugin', fact.id, fact.source)
+  for (const command of cliCommands) {
+    pushRef('cli-command', command.command, { sourcePath: command.sourcePath }, 'cliCommands', command.command)
+  }
+  for (const page of backendPages) {
+    pushRef('backend-page', page.path, { sourcePath: page.sourcePath }, 'backendPages', page.path)
+  }
+  for (const page of frontendPages) {
+    pushRef('frontend-page', page.path, { sourcePath: page.sourcePath }, 'frontendPages', page.path)
+  }
+  for (const tool of aiTools) pushRef('ai-tool', tool.name, { sourcePath: tool.sourcePath }, 'aiTools', tool.name)
+  for (const agent of aiAgents) pushRef('ai-agent', agent.id, { sourcePath: agent.sourcePath }, 'aiAgents', agent.id)
+  for (const candidate of commandCandidates) {
+    pushRef('command', candidate.id, { sourcePath: candidate.sourcePath }, 'ownedContracts.command', candidate.id)
+  }
+  pushOwnedRefs('worker', workers.facts)
+  pushOwnedRefs('page-middleware', pageMiddleware.facts)
+  if (setupFact) pushOwnedRefs('setup', [setupFact])
+  pushOwnedRefs('encryption', encryptionFacts)
+  for (const fact of diRegistrations.facts) {
+    pushRef('di-registration', fact.token, fact.source, 'ownedContracts.di-registration', fact.token)
+  }
+  pushOwnedRefs('custom-entity', customEntityFacts)
+  pushOwnedRefs('ai-extension', aiExtensionFacts)
+  pushOwnedRefs('generator-plugin', generatorPlugins.facts)
+  const contributionRef = (contributionId: string): { factSection: string; factKey: string } => ({
+    factSection: 'extensionSurfaces.contributions',
+    factKey: contributionId,
+  })
   for (const contribution of extensionSurfaces.contributions) {
+    const contributionSource: ModuleFactSourceRef = {
+      sourcePath: contribution.source.path,
+      ...(contribution.source.symbol ? { exportName: contribution.source.symbol } : {}),
+    }
+    const ref = contributionRef(contribution.id)
     if (contribution.kind === 'subscriber') {
-      pushSource('subscriber', contribution.id, {
-        sourcePath: contribution.source.path,
-        ...(contribution.source.symbol ? { exportName: contribution.source.symbol } : {}),
-      })
+      pushRef('subscriber', contribution.id, contributionSource, ref.factSection, ref.factKey)
       continue
     }
     if (contribution.kind === 'specialized-registry') {
       const details = contribution.details as { registry?: string; registryId?: string }
       const sourceKind = details.registry ? REGISTRY_TO_SOURCE_KIND[details.registry] : undefined
       if (sourceKind) {
-        pushSource(sourceKind, details.registryId ?? contribution.id, {
-          sourcePath: contribution.source.path,
-          ...(contribution.source.symbol ? { exportName: contribution.source.symbol } : {}),
-        })
+        pushRef(
+          sourceKind,
+          details.registryId ?? contribution.id,
+          contributionSource,
+          ref.factSection,
+          ref.factKey,
+        )
       }
       continue
     }
     const mapped = CONTRIBUTION_KIND_TO_SOURCE_KIND[contribution.kind]
-    if (mapped) {
-      pushSource(mapped, contribution.id, {
-        sourcePath: contribution.source.path,
-        ...(contribution.source.symbol ? { exportName: contribution.source.symbol } : {}),
-      })
-    }
+    if (mapped) pushRef(mapped, contribution.id, contributionSource, ref.factSection, ref.factKey)
   }
-  // extension-host / extension-contribution provenance is intentionally NOT duplicated
-  // into factSources: those facts already carry their own `source` inside
-  // `extensionSurfaces.{hosts,contributions}`, and re-listing every declared host spot
-  // (hundreds per large module) pushes the shared JSON past its byte budget. The
-  // ModuleFactSourceKind union still reserves the kinds for consumers correlating them.
+  // extension-host / extension-contribution provenance is emitted as typed `factRef` pointers
+  // rather than duplicated source refs: those facts already carry their own `source` inside
+  // `extensionSurfaces.{hosts,contributions}`, and copying every declared host spot (hundreds
+  // per large module) would push the shared JSON past the determinism byte guard asserted in
+  // `module-facts.bc-guard.test.ts`.
+  // Hosts are indexed by their registry `key`: `id` repeats across families (an entity id is
+  // also an api-entity id), while `key` is unique inside a module.
+  for (const host of extensionSurfaces.hosts) {
+    provenanceCandidates.push({
+      kind: 'extension-host',
+      id: host.key,
+      ...(host.source.kind === 'fact-ref' ? {} : { source: { sourcePath: host.source.path } }),
+      factRef: { factSection: 'extensionSurfaces.hosts', factKey: host.key },
+    })
+  }
+  for (const contribution of extensionSurfaces.contributions) {
+    pushRef(
+      'extension-contribution',
+      contribution.id,
+      { sourcePath: contribution.source.path },
+      'extensionSurfaces.contributions',
+      contribution.id,
+    )
+  }
 
   const provenance = buildProvenanceIndex(provenanceCandidates)
   const factDiagnostics = [
@@ -1996,7 +2090,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
 
   // Exact unified override targets (spec 2026-08-02-module-facts-exact-override-targets).
   // Adapters consume the fully-populated owned facts + contributions above.
-  const overrides = collectModuleOverrideTargets(facts)
+  const overrides = collectModuleOverrideTargets(facts, buildFactSourceLookup(facts))
   if (overrides.overrideTargets.length > 0) facts.overrideTargets = overrides.overrideTargets
   if (overrides.overrideTargetDiagnostics.length > 0) {
     facts.overrideTargetDiagnostics = overrides.overrideTargetDiagnostics
@@ -2055,26 +2149,26 @@ function renderVersionStamp(
   return `<!-- generated from @open-mercato/core ${version} — R1 staleness stamp -->`
 }
 
-function renderEntitiesSection(entities: ModuleEntityFact[]): string {
+function renderEntitiesSection(entities: ModuleEntityFact[], lookup: FactSourceLookup): string {
   if (entities.length === 0) return `## Entities\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| Entity ID | Class | Table | Editable | CustomFields |'
-  const divider = '|---|---|---|---|---|'
+  const header = '| Entity ID | Class | Table | Editable | CustomFields | Source |'
+  const divider = '|---|---|---|---|---|---|'
   const rows = entities.map(
     (entity) =>
-      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} |`,
+      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} | ${renderLookedUpSource(lookup, 'entity', entity.id)} |`,
   )
   return ['## Entities', '', header, divider, ...rows].join('\n')
 }
 
-function renderEventsSection(events: ModuleEventFact[]): string {
+function renderEventsSection(events: ModuleEventFact[], lookup: FactSourceLookup): string {
   const heading = `## Events  (${events.length})`
   if (events.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| ID | Category | Entity | Browser transport |'
-  const divider = '|---|---|---|---|'
+  const header = '| ID | Category | Entity | Browser transport | Source |'
+  const divider = '|---|---|---|---|---|'
   const rows = events.map((event) => {
     const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
       .filter((value): value is string => value !== null)
-    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} |`
+    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} | ${renderLookedUpSource(lookup, 'event', event.id)} |`
   })
   return [heading, '', header, divider, ...rows].join('\n')
 }
@@ -2082,6 +2176,18 @@ function renderEventsSection(events: ModuleEventFact[]): string {
 function renderInlineListSection(heading: string, values: string[]): string {
   if (values.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
   return `${heading}\n\n${values.join(' · ')}`
+}
+
+function renderSourceLinkedListSection(
+  heading: string,
+  values: readonly string[],
+  lookup: FactSourceLookup,
+  kind: ModuleFactSourceKind,
+  idColumnLabel: string,
+): string {
+  if (values.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
+  const rows = values.map((value) => `| ${value} | ${renderLookedUpSource(lookup, kind, value)} |`)
+  return [heading, '', `| ${idColumnLabel} | Source |`, '|---|---|', ...rows].join('\n')
 }
 
 function renderSourceLink(sourcePath: string): string {
@@ -2092,6 +2198,12 @@ function renderSourceRefLink(source: ModuleFactSourceRef): string {
   const anchor = source.line ? `#L${source.line}` : ''
   const label = source.line ? `${source.sourcePath}:${source.line}` : source.sourcePath
   return `[${label}](../../../${source.sourcePath}${anchor})`
+}
+
+
+function renderLookedUpSource(lookup: FactSourceLookup, kind: ModuleFactSourceKind, id: string): string {
+  const source = lookup(kind, id)
+  return source ? renderSourceRefLink(source) : '—'
 }
 
 function renderSafeScalar(value: ModuleFactSafeScalar | ModuleFactSafeScalar[] | undefined): string {
@@ -2182,17 +2294,22 @@ function renderExtensionHostContext(host: ModuleExtensionSurfaceFacts['hosts'][n
   return host.contextContract ?? host.runtimeContract ?? host.scopeContract ?? '—'
 }
 
+function renderExtensionHostSource(host: ModuleExtensionHostFact): string {
+  if (host.source.kind === 'fact-ref') return `${host.source.factSection}:${host.source.factKey}`
+  return renderSourceRefLink({ sourcePath: host.source.path })
+}
+
 function renderExtensionHostsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
   const boundHosts = extensionSurfaces.hosts.filter((host) => host.bound)
   if (boundHosts.length === 0) return `## UMES hosts\n\n${EMPTY_SECTION_MARKER}`
   const rows = boundHosts.map((host) =>
-    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} |`,
+    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} | ${renderExtensionHostSource(host)} |`,
   )
   return [
     '## UMES hosts',
     '',
-    '| ID / pattern | Family | Supports | Context | Stability |',
-    '|---|---|---|---|---|',
+    '| ID / pattern | Family | Supports | Context | Stability | Source |',
+    '|---|---|---|---|---|---|',
     ...rows,
   ].join('\n')
 }
@@ -2220,13 +2337,14 @@ function renderExtensionContributionsSection(extensionSurfaces: ModuleExtensionS
     const targets = contribution.targets.map((entry) => entry.id).join(', ')
     const resolution = contribution.targets.map((entry) => entry.resolution).join(', ')
     const phases = [...(contribution.phases ?? []), ...(contribution.operations ?? [])].join(', ') || '—'
-    return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} |`
+    const source = renderSourceRefLink({ sourcePath: contribution.source.path })
+    return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} | ${source} |`
   })
   return [
     '## UMES contributions',
     '',
-    '| ID | Kind | Target | Phase / operations | Contract | Resolution |',
-    '|---|---|---|---|---|---|',
+    '| ID | Kind | Target | Phase / operations | Contract | Resolution | Source |',
+    '|---|---|---|---|---|---|---|',
     ...rows,
   ].join('\n')
 }
@@ -2253,13 +2371,14 @@ function renderActivationBindingsSection(extensionSurfaces: ModuleExtensionSurfa
   const rows = activations.map((activation) => {
     const phases = activation.phases && activation.phases.length > 0 ? activation.phases.join(', ') : '—'
     const source = activation.source ? renderSourceRefLink(activation.source) : '—'
-    return `| ${activation.kind} | ${renderExtensionTargetRef(activation.host)} | ${activation.contributionKinds.join(', ') || '—'} | ${phases} | ${source} |`
+    const bridge = activation.bridge ? `${activation.bridge.factSection}:${activation.bridge.factKey}` : '—'
+    return `| ${activation.id} | ${activation.kind} | ${renderExtensionTargetRef(activation.host)} | ${activation.contributionKinds.join(', ') || '—'} | ${phases} | ${bridge} | ${source} |`
   })
   return [
     '## Active extension bindings',
     '',
-    '| Activation | Host | Contribution kinds | Phases | Source |',
-    '|---|---|---|---|---|',
+    '| Activation | Kind | Host | Contribution kinds | Phases | Bridge | Source |',
+    '|---|---|---|---|---|---|---|',
     ...rows,
   ].join('\n')
 }
@@ -2277,6 +2396,26 @@ function renderIncomingContributionsSection(extensionSurfaces: ModuleExtensionSu
     '',
     '| Contributor | Kind | Target | Resolution | Activation | Contribution · Source |',
     '|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function renderContributionResolutionsSection(
+  extensionSurfaces: ModuleExtensionSurfaceFacts,
+  lookup: FactSourceLookup,
+): string {
+  const resolutions = extensionSurfaces.contributionResolutions ?? []
+  if (resolutions.length === 0) return `## Contribution resolutions\n\n${EMPTY_SECTION_MARKER}`
+  const rows = resolutions.map((resolution) => {
+    const activations = resolution.activationIds.length > 0 ? resolution.activationIds.join(', ') : '—'
+    const source = renderLookedUpSource(lookup, 'extension-contribution', resolution.contributionId)
+    return `| ${resolution.contributionId} | ${renderExtensionTargetRef(resolution.target)} | ${resolution.resolution} | ${activations} | ${source} |`
+  })
+  return [
+    '## Contribution resolutions',
+    '',
+    '| Contribution | Target | Resolution | Activations | Source |',
+    '|---|---|---|---|---|',
     ...rows,
   ].join('\n')
 }
@@ -2306,16 +2445,23 @@ function renderOverrideTargetsSection(targets: readonly ModuleOverrideTarget[] |
 
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
   const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
+  const lookup = buildFactSourceLookup(facts)
   const sections = [
     `# ${facts.module} — module facts (generated, do not edit)`,
     renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
     `Source root: ${renderSourceLink(facts.sourceRoot)}`,
     '',
-    renderEntitiesSection(facts.entities),
+    renderEntitiesSection(facts.entities, lookup),
     '',
-    renderEventsSection(facts.events),
+    renderEventsSection(facts.events, lookup),
     '',
-    renderInlineListSection(`## ACL features  (${facts.aclFeatures.length})`, facts.aclFeatures),
+    renderSourceLinkedListSection(
+      `## ACL features  (${facts.aclFeatures.length})`,
+      facts.aclFeatures,
+      lookup,
+      'acl-feature',
+      'Feature',
+    ),
     '',
     renderApiRoutesSection(facts.apiRoutes),
     '',
@@ -2323,9 +2469,9 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderLinkedFactsSection('## Frontend pages', facts.frontendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
     '',
-    renderInlineListSection('## DI service tokens', facts.diTokens),
+    renderSourceLinkedListSection('## DI service tokens', facts.diTokens, lookup, 'di-registration', 'Token'),
     '',
-    renderInlineListSection('## Search entities', facts.searchEntities),
+    renderSourceLinkedListSection('## Search entities', facts.searchEntities, lookup, 'search', 'Entity ID'),
     '',
     renderHostTokensSection(facts.hostTokens),
     '',
@@ -2337,9 +2483,11 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderIncomingContributionsSection(extensionSurfaces),
     '',
+    renderContributionResolutionsSection(extensionSurfaces, lookup),
+    '',
     renderExtensionDiagnosticsSection(extensionSurfaces),
     '',
-    renderInlineListSection('## Notifications', facts.notifications),
+    renderSourceLinkedListSection('## Notifications', facts.notifications, lookup, 'notification', 'Notification ID'),
     '',
     renderLinkedFactsSection('## CLI commands', facts.cliCommands.map((command) => ({ label: command.command, sourcePath: command.sourcePath }))),
     '',

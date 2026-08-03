@@ -79,6 +79,8 @@ type StaticContext = {
 
 type ApiExtensionHostIds = {
   entityIds: string[]
+  /** Declaring `api/**` file per entity host id, so the host links to a real source. */
+  entitySourceFiles: Record<string, string>
   commandIds: string[]
   routeIds: string[]
 }
@@ -659,6 +661,8 @@ function factRefHost(options: {
   family: ExtensionHostFamily
   capabilities: ExtensionHostCapability[]
   factSection: string
+  /** Key inside `factSection`; defaults to the host id when the two coincide. */
+  factKey?: string
   phases?: string[]
   activation?: ModuleExtensionHostFact['activation']
   scopeContract?: string
@@ -675,7 +679,7 @@ function factRefHost(options: {
     ...(options.scopeContract ? { scopeContract: options.scopeContract } : {}),
     bound: true,
     stability: 'stable',
-    source: { kind: 'fact-ref', factSection: options.factSection, factKey: options.id },
+    source: { kind: 'fact-ref', factSection: options.factSection, factKey: options.factKey ?? options.id },
   }
 }
 
@@ -712,6 +716,7 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
   const cached = activeExtractionCache?.apiExtensionHostIds.get(cacheKey)
   if (cached) return cached
   const entityIds = new Set<string>()
+  const entitySourceFiles: Record<string, string> = {}
   const commandIds = new Set<string>()
   const routeIds = new Set<string>()
   for (const filePath of sourceFilesBelow(path.join(moduleRoot, 'api'))) {
@@ -730,7 +735,10 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
         if (name === 'enrichers') {
           const config = staticValue(node.initializer, context)
           const entityId = isStaticObject(config) ? stringValue(config.entityId) : undefined
-          if (entityId) entityIds.add(entityId)
+          if (entityId) {
+            entityIds.add(entityId)
+            if (!entitySourceFiles[entityId]) entitySourceFiles[entityId] = filePath
+          }
         }
       }
       if (
@@ -740,7 +748,10 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
       ) {
         const input = node.arguments[1] ? staticValue(node.arguments[1], context) : undefined
         const entityId = isStaticObject(input) ? stringValue(input.resourceKind) : undefined
-        if (entityId) entityIds.add(entityId)
+        if (entityId) {
+          entityIds.add(entityId)
+          if (!entitySourceFiles[entityId]) entitySourceFiles[entityId] = filePath
+        }
       }
       node.forEachChild(visit)
     }
@@ -748,6 +759,7 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
   }
   const result = {
     entityIds: [...entityIds].sort((left, right) => left.localeCompare(right)),
+    entitySourceFiles,
     commandIds: [...commandIds].sort((left, right) => left.localeCompare(right)),
     routeIds: [...routeIds].sort((left, right) => left.localeCompare(right)),
   }
@@ -858,6 +870,7 @@ function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): Modul
         family: 'query-lifecycle',
         capabilities: ['sync-subscriber'],
         factSection: 'searchEntities',
+        factKey: entityId,
         phases: phase === 'querying' ? ['block', 'query-transform'] : ['result-transform', 'scope-reapply'],
         activation: 'caller-opt-in',
         scopeContract: 'tenant-and-organization-reapplied-after-result',
@@ -866,7 +879,8 @@ function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): Modul
   }
   const apiHosts = apiExtensionHostIds(options.moduleId, options.moduleRoot)
   for (const entityId of apiHosts.entityIds) {
-    hosts.push(factRefHost({
+    const declaringFile = apiHosts.entitySourceFiles[entityId]
+    const host = factRefHost({
       key: `api-entity.${entityId}`,
       id: entityId,
       moduleId: options.moduleId,
@@ -875,7 +889,17 @@ function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): Modul
       factSection: 'apiRoutes',
       activation: 'host-opt-in',
       scopeContract: 'tenant-and-organization',
-    }))
+    })
+    hosts.push(declaringFile
+      ? {
+          ...host,
+          source: {
+            kind: 'declaration',
+            path: portablePath(options.moduleRoot, options.sourceRoot, declaringFile),
+            symbol: entityId,
+          },
+        }
+      : host)
   }
   return sortHosts([...new Map(hosts.map((host) => [`${host.family}:${host.id}`, host])).values()])
 }

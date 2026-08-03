@@ -392,6 +392,7 @@ describe('module extension activations and incoming index', () => {
         host: { kind: 'entity', id: 'host:record', moduleId: 'host' },
         contributionKinds: ['response-enricher'],
         source: { sourcePath: 'node_modules/pkg/src/modules/host/api/records/route.ts', line: 5 },
+        bridge: { factSection: 'apiRoutes', factKey: '/host/records' },
       }],
       incoming: [{
         contributionId: 'ext.badge',
@@ -402,7 +403,12 @@ describe('module extension activations and incoming index', () => {
         resolution: 'bound',
         source: { sourcePath: 'node_modules/pkg/src/modules/ext/data/enrichers.ts', exportName: 'ext.badge' },
       }],
-      contributionResolutions: [],
+      contributionResolutions: [{
+        contributionId: 'ext.badge',
+        target: { kind: 'entity', id: 'host:record', moduleId: 'host' },
+        resolution: 'bound',
+        activationIds: ['entity:host:record:crud-response-enricher'],
+      }],
     }
     const facts: ModuleFacts = {
       module: 'host', title: null, description: null, coreVersion: null, sourcePackage: null,
@@ -419,5 +425,15 @@ describe('module extension activations and incoming index', () => {
     expect(markdown).toContain('crud-response-enricher')
     expect(markdown).toContain('entity:host:record @host')
     expect(markdown.indexOf('## Active extension bindings')).toBeLessThan(markdown.indexOf('## Incoming installed contributions'))
+
+    // Activation rows are identified by the referenced activation id and bridge, not by kind alone.
+    expect(markdown).toContain('| Activation | Kind | Host | Contribution kinds | Phases | Bridge | Source |')
+    expect(markdown).toContain('| entity:host:record:crud-response-enricher | crud-response-enricher |')
+    expect(markdown).toContain('apiRoutes:/host/records')
+
+    // Contribution resolutions render as their own section.
+    expect(markdown).toContain('## Contribution resolutions')
+    expect(markdown).toContain('| Contribution | Target | Resolution | Activations | Source |')
+    expect(markdown).toContain('| ext.badge | entity:host:record @host | bound | entity:host:record:crud-response-enricher |')
   })
 })

@@ -3,10 +3,12 @@ import type { ModuleOverrideDomain } from '@open-mercato/shared/modules/override
 import type { ModuleExtensionContributionFact } from '@open-mercato/shared/modules/widgets/extension-points'
 import type {
   ModuleFactRef,
+  ModuleFactSourceKind,
   ModuleFactSourceRef,
   ModuleFactsJsonEntry,
   ModuleOwnedContractFact,
 } from './module-facts'
+import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
 import { getFrameworkOverrideModes } from './module-extension-facts'
 
 /**
@@ -77,7 +79,7 @@ type AdapterResult = {
 type InternalAdapter = {
   domain: ModuleOverrideDomain
   frameworkOnly?: boolean
-  run(moduleFacts: ModuleFactsJsonEntry): AdapterResult
+  run(moduleFacts: ModuleFactsJsonEntry, resolveFactSource: FactSourceLookup): AdapterResult
 }
 
 const OVERRIDE_MODES = getFrameworkOverrideModes()
@@ -178,9 +180,12 @@ function contributionsOfKind<K extends ModuleExtensionContributionFact['kind']>(
   )
 }
 
-function indexedFactSourcePath(facts: ModuleFactsJsonEntry, kind: string, id: string): string | null {
-  const entry = (facts.factSources ?? []).find((source) => source.kind === kind && source.id === id)
-  return entry ? entry.source.sourcePath : null
+function indexedFactSourcePath(
+  resolveFactSource: FactSourceLookup,
+  kind: ModuleFactSourceKind,
+  id: string,
+): string | null {
+  return resolveFactSource(kind, id)?.sourcePath ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -433,7 +438,7 @@ const widgetsAdapter: InternalAdapter = {
 
 const notificationsAdapter: InternalAdapter = {
   domain: 'notifications',
-  run(facts) {
+  run(facts, resolveFactSource) {
     const moduleId = moduleIdOf(facts)
     const targets: ModuleOverrideTarget[] = []
     const diagnostics: ModuleOverrideTargetDiagnostic[] = []
@@ -445,10 +450,8 @@ const notificationsAdapter: InternalAdapter = {
     }
     for (const type of facts.notifications) {
       const path = ['notifications', 'types', type]
-      const source = registrySources.get(type)
-        ?? (indexedFactSourcePath(facts, 'notification', type)
-          ? { sourcePath: indexedFactSourcePath(facts, 'notification', type) as string }
-          : null)
+      const indexedPath = indexedFactSourcePath(resolveFactSource, 'notification', type)
+      const source = registrySources.get(type) ?? (indexedPath ? { sourcePath: indexedPath } : null)
       if (!source) {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'notifications', candidatePath: path })
         continue
@@ -588,13 +591,13 @@ const setupAdapter: InternalAdapter = {
 
 const aclAdapter: InternalAdapter = {
   domain: 'acl',
-  run(facts) {
+  run(facts, resolveFactSource) {
     const moduleId = moduleIdOf(facts)
     const targets: ModuleOverrideTarget[] = []
     const diagnostics: ModuleOverrideTargetDiagnostic[] = []
     for (const feature of facts.aclFeatures) {
       const path = ['acl', 'features', feature]
-      const sourcePath = indexedFactSourcePath(facts, 'acl-feature', feature)
+      const sourcePath = indexedFactSourcePath(resolveFactSource, 'acl-feature', feature)
       if (!sourcePath) {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'acl', candidatePath: path })
         continue
@@ -719,8 +722,8 @@ export const ALL_OVERRIDE_DOMAINS = Object.keys(OVERRIDE_DOMAIN_PRESENCE) as Mod
 export const MODULE_OVERRIDE_TARGET_ADAPTERS: OverrideTargetAdapter[] = INTERNAL_ADAPTERS.map((adapter) => ({
   domain: adapter.domain,
   ...(adapter.frameworkOnly ? { frameworkOnly: true } : {}),
-  collect: (moduleFacts) => adapter.run(moduleFacts).targets,
-  diagnose: (moduleFacts) => adapter.run(moduleFacts).diagnostics,
+  collect: (moduleFacts) => adapter.run(moduleFacts, buildFactSourceLookup(moduleFacts)).targets,
+  diagnose: (moduleFacts) => adapter.run(moduleFacts, buildFactSourceLookup(moduleFacts)).diagnostics,
 }))
 
 export type ModuleOverrideTargetsResult = {
@@ -734,12 +737,15 @@ export type ModuleOverrideTargetsResult = {
  * diagnostics sort by moduleId, domain, code, then path/source. Targets are
  * deduped by `(domain, path)` keeping the source-first entry.
  */
-export function collectModuleOverrideTargets(facts: ModuleFactsJsonEntry): ModuleOverrideTargetsResult {
+export function collectModuleOverrideTargets(
+  facts: ModuleFactsJsonEntry,
+  resolveFactSource: FactSourceLookup = buildFactSourceLookup(facts),
+): ModuleOverrideTargetsResult {
   const collected: ModuleOverrideTarget[] = []
   const diagnostics: ModuleOverrideTargetDiagnostic[] = []
   for (const adapter of INTERNAL_ADAPTERS) {
     if (adapter.frameworkOnly) continue
-    const result = adapter.run(facts)
+    const result = adapter.run(facts, resolveFactSource)
     collected.push(...result.targets)
     diagnostics.push(...result.diagnostics)
   }

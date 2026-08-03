@@ -62,10 +62,24 @@ describe('module-facts BC resolve guard (T2)', () => {
     // contribution payloads). The delta cap is unchanged because `overrideTargets`
     // live in both the complete and legacy renders (only `extensionSurfaces` is
     // stripped for the legacy comparison).
+    //
+    // JSON cap raised a third time by the uniform provenance index
+    // (2026-08-02-module-facts-source-provenance-and-contract-inventory): every
+    // proven `(kind, id)` now reaches `factSources` (~630KB across the repo), so a
+    // consumer resolves any fact's origin through one lookup. Entries whose
+    // declaration site is already serialized inline (routes, pages, CLI commands,
+    // AI tools/agents, owned contracts, hosts, contributions) emit a typed
+    // `factRef` pointer instead of a duplicated source ref, and `factKey` is
+    // omitted when it equals the entry `id` — so the index costs references, never
+    // copied provenance payloads.
     expect(extractionCpuDurationMs).toBeLessThan(30_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_000_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_450_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
-    expect(markdownBytes).toBeLessThan(1_200_000)
+    // Markdown cap raised with the source-link contract: entities, events, ACL
+    // features, DI tokens, search entities, notifications, UMES hosts and UMES
+    // contributions all render a resolved Source cell, and contribution
+    // resolutions render as their own source-linked section.
+    expect(markdownBytes).toBeLessThan(1_550_000)
   })
 
   it('discovers a superset of the historical core modules', () => {

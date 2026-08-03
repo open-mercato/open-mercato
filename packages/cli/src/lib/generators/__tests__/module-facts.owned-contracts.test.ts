@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { extractModuleFacts, renderModuleFactsMarkdown, toModuleFactsJsonEntry } from '../module-facts'
 import type { ModuleFacts, ModuleOwnedContractFact } from '../module-facts'
+import { buildFactSourceLookup } from '../module-fact-sources'
 
 function writeFixture(root: string, relativePath: string, source: string): void {
   const filePath = path.join(root, relativePath)
@@ -273,19 +274,67 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     expect(serialized).not.toMatch(/"sourcePath":\s*"\//)
   })
 
-  it('indexes provenance for scalar facts without inline source and reuses subscriber facts', () => {
-    const index = new Map((facts.factSources ?? []).map((entry) => [`${entry.kind}:${entry.id}`, entry.source.sourcePath]))
-    expect(index.get('entity:facts:facts_widget')).toBe('node_modules/@open-mercato/example/src/modules/facts/data/entities.ts')
-    expect(index.get('event:facts.widget.created')).toBe('node_modules/@open-mercato/example/src/modules/facts/events.ts')
-    expect(index.get('acl-feature:facts.view')).toBe('node_modules/@open-mercato/example/src/modules/facts/acl.ts')
-    expect(index.get('search:facts:facts_widget')).toBe('node_modules/@open-mercato/example/src/modules/facts/search.ts')
-    expect(index.get('notification:facts.alert')).toBe('node_modules/@open-mercato/example/src/modules/facts/notifications.ts')
-    expect(index.get('subscriber:facts:on-created')).toBe(
+  it('resolves every proven fact through the uniform provenance index', () => {
+    const resolve = buildFactSourceLookup(facts)
+    expect(resolve('entity', 'facts:facts_widget')?.sourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/data/entities.ts',
+    )
+    expect(resolve('event', 'facts.widget.created')?.sourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/events.ts',
+    )
+    expect(resolve('acl-feature', 'facts.view')?.sourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/acl.ts',
+    )
+    expect(resolve('search', 'facts:facts_widget')?.sourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/search.ts',
+    )
+    expect(resolve('notification', 'facts.alert')?.sourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/notifications.ts',
+    )
+    expect(resolve('subscriber', 'facts:on-created')?.sourcePath).toBe(
       'node_modules/@open-mercato/example/src/modules/facts/subscribers/nested/on-created.ts',
     )
-    // Owned families are referenced by identity, not duplicated into factSources.
-    expect(facts.factSources?.some((entry) => entry.kind === 'command')).toBe(false)
-    expect(facts.factSources?.some((entry) => entry.kind === 'di-registration')).toBe(false)
+
+    // Kinds whose declaration site is already serialized inline are indexed as typed
+    // pointers, and still resolve to a real source through the same lookup.
+    const commandEntry = facts.factSources?.find(
+      (entry) => entry.kind === 'command' && entry.id === 'facts.sync',
+    )
+    expect(commandEntry?.source).toBeUndefined()
+    expect(commandEntry?.factRef).toEqual({ factSection: 'ownedContracts.command' })
+    expect(resolve('command', 'facts.sync')?.sourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/commands/nested/deep.ts',
+    )
+
+    const diEntry = facts.factSources?.find((entry) => entry.kind === 'di-registration')
+    expect(diEntry?.factRef?.factSection).toBe('ownedContracts.di-registration')
+    expect(resolve('di-registration', diEntry?.id as string)?.sourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/di.ts',
+    )
+
+    // Every emitted entry carries exactly one projection and resolves.
+    for (const entry of facts.factSources ?? []) {
+      expect(Boolean(entry.source) !== Boolean(entry.factRef)).toBe(true)
+      expect(resolve(entry.kind, entry.id)).not.toBeNull()
+    }
+  })
+
+  it('indexes every proven contract kind exactly once', () => {
+    const indexed = new Set((facts.factSources ?? []).map((entry) => `${entry.kind}:${entry.id}`))
+    expect(indexed.size).toBe((facts.factSources ?? []).length)
+    for (const route of facts.apiRoutes) expect(indexed.has(`api-route:${route.path}`)).toBe(true)
+    for (const page of facts.backendPages) expect(indexed.has(`backend-page:${page.path}`)).toBe(true)
+    for (const command of facts.cliCommands) expect(indexed.has(`cli-command:${command.command}`)).toBe(true)
+    for (const tool of facts.aiTools) expect(indexed.has(`ai-tool:${tool.name}`)).toBe(true)
+    for (const [kind, ownedFacts] of Object.entries(facts.ownedContracts ?? {})) {
+      for (const owned of ownedFacts ?? []) expect(indexed.has(`${kind}:${owned.id}`)).toBe(true)
+    }
+    for (const host of facts.extensionSurfaces?.hosts ?? []) {
+      expect(indexed.has(`extension-host:${host.key}`)).toBe(true)
+    }
+    for (const contribution of facts.extensionSurfaces?.contributions ?? []) {
+      expect(indexed.has(`extension-contribution:${contribution.id}`)).toBe(true)
+    }
   })
 
   it('keeps subscriber discovery aligned with runtime recursion', () => {
@@ -300,9 +349,11 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
   })
 
   it('emits portable POSIX source paths and is deterministic across runs', () => {
+    const resolve = buildFactSourceLookup(facts)
     for (const entry of facts.factSources ?? []) {
-      expect(entry.source.sourcePath.startsWith('node_modules/@open-mercato/example/')).toBe(true)
-      expect(entry.source.sourcePath.includes('\\')).toBe(false)
+      const source = resolve(entry.kind, entry.id)
+      expect(source?.sourcePath.startsWith('node_modules/@open-mercato/example/')).toBe(true)
+      expect(source?.sourcePath.includes('\\')).toBe(false)
     }
     const rerun = extractModuleFacts({
       moduleId: 'facts',
@@ -325,6 +376,48 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     expect(markdown).toContain('(../../../node_modules/@open-mercato/example/src/modules/facts/di.ts')
     // Empty-content sections are omitted rather than rendered blank.
     expect(markdown).not.toMatch(/## Domain commands\n\n_none_/)
+  })
+
+  it('renders a resolved source link for every represented scalar fact', () => {
+    const markdown = renderModuleFactsMarkdown(facts)
+    const rowFor = (identifier: string): string => {
+      const row = markdown.split('\n').find((line) => line.startsWith(`| ${identifier} |`))
+      return row ?? ''
+    }
+
+    expect(markdown).toContain('| Entity ID | Class | Table | Editable | CustomFields | Source |')
+    expect(rowFor('facts:facts_widget')).toContain(
+      '(../../../node_modules/@open-mercato/example/src/modules/facts/data/entities.ts)',
+    )
+
+    expect(markdown).toContain('| ID | Category | Entity | Browser transport | Source |')
+    expect(rowFor('facts.widget.created')).toContain(
+      '(../../../node_modules/@open-mercato/example/src/modules/facts/events.ts)',
+    )
+
+    expect(markdown).toContain('| Feature | Source |')
+    expect(rowFor('facts.view')).toContain('(../../../node_modules/@open-mercato/example/src/modules/facts/acl.ts)')
+
+    expect(markdown).toContain('| Token | Source |')
+    expect(markdown).toContain('| Entity ID | Source |')
+    expect(markdown).toContain('| Notification ID | Source |')
+    expect(rowFor('facts.alert')).toContain(
+      '(../../../node_modules/@open-mercato/example/src/modules/facts/notifications.ts)',
+    )
+
+    // No represented scalar fact renders an unresolved source cell.
+    const scalarSections = ['## ACL features', '## DI service tokens', '## Search entities', '## Notifications']
+    for (const heading of scalarSections) {
+      const section = markdown.slice(markdown.indexOf(heading)).split('\n\n')[1] ?? ''
+      expect(section).not.toContain('| — |')
+    }
+  })
+
+  it('renders source columns on the extension-surface sections', () => {
+    const markdown = renderModuleFactsMarkdown(facts)
+    expect(markdown).toContain('## Contribution resolutions')
+    expect(markdown).toContain('| ID / pattern | Family | Supports | Context | Stability | Source |')
+    expect(markdown).toContain('| ID | Kind | Target | Phase / operations | Contract | Resolution | Source |')
   })
 })
 
