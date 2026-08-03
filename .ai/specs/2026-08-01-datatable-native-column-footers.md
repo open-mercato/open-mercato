@@ -3,6 +3,7 @@
 > **Status**: Draft — ready for implementation
 > **Scope**: OSS (`packages/ui`, example module)
 > **Created**: 2026-08-01
+> **Revised**: 2026-08-03
 > **Existing implementation PR**: #3972
 > **Consumer**: [`2026-08-01-sales-orders-aggregation-consumer.md`](./2026-08-01-sales-orders-aggregation-consumer.md)
 
@@ -20,6 +21,7 @@ This specification defines the presentation-only prerequisite for column-aligned
 |---|---|---|
 | Data contract | Reuse TanStack `ColumnDef.footer` and `columnDef.meta` | These are the library's existing typed extension seams; a parallel footer registry would duplicate column identity and visibility state |
 | Empty footer | Omit `<tfoot>` when no visible leaf column defines a footer | Avoids a blank row and preserves current markup for all existing tables |
+| Vertical reachability | Keep the generic footer in normal table flow rather than making it vertically sticky | `DataTable` owns horizontal overflow but not a constrained vertical scroll container; adding one would create nested page/table scrolling, while viewport-sticky content would obscure rows and escape the table's semantic/layout ownership |
 | Layout verification | Add a self-contained example route and Playwright case | The shared table has no stable standalone page for visual and DOM coverage |
 | Existing PR | Treat #3972 as the implementation candidate for this spec | It already targets this capability; it must be brought into conformance and independently QA-approved before merge |
 
@@ -83,6 +85,12 @@ The DOM must stay rectangular in all supported table states:
 
 No separate footer model or index-based reconciliation is allowed. Stable TanStack column ids remain the identity.
 
+### Vertical reachability decision
+
+The native footer is deliberately not pinned to the viewport or the bottom of a new vertical table scroller. The current `DataTable` wrapper owns horizontal overflow only; the page remains the vertical scroll owner. A sticky `<tfoot>` without a constrained vertical table viewport does not remain visible at the top of a long page, while introducing a constrained viewport would create nested scrolling, change keyboard/touch behavior, and reduce usable row height on short lists.
+
+The footer therefore remains in normal document order at the end of the current page of rows. This primitive also does not duplicate caller values near the filter bar because that would create a second, non-column-aligned presentation contract. A consumer whose primary workflow requires an always-visible summary may additionally render its own compact summary through the existing table toolbar/header surface, but that is an explicit consumer choice and does not replace the native footer. Integration coverage records this behavior: at the top of a long list the footer is off-screen, page scrolling reaches it, and no nested vertical scrollbar is introduced.
+
 ### Public surface
 
 No new required `DataTable` prop is added. Existing callers opt in by defining a column footer:
@@ -92,7 +100,7 @@ No new required `DataTable` prop is added. Existing callers opt in by defining a
   id: 'totalGross',
   header: t('sales.orders.columns.totalGross'),
   accessorKey: 'totalGross',
-  footer: ({ table }) => table.options.meta?.summary?.totalGross ?? '—',
+  footer: ({ table }) => table.options.meta?.summary?.totalGross ?? null,
 }
 ```
 
@@ -135,6 +143,7 @@ Because a module page is added, run `yarn generate`; only the normal generated r
 - `DataTable` without footer definitions has byte-for-byte equivalent row/header behavior and no `<tfoot>`;
 - `yarn check:client-boundaries`, `yarn generate`, `yarn build:packages`, `yarn typecheck`, `yarn test`, and `yarn build:app` pass;
 - Playwright screenshots/DOM assertions cover wide and narrow viewports, hidden columns, bulk selection, and sticky actions.
+- A long-list Playwright case confirms the footer stays in normal document flow, is reached by page scrolling, and does not introduce a nested vertical scroll container.
 
 ## Accessibility and UX
 
@@ -142,6 +151,7 @@ Because a module page is added, run `yarn generate`; only the normal generated r
 - Text alignment follows the owning column; numeric footer renderers can opt into the same numeric alignment through existing column metadata.
 - Empty cells have no focus target and no redundant accessible label.
 - The footer does not create a second horizontal scroll container.
+- The footer does not create a vertical scroll container or viewport-sticky overlay; the page remains the vertical scroll owner.
 - Loading/error controls are consumer concerns; this primitive only renders their supplied accessible content.
 
 ## Test plan
@@ -154,6 +164,7 @@ Because a module page is added, run `yarn generate`; only the normal generated r
 - hidden and reordered columns update the footer order;
 - selection and actions structural cells remain present;
 - left/right pinned columns reuse the expected classes/offsets;
+- long list: footer is not visible at the page top, becomes visible through page scroll, and creates no nested vertical scrollbar;
 - renderer receives a valid TanStack footer context.
 
 ### Integration
@@ -166,6 +177,7 @@ The self-contained Playwright test opens the example route, verifies semantic fo
 |---|---|---|---|---|
 | Footer drifts from structural columns | Medium | DataTable layout/selection/actions | one TanStack footer-group source plus bulk/actions regression matrix | Low: future structural columns must extend the matrix |
 | Sticky or horizontal layout regresses | Medium | Responsive/sticky table UX | reuse shared cell-class logic and browser checks at two widths | Low: browser-engine differences remain covered by QA |
+| A long list hides the footer below the fold | Medium | Summary reachability | explicitly retain page-owned vertical scrolling, document the non-sticky tradeoff, cover it in Playwright, and allow consumers to add a separate toolbar/header summary when always-visible output is their primary workflow | Medium: reading a footer still requires page scrolling by design |
 | Existing tables gain empty markup | Low | All DataTable callers | omit `<tfoot>` unless a visible footer exists | Minimal: malformed third-party footer definitions can still render empty cells |
 
 Rollback removes the conditional footer rendering and example page. No data, API, or persistence migration exists.
@@ -177,7 +189,7 @@ This change consumes the already-additive optional `ColumnDef.footer` property a
 ## Implementation plan
 
 1. Add the conditional native footer rendering using TanStack footer groups and shared cell-layout logic.
-2. Add unit/DOM coverage for visibility, grouping, structural columns, pinning, and the no-footer case.
+2. Add unit/DOM coverage for visibility, grouping, structural columns, horizontal pinning, normal-flow vertical behavior, and the no-footer case.
 3. Add the example module page, translated copy, and self-contained Playwright layout scenario.
 4. Run generation and the frontend/full repository gates, attach browser evidence, and obtain independent QA approval for #3972 because it carries `needs-qa`.
 
@@ -227,6 +239,7 @@ None.
 
 | Date | Change |
 |---|---|
+| 2026-08-03 | Recorded the explicit non-sticky vertical behavior after Zielivia's review: the page remains the vertical scroll owner, the primitive creates no nested scroller or duplicate summary surface, and long-list browser coverage verifies the documented tradeoff. Removed the symbolic fallback from the public example. |
 | 2026-08-01 | Split the native footer presentation primitive from PR #4455's aggregate service and control/persistence proposals; defined semantic markup, structural-column layout, a self-contained example, browser coverage, and frontend budgets. |
 
 ### Review — 2026-08-01
@@ -237,4 +250,14 @@ None.
 - **Cache**: N/A
 - **Commands**: N/A
 - **Risks**: Passed
+- **Verdict**: Approved
+
+### Review — 2026-08-03
+
+- **Reviewer**: Codex with Zielivia feedback and fresh-context scope check
+- **Security**: Passed; no data/API surface
+- **Performance**: Passed; the design avoids a new vertically constrained scroll container
+- **Cache**: N/A
+- **Commands**: N/A
+- **Risks**: Passed; long-list reachability is now an explicit, tested normal-flow tradeoff
 - **Verdict**: Approved

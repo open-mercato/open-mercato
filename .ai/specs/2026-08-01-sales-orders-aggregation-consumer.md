@@ -3,6 +3,7 @@
 > **Status**: Draft — ready for implementation
 > **Scope**: OSS (`packages/ui`, `packages/core` sales)
 > **Created**: 2026-08-01
+> **Revised**: 2026-08-03
 > **Prerequisites**: [`2026-08-01-datatable-native-column-footers.md`](./2026-08-01-datatable-native-column-footers.md), [`2026-07-24-datatable-column-aggregations.md`](./2026-07-24-datatable-column-aggregations.md)
 > **Follow-up**: [`2026-08-01-datatable-aggregation-controls.md`](./2026-08-01-datatable-aggregation-controls.md)
 
@@ -23,6 +24,7 @@ This specification is the first business consumer of the generic aggregation ser
 | Money grouping | Group each money field by currency | Cross-currency sums are invalid without an FX policy |
 | Precision | Format canonical decimal strings without `Number(value)` | Preserves exact API results beyond IEEE-754 range |
 | Selection identity | One map keyed only by stable TanStack column id | Avoids duplicated selection ownership and keeps public request-field mapping in column metadata |
+| Controller placement | Ship the route-neutral request lifecycle with its first Orders consumer | The controller has no standalone data source or user-facing capability; it is the consumer's reusable integration seam, and the controls follow-up extends that seam rather than creating a second controller |
 | Footer activation | Each aggregate column defines an explicit `ColumnDef.footer` renderer | Satisfies the native footer primitive's opt-in contract |
 | Controls adoption | The follow-up replaces the temporary toggle for Orders; it does not coexist | Prevents conflicting request precedence and enabled-state rules |
 | Line-item totals, role defaults, FX | Deferred | Each is independent policy/capability work |
@@ -181,7 +183,9 @@ footer: ({ column, table }) =>
 
 This non-null definition activates the prerequisite native `<tfoot>`. The generic renderer handles loading, error, empty, and success state, then delegates value formatting to the column metadata. The footer primitive remains responsible only for aligned semantic table markup.
 
-The visible `number` column maps to public summary field `id` and its footer renders the ungrouped result with plural-aware translated copy (`1 order` / `N orders`); it never displays or persists an internal id. Money fields render each currency group separately (`EUR 12,340.50 — USD 4,100.00`) and never merge currencies. More than three display groups renders the first three plus translated `+N` text with a `SimpleTooltip`; the server still enforces its 20-group cap.
+The visible `number` column maps to public summary field `id` and its footer renders the ungrouped result with plural-aware translated copy (`1 order` / `N orders`); it never displays or persists an internal id. Money fields render up to three currency groups as a stacked semantic list, one group per list item, with no punctuation-only separator, and never merge currencies.
+
+When more than three groups exist, a translated `+N more currencies` `Button` opens the existing `Popover` primitive containing every remaining group as a labelled list. The trigger has at least a 28 by 28 CSS-pixel target, exposes expanded state through the primitive, and works with pointer, touch, Enter, Space, and Escape; the information is never available only through hover. The server still enforces its 20-group cap.
 
 ## Temporary Orders affordance
 
@@ -204,7 +208,7 @@ When the aggregation-controls follow-up adopts Orders, it removes this button an
 4. formats the integer magnitude with `Intl.NumberFormat` using `BigInt` support;
 5. inserts the preserved/rounded fractional part and currency placement for the locale.
 
-Invalid scalar/currency input logs a structured internal contract error and renders an em dash. API result strings remain untouched; display rounding is tested independently.
+Malformed scalar input logs a structured internal contract error and moves that footer to the translated unavailable state with the visible safe reason “Invalid total value”; it never renders a punctuation placeholder. A null or unsupported currency group uses the translated “Unknown currency” label and the exact locale-formatted decimal value without claiming a currency. API result strings remain untouched; display rounding is tested independently.
 
 ## Data model and indexes
 
@@ -221,10 +225,10 @@ Customer filtering continues to use `sales_orders_customer_idx`; tag filtering u
 
 - Disabled: no request and no footer content for aggregate columns.
 - Loading: footer cells use the shared spinner and translated loading label; old-key values are cleared.
-- Success: single/multiple currencies render as exact separated entries; the order-number footer renders the count once with plural-aware translated `1 order` / `N orders` copy.
-- Empty: count is `0`; an entirely empty grouped money result is an em dash.
+- Success: single/multiple currencies render as exact stacked list entries; after the first three, the remaining entries are available from the activatable `+N more currencies` popover. The order-number footer renders the count once with plural-aware translated `1 order` / `N orders` copy.
+- Empty: count is `0`; an entirely empty grouped money result renders translated “No totals” copy rather than a symbol.
 - Null/invalid currency: group key remains null and renders translated “Unknown currency”; it never merges with a valid code.
-- Error/timeout: translated “Totals unavailable” and `SimpleTooltip` detail; table rows remain usable and no toast storm occurs.
+- Error/timeout: translated “Totals unavailable” plus a visible, translated safe reason derived from the stable error code (for example, “Request timed out”); raw server messages are never displayed. Table rows remain usable and no toast storm occurs.
 
 No hardcoded user-facing strings, status colors, arbitrary values, inline SVG, or semantic-token `dark:` overrides are introduced.
 
@@ -243,6 +247,7 @@ No hardcoded user-facing strings, status colors, arbitrary values, inline SVG, o
 |---|---|---|---|---|---|
 | `packages/ui/src/backend/DataTable.tsx` or focused sibling (existing island) | request lifecycle and footer state | backend lists | existing TanStack only | AbortController/generation cleanup and stable initial disabled state | route-aware server component would couple generic UI to Sales |
 | `packages/core/src/modules/sales/components/documents/SalesDocumentsTable.tsx` (existing) | filters, toggle, Sales API loader | Orders list pages | none new | serializer/key must be stable and omit page/sort | putting Sales serialization in `packages/ui` would invert ownership |
+| aggregate footer disclosure inside existing `DataTable` island | touch/keyboard access to currency overflow | Orders aggregate columns | existing `Popover` and `Button` only | disclosure state must close on scope/filter/result replacement and never expose stale groups | hover-only tooltip cannot make critical totals available on touch |
 
 ### Budgets and evidence
 
@@ -253,6 +258,7 @@ No hardcoded user-facing strings, status colors, arbitrary values, inline SVG, o
 - disabled Orders list p50 regression below 2% on the same fixture/run;
 - one-million-row scoped fixture: warm summary p95 at or below 500 ms for scoped/date and channel+date; all other common cases complete below the 1,500 ms statement timeout;
 - `yarn check:client-boundaries`, hydration/unit tests, `yarn build:app`, and Playwright Orders coverage pass.
+- Playwright exercises the overflow disclosure and visible failure reason with both keyboard and touch-sized pointer input; no critical aggregate detail relies on hover.
 
 ## Error and edge behavior
 
@@ -262,6 +268,7 @@ No hardcoded user-facing strings, status colors, arbitrary values, inline SVG, o
 - Public/physical/display names drift: mapping tests fail before release.
 - Duplicate tag/custom join matches: one base order contribution.
 - More server groups than allowed: no partial total, render non-blocking unavailable state.
+- More than three valid groups: render three inline list items and expose every remaining group through the activatable disclosure; replacing the result closes stale disclosure content.
 - Summary engine/storage unsupported: surface the explicit generic error; never render zero/empty success.
 
 ## Risks & Impact Review
@@ -273,6 +280,7 @@ No hardcoded user-facing strings, status colors, arbitrary values, inline SVG, o
 | Stale result appears after filter/resource/scope change | High | Cross-organization UI correctness | key includes resource, filters, `scopeVersion`; AbortController and monotonic generation | Low: provider must continue advancing scopeVersion |
 | Orders query adds database load | High | Sales database capacity | separate opt-in request, indexes, 1.5s timeout, EXPLAIN/latency gates | Medium: uncommon filter combinations may time out safely |
 | Footer never activates | Medium | Orders UX | explicit `ColumnDef.footer` and DOM regression | Low: future column refactors must preserve explicit footer metadata |
+| Currency overflow or failure detail is inaccessible on touch | Medium | Tablet/mobile Orders UX | activatable `Popover` disclosure for remaining currencies and visible translated safe failure reasons; keyboard/touch Playwright coverage | Low: dense footers still require concise copy |
 | Shared DataTable regresses | Medium | All table consumers | optional dormant controller and generic state tests | Low: inactive callers remain covered by no-request/no-markup tests |
 
 Rollback removes the Orders `summary` declaration, toggle/controller props, and footer definitions. Additive indexes may remain harmlessly; no row/value rollback is required.
@@ -296,6 +304,8 @@ Rollback removes the Orders `summary` declaration, toggle/controller props, and 
 - exact outer-envelope normalization and tuple mapping; missing/duplicate/unrequested/mismatched entries fail the whole result closed;
 - cancellation, out-of-order responses, filter/resource/`scopeVersion` key changes, cleanup, and one-active-request rule;
 - explicit footer definitions activate `<tfoot>` and render loading/error/empty/single/multiple/null-currency states;
+- stacked currency entries contain no punctuation-only separators; the fourth and later groups are reachable by pointer, touch, and keyboard through the disclosure;
+- safe error reasons are visible without hover, raw server messages remain hidden, and malformed values render the unavailable state rather than a symbolic placeholder;
 - exact formatting for signs, large integer/fraction strings, rounding boundaries, locales, currencies, and invalid values without number coercion.
 
 ### Self-contained integration
@@ -346,7 +356,7 @@ No FROZEN id/path/route is renamed or removed. No deprecation bridge or `UPGRADE
 | `packages/core/AGENTS.md` — API Routes | Use `makeCrudRoute`, zod, OpenAPI, and standard errors | Compliant | route-owned declaration extends the existing Orders list contract additively |
 | `packages/shared/AGENTS.md` | Exact/validated public contracts; no unsafe selector input | Compliant | strict normalized summary types and tuple validation; selectors remain declared server metadata |
 | `packages/ui/AGENTS.md` | Use DataTable and guarded shared patterns | Compliant | existing DataTable receives one optional route-neutral controller; no raw fetch |
-| UI backend + design-system guides | Use `apiCall`, shared primitives, i18n, semantic tokens, accessibility | Compliant | loader uses `apiCall`; Button/Spinner/SimpleTooltip and translated plural copy are specified |
+| UI backend + design-system guides | Use `apiCall`, shared primitives, i18n, semantic tokens, accessibility | Compliant | loader uses `apiCall`; Button/Spinner/Popover and translated plural/error/empty copy are specified, and no critical information is tooltip-only |
 | root migration rules | Generate/review only intended migration and snapshot; do not apply locally | Compliant | two evidence-driven Sales indexes and exact generator workflow are named |
 | `BACKWARD_COMPATIBILITY.md` | API/UI/database additions are additive | Compliant | Orders opt-in, optional controller/meta, optional footers, and additive indexes preserve normal behavior |
 | `.ai/specs/AGENTS.md` | Self-contained API/UI integration coverage | Compliant | mixed-currency, joins, filters, scope switch, empty/error, and cleanup are explicit |
@@ -374,6 +384,7 @@ None.
 
 | Date | Change |
 |---|---|
+| 2026-08-03 | Addressed Zielivia's touch and copy findings: currency groups render as a stacked list without punctuation separators, overflow uses an activatable `Popover`, safe failure reasons remain visibly readable, empty/invalid states use translated copy, and hover-only critical details and em-dash placeholders were removed. Reconfirmed the route-neutral controller as the Orders consumer's reusable integration seam rather than a standalone capability. |
 | 2026-08-01 | Split the first Orders/UI consumer from PR #4455's generic aggregation service; defined route/column namespaces, a single selection map, explicit native-footer activation, exact currency formatting, request lifecycle ownership, indexes/performance budgets, and the temporary-toggle replacement rule. |
 
 ### Review — 2026-08-01
@@ -384,4 +395,14 @@ None.
 - **Cache**: Passed; no-cache strategy explicit
 - **Commands**: N/A for read path; migration workflow compliant
 - **Risks**: Passed
+- **Verdict**: Approved after prerequisites
+
+### Review — 2026-08-03
+
+- **Reviewer**: Codex with Zielivia feedback and fresh-context scope check
+- **Security**: Passed; safe translated error reasons never expose raw server messages
+- **Performance**: Passed with the existing bounded group and latency gates
+- **Cache**: Passed; no-cache strategy remains explicit
+- **Commands**: N/A for the read path; migration workflow remains compliant
+- **Risks**: Passed; touch access, overflow disclosure, visible failure copy, and symbol-free invalid states now have explicit coverage
 - **Verdict**: Approved after prerequisites
