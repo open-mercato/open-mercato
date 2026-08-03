@@ -44,10 +44,17 @@ describe('module-facts BC resolve guard (T2)', () => {
     const markdownBytes = Object.values(markdownByModule)
       .reduce((total, markdown) => total + Buffer.byteLength(markdown), Buffer.byteLength(frameworkMarkdown))
 
+    // Budget raised by the bidirectional-topology spec
+    // (2026-08-02-module-facts-extension-activation-and-incoming-index): the
+    // additive `activations`, cross-module `incoming`, and per-contribution
+    // `contributionResolutions` layers add ~210KB of compact references (no
+    // contribution payloads are duplicated). Incoming rows are cross-module only;
+    // resolution rows are required one-per-contribution by the spec's acceptance
+    // criteria and are the dominant term.
     expect(extractionCpuDurationMs).toBeLessThan(30_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(2_000_000)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_500_000)
-    expect(markdownBytes).toBeLessThan(1_000_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(2_500_000)
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
+    expect(markdownBytes).toBeLessThan(1_200_000)
   })
 
   it('discovers a superset of the historical core modules', () => {

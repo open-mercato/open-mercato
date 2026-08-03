@@ -1,12 +1,19 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
-import type { ModuleExtensionContributionFact, ModuleExtensionSurfaceFacts } from '@open-mercato/shared/modules/widgets/extension-points'
+import type {
+  ModuleExtensionContributionFact,
+  ModuleExtensionSurfaceFacts,
+  ModuleExtensionTargetRef,
+  ModuleFactSourceRef,
+} from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
 import { extractCommandIdsFromSource } from './module-registry'
 import {
   assertNoUnresolvedExtensionTargets,
+  correlateIncomingExtensions,
   correlateModuleExtensionFacts,
+  extractActivationTargetOwners,
   extractKnownApiRouteIds,
   extractKnownCommandIds,
   extractModuleExtensionFacts,
@@ -2217,6 +2224,46 @@ function renderExtensionDiagnosticsSection(extensionSurfaces: ModuleExtensionSur
   return ['## UMES diagnostics', '', ...diagnostics].join('\n')
 }
 
+function renderExtensionTargetRef(target: ModuleExtensionTargetRef): string {
+  const method = target.method ? ` ${target.method}` : ''
+  const owner = target.moduleId ? ` @${target.moduleId}` : ''
+  return `${target.kind}:${target.id}${method}${owner}`
+}
+
+function renderActivationBindingsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const activations = extensionSurfaces.activations ?? []
+  if (activations.length === 0) return `## Active extension bindings\n\n${EMPTY_SECTION_MARKER}`
+  const rows = activations.map((activation) => {
+    const phases = activation.phases && activation.phases.length > 0 ? activation.phases.join(', ') : '—'
+    const source = activation.source ? renderSourceRefLink(activation.source) : '—'
+    return `| ${activation.kind} | ${renderExtensionTargetRef(activation.host)} | ${activation.contributionKinds.join(', ') || '—'} | ${phases} | ${source} |`
+  })
+  return [
+    '## Active extension bindings',
+    '',
+    '| Activation | Host | Contribution kinds | Phases | Source |',
+    '|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function renderIncomingContributionsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const incoming = extensionSurfaces.incoming ?? []
+  if (incoming.length === 0) return `## Incoming installed contributions\n\n${EMPTY_SECTION_MARKER}`
+  const rows = incoming.map((entry) => {
+    const activation = entry.activationId ?? '—'
+    const source = entry.source ? renderSourceRefLink(entry.source) : '—'
+    return `| ${entry.contributorModuleId} | ${entry.contributionKind} | ${renderExtensionTargetRef(entry.target)} | ${entry.resolution} | ${activation} | ${entry.contributionId} · ${source} |`
+  })
+  return [
+    '## Incoming installed contributions',
+    '',
+    '| Contributor | Kind | Target | Resolution | Activation | Contribution · Source |',
+    '|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
   const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
   const sections = [
@@ -2245,6 +2292,10 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     renderExtensionHostsSection(extensionSurfaces),
     '',
     renderExtensionContributionsSection(extensionSurfaces),
+    '',
+    renderActivationBindingsSection(extensionSurfaces),
+    '',
+    renderIncomingContributionsSection(extensionSurfaces),
     '',
     renderExtensionDiagnosticsSection(extensionSurfaces),
     '',
@@ -2398,8 +2449,30 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
     commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
   })
   assertNoUnresolvedExtensionTargets(correlated)
+  const apiRouteOwners = new Map<string, { moduleId: string; source: ModuleFactSourceRef }>()
+  const commandOwners = new Map<string, { moduleId: string; source: ModuleFactSourceRef }>()
+  for (const source of [...sources].sort((left, right) => left.moduleId.localeCompare(right.moduleId))) {
+    const facts = factsByModule[source.moduleId]
+    const sourceRoot = facts ? facts.sourceRoot : source.moduleId
+    const owners = extractActivationTargetOwners({
+      moduleId: source.moduleId,
+      moduleRoot: source.moduleRoot,
+      sourceRoot,
+    })
+    for (const route of owners.apiRoutes) {
+      if (!apiRouteOwners.has(route.id)) apiRouteOwners.set(route.id, { moduleId: source.moduleId, source: route.source })
+    }
+    for (const command of owners.commands) {
+      if (!commandOwners.has(command.id)) commandOwners.set(command.id, { moduleId: source.moduleId, source: command.source })
+    }
+  }
+  const withIncoming = correlateIncomingExtensions({
+    surfacesByModule: correlated,
+    apiRouteOwners,
+    commandOwners,
+  })
   for (const moduleId of Object.keys(factsByModule).sort((left, right) => left.localeCompare(right))) {
-    factsByModule[moduleId].extensionSurfaces = correlated[moduleId]
+    factsByModule[moduleId].extensionSurfaces = withIncoming[moduleId]
     markdownByModule[moduleId] = renderModuleFactsMarkdown(factsByModule[moduleId])
     warnings.push(...correlated[moduleId].unresolved.map((entry) =>
       `[module-facts] ${moduleId} ${entry.reason}: ${entry.key} (${entry.source.path})`,

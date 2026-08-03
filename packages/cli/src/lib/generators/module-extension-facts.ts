@@ -9,12 +9,20 @@ import {
 import type {
   ExtensionHostCapability,
   ExtensionHostFamily,
+  ModuleContributionResolution,
+  ModuleExtensionActivation,
+  ModuleExtensionActivationKind,
   ModuleExtensionContributionFact,
   ModuleExtensionContributionBase,
+  ModuleExtensionContributionKind,
   ModuleExtensionHostFact,
+  ModuleExtensionResolution,
   ModuleExtensionSurfaceFacts,
   ModuleExtensionTargetFact,
+  ModuleExtensionTargetRef,
   ModuleExtensionUnresolvedFact,
+  ModuleFactSourceRef,
+  ModuleIncomingExtensionRef,
 } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extractCommandIdsFromSource } from './module-registry'
 import { scanModuleDir, SCAN_CONFIGS } from './scanner'
@@ -765,6 +773,40 @@ export function extractKnownCommandIds(moduleId: string, moduleRoot: string): st
   return moduleCommandIds(moduleRoot, apiHosts.commandIds)
 }
 
+/**
+ * Concrete runtime-id owners a module contributes as activation targets: its real
+ * `api/**` route ids (which run the interceptor pipeline) and its `commands/**`
+ * command ids (dispatched through the command bus). Used post-selection to
+ * synthesize `host-reference`/`owner-reference` bindings with a portable source.
+ */
+export function extractActivationTargetOwners(options: {
+  moduleId: string
+  moduleRoot: string
+  sourceRoot: string
+}): {
+  apiRoutes: Array<{ id: string; source: ModuleFactSourceRef }>
+  commands: Array<{ id: string; source: ModuleFactSourceRef }>
+} {
+  const apiRoutes: Array<{ id: string; source: ModuleFactSourceRef }> = []
+  for (const filePath of sourceFilesBelow(path.join(options.moduleRoot, 'api'))) {
+    const routeId = apiRouteId(options.moduleId, options.moduleRoot, filePath)
+    if (!routeId) continue
+    apiRoutes.push({ id: routeId, source: { sourcePath: portablePath(options.moduleRoot, options.sourceRoot, filePath) } })
+  }
+  const commands: Array<{ id: string; source: ModuleFactSourceRef }> = []
+  const seenCommands = new Set<string>()
+  for (const filePath of sourceFilesBelow(path.join(options.moduleRoot, 'commands'))) {
+    if (path.basename(filePath).replace(/\.(?:ts|tsx)$/, '') === 'interceptors') continue
+    const source: ModuleFactSourceRef = { sourcePath: portablePath(options.moduleRoot, options.sourceRoot, filePath) }
+    for (const id of extractCommandIdsFromSource(filePath)) {
+      if (seenCommands.has(id)) continue
+      seenCommands.add(id)
+      commands.push({ id, source })
+    }
+  }
+  return { apiRoutes, commands }
+}
+
 function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): ModuleExtensionHostFact[] {
   const hosts: ModuleExtensionHostFact[] = []
   for (const entity of options.entities) {
@@ -1332,6 +1374,149 @@ function extractSpecializedRegistries(options: ExtractModuleExtensionFactsOption
   return facts
 }
 
+/**
+ * Closed activation-adapter registry (Spec 2). Each `ModuleExtensionActivationKind`
+ * maps to the contribution kinds it can bind and to the mode by which a `bound`
+ * resolution is proven:
+ *
+ * - `call-site-object` — the host module owns a distinct opt-in call site (a
+ *   `makeCrudRoute` option or a mutation-guard bridge). Presence of the option —
+ *   NOT mere entity/route existence — produces an emitted `ModuleExtensionActivation`
+ *   object. This is what makes "the entity could host X" (capability-only) different
+ *   from "this route actually activates X" (bound).
+ * - `host-reference` — the runtime bridge is universal for any matching host
+ *   (every api route runs the interceptor pipeline; a bound widget/component host
+ *   proves consumption). No object is duplicated; `bound` is derived from the
+ *   existing bound host fact and the incoming row carries no `activationId`.
+ * - `owner-reference` — like host-reference but proven by the target module owning
+ *   the concrete runtime id (command ids have no host fact of their own).
+ *
+ * The registry is exhaustive by construction: the `Record` key set is the full
+ * `ModuleExtensionActivationKind` union, so adding a kind fails the typecheck until
+ * it is classified. `activation-adapter-coverage.test.ts` re-checks this at runtime.
+ */
+type ActivationAdapterMode = 'call-site-object' | 'host-reference' | 'owner-reference'
+
+export const ACTIVATION_ADAPTERS: Record<ModuleExtensionActivationKind, {
+  contributionKinds: ModuleExtensionContributionKind[]
+  mode: ActivationAdapterMode
+}> = {
+  'crud-response-enricher': { contributionKinds: ['response-enricher'], mode: 'call-site-object' },
+  'query-enricher': { contributionKinds: ['response-enricher'], mode: 'call-site-object' },
+  'mutation-guard': { contributionKinds: ['mutation-guard'], mode: 'call-site-object' },
+  'api-interceptor-bridge': { contributionKinds: ['api-interceptor'], mode: 'host-reference' },
+  'command-interceptor-bridge': { contributionKinds: ['command-interceptor'], mode: 'owner-reference' },
+  'widget-injection-consumer': { contributionKinds: ['widget', 'data-table', 'crud-form'], mode: 'host-reference' },
+  'component-extension-consumer': { contributionKinds: ['component-override'], mode: 'host-reference' },
+  'dashboard-host-consumer': { contributionKinds: ['widget'], mode: 'host-reference' },
+}
+
+/**
+ * Every UMES contribution kind classified against the activation registry: either
+ * the ordered set of activation kinds that can bind it, or `capability-only` for
+ * contributions that are always active by declaration/registration and never gain
+ * a route/entity activation. Exhaustive by `Record` construction — a new kind fails
+ * the typecheck until classified.
+ */
+export const CONTRIBUTION_ACTIVATION_CLASSIFICATION: Record<
+  ModuleExtensionContributionKind,
+  ModuleExtensionActivationKind[] | 'capability-only'
+> = {
+  'response-enricher': ['crud-response-enricher', 'query-enricher'],
+  'mutation-guard': ['mutation-guard'],
+  'api-interceptor': ['api-interceptor-bridge'],
+  'command-interceptor': ['command-interceptor-bridge'],
+  'widget': ['widget-injection-consumer', 'dashboard-host-consumer'],
+  'data-table': ['widget-injection-consumer'],
+  'crud-form': ['widget-injection-consumer'],
+  'component-override': ['component-extension-consumer'],
+  'entity-extension': 'capability-only',
+  'subscriber': 'capability-only',
+  'browser-reaction': 'capability-only',
+  'specialized-registry': 'capability-only',
+  'module-override': 'capability-only',
+}
+
+export const ALL_ACTIVATION_KINDS = Object.keys(ACTIVATION_ADAPTERS) as ModuleExtensionActivationKind[]
+export const ALL_CONTRIBUTION_KINDS = Object.keys(CONTRIBUTION_ACTIVATION_CLASSIFICATION) as ModuleExtensionContributionKind[]
+
+const MUTATION_GUARD_BRIDGES = new Set([
+  'validateCrudMutationGuard',
+  'runMutationGuards',
+  'runRouteMutationGuards',
+])
+
+function nodeLine(file: ts.SourceFile, node: ts.Node): number {
+  return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1
+}
+
+function activationId(host: ModuleExtensionTargetRef, kind: ModuleExtensionActivationKind): string {
+  const method = host.method ? `:${host.method}` : ''
+  return `${host.kind}:${host.id}${method}:${kind}`
+}
+
+function sortActivations(activations: ModuleExtensionActivation[]): ModuleExtensionActivation[] {
+  return [...activations].sort((left, right) => left.id.localeCompare(right.id))
+}
+
+/**
+ * Extract the `call-site-object` activations (CRUD response/query enrichers and
+ * mutation guards) from a module's real `api/**` opt-in sites. Entity or route
+ * presence alone never lands here — only a literal `enrichers: { entityId }`
+ * option or a mutation-guard bridge call with a static `resourceKind`/`entityId`.
+ */
+function extractCallSiteActivations(options: ExtractModuleExtensionFactsOptions): ModuleExtensionActivation[] {
+  const activations: ModuleExtensionActivation[] = []
+  const seen = new Set<string>()
+  const push = (activation: ModuleExtensionActivation): void => {
+    if (seen.has(activation.id)) return
+    seen.add(activation.id)
+    activations.push(activation)
+  }
+  for (const filePath of sourceFilesBelow(path.join(options.moduleRoot, 'api'))) {
+    const file = sourceFile(filePath)
+    if (!file) continue
+    const context = buildStaticContext(file)
+    const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
+    const visit = (node: ts.Node): void => {
+      if (ts.isPropertyAssignment(node) && propertyName(node.name) === 'enrichers') {
+        const config = staticValue(node.initializer, context)
+        const entityId = isStaticObject(config) ? stringValue(config.entityId) : undefined
+        if (entityId) {
+          const host: ModuleExtensionTargetRef = { kind: 'entity', id: entityId, moduleId: options.moduleId }
+          const source: ModuleFactSourceRef = { sourcePath, line: nodeLine(file, node) }
+          for (const kind of ['crud-response-enricher', 'query-enricher'] as const) {
+            push({ id: activationId(host, kind), kind, host, contributionKinds: ['response-enricher'], source })
+          }
+        }
+      }
+      if (
+        ts.isCallExpression(node)
+        && ts.isIdentifier(node.expression)
+        && MUTATION_GUARD_BRIDGES.has(node.expression.text)
+      ) {
+        const argObject = node.arguments
+          .map((argument) => staticValue(argument, context))
+          .find(isStaticObject)
+        const entityId = argObject ? (stringValue(argObject.resourceKind) ?? stringValue(argObject.entityId)) : undefined
+        if (entityId) {
+          const host: ModuleExtensionTargetRef = { kind: 'entity', id: entityId, moduleId: options.moduleId }
+          push({
+            id: activationId(host, 'mutation-guard'),
+            kind: 'mutation-guard',
+            host,
+            contributionKinds: ['mutation-guard'],
+            source: { sourcePath, line: nodeLine(file, node) },
+          })
+        }
+      }
+      node.forEachChild(visit)
+    }
+    file.forEachChild(visit)
+  }
+  return sortActivations(activations)
+}
+
 export function extractModuleExtensionFacts(options: ExtractModuleExtensionFactsOptions): ModuleExtensionSurfaceFacts {
   const declared = extractDeclaredHosts(options)
   const hosts = sortHosts([...declared.hosts, ...extractFactRefHosts(options)])
@@ -1348,7 +1533,12 @@ export function extractModuleExtensionFacts(options: ExtractModuleExtensionFacts
     ...extractComponentOverrides(options),
     ...extractSpecializedRegistries(options),
   ])
-  return { hosts, contributions, unresolved: declared.unresolved }
+  return {
+    hosts,
+    contributions,
+    unresolved: declared.unresolved,
+    activations: extractCallSiteActivations(options),
+  }
 }
 
 function patternMatches(pattern: string, targetId: string): boolean {
@@ -1443,9 +1633,352 @@ export function correlateModuleExtensionFacts(options: CorrelateExtensionFactsOp
       hosts: sortHosts([...surface.hosts]),
       contributions: sortContributions(contributions),
       unresolved: unresolved.sort((left, right) => left.key.localeCompare(right.key)),
+      activations: sortActivations([...(surface.activations ?? [])]),
     }
   }
   return result
+}
+
+type IncomingTargetOwner = { moduleId: string; source: ModuleFactSourceRef }
+
+export interface CorrelateIncomingExtensionsOptions {
+  surfacesByModule: Readonly<Record<string, ModuleExtensionSurfaceFacts>>
+  /** Concrete runtime-id owner maps derived from the fully-selected module set. */
+  apiRouteOwners?: ReadonlyMap<string, IncomingTargetOwner>
+  commandOwners?: ReadonlyMap<string, IncomingTargetOwner>
+}
+
+function normalizeRouteId(routeId: string): string {
+  return routeId.replace(/^\//, '')
+}
+
+function contributionSourceRef(contribution: ModuleExtensionContributionFact): ModuleFactSourceRef {
+  return {
+    sourcePath: contribution.source.path,
+    ...(contribution.source.symbol ? { exportName: contribution.source.symbol } : {}),
+  }
+}
+
+function targetRefKindFor(
+  contribution: ModuleExtensionContributionFact,
+  targetId: string,
+): ModuleExtensionTargetRef['kind'] {
+  if (targetId === '*' || targetId.includes('*') || targetId.includes('{')) return 'wildcard'
+  switch (contribution.kind) {
+    case 'response-enricher':
+    case 'mutation-guard':
+    case 'entity-extension':
+      return 'entity'
+    case 'api-interceptor':
+      return 'api-route'
+    case 'command-interceptor':
+      return 'command'
+    case 'component-override':
+      return 'component'
+    case 'subscriber':
+      return 'event'
+    case 'browser-reaction':
+      return contribution.details.transports.includes('notification-effect') ? 'notification' : 'event'
+    case 'widget':
+    case 'data-table':
+    case 'crud-form':
+      return 'widget-spot'
+    case 'specialized-registry':
+    case 'module-override':
+      return 'module'
+    default:
+      return 'module'
+  }
+}
+
+/**
+ * Builds the bidirectional incoming/resolution index after every module fact is
+ * extracted and target-correlated. For each contribution target it records one
+ * contributor-owned `ModuleContributionResolution` and, when a concrete target
+ * owner exists, one target-owned `ModuleIncomingExtensionRef` per matching
+ * activation. It never duplicates contribution behavior metadata — incoming rows
+ * point back to the source-owned contribution by `contributorModuleId + contributionId`.
+ */
+export function correlateIncomingExtensions(
+  options: CorrelateIncomingExtensionsOptions,
+): Record<string, ModuleExtensionSurfaceFacts> {
+  const moduleIds = Object.keys(options.surfacesByModule).sort((left, right) => left.localeCompare(right))
+  const apiRouteOwners = options.apiRouteOwners ?? new Map<string, IncomingTargetOwner>()
+  const commandOwners = options.commandOwners ?? new Map<string, IncomingTargetOwner>()
+
+  // Index call-site activations by (kind, normalized host id).
+  const activationIndex = new Map<string, Array<{ moduleId: string; activation: ModuleExtensionActivation }>>()
+  const activationKey = (kind: ModuleExtensionActivationKind, hostKind: ModuleExtensionTargetRef['kind'], id: string): string => {
+    const normId = hostKind === 'api-route' ? normalizeRouteId(id) : id
+    return `${kind} ${hostKind} ${normId}`
+  }
+  // Index bound hosts by their runtime id for host-reference resolution.
+  const boundHostIndex = new Map<string, { moduleId: string; host: ModuleExtensionHostFact }>()
+
+  for (const moduleId of moduleIds) {
+    const surface = options.surfacesByModule[moduleId]
+    for (const activation of surface.activations ?? []) {
+      const key = activationKey(activation.kind, activation.host.kind, activation.host.id)
+      const bucket = activationIndex.get(key)
+      if (bucket) bucket.push({ moduleId, activation })
+      else activationIndex.set(key, [{ moduleId, activation }])
+    }
+    for (const host of surface.hosts) {
+      if (!host.bound) continue
+      if (!boundHostIndex.has(host.id)) boundHostIndex.set(host.id, { moduleId, host })
+    }
+  }
+
+  const incomingByModule: Record<string, ModuleIncomingExtensionRef[]> = {}
+  const resolutionsByModule: Record<string, ModuleContributionResolution[]> = {}
+  const syntheticActivations: Record<string, ModuleExtensionActivation[]> = {}
+  for (const moduleId of moduleIds) {
+    incomingByModule[moduleId] = []
+    resolutionsByModule[moduleId] = []
+    syntheticActivations[moduleId] = []
+  }
+  const registerSyntheticActivation = (ownerModule: string, activation: ModuleExtensionActivation): void => {
+    if (!syntheticActivations[ownerModule]) syntheticActivations[ownerModule] = []
+    if (!syntheticActivations[ownerModule].some((entry) => entry.id === activation.id)) {
+      syntheticActivations[ownerModule].push(activation)
+    }
+  }
+
+  const findCallSiteActivations = (
+    contributionKind: ModuleExtensionContributionKind,
+    activationKinds: ModuleExtensionActivationKind[],
+    targetRef: ModuleExtensionTargetRef,
+  ): Array<{ moduleId: string; activation: ModuleExtensionActivation }> => {
+    const matches: Array<{ moduleId: string; activation: ModuleExtensionActivation }> = []
+    for (const kind of activationKinds) {
+      if (ACTIVATION_ADAPTERS[kind].mode !== 'call-site-object') continue
+      const bucket = activationIndex.get(activationKey(kind, targetRef.kind, targetRef.id)) ?? []
+      for (const entry of bucket) {
+        if (entry.activation.contributionKinds.includes(contributionKind)) matches.push(entry)
+      }
+    }
+    return matches.sort((left, right) => left.activation.id.localeCompare(right.activation.id))
+  }
+
+  for (const contributorModuleId of moduleIds) {
+    const surface = options.surfacesByModule[contributorModuleId]
+    for (const contribution of surface.contributions) {
+      const classification = CONTRIBUTION_ACTIVATION_CLASSIFICATION[contribution.kind]
+      for (const resolvedTarget of contribution.targets) {
+        const targetKind = targetRefKindFor(contribution, resolvedTarget.id)
+        const baseTarget: ModuleExtensionTargetRef = { kind: targetKind, id: resolvedTarget.id }
+
+        let resolution: ModuleExtensionResolution
+        let ownerModule: string | null = null
+        let boundActivationIds: string[] = []
+
+        if (targetKind === 'wildcard' || resolvedTarget.resolution === 'pattern') {
+          resolution = 'wildcard'
+        } else if (resolvedTarget.resolution === 'optional-external') {
+          resolution = 'optional-target-missing'
+        } else if (resolvedTarget.resolution === 'unresolved') {
+          resolution = 'unresolved'
+        } else {
+          const activationKinds = classification === 'capability-only' ? [] : classification
+          const callSiteMatches = findCallSiteActivations(contribution.kind, activationKinds, baseTarget)
+          if (callSiteMatches.length > 0) {
+            resolution = 'bound'
+            ownerModule = callSiteMatches[0].moduleId
+            boundActivationIds = callSiteMatches.map((entry) => entry.activation.id)
+          } else {
+            const referenceBinding = resolveReferenceBinding({
+              contribution,
+              activationKinds,
+              targetRef: baseTarget,
+              boundHostIndex,
+              apiRouteOwners,
+              commandOwners,
+            })
+            if (referenceBinding) {
+              resolution = 'bound'
+              ownerModule = referenceBinding.ownerModule
+              registerSyntheticActivation(referenceBinding.ownerModule, referenceBinding.activation)
+              boundActivationIds = [referenceBinding.activation.id]
+            } else {
+              const hostOwner = boundHostIndex.get(resolvedTarget.id)
+              if (hostOwner) {
+                resolution = 'capability-only'
+                ownerModule = hostOwner.moduleId
+              } else {
+                resolution = 'capability-only'
+                ownerModule = null
+              }
+            }
+          }
+        }
+
+        const resolutionTarget: ModuleExtensionTargetRef = ownerModule
+          ? { ...baseTarget, moduleId: ownerModule }
+          : baseTarget
+        resolutionsByModule[contributorModuleId].push({
+          contributionId: contribution.id,
+          target: resolutionTarget,
+          resolution,
+          activationIds: [...boundActivationIds].sort((left, right) => left.localeCompare(right)),
+        })
+
+        // Incoming rows document contributions installed by OTHER modules onto a
+        // target module's surface (cross-module discovery). Same-module targets are
+        // already fully covered by the contributor-owned resolution row above, so
+        // emitting a self-incoming row would only duplicate that fact and bloat the
+        // generated context.
+        if (ownerModule && ownerModule !== contributorModuleId && (resolution === 'bound' || resolution === 'capability-only')) {
+          const source = contributionSourceRef(contribution)
+          const incomingTarget: ModuleExtensionTargetRef = { ...baseTarget, moduleId: ownerModule }
+          if (resolution === 'bound' && boundActivationIds.length > 0) {
+            for (const activationRefId of boundActivationIds) {
+              incomingByModule[ownerModule].push({
+                contributionId: contribution.id,
+                contributionKind: contribution.kind,
+                contributorModuleId,
+                target: incomingTarget,
+                activationId: activationRefId,
+                resolution: 'bound',
+                source,
+              })
+            }
+          } else {
+            incomingByModule[ownerModule].push({
+              contributionId: contribution.id,
+              contributionKind: contribution.kind,
+              contributorModuleId,
+              target: incomingTarget,
+              resolution,
+              source,
+            })
+          }
+        }
+      }
+    }
+  }
+
+  const result: Record<string, ModuleExtensionSurfaceFacts> = {}
+  for (const moduleId of moduleIds) {
+    const surface = options.surfacesByModule[moduleId]
+    result[moduleId] = {
+      ...surface,
+      activations: sortActivations([...(surface.activations ?? []), ...syntheticActivations[moduleId]]),
+      incoming: dedupeIncoming(incomingByModule[moduleId]),
+      contributionResolutions: sortResolutions(resolutionsByModule[moduleId]),
+    }
+  }
+  return result
+}
+
+function resolveReferenceBinding(input: {
+  contribution: ModuleExtensionContributionFact
+  activationKinds: ModuleExtensionActivationKind[]
+  targetRef: ModuleExtensionTargetRef
+  boundHostIndex: ReadonlyMap<string, { moduleId: string; host: ModuleExtensionHostFact }>
+  apiRouteOwners: ReadonlyMap<string, IncomingTargetOwner>
+  commandOwners: ReadonlyMap<string, IncomingTargetOwner>
+}): { ownerModule: string; activation: ModuleExtensionActivation } | null {
+  for (const kind of input.activationKinds) {
+    const adapter = ACTIVATION_ADAPTERS[kind]
+    if (adapter.mode === 'call-site-object') continue
+    if (!adapter.contributionKinds.includes(input.contribution.kind)) continue
+
+    if (adapter.mode === 'host-reference' && kind === 'api-interceptor-bridge') {
+      const routeId = normalizeRouteId(input.targetRef.id)
+      const owner = input.apiRouteOwners.get(routeId)
+      if (!owner) continue
+      const host: ModuleExtensionTargetRef = { kind: 'api-route', id: routeId, moduleId: owner.moduleId }
+      return {
+        ownerModule: owner.moduleId,
+        activation: {
+          id: activationId(host, kind),
+          kind,
+          host,
+          contributionKinds: ['api-interceptor'],
+          phases: ['before', 'after'],
+          source: owner.source,
+          bridge: { factSection: 'apiRoutes', factKey: `/${routeId}` },
+        },
+      }
+    }
+
+    if (adapter.mode === 'owner-reference' && kind === 'command-interceptor-bridge') {
+      const owner = input.commandOwners.get(input.targetRef.id)
+      if (!owner) continue
+      const host: ModuleExtensionTargetRef = { kind: 'command', id: input.targetRef.id, moduleId: owner.moduleId }
+      return {
+        ownerModule: owner.moduleId,
+        activation: {
+          id: activationId(host, kind),
+          kind,
+          host,
+          contributionKinds: ['command-interceptor'],
+          source: owner.source,
+          bridge: { factSection: 'commands', factKey: input.targetRef.id },
+        },
+      }
+    }
+
+    if (adapter.mode === 'host-reference' && (kind === 'widget-injection-consumer' || kind === 'component-extension-consumer' || kind === 'dashboard-host-consumer')) {
+      const hostEntry = input.boundHostIndex.get(input.targetRef.id)
+      if (!hostEntry) continue
+      const hostSource = hostReferenceSource(hostEntry.host)
+      if (!hostSource) continue
+      const host: ModuleExtensionTargetRef = { ...input.targetRef, moduleId: hostEntry.moduleId }
+      return {
+        ownerModule: hostEntry.moduleId,
+        activation: {
+          id: activationId(host, kind),
+          kind,
+          host,
+          contributionKinds: adapter.contributionKinds,
+          source: hostSource,
+          bridge: { factSection: 'hosts', factKey: hostEntry.host.key },
+        },
+      }
+    }
+  }
+  return null
+}
+
+function hostReferenceSource(host: ModuleExtensionHostFact): ModuleFactSourceRef | null {
+  if (host.source.kind === 'declaration' || host.source.kind === 'framework') {
+    return { sourcePath: host.source.path, exportName: host.source.symbol }
+  }
+  return null
+}
+
+function incomingIdentity(entry: ModuleIncomingExtensionRef): string {
+  const target = `${entry.target.kind} ${entry.target.id}`
+  return `${entry.contributorModuleId} ${entry.contributionId} ${target} ${entry.activationId ?? entry.resolution}`
+}
+
+function dedupeIncoming(entries: ModuleIncomingExtensionRef[]): ModuleIncomingExtensionRef[] {
+  const seen = new Set<string>()
+  const unique: ModuleIncomingExtensionRef[] = []
+  for (const entry of entries) {
+    const identity = incomingIdentity(entry)
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    unique.push(entry)
+  }
+  return unique.sort((left, right) => incomingIdentity(left).localeCompare(incomingIdentity(right)))
+}
+
+function resolutionIdentity(entry: ModuleContributionResolution): string {
+  return `${entry.contributionId} ${entry.target.kind} ${entry.target.id} ${entry.resolution}`
+}
+
+function sortResolutions(entries: ModuleContributionResolution[]): ModuleContributionResolution[] {
+  const seen = new Set<string>()
+  const unique: ModuleContributionResolution[] = []
+  for (const entry of entries) {
+    const identity = resolutionIdentity(entry)
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    unique.push(entry)
+  }
+  return unique.sort((left, right) => resolutionIdentity(left).localeCompare(resolutionIdentity(right)))
 }
 
 export function assertNoUnresolvedExtensionTargets(

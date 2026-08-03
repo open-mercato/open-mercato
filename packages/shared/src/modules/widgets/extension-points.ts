@@ -232,11 +232,103 @@ export function resolveExtensionPointPattern(
   return pattern.replace(/\{([^}]+)\}/g, (token, parameterName: string) => parameters[parameterName] ?? token)
 }
 
+/**
+ * Portable, structural copy of the CLI provenance source reference
+ * (`ModuleFactSourceRef` in `packages/cli/.../module-facts.ts`). Redefined here
+ * — rather than imported — so `@open-mercato/shared` keeps zero dependency on
+ * `@open-mercato/cli`. Field names are kept byte-identical so the two are
+ * assignable across the package boundary.
+ */
+export type ModuleFactSourceRef = {
+  sourcePath: string
+  exportName?: string
+  line?: number
+}
+
+/** Portable, structural copy of the CLI provenance fact reference. */
+export type ModuleFactRef = {
+  factSection: string
+  factKey: string
+}
+
+export type ModuleExtensionContributionKind = ModuleExtensionContributionFact['kind']
+
+export type ModuleExtensionActivationKind =
+  | 'crud-response-enricher'
+  | 'query-enricher'
+  | 'mutation-guard'
+  | 'api-interceptor-bridge'
+  | 'command-interceptor-bridge'
+  | 'widget-injection-consumer'
+  | 'component-extension-consumer'
+  | 'dashboard-host-consumer'
+
+export type ModuleExtensionTargetRef = {
+  kind:
+    | 'module'
+    | 'entity'
+    | 'api-route'
+    | 'command'
+    | 'widget-spot'
+    | 'component'
+    | 'event'
+    | 'notification'
+    | 'wildcard'
+  id: string
+  moduleId?: string
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+}
+
+export type ModuleExtensionActivation = {
+  id: string
+  kind: ModuleExtensionActivationKind
+  host: ModuleExtensionTargetRef
+  contributionKinds: ModuleExtensionContributionKind[]
+  phases?: string[]
+  source: ModuleFactSourceRef
+  bridge?: ModuleFactRef
+}
+
+export type ModuleExtensionResolution =
+  | 'bound'
+  | 'capability-only'
+  | 'optional-target-missing'
+  | 'wildcard'
+  | 'unresolved'
+
+export type ModuleIncomingExtensionRef = {
+  contributionId: string
+  contributionKind: ModuleExtensionContributionKind
+  contributorModuleId: string
+  target: ModuleExtensionTargetRef
+  activationId?: string
+  resolution: ModuleExtensionResolution
+  source: ModuleFactSourceRef
+}
+
+export type ModuleContributionResolution = {
+  contributionId: string
+  target: ModuleExtensionTargetRef
+  resolution: ModuleExtensionResolution
+  activationIds: string[]
+}
+
+/**
+ * Additive, optional bidirectional-topology fields layered on top of the
+ * existing extension-surface facts. Every field is optional so legacy consumers
+ * and pre-existing generated output remain byte-compatible.
+ */
+export type ModuleExtensionSurfaceFactsAdditions = {
+  activations?: ModuleExtensionActivation[]
+  incoming?: ModuleIncomingExtensionRef[]
+  contributionResolutions?: ModuleContributionResolution[]
+}
+
 export type ModuleExtensionSurfaceFacts = {
   hosts: ModuleExtensionHostFact[]
   contributions: ModuleExtensionContributionFact[]
   unresolved: ModuleExtensionUnresolvedFact[]
-}
+} & ModuleExtensionSurfaceFactsAdditions
 
 export type ModuleExtensionHostFact = {
   key: string
