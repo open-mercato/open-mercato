@@ -175,6 +175,20 @@ These generated files come from built-in generator extensions.
 | `injection-widgets.generated.ts` | injection-widgets | Injection widget registry. |
 | `injection-tables.generated.ts` | injection-widgets | Injection table/slot registry. |
 
+## Installed-module fact outputs
+
+`create-mercato-app` also runs the module-facts extractor when it builds the standalone agentic bundle ([source](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/create-app/build.mjs)). These outputs are documentation and agent context, not runtime registries:
+
+| Generated artifact | Purpose |
+|---|---|
+| `.ai/guides/module-facts.json` | Machine-readable installed-module contracts, extension topology, exact override targets, diagnostics, and provenance. |
+| `.ai/guides/modules/<moduleId>.md` | One human-readable source-linked fact sheet per installed module. |
+| `.ai/guides/framework-extension-points.md` | Framework-owned hosts and unified-override modes that cannot be assigned to one module. |
+
+The facts are derived from the same convention files and normalized registry identities as the runtime generators. They preserve package-portable `node_modules/@open-mercato/...` source paths, optional line anchors, and fact references rather than embedding source bodies or runtime values ([fact generator](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-facts.ts)).
+
+Use [Extension facts and source catalog](/framework/extensibility/extension-facts) for the complete host, contribution, activation, resolution, and override vocabulary. A fact with a missing source or unresolved target is a generator diagnostic, not permission to infer a key.
+
 ## Why this architecture exists
 
 - Module owners keep CLI, UI, API, and generation logic close to the same feature boundary.

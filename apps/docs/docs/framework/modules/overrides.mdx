@@ -43,13 +43,21 @@ Resolution order is:
 
 The default app and `create-mercato-app` template also export a non-applied `moduleOverrideExamples` object from `src/modules.ts`. It is a copyable catalog for all wired domains; it does not change runtime behavior unless you assign one of those shapes to a module entry's `overrides` field.
 
+## Resolve an exact target first
+
+Do not guess an override key from a filename or a conceptual domain. In a standalone app, open `.ai/guides/modules/<moduleId>.md` and copy the complete path from **Exact override targets**. Each target links to the defining installed source and to the module fact it overrides. Then use `.ai/guides/framework-extension-points.md` for the domain's mode.
+
+Treat `overrideTargetDiagnostics` as blockers ([target adapters](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-override-targets.ts)). In particular, `overrides.guards` addresses backend/frontend page middleware; mutation guards discovered from `data/guards.ts` are a separate extension contract and never belong in that map. Framework-only `nav.groupOrder` appears only in the framework catalog.
+
+See [Extension facts and source catalog](/framework/extensibility/extension-facts#exact-unified-override-targets) for the complete domain inventory and source-link contract.
+
 ## Domains
 
 | Domain | Key | Stable id |
 |---|---|---|
-| AI | `ai.agents`, `ai.tools` | agent id / tool name |
+| AI | `ai.agents`, `ai.tools`, `ai.extensions` | agent id / tool name / additive extension bundle |
 | API routes | `routes.api` | `'METHOD /api/path'` |
-| Page routes | `routes.pages` | `'/backend/path'` or `'/frontend/path'` |
+| Page routes | `routes.pages` | canonical `'backend:/backend/path'` or `'frontend:/path'` (plain app paths normalize to these keys) |
 | Event subscribers | `events.subscribers` | subscriber id |
 | Workers | `workers` | worker id |
 | Widget injection | `widgets.injection` | injection widget id |
@@ -61,7 +69,7 @@ The default app and `create-mercato-app` template also export a non-applied `mod
 | Response enrichers | `enrichers` | enricher id |
 | Page guards | `guards` | middleware id |
 | CLI commands | `cli` | command string |
-| Setup hooks | `setup` | module id |
+| Setup hooks | `setup` | supported setup property on the owning module entry |
 | ACL features | `acl.features` | feature id |
 | DI bindings | `di` | container key |
 | Encryption maps | `encryption.maps` | entity id |
@@ -80,10 +88,11 @@ export const moduleOverrideExamples: ModuleOverrides = {
   ai: {
     agents: { 'catalog.catalog_assistant': null },
     tools: { inbox_ops_accept_action: null },
+    extensions: [],
   },
   routes: {
     api: { 'DELETE /api/example/items': null },
-    pages: { '/backend/example/reports': null },
+    pages: { 'backend:/backend/example/reports': null },
   },
   events: {
     subscribers: { 'example.todo.audit': null },

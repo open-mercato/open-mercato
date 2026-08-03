@@ -48,6 +48,20 @@ export const metadata = {
 };
 ```
 
+## Extend an existing API pipeline
+
+Use an extension contribution when another module owns the route or entity. Do not patch that module's handler.
+
+| Mechanism | Convention | What proves it runs |
+|---|---|---|
+| Response/query enricher | `data/enrichers.ts` exports `enrichers` | The generated module sheet records a `crud-response-enricher` or `query-enricher` activation for the target entity. |
+| API interceptor | `api/interceptors.ts` exports `interceptors` | CRUD routes run the shared pipeline; a custom route must call the shared before/after interceptor bridge. |
+| Mutation guard | `data/guards.ts` exports `guards` | The generated sheet records a `mutation-guard` activation at a CRUD route or `runRouteMutationGuards` call site. |
+
+API interceptor facts include the exact route pattern, methods, `before`/`after` phases, timeout, feature gate, and fail-closed/fallback posture. Mutation-guard facts include the entity, create/update/delete operations, block/rewrite/after-success capabilities, and optimistic-lock preservation.
+
+A target entity or route alone is only capability evidence. Require the corresponding active binding before assuming a host executes the contribution ([activation adapters](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-extension-facts.ts)). See [Extension facts and source catalog](/framework/extensibility/extension-facts#activation-and-resolution) for the complete fact vocabulary and [Response enrichers](/framework/widget-injection#umes-phase-d--response-enrichers) for the enricher contract.
+
 ## Best practices
 
 - **Validate all inputs** using Zod schemas colocated with the entity or service they touch.

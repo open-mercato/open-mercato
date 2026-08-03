@@ -13,6 +13,12 @@ The widget injection system allows modules to:
 
 ## Architecture
 
+### Resolve generated hosts before wiring a widget
+
+In a standalone app, start with `.ai/guides/modules/<hostModule>.md`. Use a host only when its UMES row is `bound`, and require a portable source link or a `fact-ref` that resolves to one. The sheet's incoming index shows which installed modules already contribute to that host; its active bindings distinguish a mountable call site from a merely compatible capability.
+
+DataTable and CrudForm helper IDs may be emitted as `bound: false` diagnostics. They are not valid injection targets ([surface constants](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/widgets/extension-points.ts)). The complete bound/unbound surface list, contribution kinds, activation states, and source rules live in [Extension facts and source catalog](/framework/extensibility/extension-facts).
+
 ### Key Components
 
 1. **Injection Widgets** - React components with event handlers

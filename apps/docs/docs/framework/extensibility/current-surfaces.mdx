@@ -5,10 +5,13 @@ description: Everything that is extendable today, with quick-start pointers and 
 
 Below is the current-state inventory of extension surfaces in Open Mercato.
 
+For the generated fact vocabulary, activation states, exact unified-override domains, and portable-source rules behind this inventory, see [Extension facts and source catalog](/framework/extensibility/extension-facts).
+
 ## Module contracts and auto-discovery
 
 | Surface | How to start | Primary contract/docs |
 |---|---|---|
+| Installed module fact sheets | Read `.ai/guides/modules/<moduleId>.md` and `module-facts.json`; require a portable source link before acting | [Extension facts and source catalog](/framework/extensibility/extension-facts), [Standalone AI harness](/architecture/standalone-ai-development-harness) |
 | Module metadata and boot hooks | Add `src/modules/<module>/index.ts`, then optional `di.ts`, `setup.ts`, `acl.ts` | [Modules overview](/framework/modules/overview), [Container](/framework/ioc/container) |
 | Routes and pages discovery | Add files under `api/`, `backend/`, `frontend/` in module root | [Routes and pages](/framework/modules/routes-and-pages), [API modules](/framework/api/building-api-modules) |
 | CLI commands | Add `cli.ts` in module and export command handlers | [CLI overview](/cli/overview) |

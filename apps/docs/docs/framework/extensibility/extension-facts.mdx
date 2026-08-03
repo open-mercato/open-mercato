@@ -1,0 +1,226 @@
+---
+title: Extension facts and source catalog
+description: Read generated module facts, resolve extension hosts and contributions, and verify exact override targets against portable source links.
+---
+
+Open Mercato's extension facts are the machine-readable index of what an installed module exposes, consumes, contributes, or lets an application override. Use the facts to select an exact target; use the linked source only to answer a remaining implementation detail.
+
+This page documents the complete fact vocabulary. It does not copy changing module-specific IDs. A standalone application's generated files remain authoritative for the packages and versions that application has installed.
+
+## Source authorities
+
+The catalog below is derived from these executable sources, not from a parallel hand-maintained schema:
+
+| Contract | Direct source |
+|---|---|
+| Host families, capabilities, bound UI surfaces, contribution kinds, activations, and resolutions | [`extension-points.ts`](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/widgets/extension-points.ts) |
+| Framework hosts, extraction, contribution classification, and activation adapters | [`module-extension-facts.ts`](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-extension-facts.ts) |
+| Provenance model and generated Markdown source-link renderer | [`module-facts.ts`](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-facts.ts) |
+| Unified override runtime shapes, normalization, precedence, and appliers | [`overrides.ts`](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/overrides.ts) |
+| Exact module override-target adapters and diagnostics | [`module-override-targets.ts`](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-override-targets.ts) |
+| Standalone fact generation and artifact layout | [`packages/create-app/build.mjs`](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/create-app/build.mjs) |
+
+## Generated artifacts
+
+A standalone app receives three related artifacts under `.ai/guides/`; the build writes all three from one extraction result ([source](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/create-app/build.mjs)):
+
+| Artifact | Use it for |
+|---|---|
+| `module-facts.json` | Machine-readable facts for every installed module. |
+| `modules/<moduleId>.md` | Human-readable facts for one module, including hosts, contributions, active bindings, incoming contributions, exact overrides, diagnostics, and source links. |
+| `framework-extension-points.md` | Framework-owned hosts and supported unified-override modes that do not belong to one business module. |
+
+Run `yarn framework:context --module <moduleId> --query <symbol>` only when a fact and its named source do not answer one remaining question. Installed framework packages and `node_modules` stay read-only.
+
+## Facts-first selection
+
+Use this order for any extension:
+
+1. Find the owning module and exact host in its generated sheet.
+2. Confirm the host is `bound`. A helper marked `bound: false` is diagnostic, not a mountable target.
+3. Find the contribution and inspect its target, scope, operations, features, and source.
+4. Require a `bound` activation when the mechanism needs an explicit host call site. A merely compatible entity, route, or widget spot is not proof that the pipeline runs there.
+5. Check the host module's incoming index to see which installed modules already contribute to it.
+6. For `modules.ts` overrides, copy the complete `overrideTargets[].path`, then consult the framework catalog for its mode.
+7. Follow the portable source link. If a required fact has no source, is unresolved, or carries an override diagnostic, stop instead of guessing.
+
+## Host families and capabilities
+
+Hosts use a closed family vocabulary so tools can distinguish similarly named surfaces ([source](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/widgets/extension-points.ts)):
+
+| Family | What it identifies | Primary guide |
+|---|---|---|
+| `generic` | Framework or module-specific render/headless spot. | [Widget injection](/framework/widget-injection) |
+| `menu` | Backend, settings, profile, portal, or topbar menu host. | [Widget injection](/framework/widget-injection) |
+| `data-table` | A bound DataTable render, headless, or replacement surface. | [Data grids](/framework/admin-ui/data-grids) |
+| `crud-form` | A bound CrudForm render, field, lifecycle, or replacement surface. | [CrudForm](/framework/admin-ui/crud-form) |
+| `detail` | A record-detail section or slot. | [Widget injection](/framework/widget-injection) |
+| `portal-page` | A customer-portal page extension host. | [Widget injection](/framework/widget-injection) |
+| `component-handle` | A replace, wrapper, or props-transform component handle. | [Widget injection](/framework/widget-injection) |
+| `entity` | Entity-scoped enrichers, guards, or links. | [Data extensibility](/framework/database/data-extensibility) |
+| `api-route` | API interceptor bridge target. | [Extend module APIs](/framework/api/extending-api) |
+| `command` | Command interceptor bridge target. | [Commands](/framework/commands/overview) |
+| `event` | Async/sync subscriber target. | [Events and subscribers](/framework/events/overview) |
+| `query-lifecycle` | Synchronous querying/queried event target. | [Query engine extensibility](/framework/extensibility/query-engine-extensibility) |
+| `dashboard` | Dashboard registry target. | [Dashboard widgets](/framework/dashboard/widgets-overview) |
+| `notification` | Notification type or reaction target. | [Notifications](/framework/modules/notifications) |
+| `integration` | Provider-scoped integration detail host. | [Integration enhancements](/framework/extensibility/integration-enhancements) |
+| `specialized-registry` | A fact routed to its owning registry guide. | [Specialized registries](#specialized-registries) |
+| `module-override` | A unified override domain and supported mode. | [Module overrides](/framework/modules/overrides) |
+
+The complete capability vocabulary is grouped below. A host advertises only the capabilities its runtime consumer supports ([source](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/widgets/extension-points.ts)).
+
+| Capability group | Exact capability values |
+|---|---|
+| Render and menus | `render-widget`, `headless-widget`, `menu-item` |
+| DataTable | `column-widget`, `row-action`, `bulk-action`, `filter-widget`, `toolbar-widget` |
+| CrudForm | `field-widget`, `lifecycle-handler` |
+| Component composition | `component-replacement` |
+| API, query, and commands | `response-enricher`, `query-enricher`, `api-interceptor`, `command-interceptor`, `mutation-guard` |
+| Data and events | `entity-extension`, `async-subscriber`, `sync-subscriber` |
+| Browser transport | `browser-client`, `browser-portal` |
+| Registries and app policy | `registry-contribution`, `module-override` |
+
+## Standard UI host boundaries
+
+The generated catalog separates runtime-bound surfaces from helper-only IDs ([surface constants](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/widgets/extension-points.ts)).
+
+### DataTable
+
+For `data-table:<tableId>`, these surfaces are bound:
+
+- render: `:header`, `:footer`, `:toolbar`, and conditional `:search-trailing`;
+- headless: `:columns`, `:row-actions`, `:bulk-actions`, and `:filters`;
+- replacement handle: `data-table:<tableId>`.
+
+The base spot is a configuration prefix, not a rendered base slot. `:empty-state` is currently emitted as `bound: false` and must not be used as a target.
+
+### CrudForm
+
+For `crud-form:<entityId>`, the bound surfaces are the base render/lifecycle host, `:header`, `:fields`, and the `crud-form:<entityId>` replacement handle.
+
+The helper surfaces `:before-fields`, `:after-fields`, `:footer`, `:sidebar`, `:group:{groupId}`, `:field:{fieldId}:before`, and `:field:{fieldId}:after` are currently emitted as `bound: false`.
+
+The lifecycle vocabulary is:
+
+- `transformValidation`, `transformDisplayData`, and `transformFormData`;
+- `onBeforeNavigate`, `onAppEvent`, `onVisibilityChange`, and `onFieldChange`;
+- `onBeforeSave`, `onSave`, and `onAfterSave`;
+- `onBeforeDelete`, `onDelete`, `onAfterDelete`, and `onDeleteError`.
+
+Operation filters use `create`, `update`, and `delete`.
+
+## Contribution families
+
+Every outgoing contribution has an ID, one or more targets, scope, activation posture, portable source, and kind-specific details ([source union](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/widgets/extension-points.ts)).
+
+| Contribution kind | What the fact proves | Primary guide |
+|---|---|---|
+| `widget` | Injection/dashboard/menu/notification/integration widget registry key, payload, placement, and execution guard. | [Widget injection](/framework/widget-injection) |
+| `data-table` | Exact table host and column, row-action, bulk-action, filter, toolbar, or render payload. | [Data grids](/framework/admin-ui/data-grids) |
+| `crud-form` | Exact entity host, field/group IDs, lifecycle payload, and request-header capability. | [CrudForm](/framework/admin-ui/crud-form) |
+| `component-override` | Component handle, `replace`/`wrapper`/`props` mode, and props contract. | [Widget injection](/framework/widget-injection) |
+| `response-enricher` | Target entity, list/detail surface, timeout, fallback, criticality, cache posture, and query opt-in. | [Data extensibility](/framework/database/data-extensibility) |
+| `api-interceptor` | Target route, methods, before/after phases, bridge type, timeout, and failure posture. | [Extend module APIs](/framework/api/extending-api) |
+| `command-interceptor` | Target command and before/after execute/undo phases. | [Commands](/framework/commands/overview) |
+| `mutation-guard` | Entity, create/update/delete operations, block/rewrite/after-success capability, and preserved optimistic locking. | [Extend module APIs](/framework/api/extending-api) |
+| `entity-extension` | Host entity, extension entity, link identity, scoping, and orphan contract. | [Data extensibility](/framework/database/data-extensibility) |
+| `subscriber` | Event, stable subscriber ID, async/persistent or sync delivery, and priority. | [Events and subscribers](/framework/events/overview) |
+| `browser-reaction` | Client/portal/notification transport, hooks, audience scope, and optional payload/dedup limits. | [Widget injection](/framework/widget-injection) |
+| `specialized-registry` | Exact registry family and ID plus the specialist route that owns its semantics. | [Specialized registries](#specialized-registries) |
+| `module-override` | Unified override domain, key, and mode for an explicitly contributed override. | [Module overrides](/framework/modules/overrides) |
+
+### Specialized registries
+
+Do not treat all registry contributions as widgets. Follow `specialistRoute` to the guide that owns the runtime contract.
+
+| Registry value | Owning documentation |
+|---|---|
+| `notification` | [Notifications](/framework/modules/notifications) |
+| `integration` | [Integration enhancements](/framework/extensibility/integration-enhancements) |
+| `search` | [Hybrid search](/framework/database/hybrid-search) |
+| `vector` | [Hybrid search](/framework/database/hybrid-search) |
+| `ai` | [AI agents](/framework/ai-assistant/agents) |
+| `payment` | [Shipping and payment providers](/framework/modules/sales-providers) |
+| `shipping` | [Shipping and payment providers](/framework/modules/sales-providers) |
+| `currency` | [Currencies](/framework/modules/currencies) |
+| `workflow` | [Extending workflows](/framework/workflows/extending) |
+
+## Activation and resolution
+
+Compatibility does not prove runtime activation. The catalog uses a closed activation vocabulary ([types](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/widgets/extension-points.ts), [adapter registry](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-extension-facts.ts)):
+
+| Activation kind | Binding proof |
+|---|---|
+| `crud-response-enricher` | A CRUD route explicitly opts its entity into response enrichment. |
+| `query-enricher` | A query call site explicitly enables extensions for the entity. |
+| `mutation-guard` | A route calls a supported mutation-guard bridge for the entity. |
+| `api-interceptor-bridge` | A concrete API route runs the shared interceptor pipeline. |
+| `command-interceptor-bridge` | The target module owns the concrete command ID consumed by the bridge. |
+| `widget-injection-consumer` | A bound host consumes the injection registry at the exact spot. |
+| `component-extension-consumer` | A bound component handle applies replacement/wrapper/props contributions. |
+| `dashboard-host-consumer` | A dashboard host consumes the contributed widget ID. |
+
+An incoming contribution or contribution resolution has one of these states:
+
+| Resolution | Meaning |
+|---|---|
+| `bound` | The runtime binding is proven. Use the recorded activation when present. |
+| `capability-only` | Registration itself is the capability; no separate route/host activation exists. |
+| `optional-target-missing` | The contribution targets an optional package/module that is not installed. |
+| `wildcard` | The contribution intentionally targets a supported pattern. |
+| `unresolved` | A first-party target could not be proven. Treat this as a blocker. |
+
+## Exact unified override targets
+
+The framework catalog defines supported domains and modes. Each module sheet supplies only the exact targets that module actually owns. `overrideTargets[].path` is the lossless path below `overrides`; `key` is a convenience field for keyed maps ([runtime domains](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/shared/src/modules/overrides.ts), [target adapters](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-override-targets.ts)).
+
+| Domain path | Mode | Exact target identity |
+|---|---|---|
+| `ai.agents` | disable/replace | Agent ID. |
+| `ai.tools` | disable/replace | Tool name/ID. |
+| `ai.extensions` | additive | The module's AI extension bundle; it is not a keyed map. |
+| `routes.api` | disable/replace | Uppercase method plus normalized `/api/...` path. |
+| `routes.pages` | disable/replace | Canonical `backend:/backend/...` or `frontend:/...` application route. |
+| `events.subscribers` | disable/replace | Subscriber registry ID. |
+| `workers` | disable/replace | Worker registry ID. |
+| `widgets.injection` | disable/replace | Injection widget registry key, not the target spot ID. |
+| `widgets.components` | disable/replace | Component handle. |
+| `widgets.dashboard` | disable/replace | Dashboard widget ID. |
+| `notifications.types` | disable/replace | Notification type ID. |
+| `notifications.handlers` | disable/replace | Notification handler ID. |
+| `interceptors` | disable/replace | API interceptor contribution ID. |
+| `commandInterceptors` | disable/replace | Command interceptor contribution ID. |
+| `enrichers` | disable/replace | Response/query enricher contribution ID. |
+| `guards` | disable/replace | Page middleware ID only. Mutation guards from `data/guards.ts` do not belong here. |
+| `cli` | disable/replace | CLI command string. |
+| `setup` | replace | Supported setup property: `defaultRoleFeatures`, `defaultCustomerRoleFeatures`, `seedDefaults`, `seedExamples`, or `onTenantCreated`. |
+| `acl.features` | disable/replace | ACL feature ID. |
+| `di` | disable/replace | Awilix registration token. Facts expose safe metadata, never the original runtime value/body. |
+| `encryption.maps` | disable/replace | Encryption entity/config ID. |
+| `nav.groupOrder` | additive | Framework-only app-wide group ordering; it never appears as a module-specific target. |
+
+Never flatten nested paths, derive keys from filenames, or translate a mutation guard into `overrides.guards`. If `overrideTargetDiagnostics` reports `missing-owned-fact`, `missing-source`, `unsupported-dynamic-key`, or `unknown-framework-domain`, resolve that diagnostic before authoring an override.
+
+See [Module overrides](/framework/modules/overrides) for value shapes, precedence, replacement examples, and programmatic helpers.
+
+## Portable source links
+
+Every fact used to select or change an extension must resolve to installed, version-matched source ([provenance types and renderer](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-facts.ts)):
+
+- paths are relative and package-portable, for example `node_modules/@open-mercato/core/src/modules/customers/acl.ts`;
+- paths never contain an absolute developer checkout or `..` traversal;
+- `line` may add a one-based line anchor and `exportName` may name the defining export;
+- declaration and direct contribution facts point to their source file;
+- `fact-ref` hosts follow `factSection` and `factKey` to the source-linked owning fact;
+- generated output contains identifiers and safe metadata, never source bodies, runtime values, credentials, or tenant data.
+
+A missing or invalid source link is a fact-generation gap. It is not acceptable evidence that the extension is documented or safe to use. Regenerate with the package version installed by the application, then use `yarn framework:context` only for the named unresolved detail.
+
+## Related documentation
+
+- [Current extension surfaces](/framework/extensibility/current-surfaces)
+- [Generator architecture](/architecture/generators)
+- [Standalone AI development harness](/architecture/standalone-ai-development-harness)
+- [Module overrides](/framework/modules/overrides)
+- [Backward compatibility](https://github.com/open-mercato/open-mercato/blob/develop/BACKWARD_COMPATIBILITY.md)

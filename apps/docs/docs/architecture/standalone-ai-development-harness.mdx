@@ -78,6 +78,8 @@ The generated ownership manifest lets `yarn mercato agentic:init --update-harnes
 
 The root router may select more than one task family. It then loads only the relevant guides and skills. Module-specific facts are loaded before exact source; an agent should use `om-framework-context` only when facts and guides do not answer a version-specific question.
 
+Each actionable fact must carry or resolve through a package-portable source reference. In a generated module sheet, links point from `.ai/guides/modules/` to the exact installed `node_modules/@open-mercato/...` source, optionally with a line anchor ([renderer](https://github.com/open-mercato/open-mercato/blob/092e56572c8dc5a22c5a53e913862fd8324cc842/packages/cli/src/lib/generators/module-facts.ts)). Absolute checkout paths, traversal segments, anonymous extension rows, and unresolved first-party targets are not valid evidence. See [Extension facts and source catalog](/framework/extensibility/extension-facts) for the complete reading order and diagnostic rules.
+
 The framework resolver is intentionally bounded:
 
 ```bash

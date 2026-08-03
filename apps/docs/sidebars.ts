@@ -408,6 +408,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/extensibility/index",
             "framework/extensibility/current-surfaces",
+            "framework/extensibility/extension-facts",
             "framework/extensibility/umes-phases",
             "framework/extensibility/integration-enhancements",
             "framework/extensibility/query-engine-extensibility",
