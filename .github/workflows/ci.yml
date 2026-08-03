@@ -514,6 +514,14 @@ jobs:
         # Turbo never picks up root-level scripts — run explicitly.
         run: yarn test:scripts
 
+      - name: Check DS token snapshot drift (always, unfiltered)
+        # .ai/ds/ds-tokens.json is the committed canonical mirror of the token
+        # blocks in apps/mercato/src/app/globals.css. It is not a package, so
+        # the turbo-scoped Test step never guards it — check explicitly, like
+        # the template-parity guard below: a PR that edits a token without
+        # running `yarn ds:tokens` fails here instead of drifting silently.
+        run: yarn ds:tokens:check
+
       - name: Check create-app template parity (always, unfiltered)
         # The create-app package guards byte-parity between the monorepo app shell
         # (apps/mercato/**) and the standalone template (packages/create-app/template/**).
@@ -524,6 +532,32 @@ jobs:
         # unfiltered `yarn test`) turns develop red (see #3779). Run the create-app unit
         # suite unconditionally here so template drift fails the PR, not develop.
         run: yarn workspace create-mercato-app test
+
+      - name: Run repo-wide audit guards (always, unfiltered)
+        # Same class as the create-app parity step above, generalized (#4534). A handful of
+        # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
+        # other packages, apps/ or scripts/. The turbo filter selects packages, not paths, so
+        # a PR touching only scripts/ selects no package and those audits never run — the
+        # violation then lands on develop and the post-merge unfiltered `yarn test` goes red
+        # for everyone (#4527). Run them unconditionally so they fail their own PR.
+        #
+        # Enumerated today (full list with per-test reasons: scripts/repo-wide-guards.mjs,
+        # kept honest by scripts/__tests__/repo-wide-guards.test.mjs):
+        #   @open-mercato/core   — explicit-sort-comparators, alert-duplicate-icon-coverage,
+        #                          auth-onboarding-feedback-ds-tokens, license-metadata-consistency,
+        #                          types-dependency-classification, optimistic-lock-ui-coverage-workspace,
+        #                          optimistic-lock-command-coverage, modules/crud-indexer-config
+        #   @open-mercato/cli    — module-facts.bc-guard, module-facts.customers.fixture,
+        #                          module-facts.auth-source, module-facts.extension-hosts,
+        #                          example-public-route-safety, disabled-example-module,
+        #                          release-notes-retired
+        #   @open-mercato/shared — db/escapeLikePattern
+        #   @open-mercato/ui     — primitives/zindex-overlay
+        #   @open-mercato/app    — components/starter-chrome-ds, components/StartPageContent
+        # Not here because they already run unfiltered: the create-app parity guards (step
+        # above), `yarn agents:check-budget`, `yarn test:scripts`. All guards are static file
+        # scans — the whole set is ~10 s, so it stays on the common PR path.
+        run: yarn test:repo-wide-guards
 
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.

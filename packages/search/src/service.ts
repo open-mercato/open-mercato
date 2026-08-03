@@ -10,7 +10,6 @@ import type {
 } from './types'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
-import { needsSearchResultEnrichment } from './lib/search-result-enrichment'
 
 /**
  * Default merge configuration.
@@ -163,8 +162,8 @@ export class SearchService {
   }
 
   /**
-   * Enrich results that are missing presenter data using the configured enricher.
-   * This ensures token-only results get proper titles/subtitles for display.
+   * Recompute configured presenters at request time and fill missing presenter
+   * or navigation data for unconfigured results.
    */
   private async enrichResultsWithPresenter(
     results: SearchResult[],
@@ -174,10 +173,6 @@ export class SearchService {
     // If no enricher configured, return as-is
     if (!this.presenterEnricher) return results
 
-    const hasMissing = results.some(needsSearchResultEnrichment)
-    if (!hasMissing) return results
-
-    // Use the configured presenter enricher
     try {
       return await this.presenterEnricher(results, tenantId, organizationId)
     } catch {

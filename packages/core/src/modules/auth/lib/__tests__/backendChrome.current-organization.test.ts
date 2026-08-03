@@ -17,6 +17,7 @@ const mockGetSelectedOrganizationFromRequest = jest.fn()
 const mockEm = { find: jest.fn(async () => []), findOne: jest.fn(async () => null) }
 const mockRbacService = {
   loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'] })),
+  getEffectiveFeatures: jest.fn(async () => ['*']),
   userHasAllFeatures: jest.fn(async () => true),
 }
 
@@ -120,6 +121,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockEm.find.mockResolvedValue([])
   mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: ['*'] })
+  mockRbacService.getEffectiveFeatures.mockResolvedValue(['*'])
   mockRbacService.userHasAllFeatures.mockResolvedValue(true)
   mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
   mockResolveFeatureCheckContext.mockResolvedValue(concreteSelection(ORG_ID))
@@ -147,7 +149,11 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     expect(payload.currentOrganization).toEqual({ id: ORG_ID, name: 'Northwind Ltd' })
     expect(payload.brand).toEqual({
       name: 'Northwind Ltd',
-      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo' },
+      logo: {
+        src: 'https://cdn.example.com/logo.png',
+        alt: 'Northwind Ltd logo',
+        preserveAspectRatio: false,
+      },
     })
   })
 
@@ -178,7 +184,11 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     expect(payload.currentOrganization).toBeNull()
     expect(payload.brand).toEqual({
       name: 'Northwind Ltd',
-      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo' },
+      logo: {
+        src: 'https://cdn.example.com/logo.png',
+        alt: 'Northwind Ltd logo',
+        preserveAspectRatio: false,
+      },
     })
   })
 

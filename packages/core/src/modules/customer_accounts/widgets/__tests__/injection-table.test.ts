@@ -30,6 +30,7 @@ function expectSingleGroupWidget(
   spotId: string,
   widgetId: string,
   groupLabel: string,
+  column: 1 | 2,
 ) {
   const slots = table[spotId]
   expect(Array.isArray(slots)).toBe(true)
@@ -37,7 +38,7 @@ function expectSingleGroupWidget(
   expect(slot).toEqual({
     widgetId,
     kind: 'group',
-    column: 2,
+    column,
     groupLabel,
     priority: 200,
   })
@@ -51,17 +52,22 @@ describe('customer_accounts injection table', () => {
         spotId,
         'customer_accounts.injection.account-status',
         'customer_accounts.widgets.accountStatus',
+        2,
       )
     }
   })
 
-  it('registers the company-users widget on the spots the company detail host requests', () => {
+  // Regression guard for #4400: a column-2 group forces CrudForm into the narrow
+  // 7fr/3fr secondary-column layout on company details. Portal users must stay a
+  // full-width row in the column-1 stack.
+  it('registers the company-users widget in column 1 on the spots the company detail host requests', () => {
     for (const spotId of ['customers.company', 'crud-form:customers.company']) {
       expectSingleGroupWidget(
         injectionTable,
         spotId,
         'customer_accounts.injection.company-users',
         'customer_accounts.widgets.portalUsers',
+        1,
       )
     }
   })
