@@ -11,6 +11,9 @@ import {
   resolveIncidentDashboardWidgetContext,
   uniqueOrganizationIds,
 } from '../utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const MTTA_MTTR_WINDOW_DAYS = 30
 const MTTA_MTTR_WINDOW_MS = MTTA_MTTR_WINDOW_DAYS * 24 * 60 * 60 * 1000
@@ -76,7 +79,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('incidents.dashboard.mttaMttr failed', err)
+    logger.error('incidents.dashboard.mttaMttr failed', { err })
     return NextResponse.json(
       { error: translate('incidents.dashboard.mttaMttr.error', 'Failed to load response and resolution metrics.') },
       { status: 500 },

@@ -8,6 +8,9 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Incident, IncidentPostmortem } from '../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const postmortemsListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -146,7 +149,7 @@ export async function GET(req: Request) {
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.postmortems GET failed', err)
+    logger.error('incidents.postmortems GET failed', { err })
     return NextResponse.json({ error: '[internal] postmortems_list_failed' }, { status: 400 })
   }
 }

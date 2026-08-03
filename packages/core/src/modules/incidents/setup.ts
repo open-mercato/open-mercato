@@ -12,6 +12,9 @@ import {
   IncidentType,
   type IncidentSlaTargets,
 } from './data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const DEFAULT_NUMBER_FORMAT = 'INC-{yyyy}{mm}{dd}-{seq:4}'
 const INCIDENTS_ESCALATION_SWEEP_QUEUE = 'incidents-escalation-sweep'
@@ -331,7 +334,7 @@ export const setup: ModuleSetupConfig = {
           isEnabled: true,
         })
       } catch (error) {
-        console.warn('[incidents.setup] failed to register escalation-sweep schedule', error)
+        logger.warn('incidents.setup failed to register escalation-sweep schedule', { err: error })
       }
     }
   },

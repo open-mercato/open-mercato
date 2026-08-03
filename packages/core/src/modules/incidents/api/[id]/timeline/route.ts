@@ -28,6 +28,9 @@ import {
   type TimelineListInput,
 } from '../../../data/collab-validators'
 import '../../../commands/timeline'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -146,7 +149,7 @@ async function runGuardAfterSuccessCallbacks(
         metadata: callback.metadata ?? null,
       })
     } catch (error) {
-      console.error(`[incidents.timeline] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.timeline afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -282,7 +285,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.timeline GET failed', err)
+    logger.error('incidents.timeline GET failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.timeline_list_failed', 'Failed to list timeline entries.') },
       { status: 400 },
@@ -355,7 +358,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.timeline POST failed', err)
+    logger.error('incidents.timeline POST failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.timeline_add_failed', 'Failed to add timeline entry.') },
       { status: 400 },

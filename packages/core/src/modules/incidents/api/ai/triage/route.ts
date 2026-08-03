@@ -16,6 +16,9 @@ import {
   type IncidentAiScope,
   type SimilarIncident,
 } from '../../../lib/aiRuntime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const REQUIRED_FEATURES = ['incidents.incident.view', 'incidents.ai.use'] as const
 
@@ -166,7 +169,7 @@ function responseForRunResult(
   if (result.ok) {
     return NextResponse.json({ suggestion: result.data, similar })
   }
-  console.error('[incidents.ai.triage] failed', { incidentId: 'triage' }, result.error)
+  logger.error('incidents.ai.triage failed', { incidentId: 'triage', err: result.error })
   if (result.reason === 'unavailable') return jsonError(503, result.code ?? 'ai_unavailable')
   return jsonError(500, 'ai_failed')
 }
@@ -193,7 +196,7 @@ export async function POST(req: Request) {
     })
     return responseForRunResult(result, similar)
   } catch (error) {
-    console.error('[incidents.ai.triage] failed', { incidentId: 'triage' }, error)
+    logger.error('incidents.ai.triage failed', { incidentId: 'triage', err: error })
     return jsonError(500, 'ai_failed')
   }
 }

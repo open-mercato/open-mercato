@@ -26,6 +26,9 @@ import {
   type PostmortemUpsertInput,
 } from '../../../data/collab-validators'
 import '../../../commands/postmortems'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -146,7 +149,7 @@ async function runGuardAfterSuccessCallbacks(
     try {
       await callback.guard.afterSuccess({ ...input, metadata: callback.metadata ?? null })
     } catch (error) {
-      console.error(`[incidents.postmortem] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.postmortem afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -282,7 +285,7 @@ export async function handlePostmortemCommand<TInput extends PostmortemCommandIn
     return jsonResponse
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.postmortem command failed', err)
+    logger.error('incidents.postmortem command failed', { err })
     return NextResponse.json({ error: '[internal] postmortem_mutation_failed' }, { status: 400 })
   }
 }
@@ -313,7 +316,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ item: postmortem ? serializePostmortem(postmortem) : null })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.postmortem GET failed', err)
+    logger.error('incidents.postmortem GET failed', { err })
     return NextResponse.json({ error: '[internal] postmortem_get_failed' }, { status: 400 })
   }
 }

@@ -16,6 +16,9 @@ import {
   resolvePolicyForIncident,
   type IncidentScope,
 } from '../services/escalationService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 export type EscalationSweepPayload = {
   scope: {
@@ -70,7 +73,7 @@ function scopeFromPayload(job: QueuedJob<EscalationSweepPayload>): IncidentScope
   const tenantId = raw.scope?.tenantId ?? raw.tenantId ?? null
   const organizationId = raw.scope?.organizationId ?? raw.organizationId ?? null
   if (!tenantId || !organizationId) {
-    console.warn('[incidents.escalation-sweep] skipping tick without complete scope', { payload: raw })
+    logger.warn('incidents.escalation-sweep skipping tick without complete scope', { payload: raw })
     return null
   }
   return { tenantId, organizationId }
@@ -87,7 +90,7 @@ function activeUnacknowledgedWhere(scope: IncidentScope): ActiveUnacknowledgedWh
 }
 
 function warnIncidentFailure(pass: string, incident: Incident, err: unknown): void {
-  console.warn(`[incidents.escalation-sweep] ${pass} failed for incident ${incident.id}`, err)
+  logger.warn('incidents.escalation-sweep pass failed for incident', { pass, incidentId: incident.id, err })
 }
 
 function delayForCurrentStep(policy: IncidentEscalationPolicy | null, incident: Incident): number | null {

@@ -19,6 +19,9 @@ import {
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { escalateSchema, type IncidentEscalateInput } from '../../../data/action-validators'
 import type * as escalationService from '../../../services/escalationService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -141,7 +144,7 @@ async function runGuardAfterSuccessCallbacks(
         metadata: callback.metadata ?? null,
       })
     } catch (error) {
-      console.error(`[incidents.escalate] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.escalate afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -272,7 +275,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents escalate route failed', err)
+    logger.error('incidents escalate route failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.action_failed', 'Failed to update incident.') },
       { status: 400 },

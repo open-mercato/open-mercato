@@ -30,6 +30,9 @@ import {
   type IncidentImpactUpdateInput,
 } from '../../../data/validators'
 import '../../../commands/impacts'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -183,7 +186,7 @@ export async function runImpactGuardAfterSuccessCallbacks(
         metadata: callback.metadata ?? null,
       })
     } catch (error) {
-      console.error(`[incidents.impacts] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.impacts afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -354,7 +357,7 @@ export async function handleImpactCommand<TInput extends ImpactCommandInput>(
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.impacts command failed', err)
+    logger.error('incidents.impacts command failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.impact_mutation_failed', 'Failed to update incident impacts.') },
       { status: 400 },
@@ -389,7 +392,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.impacts GET failed', err)
+    logger.error('incidents.impacts GET failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.impact_list_failed', 'Failed to list incident impacts.') },
       { status: 400 },

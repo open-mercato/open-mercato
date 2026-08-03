@@ -14,6 +14,9 @@ import {
   type IncidentAiScope,
   type IncidentsAiRunResult,
 } from '../../../../lib/aiRuntime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const REQUIRED_FEATURES = ['incidents.incident.view', 'incidents.ai.use'] as const
 
@@ -143,7 +146,7 @@ function buildPostmortemPrompt(context: IncidentAiContext): string {
 
 function responseForRunResult(result: IncidentsAiRunResult<PostmortemDraftResponse>, incidentId: string): NextResponse {
   if (result.ok) return NextResponse.json(result.data)
-  console.error('[incidents.ai.postmortem] failed', { incidentId }, result.error)
+  logger.error('incidents.ai.postmortem failed', { incidentId, err: result.error })
   if (result.reason === 'unavailable') return jsonError(503, result.code ?? 'ai_unavailable')
   return jsonError(500, 'ai_failed')
 }
@@ -171,7 +174,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     })
     return responseForRunResult(result, parsedParams.data.id)
   } catch (error) {
-    console.error('[incidents.ai.postmortem] failed', { incidentId: params.id }, error)
+    logger.error('incidents.ai.postmortem failed', { incidentId: params.id, err: error })
     return jsonError(500, 'ai_failed')
   }
 }

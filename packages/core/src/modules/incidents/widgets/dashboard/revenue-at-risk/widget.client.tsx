@@ -11,6 +11,9 @@ import {
   type IncidentRevenueAtRiskSettings,
 } from './config'
 import { formatMajorAmount, formatMinorAmount, minorToMajor, readObject, readString } from '../shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 type CurrencyTotal = {
   currency: string | null
@@ -82,7 +85,7 @@ const IncidentRevenueAtRiskDashboardWidget: React.FC<DashboardWidgetComponentPro
     try {
       setPayload(await loadRevenueAtRisk())
     } catch (err) {
-      console.error('Failed to load revenue at risk widget data', err)
+      logger.error('Failed to load revenue at risk widget data', { err })
       setError(t('incidents.dashboard.revenueAtRisk.error', 'Failed to load revenue at risk.'))
     } finally {
       setLoading(false)

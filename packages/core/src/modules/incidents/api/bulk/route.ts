@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -82,7 +82,11 @@ export async function POST(req: Request) {
     ids.map((id) => [id, parsed.data.expectedUpdatedAtById?.[id] ?? null]),
   )
   const isSuperAdmin = (auth as { isSuperAdmin?: boolean }).isSuperAdmin === true
-  if (action === 'close' && !isSuperAdmin && !hasFeature(userFeatures, 'incidents.incident.close')) {
+  const canClose = authorizeFeatures(['incidents.incident.close'], {
+    grantedFeatures: userFeatures,
+    unrestricted: isSuperAdmin,
+  })
+  if (action === 'close' && !canClose) {
     return NextResponse.json(responseSchema.parse({
       ok: false,
       progressJobId: null,

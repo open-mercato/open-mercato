@@ -4,6 +4,9 @@ import { buildBatchNotificationFromType } from '../../notifications/lib/notifica
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { Incident } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents').child({ component: 'escalation-notify' })
 
 export const metadata = {
   event: 'incidents.incident.escalated',
@@ -86,6 +89,6 @@ export default async function handle(payload: IncidentEscalatedPayload, ctx: Res
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[incidents:escalation-notify]', err)
+    logger.error('Subscriber failed', { err })
   }
 }

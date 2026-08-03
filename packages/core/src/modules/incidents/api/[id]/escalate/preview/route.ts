@@ -11,6 +11,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { Incident } from '../../../../data/entities'
 import * as escalationService from '../../../../services/escalationService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const pathParamsSchema = z.object({
   id: z.string().uuid(),
@@ -103,7 +106,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents escalation preview failed', err)
+    logger.error('incidents escalation preview failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.escalation_preview_failed', 'Failed to preview escalation.') },
       { status: 400 },

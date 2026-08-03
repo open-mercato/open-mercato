@@ -10,6 +10,9 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { impactTargetTypeSchema } from '../../data/validators'
 import { listOpenIncidentsByImpactTarget } from '../../lib/byTarget'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const byTargetQuerySchema = z.object({
   targetType: impactTargetTypeSchema,
@@ -104,7 +107,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.by-target GET failed', err)
+    logger.error('incidents.by-target GET failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.by_target_failed', 'Failed to list incidents for this target.') },
       { status: 400 },

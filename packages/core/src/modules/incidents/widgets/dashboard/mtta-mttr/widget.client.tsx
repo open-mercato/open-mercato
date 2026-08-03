@@ -7,6 +7,9 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { DEFAULT_SETTINGS, hydrateIncidentMttaMttrSettings, type IncidentMttaMttrSettings } from './config'
 import { readNumber, readObject, readString } from '../shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 type MttaMttrPayload = {
   mttaSeconds: number | null
@@ -82,7 +85,7 @@ const IncidentMttaMttrDashboardWidget: React.FC<DashboardWidgetComponentProps<In
     try {
       setPayload(await loadMttaMttr())
     } catch (err) {
-      console.error('Failed to load MTTA/MTTR widget data', err)
+      logger.error('Failed to load MTTA/MTTR widget data', { err })
       setError(t('incidents.dashboard.mttaMttr.error', 'Failed to load response and resolution metrics.'))
     } finally {
       setLoading(false)

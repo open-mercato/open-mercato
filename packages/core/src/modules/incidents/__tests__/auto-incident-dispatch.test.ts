@@ -143,19 +143,37 @@ function getCreateInput(commandBus: MockCommandBus): IncidentCreateInput {
   return call[1].input as IncidentCreateInput
 }
 
-describe('incidents wildcard auto-incident dispatch subscriber', () => {
-  let warnSpy: jest.SpyInstance
-  let errorSpy: jest.SpyInstance
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
 
+const DISPATCH_WARNINGS = [
+  'No active severity found for trigger',
+  'Source event has no stable dedupe key',
+  'Incident already created by another delivery',
+]
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+describe('incidents wildcard auto-incident dispatch subscriber', () => {
   beforeEach(() => {
     declaredEvents([{ id: EVENT_ID, label: 'Product Updated' }])
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
-    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
   })
 
   afterEach(() => {
-    warnSpy.mockRestore()
-    errorSpy.mockRestore()
     jest.clearAllMocks()
   })
 
@@ -197,11 +215,11 @@ describe('incidents wildcard auto-incident dispatch subscriber', () => {
     await expect(handleDispatch(scopedPayload({ eventId: EVENT_ID, id: 'product-1' }), ctx)).resolves.toBeUndefined()
 
     expect(commandBus.execute).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[incidents:auto-incident-dispatch] incident already created by another delivery',
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Incident already created by another delivery',
       expect.objectContaining({ sourceEventRef: `${EVENT_ID}:product-1` }),
     )
-    expect(errorSpy).not.toHaveBeenCalled()
+    expect(mockLogger.error).not.toHaveBeenCalled()
   })
 
   it('isolates non-duplicate command failures per trigger without rejecting the subscriber', async () => {
@@ -215,14 +233,13 @@ describe('incidents wildcard auto-incident dispatch subscriber', () => {
 
     await expect(handleDispatch(scopedPayload({ eventId: EVENT_ID, id: 'product-1' }), ctx)).resolves.toBeUndefined()
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[incidents:auto-incident-dispatch] trigger dispatch failed',
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Trigger dispatch failed',
       expect.objectContaining({ eventId: EVENT_ID }),
     )
-    expect(warnSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('[incidents:auto-incident-dispatch]'),
-      expect.anything(),
-    )
+    for (const dispatchWarning of DISPATCH_WARNINGS) {
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(dispatchWarning, expect.anything())
+    }
   })
 
   it('skips internal prefixes and excludeFromTriggers events before resolving dependencies', async () => {
@@ -330,8 +347,8 @@ describe('incidents wildcard auto-incident dispatch subscriber', () => {
     }), { eventName: EVENT_ID, ...ctx })
 
     expect(getCreateInput(commandBus).sourceEventRef).toBeNull()
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[incidents:auto-incident-dispatch] source event has no stable dedupe key',
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Source event has no stable dedupe key',
       expect.objectContaining({ eventId: EVENT_ID, triggerId: 'trigger-1' }),
     )
   })

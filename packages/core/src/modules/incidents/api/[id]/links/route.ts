@@ -27,6 +27,9 @@ import {
   type IncidentLinkRemoveInput,
 } from '../../../data/collab-validators'
 import '../../../commands/links'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -164,7 +167,7 @@ async function runGuardAfterSuccessCallbacks(
     try {
       await callback.guard.afterSuccess({ ...input, metadata: callback.metadata ?? null })
     } catch (error) {
-      console.error(`[incidents.links] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.links afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -304,7 +307,7 @@ export async function handleLinkCommand<TInput extends LinkCommandInput>(
     return jsonResponse
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.links command failed', err)
+    logger.error('incidents.links command failed', { err })
     return NextResponse.json({ error: '[internal] link_mutation_failed' }, { status: 400 })
   }
 }
@@ -358,7 +361,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ items })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.links GET failed', err)
+    logger.error('incidents.links GET failed', { err })
     return NextResponse.json({ error: '[internal] link_list_failed' }, { status: 400 })
   }
 }

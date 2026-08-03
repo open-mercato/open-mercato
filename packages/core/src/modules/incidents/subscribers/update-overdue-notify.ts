@@ -4,6 +4,9 @@ import { buildNotificationFromType } from '../../notifications/lib/notificationB
 import { resolveNotificationService, type NotificationService } from '../../notifications/lib/notificationService'
 import { Incident } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents').child({ component: 'update-overdue-notify' })
 
 export const metadata = {
   event: 'incidents.incident.update_overdue',
@@ -91,6 +94,6 @@ export default async function handle(payload: IncidentUpdateOverduePayload, ctx:
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[incidents:update-overdue-notify]', err)
+    logger.error('Subscriber failed', { err })
   }
 }

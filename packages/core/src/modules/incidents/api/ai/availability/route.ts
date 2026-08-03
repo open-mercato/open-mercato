@@ -7,6 +7,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { probeAiAvailability } from '../../../lib/aiRuntime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const REQUIRED_FEATURES = ['incidents.incident.view', 'incidents.ai.use'] as const
 
@@ -92,7 +95,7 @@ export async function GET(req: Request) {
     const availability = await probeAiAvailability(context.container, context.authContext)
     return NextResponse.json(availability)
   } catch (error) {
-    console.error('[incidents.ai.availability] failed', error)
+    logger.error('incidents.ai.availability failed', { err: error })
     return jsonError(500, 'ai_probe_failed')
   }
 }

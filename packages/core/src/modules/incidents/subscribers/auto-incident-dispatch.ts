@@ -15,6 +15,9 @@ import {
 } from '../data/entities'
 import type { IncidentCreateInput } from '../data/validators'
 import type { IncidentCommandResult } from '../commands/incident'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents').child({ component: 'auto-incident-dispatch' })
 
 const SOURCE_EVENT_REF_UNIQUE_INDEX = 'incidents_org_tenant_source_event_ref_unique'
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
@@ -228,7 +231,7 @@ async function resolveCatalog(
 ): Promise<ResolvedCatalog | null> {
   const severity = await resolveSeverity(em, scope, trigger.severityKey)
   if (!severity) {
-    console.warn('[incidents:auto-incident-dispatch] no active severity found for trigger', {
+    logger.warn('No active severity found for trigger', {
       triggerId: trigger.id,
       eventId: trigger.eventId,
       tenantId: scope.tenantId,
@@ -275,7 +278,7 @@ async function processTrigger(opts: {
 
   const { sourceEventRef, displayRef } = buildSourceEventRef(eventId, payload)
   if (!sourceEventRef) {
-    console.warn('[incidents:auto-incident-dispatch] source event has no stable dedupe key', {
+    logger.warn('Source event has no stable dedupe key', {
       eventId,
       triggerId: trigger.id,
       tenantId: scope.tenantId,
@@ -300,7 +303,7 @@ async function processTrigger(opts: {
     await dispatchIncidentCreate(commandBus, commandContext, input)
   } catch (error) {
     if (sourceEventRef && isUniqueViolation(error, SOURCE_EVENT_REF_UNIQUE_INDEX)) {
-      console.warn('[incidents:auto-incident-dispatch] incident already created by another delivery', {
+      logger.warn('Incident already created by another delivery', {
         eventId,
         triggerId: trigger.id,
         sourceEventRef,
@@ -343,19 +346,19 @@ export default async function handle(
     commandBus = resolver.resolve<CommandBus>('commandBus')
     commandContext = buildCommandContext(resolver, scope)
   } catch (error) {
-    console.error('[incidents:auto-incident-dispatch] dispatch setup failed', { eventId, tenantId, organizationId, error })
+    logger.error('Dispatch setup failed', { eventId, tenantId, organizationId, err: error })
     return
   }
   for (const trigger of triggers) {
     try {
       await processTrigger({ trigger, payload, eventId, scope, em, commandBus, commandContext })
     } catch (error) {
-      console.error('[incidents:auto-incident-dispatch] trigger dispatch failed', {
+      logger.error('Trigger dispatch failed', {
         eventId,
         triggerId: trigger.id,
         tenantId,
         organizationId,
-        error,
+        err: error,
       })
     }
   }

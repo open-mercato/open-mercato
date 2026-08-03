@@ -53,7 +53,24 @@ const incidentId = '44444444-4444-4444-8444-444444444444'
 const expectedAiFeatures = ['incidents.incident.view', 'incidents.ai.use']
 
 const mockLoadAcl = jest.fn()
-const mockConsoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -227,9 +244,6 @@ describe('incidents AI routes', () => {
     })
   })
 
-  afterAll(() => {
-    mockConsoleError.mockRestore()
-  })
 
   it('returns no_provider availability reason when the factory has no provider configured', async () => {
     await expect(probeWithResolveModel(() => {
@@ -285,7 +299,7 @@ describe('incidents AI routes', () => {
       error: '[internal] ai_unavailable',
       code: 'ai_unavailable',
     })
-    expect(mockConsoleError).toHaveBeenCalledWith('[incidents.ai.summary] failed', { incidentId }, error)
+    expect(mockLogger.error).toHaveBeenCalledWith('incidents.ai.summary failed', { incidentId, err: error })
     expect(mockRunIncidentsObjectAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'incidents.summarizer',
@@ -314,7 +328,7 @@ describe('incidents AI routes', () => {
       error: '[internal] no_provider_configured',
       code: 'no_provider_configured',
     })
-    expect(mockConsoleError).toHaveBeenCalledWith('[incidents.ai.summary] failed', { incidentId }, error)
+    expect(mockLogger.error).toHaveBeenCalledWith('incidents.ai.summary failed', { incidentId, err: error })
   })
 
   it('forwards the active locale to the summary object agent', async () => {
@@ -353,7 +367,7 @@ describe('incidents AI routes', () => {
       error: '[internal] ai_failed',
       code: 'ai_failed',
     })
-    expect(mockConsoleError).toHaveBeenCalledWith('[incidents.ai.summary] failed', { incidentId }, error)
+    expect(mockLogger.error).toHaveBeenCalledWith('incidents.ai.summary failed', { incidentId, err: error })
   })
 
   it('returns structured 503 AI-unavailable body from the triage route', async () => {
@@ -372,7 +386,7 @@ describe('incidents AI routes', () => {
       error: '[internal] ai_unavailable',
       code: 'ai_unavailable',
     })
-    expect(mockConsoleError).toHaveBeenCalledWith('[incidents.ai.triage] failed', { incidentId: 'triage' }, error)
+    expect(mockLogger.error).toHaveBeenCalledWith('incidents.ai.triage failed', { incidentId: 'triage', err: error })
     expect(mockFindSimilarIncidents).toHaveBeenCalledWith(
       container,
       expect.objectContaining({ tenantId, organizationId }),

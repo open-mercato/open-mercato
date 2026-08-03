@@ -22,6 +22,9 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import type { IncidentActionInput } from '../../data/action-validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -134,7 +137,7 @@ async function runGuardAfterSuccessCallbacks(
         metadata: callback.metadata ?? null,
       })
     } catch (error) {
-      console.error(`[incidents.action-route] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.action-route afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -258,7 +261,7 @@ export async function handleIncidentActionPost<TInput extends IncidentActionInpu
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents action route failed', err)
+    logger.error('incidents action route failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.action_failed', 'Failed to update incident.') },
       { status: 400 },

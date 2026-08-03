@@ -12,6 +12,9 @@ import {
   impactErrorResponseSchema,
   resolveIncidentImpactRequestContext,
 } from '../impacts/route'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['incidents.incident.view'] },
@@ -82,7 +85,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.service-context GET failed', err)
+    logger.error('incidents.service-context GET failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.service_context_failed', 'Failed to load incident service context.') },
       { status: 400 },

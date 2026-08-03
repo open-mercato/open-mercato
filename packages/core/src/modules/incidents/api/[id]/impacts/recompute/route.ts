@@ -20,6 +20,9 @@ import {
 } from '../route'
 import { emitIncidentSideEffects, resolveCommandScope } from '../../../../commands/incident'
 import { assertIncidentMutable } from '../../../../commands/actions'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const recomputeResponseSchema = z.object({
   ok: z.boolean(),
@@ -121,7 +124,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.impacts recompute failed', err)
+    logger.error('incidents.impacts recompute failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.impact_recompute_failed', 'Failed to recompute incident impact revenue.') },
       { status: 400 },

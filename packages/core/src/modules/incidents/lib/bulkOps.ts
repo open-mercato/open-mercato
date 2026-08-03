@@ -12,6 +12,9 @@ import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
 import type { IncidentAcknowledgeInput, IncidentTransitionInput } from '../data/action-validators'
 import type { IncidentCommandResult } from '../commands/incident'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 export const INCIDENT_BULK_OPS_QUEUE = 'incidents-bulk-ops'
 
@@ -121,7 +124,7 @@ async function runIncidentBulkGuardAfterSuccessCallbacks(
         metadata: callback.metadata ?? null,
       })
     } catch (error) {
-      console.error(`[incidents.bulk] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.bulk afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }

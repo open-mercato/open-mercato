@@ -29,6 +29,9 @@ import {
   type ActionItemUpdateInput,
 } from '../../../data/collab-validators'
 import '../../../commands/actionItems'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -160,7 +163,7 @@ async function runGuardAfterSuccessCallbacks(
     try {
       await callback.guard.afterSuccess({ ...input, metadata: callback.metadata ?? null })
     } catch (error) {
-      console.error(`[incidents.action_items] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.action_items afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -296,7 +299,7 @@ export async function handleActionItemCommand<TInput extends ActionItemCommandIn
     return jsonResponse
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.action_items command failed', err)
+    logger.error('incidents.action_items command failed', { err })
     return NextResponse.json({ error: '[internal] action_item_mutation_failed' }, { status: 400 })
   }
 }
@@ -324,7 +327,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ items: items.map(serializeActionItem), total })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.action_items GET failed', err)
+    logger.error('incidents.action_items GET failed', { err })
     return NextResponse.json({ error: '[internal] action_item_list_failed' }, { status: 400 })
   }
 }

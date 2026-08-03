@@ -31,6 +31,9 @@ import type { IncidentNumberGenerator } from '../services/incidentNumberGenerato
 import * as escalationService from '../services/escalationService'
 import { emitIncidentsEvent } from '../events'
 import { applyIncidentUpdateCadence } from '../lib/updateCadence'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const DEFAULT_NUMBER_FORMAT = 'INC-{yyyy}{mm}{dd}-{seq:4}'
 
@@ -460,7 +463,7 @@ const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommand
             : await escalationService.resolveDefaultPolicyId(em, scope, incident.incidentTypeId ?? null)
           incident.escalationPolicyId = policyId
         } catch (error) {
-          console.error('[incidents.create] failed to resolve escalation policy', error)
+          logger.error('incidents.create failed to resolve escalation policy', { err: error })
         }
       },
       async () => {
@@ -472,7 +475,7 @@ const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommand
           })
           pendingEscalationEvents.push(...startResult.pendingEvents)
         } catch (error) {
-          console.error('[incidents.create] failed to start escalation', error)
+          logger.error('incidents.create failed to start escalation', { err: error })
         }
       },
     ], { transaction: true })

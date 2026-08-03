@@ -17,6 +17,9 @@ import {
   IncidentTimelineEntry,
   IncidentType,
 } from '../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 export type IncidentsAiRunResult<T> =
   | { ok: true; data: T }
@@ -247,7 +250,7 @@ export async function probeAiAvailability(
   } catch (error) {
     const reason = getUnavailableReason(error)
     if (reason) return { available: false, reason }
-    console.warn('[incidents.ai] availability probe failed', error)
+    logger.warn('incidents.ai availability probe failed', { err: error })
     throw error
   }
 }
@@ -497,7 +500,7 @@ export async function findSimilarIncidents(
         status: incident.status,
       }))
   } catch (error) {
-    console.warn('[incidents.ai] similar incidents search failed', error)
+    logger.warn('incidents.ai similar incidents search failed', { err: error })
     return []
   }
 }

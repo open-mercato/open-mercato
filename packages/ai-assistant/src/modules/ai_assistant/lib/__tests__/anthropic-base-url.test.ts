@@ -1,7 +1,23 @@
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
 import {
   createAnthropicAdapter,
   normalizeAnthropicBaseUrl,
 } from '../llm-adapters/anthropic'
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  warn: jest.Mock
+}
 
 describe('normalizeAnthropicBaseUrl', () => {
   it('appends /v1 to a bare host', () => {
@@ -32,9 +48,7 @@ describe('normalizeAnthropicBaseUrl', () => {
 describe('AnthropicAdapter base URL resolution', () => {
   it('normalizes ANTHROPIC_BASE_URL during model creation', () => {
     const previousBaseUrl = process.env.ANTHROPIC_BASE_URL
-    const warnSpy = jest
-      .spyOn(console, 'warn')
-      .mockImplementation(() => undefined)
+    mockLogger.warn.mockClear()
     process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 
     try {
@@ -44,12 +58,12 @@ describe('AnthropicAdapter base URL resolution', () => {
       })
 
       expect(model).toBeDefined()
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[ai-assistant] Anthropic base URL was normalized from https://api.anthropic.com to https://api.anthropic.com/v1',
-      )
+      expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+      expect(mockLogger.warn).toHaveBeenCalledWith('Anthropic base URL was normalized', {
+        from: 'https://api.anthropic.com',
+        to: 'https://api.anthropic.com/v1',
+      })
     } finally {
-      warnSpy.mockRestore()
       if (previousBaseUrl === undefined) {
         delete process.env.ANTHROPIC_BASE_URL
       } else {

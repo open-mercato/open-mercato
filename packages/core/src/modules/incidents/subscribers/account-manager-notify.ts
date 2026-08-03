@@ -2,6 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents').child({ component: 'account-manager-notify' })
 
 export const metadata = {
   event: 'incidents.impact.added',
@@ -61,6 +64,6 @@ export default async function handle(payload: IncidentImpactAddedPayload, ctx: R
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[incidents:account-manager-notify]', err)
+    logger.error('Subscriber failed', { err })
   }
 }

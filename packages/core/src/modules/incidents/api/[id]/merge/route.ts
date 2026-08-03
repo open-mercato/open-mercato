@@ -17,6 +17,9 @@ import {
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { incidentMergeSchema, type IncidentMergeInput } from '../../../data/collab-validators'
 import '../../../commands/links'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -109,7 +112,7 @@ async function runGuardAfterSuccessCallbacks(
     try {
       await callback.guard.afterSuccess({ ...input, metadata: callback.metadata ?? null })
     } catch (error) {
-      console.error(`[incidents.merge] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.merge afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -191,7 +194,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.merge failed', err)
+    logger.error('incidents.merge failed', { err })
     return NextResponse.json({ error: '[internal] merge_failed' }, { status: 400 })
   }
 }

@@ -6,6 +6,9 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Incident, IncidentImpact } from '../data/entities'
 import { recomputeIncidentRevenue } from '../commands/impacts'
 import { emitIncidentSideEffects } from '../commands/incident'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents').child({ component: 'impact-refresh' })
 
 const EVENT_ID = 'sales.order.updated'
 const TARGET_TYPE = 'sales_order'
@@ -106,14 +109,14 @@ export default async function handle(payload: SalesOrderUpdatedPayload, ctx: Res
 
         await emitIncidentSideEffects(commandContext, 'updated', incident)
       } catch (error) {
-        console.error('[incidents:impact-refresh] failed to refresh incident revenue', {
+        logger.error('Failed to refresh incident revenue', {
           incidentId: incident.id,
           orderId,
-          error,
+          err: error,
         })
       }
     }
   } catch (error) {
-    console.error('[incidents:impact-refresh]', error)
+    logger.error('Subscriber failed', { err: error })
   }
 }

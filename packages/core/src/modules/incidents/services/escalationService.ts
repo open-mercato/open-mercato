@@ -13,6 +13,9 @@ import {
   type IncidentEscalationTarget,
 } from '../data/entities'
 import type { IncidentsEventId } from '../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 export type { IncidentEscalationTarget } from '../data/entities'
 
@@ -251,10 +254,10 @@ export async function resolveStepRecipients(
           addRecipient(recipientsByUserId, recipient)
         }
       } catch (error) {
-        console.warn('[incidents.escalation] failed to resolve team recipients', {
+        logger.warn('incidents.escalation failed to resolve team recipients', {
           incidentId: incident.id,
           teamId: target.id,
-          error,
+          err: error,
         })
       }
     }

@@ -8,6 +8,9 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { KpiCard } from '@open-mercato/ui/backend/charts'
 import { DEFAULT_SETTINGS, hydrateIncidentActiveSettings, type IncidentActiveSettings } from './config'
 import { readNumber, readObject, readString } from '../shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 type SeverityBreakdown = {
   severityId: string | null
@@ -75,7 +78,7 @@ const IncidentActiveDashboardWidget: React.FC<DashboardWidgetComponentProps<Inci
     try {
       setPayload(await loadActiveIncidents())
     } catch (err) {
-      console.error('Failed to load active incidents widget data', err)
+      logger.error('Failed to load active incidents widget data', { err })
       setError(t('incidents.dashboard.active.error', 'Failed to load active incidents.'))
     } finally {
       setLoading(false)

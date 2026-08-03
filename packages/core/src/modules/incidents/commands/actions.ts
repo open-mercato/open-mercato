@@ -14,7 +14,7 @@ import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Incident, IncidentImpact, IncidentPostmortem, IncidentSeverity, IncidentTimelineEntry, IncidentType } from '../data/entities'
 import type { IncidentEscalationTarget } from '../data/entities'
@@ -50,6 +50,9 @@ import {
   type IncidentSnapshot,
   type IncidentUndoPayload,
 } from './incident'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 type IncidentStatus = z.infer<typeof incidentStatusSchema>
 
@@ -111,8 +114,11 @@ function resolveUserFeatures(ctx: CommandRuntimeContext): string[] {
 }
 
 function requireCloseFeature(ctx: CommandRuntimeContext): void {
-  if ((ctx.auth as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true) return
-  if (hasFeature(resolveUserFeatures(ctx), 'incidents.incident.close')) return
+  const authorized = authorizeFeatures(['incidents.incident.close'], {
+    grantedFeatures: resolveUserFeatures(ctx),
+    unrestricted: (ctx.auth as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true,
+  })
+  if (authorized) return
   throw new CrudHttpError(403, { error: '[internal] incident close permission required' })
 }
 
@@ -329,10 +335,10 @@ async function resolvePortalRecipientGroups(
     }
     return groups
   } catch (error) {
-    console.warn('[incidents] portal recipient resolution failed', {
+    logger.warn('incidents portal recipient resolution failed', {
       incidentId: incident.id,
       targetCount: accountTargetIds.length,
-      error,
+      err: error,
     })
     return []
   }

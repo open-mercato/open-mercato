@@ -30,6 +30,9 @@ import {
   type ParticipantUpdateInput,
 } from '../../../data/collab-validators'
 import '../../../commands/participants'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -172,7 +175,7 @@ async function runGuardAfterSuccessCallbacks(
         metadata: callback.metadata ?? null,
       })
     } catch (error) {
-      console.error(`[incidents.participants] afterSuccess failed for guard ${callback.guard.id}`, error)
+      logger.error('incidents.participants afterSuccess guard failed', { guardId: callback.guard.id, err: error })
     }
   }
 }
@@ -322,7 +325,7 @@ export async function handleParticipantCommand<TInput extends ParticipantCommand
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.participants command failed', err)
+    logger.error('incidents.participants command failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.participant_mutation_failed', 'Failed to update incident participants.') },
       { status: 400 },
@@ -357,7 +360,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('incidents.participants GET failed', err)
+    logger.error('incidents.participants GET failed', { err })
     return NextResponse.json(
       { error: translate('incidents.errors.participant_list_failed', 'Failed to list incident participants.') },
       { status: 400 },

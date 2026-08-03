@@ -16,6 +16,9 @@ import type {
   LlmModelInfo,
   LlmProvider,
 } from '@open-mercato/shared/lib/ai/llm-provider'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ai_assistant').child({ component: 'anthropic-adapter' })
 
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 
@@ -126,9 +129,7 @@ export function createAnthropicAdapter(): LlmProvider {
         ? normalizeAnthropicBaseUrl(rawBaseUrl)
         : undefined
       if (rawBaseUrl && baseURL !== rawBaseUrl) {
-        console.warn(
-          `[ai-assistant] Anthropic base URL was normalized from ${rawBaseUrl} to ${baseURL}`,
-        )
+        logger.warn('Anthropic base URL was normalized', { from: rawBaseUrl, to: baseURL })
       }
       const anthropic = createAnthropic({
         apiKey: options.apiKey,

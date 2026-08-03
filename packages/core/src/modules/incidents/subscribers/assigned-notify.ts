@@ -4,6 +4,9 @@ import { buildNotificationFromType } from '../../notifications/lib/notificationB
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { Incident } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents').child({ component: 'assigned-notify' })
 
 export const metadata = {
   event: 'incidents.incident.assigned',
@@ -81,6 +84,6 @@ export default async function handle(payload: IncidentAssignedPayload, ctx: Reso
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[incidents:assigned-notify]', err)
+    logger.error('Subscriber failed', { err })
   }
 }

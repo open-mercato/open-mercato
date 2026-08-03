@@ -13,6 +13,9 @@ import {
   resolveIncidentDashboardWidgetContext,
   uniqueOrganizationIds,
 } from '../utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 type RevenueRow = {
   currency: string | null
@@ -80,7 +83,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('incidents.dashboard.revenueAtRisk failed', err)
+    logger.error('incidents.dashboard.revenueAtRisk failed', { err })
     return NextResponse.json(
       { error: translate('incidents.dashboard.revenueAtRisk.error', 'Failed to load revenue at risk.') },
       { status: 500 },

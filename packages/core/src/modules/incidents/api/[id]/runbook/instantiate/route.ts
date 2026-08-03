@@ -10,6 +10,9 @@ import { createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runbookInstantiateSchema } from '../../../../data/validators'
 import '../../../../commands/runbooks'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 const pathParamsSchema = z.object({
   id: z.string().uuid(),
@@ -103,7 +106,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('incidents.runbook instantiate failed', err)
+    logger.error('incidents.runbook instantiate failed', { err })
     return NextResponse.json({ error: '[internal] runbook_instantiation_failed' }, { status: 400 })
   }
 }

@@ -12,6 +12,9 @@ import {
   resolveIncidentDashboardWidgetContext,
   uniqueOrganizationIds,
 } from '../utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('incidents')
 
 type ActiveSeverityRow = {
   severityId: string | null
@@ -95,7 +98,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('incidents.dashboard.active failed', err)
+    logger.error('incidents.dashboard.active failed', { err })
     return NextResponse.json(
       { error: translate('incidents.dashboard.active.error', 'Failed to load active incidents.') },
       { status: 500 },
