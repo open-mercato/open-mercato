@@ -1025,3 +1025,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When code must write a row that a subsequent out-of-band request (self `fetch`, worker, another connection) has to read, create/flush it on a context-detached EM: `em.fork({ clear: true, freshEventManager: true, useContext: false })`. That fork commits on its own pooled connection, matching the query_index/webhooks isolated-EM convention.
 
 **Applies to**: `activity-executor` `CALL_API`, any one-time credential minted for a self-request, and anything that persists data then reads it back over HTTP or from a second connection while a transaction is open.
+
+## `/_global-error` is Next.js internals, never app code — and "pre-existing" is not a diagnosis
+
+**Context**: `yarn build:app` failed prerendering `/_global-error` with `TypeError: Cannot read properties of null (reading 'useContext')` on Next 16.2.6. Issue #2445 blamed the `useState`/`useEffect` in the scaffolded `src/app/global-error.tsx` and recommended stripping them. Four `.ai/runs/*.md` entries (2026-04-21, 2026-05-04, 2026-05-11, 2026-05-12) then waved the failure through as "pre-existing".
+
+**Problem**: `/_global-error` is a synthetic route Next.js generates for itself. In `next/dist/build/webpack/loaders/next-app-loader/index.js` its page is hardcoded to the builtin `next/dist/client/components/builtin/app-error.js` and the root layout is stripped from the segment tree. The app's own `global-error.tsx` is not in that route at all — it only ships inside real route entries as the runtime error boundary. Verified against the built artifact: `.mercato/next/server/app/_global-error.html` contains Next's builtin "This page couldn't load" markup and none of the app's strings. So the proposed fix would have deleted working offline-recovery UX for zero effect, and the real cause was a Next bundler bug that disappeared on a patch bump.
+
+**Rule**: A `/_global-error` prerender failure is a Next.js version issue, not app code — bisect the `next` version before touching `global-error.tsx`. More generally, never carry a build failure forward as "pre-existing" without naming what it is pre-existing *to*: a version, a commit, or an upstream issue. An unexplained failure repeated across runs becomes folklore that hides a real regression.
+
+**Applies to**: `apps/mercato/src/app/global-error.tsx`, `packages/create-app/template/src/app/global-error.tsx`, Next.js upgrades, `.ai/runs/*` validation notes, and any triage that labels a failure "pre-existing".

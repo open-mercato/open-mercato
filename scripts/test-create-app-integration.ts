@@ -94,6 +94,19 @@ function writeStandaloneEnv(appDir: string): void {
   fs.writeFileSync(envPath, `${envLines.join('\n')}\n`)
 }
 
+function assertProductionBuildArtifacts(appDir: string): void {
+  const distDir = path.join(appDir, '.mercato', 'next')
+  assertExists(path.join(distDir, 'BUILD_ID'), 'Standalone production build produced a build id')
+  // Issue #2445 shipped a template whose production build aborted while prerendering
+  // /_global-error, and four validation runs dismissed it as "pre-existing" because
+  // nothing ever production-built a scaffolded app. Assert the artifact Next writes
+  // for that synthetic route so the same regression cannot ship unnoticed again.
+  assertExists(
+    path.join(distDir, 'server', 'app', '_global-error.html'),
+    'Standalone production build prerendered /_global-error',
+  )
+}
+
 function rootIntegrationArgs(): string[] {
   const separator = process.argv.indexOf('--')
   const rawArgs = separator === -1 ? process.argv.slice(2) : process.argv.slice(separator + 1)
@@ -231,6 +244,13 @@ async function main(): Promise<void> {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
+
+    console.log(cyan('Building the scaffolded app in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir)
 
     const standalone = await waitForStandaloneEphemeralApp({
       appDir,
