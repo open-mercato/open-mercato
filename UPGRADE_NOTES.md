@@ -89,6 +89,19 @@ For the 0.6.7 compatibility window, `sales.orders.create` and `POST /api/sales/o
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### ACL feature policy and concrete capability payloads
+
+Server authorization now uses one shared feature policy across staff and customer realms. A final `entry.overrides.acl.features['feature.id'] = null` is an exact runtime denial: stale explicit grants, matching wildcards, staff super-admin, and portal-admin no longer authorize that feature. Disabled-module requirements are evaluated by the same policy. Stored role/user ACL rows are not migrated or deleted; removing the null override makes preserved grants effective again.
+
+The existing browser/JWT fields keep their names and `string[]` shapes, but their values now contain concrete effective feature IDs:
+
+- `BackendChromePayload.grantedFeatures`
+- customer login, invitation, magic-link, refresh, profile, request context, and portal navigation `resolvedFeatures` / `grantedFeatures`
+
+These arrays no longer contain `*` or namespace wildcard strings. Downstream clients that inspect wildcards must switch to checking concrete feature IDs. Portal code must use the explicit `isPortalAdmin` boolean rather than infer admin status from `portal.*`. Raw `loadAcl` and `getGrantedFeatures` remain available for ACL management and inspection; server authorization should call the realm `userHasAllFeatures` method or shared `authorizeFeatures`.
+
+No database migration is required.
+
 ### Payment-session amounts are reconciled against the order total (#4488)
 
 Follow-up to the #4486 capture hardening, which left session creation on the caller-supplied amount. `POST /api/payment_gateways/sessions` (and `paymentGatewayService.createPaymentSession`) now reconcile the request against the authoritative order total **whenever `orderId` is supplied**: `amount` and `currencyCode` must match the amount still due on that order, resolved inside the caller's own tenant and organization. Mismatches, unknown orders, and out-of-scope orders all fail with `409` before any provider call — the unknown and out-of-scope cases share one response body so a caller cannot probe for other tenants' orders.
