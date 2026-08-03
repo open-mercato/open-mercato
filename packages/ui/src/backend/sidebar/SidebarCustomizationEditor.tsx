@@ -14,6 +14,7 @@ import { Switch } from '../../primitives/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '../../primitives/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../primitives/dialog'
 import { Tag } from '../../primitives/tag'
+import { Badge } from '../../primitives/badge'
 import {
   Select,
   SelectContent,
@@ -31,17 +32,22 @@ import { useConfirmDialog } from '../confirm-dialog'
 import { useGuardedMutation } from '../injection/useGuardedMutation'
 import {
   applyCustomizationDraft,
+  applyGroupHidden,
   applyItemOrder,
   cloneSidebarGroups,
   collectSidebarDefaults,
   filterMainSidebarGroups,
   mergeGroupOrder,
   resolveGroupKey,
+  resolveGroupVisibility,
   resolveItemKey,
   type SidebarCustomizationDraft,
   type SidebarGroup,
   type SidebarItem,
 } from './customization-helpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'SidebarCustomizationEditor' })
 
 export type SidebarCustomizationEditorProps = {
   onSaved?: () => void
@@ -358,7 +364,7 @@ export function SidebarCustomizationEditor({
         selectVariantInternal(initial, list)
         setSelectedRoleIds([])
       } catch (err) {
-        console.error('Failed to load sidebar variants', err)
+        logger.error('Failed to load sidebar variants', { err })
         setError(t('appShell.sidebarCustomizationLoadError'))
       } finally {
         setLoading(false)
@@ -437,7 +443,7 @@ export function SidebarCustomizationEditor({
       flash(t('appShell.sidebarCustomizationVariantCreated', 'Variant created.'), 'success')
       return { ok: true }
     } catch (err) {
-      console.error('Failed to create sidebar variant', err)
+      logger.error('Failed to create sidebar variant', { err })
       const message = t('appShell.sidebarCustomizationSaveError')
       if (!options.suppressPageError) setError(message)
       return { ok: false, error: message }
@@ -542,6 +548,19 @@ export function SidebarCustomizationEditor({
         }
       }
       return { ...draft, hiddenItemIds: next }
+    })
+  }, [updateDraft])
+
+  /**
+   * Hiding a whole group previously meant toggling every item in it one at a time — a dozen-plus
+   * clicks for what reads as a single decision. Writes the same `hiddenItemIds` keys the per-item
+   * switches do, so the persisted settings are indistinguishable from reaching this state by hand.
+   */
+  const setGroupHidden = React.useCallback((groupKey: string, hidden: boolean) => {
+    updateDraft((draft) => {
+      const group = baseSnapshotRef.current?.find((candidate) => resolveGroupKey(candidate) === groupKey)
+      if (!group) return draft
+      return { ...draft, hiddenItemIds: applyGroupHidden(draft.hiddenItemIds, group, hidden) }
     })
   }, [updateDraft])
 
@@ -763,7 +782,7 @@ export function SidebarCustomizationEditor({
       )
       onSaved?.()
     } catch (err) {
-      console.error('Failed to save sidebar variant', err)
+      logger.error('Failed to save sidebar variant', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     } finally {
       setSaving(false)
@@ -794,7 +813,7 @@ export function SidebarCustomizationEditor({
       const fresh = list.find((v) => v.id === selectedVariant.id) ?? selectedVariant
       selectVariantInternal(fresh, list)
     } catch (err) {
-      console.error('Failed to toggle variant active state', err)
+      logger.error('Failed to toggle variant active state', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     }
   }, [selectedVariant, saving, deleting, variantsApiPath, t, loadVariantsList, selectVariantInternal, runMutation, buildMutationContext])
@@ -831,7 +850,7 @@ export function SidebarCustomizationEditor({
       const fallback = list[0] ?? null
       selectVariantInternal(fallback, list)
     } catch (err) {
-      console.error('Failed to delete variant', err)
+      logger.error('Failed to delete variant', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     } finally {
       setDeleting(false)
@@ -1219,7 +1238,30 @@ export function SidebarCustomizationEditor({
                             </p>
                           ) : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1 mt-[26px]">
+                        <div className="flex shrink-0 items-center gap-2 mt-6">
+                          {(() => {
+                            const visibility = resolveGroupVisibility(baseGroup, draft.hiddenItemIds)
+                            const groupName = trimmedValue.length > 0 ? trimmedValue : placeholder
+                            const label = visibility === 'partial'
+                              ? t('appShell.sidebarCustomizationHideGroupPartial', 'Some items in {group} are hidden — turn off to hide the whole group', { group: groupName })
+                              : t('appShell.sidebarCustomizationShowGroup', 'Show {group}', { group: groupName })
+                            return (
+                              <>
+                                {visibility === 'hidden' ? (
+                                  <Badge variant="muted" size="sm" className="uppercase tracking-wide">
+                                    {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
+                                  </Badge>
+                                ) : null}
+                                <Switch
+                                  checked={visibility !== 'hidden'}
+                                  onCheckedChange={(next) => setGroupHidden(groupId, next !== true)}
+                                  disabled={isBusy}
+                                  aria-label={label}
+                                  title={label}
+                                />
+                              </>
+                            )
+                          })()}
                           <IconButton
                             type="button"
                             variant="outline"
@@ -1346,9 +1388,9 @@ function ItemRow({ item, draft, saving, onLabelChange, onHiddenChange, t, depth,
       </div>
       <div className="flex shrink-0 items-center gap-2 pt-1.5">
         {hidden ? (
-          <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Badge variant="muted" size="sm" className="uppercase tracking-wide">
             {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
-          </span>
+          </Badge>
         ) : null}
         <Switch
           checked={!hidden}

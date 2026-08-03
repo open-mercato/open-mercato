@@ -11,6 +11,9 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { isSudoRequiredError } from '../../lib/sudo-middleware'
 import type { MfaAdminService, MfaAdminServiceError } from '../../services/MfaAdminService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('security').child({ component: 'users' })
 
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type Auth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -120,7 +123,7 @@ export async function mapSecurityUsersError(error: unknown): Promise<NextRespons
     return securityApiError(error.statusCode, error.message)
   }
 
-  console.error('security.users.route failure', error)
+  logger.error('Users route failure', { err: error })
   return securityApiError(500, 'Failed to process user security request.')
 }
 

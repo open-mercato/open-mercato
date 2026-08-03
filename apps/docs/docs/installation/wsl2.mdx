@@ -403,6 +403,15 @@ Open **http://localhost:3000/backend** in your Windows browser and sign in with 
 
 The compact runtime also serves a splash page at **http://localhost:4000** with live startup progress. Press `d` while `yarn dev` is running to toggle raw log output.
 
+If startup stops with `OS file watch limit reached`, raise WSL's Linux inotify limits and start again:
+
+```bash
+yarn dev:fix-wsl-watchers
+yarn dev
+```
+
+The command asks before applying sysctl changes, then sets the current WSL session limits and writes `/etc/sysctl.d/99-open-mercato-inotify.conf` so the values survive future WSL restarts. It may ask for your Ubuntu `sudo` password. It also offers an optional VS Code workspace-settings update to exclude generated/cache/worktree folders from editor file watching; if you accept it while VS Code is already open, run **Developer: Reload Window** from the command palette so VS Code releases old watcher handles.
+
 ---
 
 ## Upgrading an existing checkout
@@ -484,6 +493,7 @@ If you still want to browse the source from Visual Studio, you can open the fold
 | `Failed opening a web browser` during `gh auth login` | Install `wslu` (`sudo apt install wslu`) or set `export BROWSER="powershell.exe /c start"`. The auth flow still works: copy the printed URL into your Windows browser manually, enter the one-time code, then return to the terminal. |
 | Out of memory during `yarn build:packages` | Increase `memory=` in `.wslconfig` and run `wsl --shutdown` to restart WSL. |
 | File changes not detected by Next.js watch | Your project files must be inside the WSL2 filesystem (`~/...`), not on `/mnt/c/...`. |
+| `OS file watch limit reached` from Turbopack | Run `yarn dev:fix-wsl-watchers`, reload the WSL VS Code window if it is open, then restart `yarn dev`. |
 | Cannot connect to Windows-hosted PostgreSQL | See [step 9](#9-connecting-wsl2-to-a-windows-hosted-database). Check `pg_hba.conf`, `listen_addresses`, and Windows Firewall. |
 | `docker: command not found` after install | Run `newgrp docker` or log out and back into your WSL2 session to pick up group membership. |
 | WSL2 uses too much memory | Set `memory=` in `.wslconfig`, restart with `wsl --shutdown`. |

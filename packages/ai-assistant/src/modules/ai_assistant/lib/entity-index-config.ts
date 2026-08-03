@@ -189,7 +189,7 @@ export function computeEntitiesChecksum(
 ): string {
   const content = entities
     .map((e) => `${e.className}:${e.tableName}:${e.fieldCount}`)
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .join('|')
 
   // Simple hash using string code points

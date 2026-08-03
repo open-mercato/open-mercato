@@ -12,7 +12,8 @@ module.exports = {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
   },
   transform: {
-    '^.+\\.(t|j)sx?$': [
+    // `.cjs` is included so the build-time source emitters under scripts/ are testable.
+    '^.+\\.(cjs|(t|j)sx?)$': [
       '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {
@@ -24,7 +25,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely)/)',
+    'node_modules/(?!(@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

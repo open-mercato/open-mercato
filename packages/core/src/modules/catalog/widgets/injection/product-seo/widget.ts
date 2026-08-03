@@ -1,6 +1,6 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import ProductSeoWidget from './widget.client'
-import { publishProductSeoValidation } from './state'
+import { publishProductSeoValidation, getProductSeoTranslator } from './state'
 import { evaluateProductSeo } from './validation'
 
 const widget: InjectionWidgetModule<any, any> = {
@@ -8,7 +8,7 @@ const widget: InjectionWidgetModule<any, any> = {
     id: 'catalog.injection.product-seo',
     title: 'Product SEO Helper',
     description: 'Helps optimize product metadata for search engines',
-    features: ['catalog.products.edit'],
+    features: ['catalog.products.manage'],
     priority: 90,
     enabled: true,
     requiredFields: ['description'],
@@ -16,7 +16,7 @@ const widget: InjectionWidgetModule<any, any> = {
   Widget: ProductSeoWidget,
   eventHandlers: {
     onBeforeSave: async (data) => {
-      const evaluation = evaluateProductSeo(data as Record<string, unknown>)
+      const evaluation = evaluateProductSeo(data as Record<string, unknown>, getProductSeoTranslator())
 
       if (!evaluation.ok) {
         publishProductSeoValidation({ ok: false, issues: evaluation.issues, message: evaluation.message })

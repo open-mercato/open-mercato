@@ -1,4 +1,4 @@
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { ConfigScope, ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { EmbeddingProviderConfig, EmbeddingProviderId } from '../../../vector'
 import { EMBEDDING_CONFIG_KEY, EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../../../vector'
 
@@ -123,7 +123,7 @@ type Resolver = {
 
 export async function resolveEmbeddingConfig(
   resolver: Resolver,
-  options?: { defaultValue?: EmbeddingProviderConfig | null }
+  options?: { defaultValue?: EmbeddingProviderConfig | null; scope?: ConfigScope }
 ): Promise<EmbeddingProviderConfig | null> {
   const fallback = options?.defaultValue ?? null
   let service: ModuleConfigService
@@ -133,7 +133,10 @@ export async function resolveEmbeddingConfig(
     return fallback
   }
   try {
-    const value = await service.getValue<EmbeddingProviderConfig>('vector', EMBEDDING_CONFIG_KEY, { defaultValue: fallback })
+    const value = await service.getValue<EmbeddingProviderConfig>('vector', EMBEDDING_CONFIG_KEY, {
+      defaultValue: fallback,
+      scope: options?.scope,
+    })
     return value
   } catch {
     return fallback
@@ -142,7 +145,8 @@ export async function resolveEmbeddingConfig(
 
 export async function saveEmbeddingConfig(
   resolver: Resolver,
-  config: EmbeddingProviderConfig
+  config: EmbeddingProviderConfig,
+  options?: { scope?: ConfigScope }
 ): Promise<void> {
   let service: ModuleConfigService
   try {
@@ -153,9 +157,58 @@ export async function saveEmbeddingConfig(
   await service.setValue('vector', EMBEDDING_CONFIG_KEY, {
     ...config,
     updatedAt: new Date().toISOString(),
-  })
+  }, options?.scope)
 }
 
 export function createDefaultConfig(): EmbeddingProviderConfig {
   return { ...DEFAULT_EMBEDDING_CONFIG, updatedAt: new Date().toISOString() }
+}
+
+export type EmbeddingConfigSource = 'tenant' | 'instance' | 'env'
+
+/**
+ * Compute the env-derived default embedding config: the platform default narrowed
+ * to the first env-configured provider. Returns null when no provider is configured.
+ */
+export function getEnvDerivedEmbeddingConfig(): EmbeddingProviderConfig | null {
+  const configured = getConfiguredProviders()
+  if (configured.length === 0) return null
+  const providerId = configured.includes(DEFAULT_EMBEDDING_CONFIG.providerId)
+    ? DEFAULT_EMBEDDING_CONFIG.providerId
+    : configured[0]
+  if (providerId === DEFAULT_EMBEDDING_CONFIG.providerId) {
+    return { ...DEFAULT_EMBEDDING_CONFIG, updatedAt: new Date().toISOString() }
+  }
+  const info = EMBEDDING_PROVIDERS[providerId]
+  const model = info.models.find((entry) => entry.id === info.defaultModel) ?? info.models[0]
+  return {
+    providerId,
+    model: info.defaultModel,
+    dimension: model?.dimension ?? DEFAULT_EMBEDDING_CONFIG.dimension,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+/**
+ * Resolve the embedding config together with its source discriminator:
+ * `tenant` (own scoped row), `instance` (inherited global row), or `env`
+ * (no stored row -> env-derived default).
+ */
+export async function resolveEmbeddingConfigResult(
+  resolver: Resolver,
+  options?: { scope?: ConfigScope },
+): Promise<{ config: EmbeddingProviderConfig | null; source: EmbeddingConfigSource }> {
+  let service: ModuleConfigService
+  try {
+    service = resolver.resolve<ModuleConfigService>('moduleConfigService')
+  } catch {
+    return { config: getEnvDerivedEmbeddingConfig(), source: 'env' }
+  }
+  try {
+    const record = await service.getRecord('vector', EMBEDDING_CONFIG_KEY, options?.scope)
+    if (record && record.value) {
+      return { config: record.value as EmbeddingProviderConfig, source: record.source }
+    }
+  } catch {}
+  return { config: getEnvDerivedEmbeddingConfig(), source: 'env' }
 }

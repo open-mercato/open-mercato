@@ -1,5 +1,34 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
+import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
+import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
+
+// The token-presence answer is cached process-wide (TTL); without clearing it,
+// probe-count assertions would observe hits from earlier tests in this file.
+beforeEach(() => {
+  clearSearchTokenPresenceCache()
+})
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
 
 type KyselyMockConfig = {
   baseTable: string
@@ -63,6 +92,10 @@ function createFakeKysely(config: KyselyMockConfig) {
       distinct: () => chain,
       where: (...args: any[]) => {
         // Capture just the raw args (Kysely expression callbacks are opaque).
+        log.wheres.push(args)
+        return chain
+      },
+      whereRef: (...args: unknown[]) => {
         log.wheres.push(args)
         return chain
       },
@@ -350,7 +383,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     expect(fallback.query).toHaveBeenCalled()
@@ -373,7 +407,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -392,7 +427,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -410,7 +446,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await engine.query('example:todo', {
       fields: ['id'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -433,7 +470,8 @@ describe('HybridQueryEngine', () => {
       .mockImplementationOnce(async () => ({ baseCount: 5, indexedCount: 5 }))
       .mockImplementationOnce(async () => ({ baseCount: 10, indexedCount: 7 }))
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -482,7 +520,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     const result = await engine.query('example:todo', {
       fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
@@ -919,7 +958,8 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     // The auto-reindex event (`query_index.reindex`) should not fire.
@@ -1118,5 +1158,130 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
     const chains = db._chains as ChainLog[]
     expect(chains.some((chain) => chain.table === 'custom_entities_storage' && chain.selects.length > 0)).toBe(true)
     expect(chains.some((chain) => chain.table === 'todos')).toBe(false)
+  })
+
+  describe('search_tokens coverage probe (#4723)', () => {
+    type ChainRecordingDb = { _chains: ChainLog[] }
+
+    const countProbes = (db: ChainRecordingDb): number =>
+      db._chains.filter((chain) => chain.table === 'search_tokens').length
+
+    const buildDb = (): ChainRecordingDb => createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
+    })
+
+    const buildCustomEntityDb = (): ChainRecordingDb => createFakeKysely({
+      baseTable: 'unused',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'record-1' }] },
+    })
+
+    const buildHybridEngine = (em: EntityManager): HybridQueryEngine =>
+      new HybridQueryEngine(em, new BasicQueryEngine(em))
+
+    test('is skipped when the query carries no like/ilike filter', async () => {
+      const db = buildDb()
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        filters: [{ field: 'is_done', op: 'eq', value: false }],
+      })
+
+      expect(countProbes(db)).toBe(0)
+    })
+
+    test('still runs when the query actually searches', async () => {
+      const db = buildDb()
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        filters: [{ field: 'title', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBeGreaterThan(0)
+    })
+
+    test('is skipped on the custom-entity storage path without a like/ilike filter', async () => {
+      const db = buildCustomEntityDb()
+      const engine = buildHybridEngine(buildEmWithOrmMetadata(db, {}))
+
+      await engine.query('example:calendar_entity', {
+        fields: ['id'],
+        organizationIds: ['org1'],
+        tenantId: 't1',
+        filters: [{ field: 'is_active', op: 'eq', value: true }],
+      })
+
+      expect(countProbes(db)).toBe(0)
+    })
+
+    test('still runs on the custom-entity storage path when the query searches', async () => {
+      const db = buildCustomEntityDb()
+      const engine = buildHybridEngine(buildEmWithOrmMetadata(db, {}))
+
+      await engine.query('example:calendar_entity', {
+        fields: ['id'],
+        organizationIds: ['org1'],
+        tenantId: 't1',
+        filters: [{ field: 'title', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBeGreaterThan(0)
+    })
+
+    test('probes each joined-source entity once even when several filters hit the same source', async () => {
+      const db = buildDb()
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        filters: [
+          { field: 'title', op: 'ilike', value: '%abc%' },
+          { field: 'description', op: 'ilike', value: '%def%' },
+        ],
+      })
+
+      expect(countProbes(db)).toBe(1)
+    })
+
+    test('a join-only search probes the joined entity without probing the base source', async () => {
+      const db = createFakeKysely({
+        baseTable: 'todos',
+        hasIndexAny: true,
+        baseCount: 10,
+        indexCount: 10,
+        customFieldKeys: {},
+        columns: [{ table_name: 'users', column_name: 'display_name' }],
+      })
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        joins: [{
+          alias: 'assignee',
+          entityId: 'auth:user',
+          from: { field: 'assignee_id' },
+          to: { field: 'id' },
+        }],
+        filters: [{ field: 'assignee.display_name', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBe(1)
+      const tokenProbe = (db._chains as ChainLog[]).find((chain) => chain.table === 'search_tokens')
+      expect(tokenProbe?.wheres).toContainEqual(['entity_type', '=', 'auth:user'])
+    })
   })
 })

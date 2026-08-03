@@ -4,8 +4,8 @@ import type {
   PrepareStepFunction,
   GenerateTextOnStepFinishCallback,
   GenerateTextOnStepStartCallback,
-  GenerateTextOnToolCallStartCallback,
-  GenerateTextOnToolCallFinishCallback,
+  OnToolExecutionStartCallback,
+  OnToolExecutionEndCallback,
   ToolCallRepairFunction,
   StopCondition,
   ToolChoice,
@@ -124,12 +124,12 @@ export interface AiAgentLoopConfig {
    * Callback fired when a tool call starts. Forwarded to the AI SDK as
    * `experimental_onToolCallStart`.
    */
-  onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
+  onToolCallStart?: OnToolExecutionStartCallback<ToolSet>
   /**
    * Callback fired when a tool call finishes. Forwarded to the AI SDK as
    * `experimental_onToolCallFinish`.
    */
-  onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
+  onToolCallFinish?: OnToolExecutionEndCallback<ToolSet>
   /**
    * Tool-call repair function. Forwarded to the AI SDK as
    * `experimental_repairToolCall`.
@@ -384,6 +384,16 @@ export interface AiAgentDefinition {
   uiParts?: string[]
   readOnly?: boolean
   mutationPolicy?: AiAgentMutationPolicy
+  /**
+   * Marks this agent as accepting untrusted end-user input (e.g. a customer
+   * portal or public-widget surface). When `true`, input pre-moderation is
+   * ENFORCED on every turn wherever the resolved chat provider supports it —
+   * tenants cannot disable it. Other agents default to off and are tenant
+   * opt-in. Additive + optional; omitting it preserves today's behavior.
+   *
+   * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
+   */
+  untrustedInput?: boolean
   /**
    * @deprecated Use `loop.maxSteps` instead. Honored as alias when `loop` is
    * omitted. When both `maxSteps` and `loop.maxSteps` are specified, `loop.maxSteps`

@@ -1,8 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -28,14 +28,20 @@ export const SALES_RESOURCE_KIND_RETURN = 'sales.return'
  *
  * Strictly additive: when the client sends no header the check is a no-op, so
  * existing API consumers are unaffected. Respects `OM_OPTIMISTIC_LOCK`.
+ *
+ * Routes through the async DI-aware seam `enforceCommandOptimisticLockWithGuards`
+ * (Phase 0 / S1): the OSS `updated_at` floor runs first (identical behavior when
+ * `record_locks` is disabled — floor only), then the optional enterprise
+ * `record_locks` enrichment is awaited so the aggregate check observes the
+ * action-log diff when the resource is enabled. Callers MUST `await` it.
  */
-export function enforceSalesDocumentOptimisticLock(
+export async function enforceSalesDocumentOptimisticLock(
   ctx: CommandRuntimeContext,
   document: { id: string; updatedAt?: Date | string | null } | null | undefined,
   resourceKind: string,
-): void {
+): Promise<void> {
   if (!document) return
-  enforceCommandOptimisticLock({
+  await enforceCommandOptimisticLockWithGuards(ctx.container, {
     resourceKind,
     resourceId: document.id,
     current: document.updatedAt ?? null,
@@ -132,6 +138,6 @@ export async function requireScopedEntity<T extends { id: string; deletedAt?: Da
   if (scope.organizationId) where.organizationId = scope.organizationId
   if (scope.tenantId) where.tenantId = scope.tenantId
   const entity = await findOneWithDecryption(em, entityClass, where, {}, scope)
-  if (!entity) throw new CrudHttpError(404, { error: message })
+  if (!entity) throw notFound(message)
   return entity
 }

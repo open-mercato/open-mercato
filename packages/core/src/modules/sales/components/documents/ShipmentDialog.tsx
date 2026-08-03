@@ -15,7 +15,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError } from './optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
@@ -25,6 +25,9 @@ import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
 import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ShippingMethodOption = {
   id: string
@@ -46,6 +49,7 @@ type ShipmentDialogProps = {
   currencyCode?: string | null
   organizationId: string | null
   tenantId: string | null
+  documentUpdatedAt?: string | null
   computeAvailable: (lineId: string, excludeShipmentId?: string | null) => number
   shippingAddressSnapshot?: NormalizedAddressSnapshot | Record<string, unknown> | null
   onClose: () => void
@@ -278,6 +282,7 @@ export function ShipmentDialog({
   currencyCode,
   organizationId,
   tenantId,
+  documentUpdatedAt,
   computeAvailable,
   shippingAddressSnapshot,
   onClose,
@@ -291,6 +296,13 @@ export function ShipmentDialog({
   const [addressOptions, setAddressOptions] = React.useState<ShipmentAddressOption[]>([])
   const [addressLoading, setAddressLoading] = React.useState(false)
   const [addressError, setAddressError] = React.useState<string | null>(null)
+  const addressLoadPromiseRef = React.useRef<{
+    orderId: string
+    promise: Promise<ShipmentAddressOption[]>
+  } | null>(null)
+  const currentAddressOrderIdRef = React.useRef(orderId)
+  currentAddressOrderIdRef.current = orderId
+  const initializedDialogKeyRef = React.useRef<string | null>(null)
   const [documentStatuses, setDocumentStatuses] = React.useState<StatusOption[]>([])
   const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
   const [shipmentStatuses, setShipmentStatuses] = React.useState<StatusOption[]>([])
@@ -474,37 +486,52 @@ export function ShipmentDialog({
     [],
   )
 
-  const loadAddressOptions = React.useCallback(async () => {
+  const loadAddressOptions = React.useCallback((): Promise<ShipmentAddressOption[]> => {
+    const activeRequest = addressLoadPromiseRef.current
+    if (activeRequest?.orderId === orderId) return activeRequest.promise
+
     setAddressLoading(true)
-    try {
-      const params = new URLSearchParams({
-        page: '1',
-        pageSize: '100',
-        documentId: orderId,
-        documentKind: 'order',
-      })
-      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `/api/sales/document-addresses?${params.toString()}`,
-        undefined,
-        { fallback: { items: [] } },
-      )
-      const items = Array.isArray(response.result?.items) ? response.result.items : []
-      const mapped = items
-        .map((item) => mapDocumentAddressOption(item))
-        .filter((entry): entry is ShipmentAddressOption => Boolean(entry))
-      mergeAddressOptions(mapped)
-      setAddressError(null)
-      return mapped
-    } catch (err) {
-      console.error('sales.shipments.addresses.load', err)
-      setAddressError(
-        t('sales.documents.shipments.addressLoadError', 'Failed to load addresses.'),
-      )
-      return []
-    } finally {
-      setAddressLoading(false)
-    }
-  }, [mapDocumentAddressOption, mergeAddressOptions, orderId, t])
+    const request = (async () => {
+      try {
+        const params = new URLSearchParams({
+          page: '1',
+          pageSize: '100',
+          documentId: orderId,
+          documentKind: 'order',
+        })
+        const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/sales/document-addresses?${params.toString()}`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        const items = Array.isArray(response.result?.items) ? response.result.items : []
+        const mapped = items
+          .map((item) => mapDocumentAddressOption(item))
+          .filter((entry): entry is ShipmentAddressOption => Boolean(entry))
+        const loadedOptions = dedupeAddressOptions([...baseAddressOptions, ...mapped])
+        if (currentAddressOrderIdRef.current !== orderId) return baseAddressOptions
+        mergeAddressOptions(loadedOptions)
+        setAddressError(null)
+        return loadedOptions
+      } catch (err) {
+        logger.error('sales.shipments.addresses.load', { err })
+        if (currentAddressOrderIdRef.current === orderId) {
+          setAddressError(
+            t('sales.documents.shipments.addressLoadError', 'Failed to load addresses.'),
+          )
+        }
+        return baseAddressOptions
+      }
+    })()
+    addressLoadPromiseRef.current = { orderId, promise: request }
+    void request.then(() => {
+      if (addressLoadPromiseRef.current?.promise === request) {
+        addressLoadPromiseRef.current = null
+        setAddressLoading(false)
+      }
+    })
+    return request
+  }, [baseAddressOptions, mapDocumentAddressOption, mergeAddressOptions, orderId, t])
 
   const buildPriceSubtitle = React.useCallback(
     (option: ShippingMethodOption): string | undefined => {
@@ -581,7 +608,7 @@ export function ShipmentDialog({
         }
         return options
       } catch (err) {
-        console.error('sales.shipments.shipping-methods.load', err)
+        logger.error('sales.shipments.shipping-methods.load', { err })
         return []
       } finally {
         if (applyLoadingState) setShippingMethodLoading(false)
@@ -683,7 +710,7 @@ export function ShipmentDialog({
       setDocumentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.statuses.load', err)
+      logger.error('sales.shipments.statuses.load', { err })
       setDocumentStatuses([])
       return []
     } finally {
@@ -718,7 +745,7 @@ export function ShipmentDialog({
       setLineStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.line-statuses.load', err)
+      logger.error('sales.shipments.line-statuses.load', { err })
       setLineStatuses([])
       return []
     } finally {
@@ -747,7 +774,7 @@ export function ShipmentDialog({
       )
       return mapped
     } catch (err) {
-      console.error('sales.shipments.statuses.load', err)
+      logger.error('sales.shipments.statuses.load', { err })
       setShipmentStatuses([])
       return []
     } finally {
@@ -846,16 +873,20 @@ export function ShipmentDialog({
   )
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open) {
+      initializedDialogKeyRef.current = null
+      return
+    }
+    const dialogKey = `${orderId}:${mode}:${shipment?.id ?? 'new'}`
+    if (initializedDialogKeyRef.current === dialogKey) return
+    initializedDialogKeyRef.current = dialogKey
     setFormResetKey((prev) => prev + 1)
     if (!shippingMethods.length) {
       void loadShippingMethods()
     }
     setAddressOptions(baseAddressOptions)
     setAddressError(null)
-    if (!addressOptions.length) {
-      void loadAddressOptions()
-    }
+    void loadAddressOptions()
     if (!shipmentStatuses.length) {
       void loadShipmentStatuses()
     }
@@ -866,7 +897,6 @@ export function ShipmentDialog({
       void loadLineStatuses()
     }
   }, [
-    addressOptions.length,
     baseAddressOptions,
     documentStatuses.length,
     loadAddressOptions,
@@ -876,6 +906,8 @@ export function ShipmentDialog({
     loadShippingMethods,
     mode,
     open,
+    orderId,
+    shipment?.id,
     lineStatuses.length,
     shipmentStatuses.length,
     shippingMethods.length,
@@ -934,11 +966,9 @@ export function ShipmentDialog({
 
   const fetchAddressItems = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
-      if (!addressOptions.length && !addressLoading) {
-        await loadAddressOptions()
-      }
+      const options = addressOptions.length ? addressOptions : await loadAddressOptions()
       const needle = query?.trim().toLowerCase() ?? ''
-      return addressOptions
+      return options
         .filter((option) => {
           if (!needle) return true
           return (
@@ -957,7 +987,7 @@ export function ShipmentDialog({
           ),
         }))
     },
-    [addressLoading, addressOptions, loadAddressOptions],
+    [addressOptions, loadAddressOptions],
   )
 
   const validateItems = React.useCallback(
@@ -1089,7 +1119,9 @@ export function ShipmentDialog({
       let result
       try {
         result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(shipment?.id ? rowOptimisticVersion(shipment) : undefined),
+          // The server guards the PARENT order's aggregate version (Gap B) for
+          // both create and update, so send the order's `updated_at`.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             action(
               'sales/shipments',
@@ -1168,7 +1200,7 @@ export function ShipmentDialog({
               )
               emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
             } catch (err) {
-              console.warn('sales.shipments.adjustment.create', err)
+              logger.warn('sales.shipments.adjustment.create', { err })
               flash(
                 t(
                   'sales.documents.shipments.shippingAdjustmentError',
@@ -1211,7 +1243,7 @@ export function ShipmentDialog({
           try {
             await onAddComment(note)
           } catch (err) {
-            console.warn('sales.shipments.comment', err)
+            logger.warn('sales.shipments.comment', { err })
           }
         }
         await onSaved()
@@ -1219,6 +1251,7 @@ export function ShipmentDialog({
     },
     [
       currencyCode,
+      documentUpdatedAt,
       lines,
       mode,
       onAddComment,
@@ -1226,7 +1259,6 @@ export function ShipmentDialog({
       orderId,
       organizationId,
       shipment?.id,
-      shipment?.updatedAt,
       addressOptions,
       addressOptionsMap,
       shippingMethods,

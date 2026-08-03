@@ -14,6 +14,10 @@ import type {
 } from './response-enricher'
 import { getEnrichersForEntity } from './enricher-registry'
 import { logEnricherTiming } from '../umes/enricher-timing'
+import { createLogger } from '../logger'
+import { authorizeFeatures } from '../../security/featurePolicy'
+
+const logger = createLogger('shared').child({ component: 'umes' })
 
 const DEFAULT_TIMEOUT = 2000
 const SLOW_WARN_MS = 100
@@ -32,17 +36,7 @@ function hasRequiredFeatures(
 ): boolean {
   if (!enricher.features || enricher.features.length === 0) return true
   if (!userFeatures) return false
-  const hasFeature = (required: string): boolean => {
-    for (const granted of userFeatures) {
-      if (granted === '*' || granted === required) return true
-      if (granted.endsWith('.*')) {
-        const prefix = granted.slice(0, -1)
-        if (required.startsWith(prefix)) return true
-      }
-    }
-    return false
-  }
-  return enricher.features.every((feature) => hasFeature(feature))
+  return authorizeFeatures(enricher.features, { grantedFeatures: userFeatures })
 }
 
 function filterByACLAndTenant(
@@ -263,13 +257,9 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
 
       const elapsedMs = Date.now() - startTime
       if (elapsedMs > SLOW_ERROR_MS) {
-        console.error(
-          `[UMES] Enricher ${enricher.id} took ${elapsedMs}ms (threshold: ${SLOW_ERROR_MS}ms)`,
-        )
+        logger.error('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_ERROR_MS })
       } else if (elapsedMs > SLOW_WARN_MS) {
-        console.warn(
-          `[UMES] Enricher ${enricher.id} took ${elapsedMs}ms (threshold: ${SLOW_WARN_MS}ms)`,
-        )
+        logger.warn('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_WARN_MS })
       }
       logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
@@ -289,8 +279,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
         throw err
       }
 
-      const message = err instanceof Error ? err.message : String(err)
-      console.warn(`[UMES] Enricher ${enricher.id} failed: ${message}`)
+      logger.warn('Enricher failed', { enricherId: enricher.id, err })
       enricherErrors.push(enricher.id)
 
       if (enricher.fallback) {
@@ -376,8 +365,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
         throw err
       }
 
-      const message = err instanceof Error ? err.message : String(err)
-      console.warn(`[UMES] Enricher ${enricher.id} failed: ${message}`)
+      logger.warn('Enricher failed', { enricherId: enricher.id, err })
       enricherErrors.push(enricher.id)
 
       if (enricher.fallback) {

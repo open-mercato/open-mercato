@@ -1,8 +1,24 @@
 import '@open-mercato/core/modules/messages/commands/actions'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/message-types-registry'
 
 describe('messages.actions.execute command', () => {
+  beforeAll(() => {
+    // Opt `demo.approve` into the message-action allowlist so the concurrency
+    // test below exercises the claim path rather than being short-circuited by
+    // the confused-deputy guard.
+    registerMessageTypes([
+      {
+        type: 'demo.approval',
+        module: 'demo',
+        labelKey: 'demo.approval',
+        icon: 'bell',
+        defaultActions: [{ id: 'approve', label: 'Approve', commandId: 'demo.approve' }],
+      },
+    ])
+  })
+
   it('surfaces terminal action log entries for href actions', async () => {
     const command = commandRegistry.get('messages.actions.execute')
     expect(command).toBeTruthy()
@@ -203,5 +219,93 @@ describe('messages.actions.execute command', () => {
     expect(emFork.nativeUpdate).toHaveBeenCalledTimes(1)
     // ...and because the claim lost the race, the target command never executed.
     expect(nestedCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('refuses a composer-controlled commandId that no message type declares', async () => {
+    const command = commandRegistry.get('messages.actions.execute')
+    expect(command).toBeTruthy()
+
+    const message = {
+      id: '11111111-1111-4111-8111-111111111111',
+      type: 'default',
+      sourceEntityId: '22222222-2222-4222-8222-222222222222',
+      tenantId: '55555555-5555-4555-8555-555555555555',
+      organizationId: '66666666-6666-4666-8666-666666666666',
+      threadId: null,
+      parentMessageId: null,
+      sentAt: new Date('2026-03-01T12:00:00.000Z'),
+      deletedAt: null,
+      actionTaken: null,
+      actionData: {
+        actions: [
+          {
+            // Innocuous label, but the commandId targets an arbitrary registered
+            // command — the confused-deputy vector from issue #3488.
+            id: 'acknowledge',
+            label: 'Acknowledge',
+            commandId: 'auth.users.delete',
+            isTerminal: true,
+          },
+        ],
+      },
+    }
+
+    const emFork = {
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === Message) return message
+        if (entity === MessageRecipient) {
+          return {
+            id: '33333333-3333-4333-8333-333333333333',
+            messageId: message.id,
+            recipientUserId: '44444444-4444-4444-8444-444444444444',
+            deletedAt: null,
+          }
+        }
+        return null
+      }),
+      find: jest.fn(async (entity: unknown) => {
+        if (entity === MessageObject) return []
+        return []
+      }),
+      nativeUpdate: jest.fn(async () => 1),
+    }
+
+    const nestedCommandBus = {
+      execute: jest.fn(async () => ({ result: { ok: true }, logEntry: null })),
+    }
+
+    await expect(
+      command!.execute(
+        {
+          messageId: message.id,
+          actionId: 'acknowledge',
+          tenantId: '55555555-5555-4555-8555-555555555555',
+          organizationId: '66666666-6666-4666-8666-666666666666',
+          userId: '44444444-4444-4444-8444-444444444444',
+        },
+        {
+          container: {
+            resolve: (name: string) => {
+              if (name === 'em') return { fork: () => emFork }
+              if (name === 'commandBus') return nestedCommandBus
+              return null
+            },
+          } as never,
+          auth: {
+            sub: '44444444-4444-4444-8444-444444444444',
+            tenantId: '55555555-5555-4555-8555-555555555555',
+            orgId: '66666666-6666-4666-8666-666666666666',
+          } as never,
+          organizationScope: null,
+          selectedOrganizationId: '66666666-6666-4666-8666-666666666666',
+          organizationIds: ['66666666-6666-4666-8666-666666666666'],
+        },
+      ),
+    ).rejects.toThrow('Action command is not allowed')
+
+    // The disallowed command must never reach the bus, and no terminal claim
+    // should have been reserved (guard runs before the claim).
+    expect(nestedCommandBus.execute).not.toHaveBeenCalled()
+    expect(emFork.nativeUpdate).not.toHaveBeenCalled()
   })
 })

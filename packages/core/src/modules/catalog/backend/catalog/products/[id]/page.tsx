@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { ErrorMessage, RecordNotFoundState } from "@open-mercato/ui/backend/detail";
 import {
@@ -41,6 +43,10 @@ import {
 } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { surfaceRecordConflict } from "@open-mercato/ui/backend/conflicts";
+import {
+  buildRecordInjectionContext,
+  useSetCurrentRecordInjectionContext,
+} from "@open-mercato/ui/backend/injection/recordContext";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
@@ -133,6 +139,9 @@ import {
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
 import { SendObjectMessageDialog } from "@open-mercato/ui/backend/messages/SendObjectMessageDialog.tsx";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 type ProductResponse = {
   items?: Array<Record<string, unknown>>;
@@ -314,6 +323,7 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
+  const pathname = usePathname();
   const productSubpathPrefix = productId
     ? `/backend/catalog/products/${productId}/`
     : null;
@@ -503,12 +513,12 @@ export default function EditCatalogProductPage({
           }
           setVariantMediaGroups(groups);
         } catch (err) {
-          console.error("catalog.variants.media.fetch failed", err);
+          logger.error('catalog.variants.media.fetch failed', { err });
           setVariantMediaGroups([]);
         }
       })();
     } catch (err) {
-      console.error("catalog.variants.fetch failed", err);
+      logger.error('catalog.variants.fetch failed', { err });
       setVariants([]);
       setVariantMediaGroups([]);
     }
@@ -534,7 +544,7 @@ export default function EditCatalogProductPage({
           thumbnailUrl: item.thumbnailUrl ?? undefined,
         }));
       } catch (err) {
-        console.error("attachments.fetch failed", err);
+        logger.error('attachments.fetch failed', { err });
         return [];
       }
     },
@@ -560,7 +570,7 @@ export default function EditCatalogProductPage({
             .filter((item): item is TaxRateSummary => item !== null),
         );
       } catch (err) {
-        console.error("sales.tax-rates.fetch failed", err);
+        logger.error('sales.tax-rates.fetch failed', { err });
         setTaxRates([]);
       }
     };
@@ -770,7 +780,7 @@ export default function EditCatalogProductPage({
         }
         await loadVariants(productId!);
       } catch (err) {
-        console.error("catalog.products.edit.load failed", err);
+        logger.error('catalog.products.edit.load failed', { err });
         if (!cancelled) {
           const message =
             err instanceof Error && err.message
@@ -808,7 +818,7 @@ export default function EditCatalogProductPage({
           setPriceKinds(summaries);
         }
       } catch (err) {
-        console.error("catalog.price-kinds.fetch failed", err);
+        logger.error('catalog.price-kinds.fetch failed', { err });
         if (!cancelled) {
           setPriceKinds([]);
         }
@@ -834,6 +844,21 @@ export default function EditCatalogProductPage({
     hasScrolledToHash.current = true
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `catalog.product` + id
+  // explicitly (presence/acquire/heartbeat on load; cleared on unmount). The
+  // resourceKind mirrors the CrudForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same product.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: "catalog.product",
+      resourceId: productId,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  );
 
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
@@ -1326,7 +1351,7 @@ export default function EditCatalogProductPage({
             );
           }
         } catch (err) {
-          console.error("catalog.products.edit.offers.delete", err);
+          logger.error('catalog.products.edit.offers.delete', { err });
           throw createCrudFormError(
             t(
               "catalog.products.edit.offers.deleteError",
@@ -1501,7 +1526,7 @@ export default function EditCatalogProductPage({
           ) : undefined}
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           entityId={E.catalog.catalog_product}
           customFieldsetBindings={{
             [E.catalog.catalog_product]: { valueKey: "customFieldsetCode" },
@@ -1868,7 +1893,7 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         setSchemaTemplates([]);
       }
     } catch (err) {
-      console.error("catalog.option-schemas.list failed", err);
+      logger.error('catalog.option-schemas.list failed', { err });
       setSchemaTemplates([]);
     } finally {
       setSchemaLoading(false);
@@ -1896,7 +1921,7 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         void loadSchemas();
       } catch (err) {
         if (surfaceRecordConflict(err, t)) { void loadSchemas(); return; }
-        console.error("catalog.option-schemas.delete failed", err);
+        logger.error('catalog.option-schemas.delete failed', { err });
       }
     },
     [loadSchemas, schemaTemplates, t],
@@ -2289,7 +2314,7 @@ function ProductVariantsSection({
         onVariantDeleted(variant.id);
       } catch (err) {
         if (surfaceRecordConflict(err, t)) return;
-        console.error("catalog.products.edit.variants.delete", err);
+        logger.error('catalog.products.edit.variants.delete', { err });
         flash(
           t("catalog.variants.form.deleteError", "Failed to delete variant."),
           "error",
@@ -2338,7 +2363,7 @@ function ProductVariantsSection({
       );
       if (onVariantsReload) await onVariantsReload();
     } catch (err) {
-      console.error("catalog.products.edit.variantList.generate", err);
+      logger.error('catalog.products.edit.variantList.generate', { err });
       flash(
         t(
           "catalog.products.edit.variantList.generateError",
@@ -3303,7 +3328,7 @@ function SaveSchemaDialog({
       await onSubmit(name);
       onOpenChange(false);
     } catch (err) {
-      console.error("schema.save.failed", err);
+      logger.error('schema.save.failed', { err });
     } finally {
       setSaving(false);
     }

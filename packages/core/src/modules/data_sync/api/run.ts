@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
@@ -13,6 +14,9 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('data_sync').child({ component: 'run' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['data_sync.run'] },
@@ -26,8 +30,12 @@ export const openApi = {
 export async function POST(req: Request) {
   try {
     const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth.orgId) {
+    if (!auth?.tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const organizationId = resolveActiveOrganizationId(auth)
+    if (!organizationId) {
+      return organizationScopeRequiredResponse()
     }
 
     const payload = await readJsonSafe(req)
@@ -42,7 +50,7 @@ export async function POST(req: Request) {
     const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
 
     const scope = {
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     }
 
@@ -138,7 +146,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const stack = error instanceof Error ? error.stack : undefined
-    console.error('[data_sync.run] unhandled error', { message, stack })
+    logger.error('Unhandled error starting sync run', { message, stack })
     return NextResponse.json(
       { error: 'Failed to start data sync run.' },
       { status: 500 },

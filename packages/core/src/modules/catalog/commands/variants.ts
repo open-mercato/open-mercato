@@ -19,6 +19,7 @@ import {
 } from '../data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
 import {
   variantCreateSchema,
   variantUpdateSchema,
@@ -562,11 +563,15 @@ async function aggregateVariantMediaToProduct(
   for (const source of attachments) {
     const key = buildKey(source)
     if (existingKeys.has(key)) continue
+    // Carry a scope pair across as a unit (source row first, else the variant
+    // scope, else global) so independent `??` coalescing can't produce a
+    // partial-null attachment row.
+    const scope = resolveAttachmentScopePair(source, variant) ?? { organizationId: null, tenantId: null }
     const clone = em.create(Attachment, {
       entityId: E.catalog.catalog_product,
       recordId: productId,
-      organizationId: source.organizationId ?? variant.organizationId ?? null,
-      tenantId: source.tenantId ?? variant.tenantId ?? null,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
       partitionCode: source.partitionCode,
       fileName: source.fileName,
       mimeType: source.mimeType,

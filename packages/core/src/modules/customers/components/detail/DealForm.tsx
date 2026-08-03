@@ -15,6 +15,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { DEAL_DESCRIPTION_MAX_LENGTH } from '../../data/validators'
 import { DictionarySelectField } from '../formConfig'
 import { createDictionarySelectLabels } from './utils'
 import { E } from '#generated/entities.ids.generated'
@@ -69,6 +70,14 @@ export type DealFormProps = {
   showCancelAction?: boolean
   initialPipelineOptions?: PipelineOption[]
   initialPipelineStageOptions?: PipelineStageOption[]
+  /**
+   * Injection spot id for the form-scoped record_locks widget (e.g.
+   * `customers.deal`). Mirrors how people-v2/companies-v2 mount their save-time
+   * `crud-form:*` widget so a deal save conflict surfaces the merge dialog.
+   */
+  injectionSpotId?: string
+  /** Optimistic-lock version (`deal.updatedAt`) for the embedded CrudForm. */
+  optimisticLockUpdatedAt?: string | null
 }
 
 type EntityOption = {
@@ -255,7 +264,10 @@ const schema = z.object({
       'customers.people.detail.deals.expectedCloseInvalid',
     )
     .optional(),
-  description: z.string().max(4000, 'customers.people.detail.deals.descriptionTooLong').optional(),
+  description: z
+    .string()
+    .max(DEAL_DESCRIPTION_MAX_LENGTH, 'customers.people.detail.deals.descriptionTooLong')
+    .optional(),
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
@@ -732,6 +744,8 @@ export function DealForm({
   showCancelAction = true,
   initialPipelineOptions,
   initialPipelineStageOptions,
+  injectionSpotId,
+  optimisticLockUpdatedAt,
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -1168,6 +1182,8 @@ export function DealForm({
       backHref={backHref}
       hideFooterActions={hideFooterActions}
       onDirtyChange={onDirtyChange}
+      injectionSpotId={injectionSpotId}
+      optimisticLockUpdatedAt={optimisticLockUpdatedAt}
       collapsibleGroups={collapsibleGroups}
       sortableGroups={sortableGroups}
       versionHistory={showVersionHistory && mode === 'edit' && initialValues?.id

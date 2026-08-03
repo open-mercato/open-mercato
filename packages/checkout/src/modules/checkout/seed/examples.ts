@@ -7,6 +7,9 @@ import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
 import { ensureUniqueSlug, toMoneyString, toTemplateOrLinkMutationInput } from '../lib/utils'
 import { ensureCheckoutFieldsetsAndDefinitions } from './customFields'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'seed' })
 
 type TemplateSeed = {
   name: string
@@ -351,7 +354,7 @@ async function assignCustomFields(args: {
       values: args.values,
     })
   } catch (error) {
-    console.warn('[checkout.seed] Failed to set example custom field values', error)
+    logger.warn('Failed to set example custom field values', { err: error })
   }
 }
 

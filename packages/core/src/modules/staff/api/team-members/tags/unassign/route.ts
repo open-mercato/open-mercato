@@ -18,6 +18,9 @@ import {
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.manage_team'] },
@@ -113,7 +116,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.teamMembers.tags.unassign failed', err)
+    logger.error('staff.teamMembers.tags.unassign failed', { err })
     return NextResponse.json({ error: translate('staff.teamMembers.tags.updateError', 'Failed to update tags.') }, { status: 400 })
   }
 }

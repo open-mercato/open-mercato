@@ -1,3 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'oauth-client-config' })
+
 /**
  * Minimal shape of the integrations credentials service `resolve` we depend on.
  * Declared locally so this helper compiles even when the integrations module is
@@ -65,9 +69,9 @@ export async function resolveOAuthClientCredentials(
       // A resolve error (e.g. a transient DB issue) for this org scope shouldn't
       // abort the lookup — fall through to the next scope — but surface it so a
       // real misconfiguration isn't silently swallowed.
-      console.warn(
-        '[internal] [communication_channels] resolveOAuthClientCredentials: credential resolve failed for an org scope:',
-        resolveErr instanceof Error ? resolveErr.message : resolveErr,
+      logger.warn(
+        'resolveOAuthClientCredentials credential resolve failed for an org scope',
+        { err: resolveErr },
       )
       row = null
     }

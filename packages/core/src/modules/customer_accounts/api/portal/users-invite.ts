@@ -68,7 +68,12 @@ export async function POST(req: Request) {
     ? await findWithDecryption(
         em,
         CustomerRole,
-        { id: { $in: requestedRoleIds }, tenantId: auth.tenantId, deletedAt: null } as any,
+        {
+          id: { $in: requestedRoleIds },
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          deletedAt: null,
+        } as any,
         undefined,
         { tenantId: auth.tenantId, organizationId: auth.orgId },
       )

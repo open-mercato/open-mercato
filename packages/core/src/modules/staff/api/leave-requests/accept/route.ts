@@ -15,6 +15,9 @@ import {
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../guards'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.leave_requests.manage'] },
@@ -110,7 +113,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.leave-requests.accept failed', err)
+    logger.error('staff.leave-requests.accept failed', { err })
     return NextResponse.json({ error: translate('staff.leaveRequests.errors.accept', 'Failed to approve leave request.') }, { status: 400 })
   }
 }

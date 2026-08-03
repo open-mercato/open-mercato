@@ -3,7 +3,10 @@ import type {
   CommandInterceptorContext,
   CommandInterceptorUndoContext,
 } from './command-interceptor'
-import { hasAllFeatures } from '../../security/features'
+import { authorizeFeatures } from '../../security/featurePolicy'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
 
 // ---------------------------------------------------------------------------
 // Command pattern matching
@@ -30,7 +33,7 @@ function collectMatching(
 ): CommandInterceptor[] {
   return interceptors
     .filter((i) => matchesCommandPattern(i.targetCommand, commandId))
-    .filter((i) => hasAllFeatures(userFeatures, i.features))
+    .filter((i) => authorizeFeatures(i.features ?? [], { grantedFeatures: userFeatures }))
     .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50))
 }
 
@@ -116,7 +119,7 @@ export async function runCommandInterceptorsAfter(
         currentResult = { ...(currentResult as Record<string, unknown>), ...afterResult.modifiedResult }
       }
     } catch (error) {
-      console.error(`[command-interceptor] afterExecute failed: ${interceptor.id}`, error)
+      logger.error('Command interceptor afterExecute failed', { interceptorId: interceptor.id, err: error })
     }
   }
 
@@ -185,7 +188,7 @@ export async function runCommandInterceptorsAfterUndo(
         { ...context, commandId, metadata: metadataByInterceptor.get(interceptor.id) },
       )
     } catch (error) {
-      console.error(`[command-interceptor] afterUndo failed: ${interceptor.id}`, error)
+      logger.error('Command interceptor afterUndo failed', { interceptorId: interceptor.id, err: error })
     }
   }
 }

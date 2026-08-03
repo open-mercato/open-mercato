@@ -1,5 +1,8 @@
 import crypto from 'node:crypto'
 import { isEncryptionDebugEnabled } from './toggles'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
 
 export type EncryptionPayload = {
   value: string | null
@@ -31,8 +34,7 @@ export function generateDek(): string {
 function logDebug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug('[encryption]', event, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }

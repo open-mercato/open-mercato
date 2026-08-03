@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/payment_gateways/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -354,7 +355,7 @@ export default function PaymentTransactionsPage() {
   }, [loadDetail, loadRows, runMutation, selectedId, t])
 
   const providerOptions = React.useMemo(() => {
-    const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort()
+    const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort((a, b) => a.localeCompare(b))
     return values.map((value) => ({
       label: formatTypeLabel(value),
       value,
@@ -472,7 +473,7 @@ export default function PaymentTransactionsPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('payment_gateways.transactions.searchPlaceholder', 'Search by payment, transaction, session, or gateway id')}
-          perspective={{ tableId: 'payment_gateways.transactions.list' }}
+          perspective={{ tableId: extensionPoints.hosts.transactionsTable.tableId }}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
           onRowClick={(row) => setSelectedId((current) => current === row.id ? null : row.id)}
@@ -691,7 +692,7 @@ export default function PaymentTransactionsPage() {
                         className="p-4"
                       />
                       <InjectionSpot
-                        spotId="admin.page:payment-gateways/transactions:after"
+                        spotId={extensionPoints.hosts.transactionsAfter.spotId}
                         context={{ selectedPaymentId: detail.transaction.paymentId }}
                       />
                     </div>

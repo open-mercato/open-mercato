@@ -1,6 +1,26 @@
 import { buildSearchTokenRows } from '../lib/search-tokens'
 import type { SearchConfig } from '@open-mercato/shared/lib/search/config'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 const config: SearchConfig = {
   enabled: true,
   minTokenLength: 3,
@@ -12,8 +32,8 @@ const config: SearchConfig = {
 
 const collectDebugPayloads = (calls: unknown[][]): Record<string, unknown>[] => {
   return calls
-    .filter((args) => typeof args[0] === 'string' && (args[0] as string).startsWith('[search-tokens]'))
-    .map((args) => (args[1] ?? {}) as Record<string, unknown>)
+    .filter((args) => args[0] === 'Search token event')
+    .map((args) => ((args[1] as Record<string, unknown> | undefined)?.payload ?? {}) as Record<string, unknown>)
 }
 
 const deepStringValues = (value: unknown, out: string[] = []): string[] => {
@@ -29,11 +49,12 @@ const deepStringValues = (value: unknown, out: string[] = []): string[] => {
 
 describe('buildSearchTokenRows debug logging redaction (issue #2709)', () => {
   const previousDebug = process.env.OM_SEARCH_DEBUG
-  let debugSpy: jest.SpyInstance
+  let debugSpy: jest.Mock
 
   beforeEach(() => {
     process.env.OM_SEARCH_DEBUG = 'true'
-    debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {})
+    mockLogger.debug.mockClear()
+    debugSpy = mockLogger.debug
   })
 
   afterEach(() => {

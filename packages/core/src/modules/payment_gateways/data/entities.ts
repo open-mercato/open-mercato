@@ -6,7 +6,7 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
 @Index({ properties: ['providerKey', 'providerSessionId', 'organizationId'] })
 @Index({ properties: ['organizationId', 'tenantId', 'unifiedStatus'] })
 export class GatewayTransaction {
-  [OptionalProps]?: 'unifiedStatus' | 'gatewayStatus' | 'providerSessionId' | 'gatewayPaymentId' | 'gatewayRefundId' | 'redirectUrl' | 'clientSecret' | 'gatewayMetadata' | 'webhookLog' | 'lastWebhookAt' | 'lastPolledAt' | 'expiresAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'unifiedStatus' | 'gatewayStatus' | 'providerSessionId' | 'gatewayPaymentId' | 'gatewayRefundId' | 'redirectUrl' | 'clientSecret' | 'capturedAmount' | 'gatewayMetadata' | 'webhookLog' | 'lastWebhookAt' | 'lastPolledAt' | 'expiresAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -41,6 +41,9 @@ export class GatewayTransaction {
   @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4 })
   amount!: string
 
+  @Property({ name: 'captured_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  capturedAmount: string = '0'
+
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
@@ -73,6 +76,112 @@ export class GatewayTransaction {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gateway_payment_operations' })
+@Unique({
+  name: 'gateway_payment_operations_scope_operation_unique',
+  properties: ['operationId', 'organizationId', 'tenantId'],
+})
+@Index({ properties: ['transactionId', 'operationType', 'organizationId', 'tenantId'] })
+@Index({ properties: ['status', 'leaseExpiresAt'] })
+export class GatewayPaymentOperation {
+  [OptionalProps]?: 'status' | 'attemptCount' | 'result' | 'reservedAmount' | 'leaseExpiresAt' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'operation_id', type: 'text' })
+  operationId!: string
+
+  @Property({ name: 'transaction_id', type: 'uuid' })
+  transactionId!: string
+
+  @Property({ name: 'operation_type', type: 'text' })
+  operationType!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'request_hash', type: 'text' })
+  requestHash!: string
+
+  @Property({ name: 'provider_idempotency_key', type: 'text' })
+  providerIdempotencyKey!: string
+
+  @Property({ name: 'status', type: 'text' })
+  status: string = 'in_progress'
+
+  @Property({ name: 'attempt_token', type: 'text' })
+  attemptToken!: string
+
+  @Property({ name: 'attempt_count', type: 'integer' })
+  attemptCount: number = 1
+
+  @Property({ name: 'result', type: 'jsonb', nullable: true })
+  result?: Record<string, unknown> | null
+
+  @Property({ name: 'reserved_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  reservedAmount?: string | null
+
+  @Property({ name: 'lease_expires_at', type: Date, nullable: true })
+  leaseExpiresAt?: Date | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'gateway_session_initializations' })
+@Unique({
+  name: 'gateway_session_initializations_scope_operation_unique',
+  properties: ['operationKey', 'providerKey', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'gateway_session_initializations_prune_idx',
+  expression:
+    'create index "gateway_session_initializations_prune_idx" on "gateway_session_initializations" ("tenant_id", "organization_id", "updated_at") where "gateway_transaction_id" is not null',
+})
+export class GatewaySessionInitialization {
+  [OptionalProps]?: 'claimToken' | 'claimedAt' | 'gatewayTransactionId' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'operation_key', type: 'text' })
+  operationKey!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'claim_token', type: 'uuid', nullable: true })
+  claimToken?: string | null
+
+  @Property({ name: 'claimed_at', type: Date, nullable: true })
+  claimedAt?: Date | null
+
+  @Property({ name: 'gateway_transaction_id', type: 'uuid', nullable: true })
+  gatewayTransactionId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'gateway_webhook_events' })

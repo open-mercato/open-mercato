@@ -6,7 +6,7 @@ import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const apiCallMock = jest.fn()
-const routerReplaceMock = jest.fn()
+const navigateWithPageReloadMock = jest.fn()
 const portalContextState: { tenant: unknown } = {
   tenant: { tenantId: 't-1', organizationId: 'o-1', organizationName: 'Acme', loading: false, error: null },
 }
@@ -29,8 +29,11 @@ jest.mock('@open-mercato/ui/backend/injection/spotIds', () => ({
 }))
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: routerReplaceMock }),
   useSearchParams: () => ({ get: (key: string) => (key === 'token' ? searchParamsState.token : null) }),
+}))
+
+jest.mock('@open-mercato/core/modules/portal/lib/navigation', () => ({
+  navigateWithPageReload: (...args: unknown[]) => navigateWithPageReloadMock(...args),
 }))
 
 import PortalInvitePage from '../frontend/[orgSlug]/portal/invite/page'
@@ -53,7 +56,7 @@ describe('PortalInvitePage', () => {
     fireEvent.change(getByLabelText('Confirm Password'), { target: { value: confirm } })
   }
 
-  it('submits the invite token, password, and displayName to the accept API and redirects to dashboard', async () => {
+  it('submits the invite token, password, and displayName before reloading the authenticated dashboard', async () => {
     apiCallMock.mockResolvedValueOnce({ ok: true, status: 200, result: { ok: true } })
 
     const { getByLabelText, getByRole } = renderWithProviders(<PortalInvitePage params={{ orgSlug: 'acme' }} />)
@@ -74,7 +77,7 @@ describe('PortalInvitePage', () => {
         }),
       }),
     )
-    expect(routerReplaceMock).toHaveBeenCalledWith('/acme/portal/dashboard')
+    expect(navigateWithPageReloadMock).toHaveBeenCalledWith('/acme/portal/dashboard')
   })
 
   it('renders the no-token error and disables the form when ?token= is missing', async () => {

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -25,6 +26,9 @@ import {
   buildMessagesListParams,
   type SenderOption,
 } from './inboxFilters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'MessagesInboxPageClient' })
 
 type MessageListItem = {
   id: string
@@ -254,7 +258,7 @@ export function MessagesInboxPageClient() {
     senderOptionsScopeRef.current = scopeVersion
     setSenderOptions([])
     loadSenderOptions().catch((error: unknown) => {
-      console.warn('[messages] Failed to load sender filter options', error)
+      logger.warn('Failed to load sender filter options', { err: error })
     })
   }, [loadSenderOptions, scopeVersion])
 
@@ -366,7 +370,7 @@ export function MessagesInboxPageClient() {
         // UMES extension surface — opt into widget injection at:
         //   data-table:messages:columns / :row-actions / :bulk-actions / :filters / :toolbar / :search-trailing
         // (SPEC-045d §9.3a — communication_channels hub renders channel badge + delivery status here)
-        extensionTableId="messages"
+        extensionTableId={extensionPoints.hosts.inboxTable.tableId}
         columns={columns}
         data={rows}
         bulkActions={bulkActions}

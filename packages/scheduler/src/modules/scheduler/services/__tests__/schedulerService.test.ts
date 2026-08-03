@@ -2,6 +2,29 @@ import { SchedulerService, type ScheduleRegistration } from '../schedulerService
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../../data/entities.js'
 import type { BullMQSchedulerService } from '../bullmqSchedulerService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (key: string, _fallback?: string, params?: Record<string, unknown>) => (
+      params?.max === undefined ? `translated:${key}` : `translated:${key}:max=${params.max}`
+    ),
+  }),
+}))
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const loggerError = createLogger('scheduler').error as jest.Mock
 
 describe('SchedulerService', () => {
   let service: SchedulerService
@@ -128,16 +151,14 @@ describe('SchedulerService', () => {
       mockForkedEm.flush.mockResolvedValue()
       mockBullMQService.register.mockRejectedValue(new Error('BullMQ error'))
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      loggerError.mockClear()
 
       await expect(service.register(baseRegistration)).resolves.not.toThrow()
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[scheduler] Failed to sync with BullMQ:',
-        expect.any(Error)
+      expect(loggerError).toHaveBeenCalledWith(
+        'Failed to sync with BullMQ',
+        { scheduleId: 'test-1', err: expect.any(Error) }
       )
-
-      consoleErrorSpy.mockRestore()
     })
 
     it('should throw if next run calculation fails', async () => {
@@ -170,6 +191,37 @@ describe('SchedulerService', () => {
       expect(mockForkedEm.create).toHaveBeenCalledWith(ScheduledJob, expect.objectContaining({
         timezone: 'America/New_York',
       }))
+    })
+
+    it('should reject a new enabled tenant schedule when the tenant active cap is reached', async () => {
+      const originalLimit = process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+      process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = '2'
+      try {
+        mockForkedEm.findOne.mockResolvedValue(null)
+        mockForkedEm.count.mockResolvedValue(2)
+
+        await expect(service.register({
+          ...baseRegistration,
+          scopeType: 'tenant',
+          tenantId: 'tenant-1',
+          scheduleType: 'interval',
+          scheduleValue: '15m',
+        })).rejects.toMatchObject({
+          status: 422,
+          body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+        })
+
+        expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
+          tenantId: 'tenant-1',
+          isEnabled: true,
+          deletedAt: null,
+        })
+        expect(mockForkedEm.create).not.toHaveBeenCalled()
+        expect(mockForkedEm.flush).not.toHaveBeenCalled()
+      } finally {
+        if (originalLimit === undefined) delete process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+        else process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = originalLimit
+      }
     })
   })
 
@@ -206,12 +258,14 @@ describe('SchedulerService', () => {
       mockForkedEm.flush.mockResolvedValue()
       mockBullMQService.unregister.mockRejectedValue(new Error('BullMQ error'))
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      loggerError.mockClear()
 
       await expect(service.unregister('test-1')).resolves.not.toThrow()
 
-      expect(consoleErrorSpy).toHaveBeenCalled()
-      consoleErrorSpy.mockRestore()
+      expect(loggerError).toHaveBeenCalledWith(
+        'Failed to unregister from BullMQ',
+        { scheduleId: 'test-1', err: expect.any(Error) }
+      )
     })
 
     it('should do nothing if schedule does not exist', async () => {
@@ -364,6 +418,68 @@ describe('SchedulerService', () => {
       await service.update('test-1', { isEnabled: false })
 
       expect(mockBullMQService.unregister).toHaveBeenCalledWith('test-1')
+    })
+
+    it('should reject enabling a tenant schedule when the tenant active cap is reached', async () => {
+      const originalLimit = process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+      process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = '2'
+      try {
+        const schedule = {
+          id: 'test-1',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          scopeType: 'tenant',
+          isEnabled: false,
+          scheduleType: 'interval',
+          scheduleValue: '15m',
+          timezone: 'UTC',
+        } as ScheduledJob
+
+        mockForkedEm.findOne.mockResolvedValue(schedule)
+        mockForkedEm.count.mockResolvedValue(2)
+
+        await expect(service.update('test-1', { isEnabled: true })).rejects.toMatchObject({
+          status: 422,
+          body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+        })
+
+        expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
+          tenantId: 'tenant-1',
+          isEnabled: true,
+          deletedAt: null,
+        })
+        expect(schedule.isEnabled).toBe(false)
+        expect(mockForkedEm.flush).not.toHaveBeenCalled()
+      } finally {
+        if (originalLimit === undefined) delete process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+        else process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = originalLimit
+      }
+    })
+
+    it('should reject interval updates below one minute', async () => {
+      const nextRunAt = new Date('2026-01-01T00:15:00.000Z')
+      const schedule = {
+        id: 'test-1',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        scopeType: 'tenant',
+        isEnabled: true,
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+        timezone: 'UTC',
+        nextRunAt,
+      } as ScheduledJob
+
+      mockForkedEm.findOne.mockResolvedValue(schedule)
+
+      await expect(service.update('test-1', {
+        scheduleType: 'interval',
+        scheduleValue: '1s',
+      })).rejects.toThrow('Failed to calculate next run time')
+
+      expect(schedule.scheduleValue).toBe('15m')
+      expect(schedule.nextRunAt).toBe(nextRunAt)
+      expect(mockForkedEm.flush).not.toHaveBeenCalled()
     })
   })
 

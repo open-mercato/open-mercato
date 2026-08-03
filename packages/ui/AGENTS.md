@@ -1,8 +1,8 @@
 # UI Package - Agent Guidelines
 
-UI usage patterns based on customers, sales, and staff modules. Use these defaults when building new UI in `packages/ui` or consuming from other modules.
+UI defaults for `packages/ui` and its consumers.
 
-> **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md).
+> References: [DS rules](../../.ai/ds-rules.md), [component contracts](../../.ai/ui-components.md), and [backend component families](../../.ai/ui-backend-components.md).
 
 ## Always
 
@@ -14,6 +14,7 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 - Use i18n keys and `useT()` for user-facing copy.
 - Keep UMES spot IDs, replacement handles, field/group IDs, and portal page metadata stable.
 - Follow `.ai/ds-rules.md` and `.ai/ui-components.md` for tokens, primitives, and component contracts.
+- Keep documented primitive additions/renames and their `figma/*.figma.tsx` mappings in the same PR; run `yarn ds:code-connect:check`.
 
 ## Ask First
 
@@ -36,6 +37,7 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 ```bash
 yarn workspace @open-mercato/ui test
 yarn workspace @open-mercato/ui build
+yarn ds:code-connect:check
 yarn i18n:check
 ```
 

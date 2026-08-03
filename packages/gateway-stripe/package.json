@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/gateway-stripe",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -65,9 +65,9 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@stripe/react-stripe-js": "^6.6.0",
-    "@stripe/stripe-js": "^9.8.0",
-    "stripe": "^22.2.2"
+    "@stripe/react-stripe-js": "^6.7.0",
+    "@stripe/stripe-js": "^9.12.1",
+    "stripe": "^22.3.1"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -83,10 +83,10 @@
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11",
-    "typescript": "^6.0.3"
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
   },
   "publishConfig": {
     "access": "public"

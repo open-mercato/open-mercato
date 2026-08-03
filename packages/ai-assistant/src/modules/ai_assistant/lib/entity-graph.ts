@@ -341,6 +341,6 @@ export function getGraphStats(graph: EntityGraph): {
   return {
     totalEntities: graph.nodes.length,
     totalRelationships: graph.edges.length,
-    modules: Array.from(byModule.keys()).sort(),
+    modules: Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
   }
 }

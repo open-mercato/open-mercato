@@ -6,19 +6,16 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useActiveTimesheetTimer } from '../../../lib/timesheets-ui/useActiveTimesheetTimer'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { startTimerEntry } from '../../../lib/timesheets-ui/startTimer'
 import { resolveTimerActionError } from '../../../lib/timesheets-ui/timerErrors'
 import { DEFAULT_SETTINGS, hydrateSettings, type TimeReportingSettings } from './config'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 type ProjectOption = { id: string; name: string; code: string | null }
-
-type TimerState = {
-  entryId: string | null
-  running: boolean
-  startedAt: string | null
-  projectId: string | null
-}
 
 const TIMER_WIDGET_MUTATION_CONTEXT_ID = 'staff-timesheets-time-reporting-widget'
 
@@ -57,12 +54,23 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
   const [projects, setProjects] = React.useState<ProjectOption[]>([])
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(hydrated.lastProjectId)
   const [notes, setNotes] = React.useState('')
-  const [timer, setTimer] = React.useState<TimerState>({ entryId: null, running: false, startedAt: null, projectId: null })
   const [elapsed, setElapsed] = React.useState('00:00:00')
-  const [staffMemberId, setStaffMemberId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [actionLoading, setActionLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const didLoadRef = React.useRef(false)
+  const activeTimer = useActiveTimesheetTimer()
+  const {
+    staffMemberId,
+    entryId: activeEntryId,
+    running: timerRunning,
+    startedAt: timerStartedAt,
+    projectId: activeProjectId,
+    projectName: activeProjectName,
+    isLoading: activeTimerLoading,
+    error: activeTimerError,
+    refresh: refreshActiveTimer,
+  } = activeTimer
 
   const loadState = React.useCallback(async () => {
     onRefreshStateChange?.(true)
@@ -96,40 +104,8 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
         setProjects([])
       }
 
-      // Check for active timer — look for today's entries with startedAt set and endedAt null
-      const selfRes = await readApiResultOrThrow<{ member?: { id: string } | null }>(
-        '/api/staff/team-members/self',
-        undefined,
-        { errorMessage: '', fallback: { member: null } },
-      )
-      const memberId = selfRes.member?.id ?? null
-      setStaffMemberId(memberId)
-      if (memberId) {
-        const today = new Date().toISOString().slice(0, 10)
-        const entriesRes = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&from=${today}&to=${today}&pageSize=100`,
-          undefined,
-          { errorMessage: '', fallback: { items: [] } },
-        )
-        const entries = Array.isArray(entriesRes.items) ? entriesRes.items : []
-        const running = entries.find((e) => {
-          const startedAt = e.started_at ?? e.startedAt
-          const endedAt = e.ended_at ?? e.endedAt
-          return startedAt != null && endedAt == null
-        })
-        if (running) {
-          setTimer({
-            entryId: String(running.id ?? ''),
-            running: true,
-            startedAt: String(running.started_at ?? running.startedAt ?? ''),
-            projectId: String(running.time_project_id ?? running.timeProjectId ?? ''),
-          })
-        } else {
-          setTimer({ entryId: null, running: false, startedAt: null, projectId: null })
-        }
-      }
     } catch (err) {
-      console.error('staff.timesheets.timeReporting.load', err)
+      logger.error('staff.timesheets.timeReporting.load', { err })
       setError(t('staff.timesheets.widgets.timeReporting.error', 'Failed to load timer state'))
     } finally {
       setLoading(false)
@@ -138,21 +114,29 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
   }, [onRefreshStateChange, t])
 
   React.useEffect(() => {
-    void loadState()
-  }, [loadState, refreshToken])
+    if (!didLoadRef.current) {
+      didLoadRef.current = true
+      void loadState()
+      return
+    }
+    void Promise.allSettled([loadState(), refreshActiveTimer()])
+  }, [loadState, refreshActiveTimer, refreshToken])
 
   // Tick elapsed time
   React.useEffect(() => {
-    if (!timer.running || !timer.startedAt) return
-    const tick = () => setElapsed(formatElapsed(timer.startedAt!))
+    if (!timerRunning || !timerStartedAt) {
+      setElapsed('00:00:00')
+      return
+    }
+    const tick = () => setElapsed(formatElapsed(timerStartedAt))
     tick()
     const interval = setInterval(tick, 1000)
     return () => clearInterval(interval)
-  }, [timer.running, timer.startedAt])
+  }, [timerRunning, timerStartedAt])
 
   const handleStart = React.useCallback(async () => {
     if (!selectedProjectId || !staffMemberId) return
-    if (timer.running) return
+    if (timerRunning) return
     setActionLoading(true)
     try {
       const today = new Date().toISOString().slice(0, 10)
@@ -181,45 +165,45 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
       })
 
       onSettingsChange({ ...hydrated, lastProjectId: selectedProjectId })
-      await loadState()
+      await refreshActiveTimer()
     } catch (err) {
-      console.error('staff.timesheets.timeReporting.start', err)
+      logger.error('staff.timesheets.timeReporting.start', { err })
       setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.startError', 'Failed to start timer')))
     } finally {
       setActionLoading(false)
     }
-  }, [selectedProjectId, staffMemberId, timer.running, notes, hydrated, onSettingsChange, loadState, runMutation, retryLastMutation, t])
+  }, [selectedProjectId, staffMemberId, timerRunning, notes, runMutation, retryLastMutation, hydrated, onSettingsChange, refreshActiveTimer, t])
 
   const handleStop = React.useCallback(async () => {
-    if (!timer.entryId || !staffMemberId) return
+    if (!activeEntryId || !staffMemberId) return
     setActionLoading(true)
     try {
       const stopPayload = {
-        id: timer.entryId,
+        id: activeEntryId,
         action: 'timer-stop',
         staffMemberId,
       }
       await runMutation({
         operation: () =>
-          apiCall(`/api/staff/timesheets/time-entries/${timer.entryId}/timer-stop`, { method: 'POST' }),
+          apiCall(`/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`, { method: 'POST' }),
         context: {
           formId: TIMER_WIDGET_MUTATION_CONTEXT_ID,
           resourceKind: 'staff.timesheets.time_entry',
-          resourceId: timer.entryId,
+          resourceId: activeEntryId,
           staffMemberId,
           action: 'timer-stop',
           retryLastMutation,
         },
         mutationPayload: stopPayload,
       })
-      await loadState()
+      await refreshActiveTimer()
     } catch (err) {
-      console.error('staff.timesheets.timeReporting.stop', err)
+      logger.error('staff.timesheets.timeReporting.stop', { err })
       setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.stopError', 'Failed to stop timer')))
     } finally {
       setActionLoading(false)
     }
-  }, [timer.entryId, staffMemberId, loadState, runMutation, retryLastMutation, t])
+  }, [activeEntryId, staffMemberId, runMutation, retryLastMutation, refreshActiveTimer, t])
 
   if (mode === 'settings') {
     return (
@@ -231,7 +215,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     )
   }
 
-  if (loading) {
+  if (loading || activeTimerLoading) {
     return (
       <div className="flex h-full items-center justify-center py-8">
         <p className="text-sm text-muted-foreground">{t('staff.timesheets.widgets.timeReporting.loading', 'Loading...')}</p>
@@ -239,10 +223,12 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     )
   }
 
-  if (error) {
+  if (error || activeTimerError) {
     return (
       <div className="flex h-full items-center justify-center py-8">
-        <p role="alert" className="text-sm text-destructive">{error}</p>
+        <p role="alert" className="text-sm text-destructive">
+          {error ?? t('staff.timesheets.widgets.timeReporting.error', 'Failed to load timer state')}
+        </p>
       </div>
     )
   }
@@ -258,12 +244,12 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
   }
 
   // Timer is running
-  if (timer.running) {
-    const runningProject = projects.find((p) => p.id === timer.projectId)
+  if (timerRunning) {
+    const runningProject = projects.find((p) => p.id === activeProjectId)
     return (
       <div className="space-y-3">
         <div className="text-sm text-muted-foreground">
-          {runningProject?.name ?? t('staff.timesheets.widgets.timeReporting.unknownProject', 'Unknown project')}
+          {runningProject?.name ?? activeProjectName ?? t('staff.timesheets.widgets.timeReporting.unknownProject', 'Unknown project')}
         </div>
         <div className="text-center">
           <p className="font-mono text-3xl font-bold tabular-nums">{elapsed}</p>

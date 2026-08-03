@@ -2,7 +2,12 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: () => null,
 }))
 
-import { buildEntityMetadataPayload, shouldRegisterEntityMetadata } from '../[entityId]/page'
+import {
+  buildDefinitionsBatchPayload,
+  buildEntityMetadataPayload,
+  getEntitySettingsNotice,
+  shouldRegisterEntityMetadata,
+} from '../[entityId]/page'
 
 describe('shouldRegisterEntityMetadata', () => {
   it('registers metadata for custom (user-defined) entities', () => {
@@ -11,6 +16,27 @@ describe('shouldRegisterEntityMetadata', () => {
 
   it('does not register metadata for code-declared system entities (#3115)', () => {
     expect(shouldRegisterEntityMetadata('code')).toBe(false)
+  })
+})
+
+describe('getEntitySettingsNotice', () => {
+  const fallbackTranslate = (_key: string, fallback?: unknown) =>
+    typeof fallback === 'string' ? fallback : _key
+
+  it('routes the system-entity notice through i18n with a code-declared key (#3151)', () => {
+    const keys: string[] = []
+    const recordingTranslate = (key: string, fallback?: unknown) => {
+      keys.push(key)
+      return typeof fallback === 'string' ? fallback : key
+    }
+    const notice = getEntitySettingsNotice('code', recordingTranslate as never)
+    expect(keys).toContain('entities.userEntities.form.systemEntityNotice')
+    expect(typeof notice).toBe('string')
+    expect(notice).toMatch(/cannot be edited/i)
+  })
+
+  it('returns no notice for custom entities', () => {
+    expect(getEntitySettingsNotice('custom', fallbackTranslate as never)).toBeUndefined()
   })
 })
 
@@ -85,5 +111,68 @@ describe('buildEntityMetadataPayload', () => {
   it('returns null when label is empty', () => {
     const result = buildEntityMetadataPayload('custom', { label: '' })
     expect(result).toBeNull()
+  })
+})
+
+describe('buildDefinitionsBatchPayload', () => {
+  it('preserves inactive definitions so inherited fields can be hidden', () => {
+    const result = buildDefinitionsBatchPayload({
+      entityId: 'customers:customer_deal',
+      defs: [
+        {
+          key: 'hide_me',
+          kind: 'text',
+          configJson: { label: 'Hide me' },
+          isActive: false,
+        },
+        {
+          key: 'keep_me',
+          kind: 'text',
+          configJson: { label: 'Keep me' },
+          isActive: true,
+        },
+      ],
+      fieldsets: [{ code: 'main', label: 'Main' }],
+      singleFieldsetPerRecord: true,
+    })
+
+    expect(result).toEqual({
+      entityId: 'customers:customer_deal',
+      definitions: [
+        {
+          key: 'hide_me',
+          kind: 'text',
+          configJson: { label: 'Hide me' },
+          isActive: false,
+        },
+        {
+          key: 'keep_me',
+          kind: 'text',
+          configJson: { label: 'Keep me' },
+          isActive: true,
+        },
+      ],
+      fieldsets: [{ code: 'main', label: 'Main' }],
+      singleFieldsetPerRecord: true,
+    })
+  })
+
+  it('omits incomplete definitions without keys', () => {
+    const result = buildDefinitionsBatchPayload({
+      entityId: 'customers:customer_deal',
+      defs: [
+        {
+          key: '',
+          kind: 'text',
+          configJson: {},
+          isActive: true,
+        },
+      ],
+      fieldsets: [],
+      singleFieldsetPerRecord: false,
+    })
+
+    expect(result.definitions).toEqual([])
+    expect(result.singleFieldsetPerRecord).toBe(false)
   })
 })

@@ -1,4 +1,7 @@
 import type { EntityManager } from '@mikro-orm/core'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'local' })
 
 /**
  * PostgreSQL advisory lock strategy for single-instance or local development
@@ -37,7 +40,7 @@ export class LocalLockStrategy {
         throw error
       }
 
-      console.error('[scheduler:local] Failed to acquire lock:', error)
+      logger.error('Failed to acquire lock', { lockKey: key, err: error })
       return { acquired: false }
     }
   }

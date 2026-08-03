@@ -36,6 +36,7 @@ const plannedActivitiesSectionMock = jest.fn(
 const dealFormMock = jest.fn(() => <div>form</div>)
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
+let injectedTabWidgets: Array<Record<string, unknown>> = []
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -50,6 +51,7 @@ jest.mock('next/navigation', () => ({
     get: (key: string) => (key === 'tab' ? activeTabParam : null),
     toString: () => (activeTabParam ? `tab=${activeTabParam}` : ''),
   }),
+  usePathname: () => '/backend/customers/deals/test',
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
@@ -98,11 +100,12 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (_headers: Record<string, string>, run: () => Promise<unknown>) => run(),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
   InjectionSpot: () => null,
-  useInjectionWidgets: () => ({ widgets: [] }),
+  useInjectionWidgets: () => ({ widgets: injectedTabWidgets }),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -136,19 +139,22 @@ jest.mock('../../../../../components/detail/DealDetailHeader', () => ({
 }))
 
 jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
-  resolveLegacyTab: (tab?: string | null) => {
+  resolveLegacyTab: (tab?: string | null, knownTabIds?: Iterable<string>) => {
     if (tab === 'activities' || tab === 'people' || tab === 'companies' || tab === 'notes' || tab === 'files' || tab === 'changelog') {
       return tab
     }
+    if (tab && knownTabIds && new Set(knownTabIds).has(tab)) return tab
     return 'activities'
   },
   DealDetailTabs: ({
     children,
     activeTab,
+    injectedTabs = [],
     onTabChange,
   }: {
     children: React.ReactNode
     activeTab: string
+    injectedTabs?: Array<{ id: string; label: string }>
     onTabChange: (tab: string) => void
   }) => (
     <div>
@@ -157,6 +163,9 @@ jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
       <button type="button" onClick={() => onTabChange('companies')}>tab-companies</button>
       <button type="button" onClick={() => onTabChange('files')}>tab-files</button>
       <button type="button" onClick={() => onTabChange('changelog')}>tab-changelog</button>
+      {injectedTabs.map((tab) => (
+        <button key={tab.id} type="button" onClick={() => onTabChange(tab.id)}>{`tab-${tab.id}`}</button>
+      ))}
       {children}
     </div>
   ),
@@ -353,10 +362,15 @@ describe('DealDetailPage', () => {
   beforeEach(() => {
     activeTabParam = 'activities'
     detailRequestCount = 0
+    injectedTabWidgets = []
     readApiResultOrThrowMock.mockReset()
     updateCrudMock.mockReset()
     deleteCrudMock.mockReset()
     replaceMock.mockReset()
+    replaceMock.mockImplementation((url: string) => {
+      const query = url.split('?')[1] ?? ''
+      activeTabParam = new URLSearchParams(query).get('tab')
+    })
     pushMock.mockReset()
     inlineActivityComposerMock.mockClear()
     plannedActivitiesSectionMock.mockClear()
@@ -409,6 +423,70 @@ describe('DealDetailPage', () => {
         return { items: [] }
       }
       throw new Error(`Unexpected URL: ${url}`)
+    })
+  })
+
+  it('does not restore a late injected tab after the user has selected another tab (#4379)', async () => {
+    activeTabParam = 'crm.custom-tab'
+    const view = renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    fireEvent.click(screen.getByRole('button', { name: 'tab-companies' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('companies')
+    })
+
+    injectedTabWidgets = [{
+      widgetId: 'crm.custom-tab',
+      placement: { kind: 'tab', groupId: 'crm.custom-tab' },
+      module: { metadata: { title: 'Custom' }, Widget: () => <div>custom</div> },
+    }]
+    view.rerender(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('companies')
+    })
+  })
+
+  it('keeps an injected tab active when it is selected from another built-in tab (#4379)', async () => {
+    activeTabParam = 'people'
+    injectedTabWidgets = [{
+      widgetId: 'crm.custom-tab',
+      placement: { kind: 'tab', groupId: 'crm.custom-tab' },
+      module: { metadata: { title: 'Custom' }, Widget: () => <div>custom</div> },
+    }]
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    fireEvent.click(screen.getByRole('button', { name: 'tab-crm.custom-tab' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('crm.custom-tab')
+    })
+    expect(replaceMock).toHaveBeenCalledWith(
+      '/backend/customers/deals/deal-123?tab=crm.custom-tab',
+      { scroll: false },
+    )
+  })
+
+  it('resolves a deep link to an injected tab once the widgets load (#4379)', async () => {
+    activeTabParam = 'crm.custom-tab'
+    const view = renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    expect(screen.getByTestId('active-tab')).toHaveTextContent('activities')
+
+    injectedTabWidgets = [{
+      widgetId: 'crm.custom-tab',
+      placement: { kind: 'tab', groupId: 'crm.custom-tab' },
+      module: { metadata: { title: 'Custom' }, Widget: () => <div>custom</div> },
+    }]
+    view.rerender(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-tab')).toHaveTextContent('crm.custom-tab')
     })
   })
 
@@ -504,7 +582,48 @@ describe('DealDetailPage', () => {
     expect(detailRequestCount).toBe(1)
   })
 
-  it('requires an explicit entity selection before quick activity actions bind to a linked customer', async () => {
+  it('defaults the activity target to the primary linked person when one is flagged (#4376)', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/deals/deal-123')) {
+        const payload = createDealPayload()
+        payload.people = [
+          {
+            id: 'person-1',
+            label: 'Ada Lovelace',
+            subtitle: 'VP Partnerships',
+            kind: 'person' as const,
+          },
+          {
+            id: 'person-2',
+            label: 'Grace Hopper',
+            subtitle: 'Procurement lead',
+            kind: 'person' as const,
+            isPrimary: true,
+          },
+        ]
+        payload.linkedPersonIds = ['person-1', 'person-2']
+        payload.counts.people = 2
+        return payload
+      }
+      if (url.startsWith('/api/customers/interactions')) {
+        return { items: [] }
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    const selector = await screen.findByLabelText('Choose customer record')
+
+    await waitFor(() => {
+      expect((selector as HTMLSelectElement).value).toBe('person-2')
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('person:person-2')
+    })
+  })
+
+  it('falls back to the first linked record when no primary is flagged, and honors manual changes (#4376)', async () => {
     readApiResultOrThrowMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/customers/deals/deal-1/stats')) {
         return {
@@ -550,8 +669,12 @@ describe('DealDetailPage', () => {
 
     const selector = await screen.findByLabelText('Choose customer record')
 
-    expect(screen.queryByTestId('inline-activity-composer')).not.toBeInTheDocument()
-    expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-disabled')
+    await waitFor(() => {
+      expect((selector as HTMLSelectElement).value).toBe('person-1')
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('person:person-1')
+    })
 
     fireEvent.change(selector, { target: { value: 'company-1' } })
 

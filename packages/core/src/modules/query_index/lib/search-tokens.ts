@@ -1,7 +1,15 @@
-import { type Kysely, sql } from 'kysely'
-import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
+import { type Kysely, type Transaction, sql } from 'kysely'
+import {
+  isSearchFieldBlocklisted,
+  resolveSearchConfig,
+  resolveSearchTokenLimits,
+  type SearchConfig,
+} from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'search-tokens' })
 
 const INSERT_BATCH_SIZE = 500
 
@@ -33,6 +41,7 @@ type BuildTokenOptions = {
 
 const DEFAULT_SCOPE = { organizationId: null, tenantId: null }
 type EntityFieldPair = [string, string]
+type SearchTokenExecutor = Kysely<any> | Transaction<any>
 
 export const isSearchDebugEnabled = (): boolean => {
   return parseBooleanToken(process.env.OM_SEARCH_DEBUG ?? '') === true
@@ -41,8 +50,7 @@ export const isSearchDebugEnabled = (): boolean => {
 const debug = (event: string, payload: Record<string, unknown>) => {
   if (!isSearchDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(`[search-tokens] ${event}`, payload)
+    logger.debug('Search token event', { event, payload })
   } catch {
     // ignore
   }
@@ -60,16 +68,19 @@ function collectTextValues(value: unknown): string[] {
   return []
 }
 
-function shouldIndexField(field: string, value: unknown, config: SearchConfig): boolean {
+function shouldIndexField(
+  field: string,
+  value: unknown,
+  config: SearchConfig,
+  entityType: string | null,
+): boolean {
   if (typeof value !== 'string' && !Array.isArray(value)) return false
   const lower = field.toLowerCase()
   if (lower === 'id' || lower.endsWith('_id') || lower.endsWith('.id')) return false
   if (lower.endsWith('_at')) return false
   if (['created_at', 'updated_at', 'deleted_at', 'tenant_id', 'organization_id'].includes(lower)) return false
-  if (config.blocklistedFields.some((blocked) => lower.includes(blocked))) return false
-  const values = collectTextValues(value)
-  if (!values.length) return false
-  return values.some((text) => tokenizeText(text, config).tokens.length > 0)
+  if (isSearchFieldBlocklisted(field, entityType, config)) return false
+  return collectTextValues(value).some((text) => text.length > 0)
 }
 
 export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[] {
@@ -83,19 +94,32 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
     organizationId: params.organizationId ?? DEFAULT_SCOPE.organizationId,
     tenantId: params.tenantId ?? DEFAULT_SCOPE.tenantId,
   }
+  const limits = resolveSearchTokenLimits(config)
+  const recordLimit = limits.maxTokensPerRecord > 0 ? limits.maxTokensPerRecord : Number.POSITIVE_INFINITY
+  const fieldLimit = limits.maxTokensPerField > 0 ? limits.maxTokensPerField : Number.POSITIVE_INFINITY
 
   for (const [field, rawValue] of Object.entries(params.doc)) {
-    if (!shouldIndexField(field, rawValue, config)) continue
+    if (tokens.length >= recordLimit) break
+    if (!shouldIndexField(field, rawValue, config, params.entityType)) continue
     const values = collectTextValues(rawValue)
     const seen = new Set<string>()
+    let fieldTokenCount = 0
     for (const text of values) {
-      const { tokens: textTokens, hashes } = tokenizeText(text, config)
+      if (tokens.length >= recordLimit || fieldTokenCount >= fieldLimit) break
+      const remainingLimit = Math.min(recordLimit - tokens.length, fieldLimit - fieldTokenCount)
+      const candidateLimit = fieldTokenCount + remainingLimit
+      const tokenConfig = Number.isFinite(candidateLimit)
+        ? { ...config, maxTokensPerField: candidateLimit }
+        : config
+      const { tokens: textTokens, hashes } = tokenizeText(text, tokenConfig)
       for (let i = 0; i < textTokens.length; i += 1) {
+        if (tokens.length >= recordLimit || fieldTokenCount >= fieldLimit) break
         const token = textTokens[i]
         const hash = hashes[i]
         const dedupeKey = `${field}|${hash}`
         if (seen.has(dedupeKey)) continue
         seen.add(dedupeKey)
+        fieldTokenCount += 1
         debug('token.generated', { entityType: params.entityType, recordId: params.recordId, field, hash })
         tokens.push({
           entity_type: params.entityType,
@@ -140,7 +164,8 @@ function buildFieldPairs(recordId: string, doc?: Record<string, unknown> | null)
 
 export async function replaceSearchTokensForRecord(
   db: Kysely<any>,
-  params: BuildTokenOptions
+  params: BuildTokenOptions,
+  options?: { trx?: SearchTokenExecutor },
 ): Promise<void> {
   const rows = buildSearchTokenRows(params)
   const config = params.config ?? resolveSearchConfig()
@@ -149,8 +174,8 @@ export async function replaceSearchTokensForRecord(
   const tenantId = params.tenantId ?? null
   const fieldPairs = buildFieldPairs(String(params.recordId), params.doc)
 
-  await db.transaction().execute(async (trx) => {
-    let deleteQuery = trx
+  const writeTokens = async (executor: SearchTokenExecutor): Promise<void> => {
+    let deleteQuery = executor
       .deleteFrom('search_tokens' as any)
       .where('entity_type' as any, '=', params.entityType)
       .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
@@ -169,18 +194,27 @@ export async function replaceSearchTokensForRecord(
     if (!rows.length) return
     const payloads = rows.map((row) => ({ ...row, created_at: sql`now()` }))
     for (const batch of chunk(payloads, INSERT_BATCH_SIZE)) {
-      await trx.insertInto('search_tokens' as any).values(batch as any).execute()
+      await executor.insertInto('search_tokens' as any).values(batch as any).execute()
     }
-  })
+  }
+
+  if (options?.trx) {
+    await writeTokens(options.trx)
+    return
+  }
+
+  await db.transaction().execute(writeTokens)
 }
 
 export async function deleteSearchTokensForRecord(
   db: Kysely<any>,
-  params: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+  params: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null },
+  options?: { trx?: SearchTokenExecutor },
 ): Promise<void> {
   const organizationId = params.organizationId ?? null
   const tenantId = params.tenantId ?? null
-  await db
+  const executor = options?.trx ?? db
+  await executor
     .deleteFrom('search_tokens' as any)
     .where('entity_type' as any, '=', params.entityType)
     .where('entity_id' as any, '=', String(params.recordId))
@@ -212,8 +246,6 @@ export async function replaceSearchTokensForBatch(
 
   const scopeKey = (org: string | null, tenant: string | null) => `${org ?? '__null__'}|${tenant ?? '__null__'}`
   const scopeBuckets = new Map<string, { organizationId: string | null; tenantId: string | null; ids: Set<string> }>()
-  const fieldPairsByScope = new Map<string, EntityFieldPair[]>()
-  const seenPairsByScope = new Map<string, Set<string>>()
 
   for (const payload of payloads) {
     const org = payload.organizationId ?? null
@@ -224,41 +256,16 @@ export async function replaceSearchTokensForBatch(
     scopeBuckets.set(key, bucket)
   }
 
-  for (const payload of payloads) {
-    const org = payload.organizationId ?? null
-    const tenant = payload.tenantId ?? null
-    const key = scopeKey(org, tenant)
-    const pairs = fieldPairsByScope.get(key) ?? []
-    const seen = seenPairsByScope.get(key) ?? new Set<string>()
-    const fieldPairs = buildFieldPairs(String(payload.recordId), payload.doc)
-    for (const pair of fieldPairs) {
-      const dedupeKey = `${pair[0]}|${pair[1]}`
-      if (seen.has(dedupeKey)) continue
-      seen.add(dedupeKey)
-      pairs.push(pair)
-    }
-    fieldPairsByScope.set(key, pairs)
-    seenPairsByScope.set(key, seen)
-  }
-
   await db.transaction().execute(async (trx) => {
-    for (const [key, bucket] of scopeBuckets.entries()) {
-      const pairs = fieldPairsByScope.get(key) ?? []
-      let deleteQuery = trx
+    for (const [, bucket] of scopeBuckets.entries()) {
+      // Delete by entity_id: a batch replaces all of a record's tokens, and a per-field OR over the
+      // whole batch overflows the query compiler's call stack on large batches.
+      const deleteQuery = trx
         .deleteFrom('search_tokens' as any)
         .where('entity_type' as any, '=', payloads[0].entityType)
         .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
         .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
-      if (pairs.length) {
-        deleteQuery = deleteQuery.where((eb: any) => eb.or(
-          pairs.map(([rid, field]) => eb.and([
-            eb('entity_id' as any, '=', rid),
-            eb('field' as any, '=', field),
-          ])),
-        ))
-      } else {
-        deleteQuery = deleteQuery.where('entity_id' as any, 'in', Array.from(bucket.ids))
-      }
+        .where('entity_id' as any, 'in', Array.from(bucket.ids))
       await deleteQuery.execute()
     }
     const payloadWithTimestamps = rows.map((row) => ({ ...row, created_at: sql`now()` }))

@@ -13,9 +13,9 @@ Performs a thorough pre-implementation analysis of a specification to catch issu
 
 1. Read the target spec file(s) fully from `.ai/specs/` or `.ai/specs/enterprise/`.
 2. Read `BACKWARD_COMPATIBILITY.md` — the 13 contract surface categories.
-3. Read `.ai/lessons.md` for known pitfalls.
+3. Scan the tagged `.ai/lessons.md` index by affected module/area/topic and open only matching lesson records.
 4. Using the Task Router in `AGENTS.md`, identify all relevant AGENTS.md guides for affected modules/packages.
-5. Read the code-review checklist at `.ai/skills/om-code-review/references/review-checklist.md`.
+5. Read the code-review checklist at `.agents/skills/om-code-review/references/review-checklist.md`.
 6. Identify all existing modules, entities, events, and API routes that the spec touches (use Explore subagents for large scopes).
 
 ### Phase 2 — Backward Compatibility Audit
@@ -246,4 +246,4 @@ Launch parallel Explore agents for independent code areas (events, API routes, w
 - MUST propose concrete fixes for every violation and gap
 - MUST NOT modify any code — this skill is analysis only
 - MUST NOT modify the spec directly — propose changes in the report for user review
-- MUST check `.ai/lessons.md` for known pitfalls relevant to the spec's domain
+- MUST scan `.ai/lessons.md` and open only lesson records whose module/area/topic tags match the spec

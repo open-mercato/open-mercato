@@ -97,7 +97,7 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
               className={cn(
                 'group flex max-w-[12rem] shrink-0 items-center gap-1 rounded-t-md border-b-2 px-2 py-1',
                 isActive
-                  ? 'border-primary bg-background text-foreground'
+                  ? 'border-accent-indigo bg-background text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
@@ -126,7 +126,7 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
                   onClick={() => sessions.setActiveSession(session.id)}
                   onDoubleClick={() => startRename(session)}
                   title={label}
-                  className="truncate text-xs font-medium"
+                  className="truncate rounded-sm text-xs font-medium outline-none focus-visible:shadow-focus"
                 >
                   {label}
                 </button>

@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Building2, Hash, Users, BarChart3, StickyNote } from 'lucide-react'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -16,6 +17,7 @@ import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, 
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
@@ -30,6 +32,7 @@ import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { coerceDisplayName } from '../../../../lib/displayName'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
+import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
@@ -43,12 +46,16 @@ import {
   type CompanyEditFormValues,
   type CompanyOverview,
 } from '../../../../components/formConfig'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
@@ -63,7 +70,19 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
+
+  const handleTabChange = React.useCallback(
+    (tab: CompanyTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
   // Form state
   const [isDirty, setIsDirty] = React.useState(false)
@@ -147,7 +166,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch((err) => console.warn('[companies-v2] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   React.useEffect(() => {
@@ -156,7 +175,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
-    loadData().catch((err) => console.warn('[companies-v2] reload after activity failed', err))
+    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   // Planned activities for the activity-log tab
@@ -192,6 +211,21 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     onAfterChange: handleActivityCreated,
     logContext: 'customers.companies-v2',
   })
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `customers.company` + id
+  // explicitly (the hardcoded path allowlist misses the `companies-v2` route).
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'customers.company',
+      resourceId: currentCompanyId,
+      updatedAt: (data?.company as { updatedAt?: string | null; updated_at?: string | null } | undefined)?.updatedAt
+        ?? (data?.company as { updated_at?: string | null } | undefined)?.updated_at
+        ?? null,
+      data: data as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; occurredAt?: string | null; [key: string]: unknown }) => {
     const raw = activity as Record<string, unknown>
@@ -307,6 +341,14 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   React.useEffect(() => {
     setSectionAction(null)
   }, [activeTab])
+
+  // A `?tab=deals` deep link must not strand users without `customers.deals.view`
+  // on a tab that no longer exists for them. Wait for the granted features to load
+  // so a permitted user is never bounced off the tab mid-fetch.
+  React.useEffect(() => {
+    if (!isDealsAccessReady || canViewDeals) return
+    setActiveTab((current) => (current === 'deals' ? 'people' : current))
+  }, [isDealsAccessReady, canViewDeals])
 
   // Deals scope
   const dealsScope = React.useMemo(
@@ -441,8 +483,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection */}
-          <InjectionSpot spotId="detail:customers.company:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.company:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent company header */}
           <CompanyDetailHeader
@@ -453,7 +495,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onDataReload={() => { loadData().catch((err) => console.warn('[companies-v2] onDataReload failed', err)) }}
+            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'companies-v2', err })) }}
           />
 
           {/* KPI bar — always visible above zones */}
@@ -470,7 +512,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 <CrudForm<CompanyEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="customers.company"
+                  injectionSpotId={extensionPoints.hosts.companyForm.spotId}
                   entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
                   schema={formSchema}
                   fields={formFields}
@@ -489,7 +531,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             zone2={
               <CompanyDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}
@@ -524,7 +566,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                   />
                 )}
 
-                {activeTab === 'deals' && (
+                {activeTab === 'deals' && canViewDeals && (
                   <DealsSection
                     scope={dealsScope}
                     emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
@@ -576,7 +618,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           />
 
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog */}
           <ScheduleActivityDialog

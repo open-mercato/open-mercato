@@ -1,6 +1,6 @@
 "use client"
 import { useCallback, useMemo, useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
@@ -15,12 +15,12 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
+import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 
 type Props = { params: { orgSlug: string } }
 
 export default function PortalInvitePage({ params }: Props) {
   const t = useT()
-  const router = useRouter()
   const orgSlug = params.orgSlug
   const { tenant } = usePortalContext()
   const searchParams = useSearchParams()
@@ -75,7 +75,7 @@ export default function PortalInvitePage({ params }: Props) {
         })
 
         if (result.ok && result.result?.ok) {
-          router.replace(`/${orgSlug}/portal/dashboard`)
+          navigateWithPageReload(`/${orgSlug}/portal/dashboard`)
           return
         }
 
@@ -90,7 +90,7 @@ export default function PortalInvitePage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [token, password, confirmPassword, displayName, orgSlug, router, t],
+    [token, password, confirmPassword, displayName, orgSlug, t],
   )
 
   const injectionContext = useMemo(

@@ -12,6 +12,13 @@ import {
   type ResolvedJoin,
 } from './join-utils'
 import { resolveSearchConfig } from '../search/config'
+import {
+  createSearchTokenAvailability,
+  isSearchFilterOp,
+  type SearchTokenAvailability,
+  type SearchTokenProbeDb,
+  type SearchTokenProbeQueryBuilder,
+} from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
@@ -20,8 +27,12 @@ import {
   type CustomFieldDefinitionRow,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
+import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { mapWithConcurrency } from './bounded-decrypt'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'query' })
 
 const DECRYPT_CONCURRENCY = 8
 
@@ -138,11 +149,7 @@ export function resolveEntityTableName(em: EntityManager | undefined, entity: En
   }
 
   const fallback = pluralizeBaseName(rawName || '')
-  console.warn(
-    `[QueryEngine] Could not resolve entity "${entity}" via ORM metadata. ` +
-    `Falling back to table name "${fallback}". ` +
-    `Ensure the entity ID segment matches the class name convention.`
-  )
+  logger.warn('Could not resolve entity via ORM metadata; falling back to table name — ensure the entity ID segment matches the class name convention', { entity, fallback })
   entityTableCache.set(entity, fallback)
   return fallback
 }
@@ -207,8 +214,8 @@ function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, ent
  */
 export class BasicQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
-  private tableCache = new Map<string, boolean>()
   private searchAliasSeq = 0
+  private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
   constructor(
     private em: EntityManager,
@@ -229,6 +236,22 @@ export class BasicQueryEngine implements QueryEngine {
     const emAny = this.em as any
     if (typeof emAny?.getKysely === 'function') return emAny.getKysely() as AnyDb
     throw new Error('BasicQueryEngine requires an EntityManager exposing getKysely() (MikroORM v7)')
+  }
+
+  private searchAvailability(): SearchTokenAvailability {
+    if (!this.searchAvailabilityInstance) {
+      this.searchAvailabilityInstance = createSearchTokenAvailability({
+        getDb: () => this.getDb() as unknown as SearchTokenProbeDb,
+        getConfig: resolveSearchConfig,
+        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(
+          query as unknown as AnyBuilder,
+          column,
+          scope,
+        ) as unknown as SearchTokenProbeQueryBuilder,
+        logDebug: (event, payload) => this.logSearchDebug(event, payload),
+      })
+    }
+    return this.searchAvailabilityInstance
   }
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -294,13 +317,20 @@ export class BasicQueryEngine implements QueryEngine {
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
     const searchConfig = resolveSearchConfig()
-    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
-    const hasSearchTokens = searchEnabled
-      ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
+    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => isSearchFilterOp(filter.op))
+    // Callers that opt out of automatic tenant/org scoping own the full
+    // visibility predicate. Search-token filtering has its own tenant/org
+    // guards, so it must be disabled on this direct-query path as documented
+    // by QueryOptions.omitAutomaticTenantOrgScope.
+    const searchEnabled = !skipAutoScope && await this.searchAvailability().staticEnabled()
+    // Probe `search_tokens` only when this query actually searches (#4723): every consumer of
+    // `searchActive` sits behind a like/ilike guard, so on a plain list load the answer is never
+    // read — and the probe is a `LIMIT 1` the planner can resolve as a seq scan over a large
+    // `search_tokens`. The join path below already probes lazily for the same reason.
+    const hasSearchTokens = searchEnabled && searchFilters.length
+      ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
-    const joinSearchAvailability = new Map<string, boolean>()
-    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => filter.op === 'like' || filter.op === 'ilike')
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -330,6 +360,45 @@ export class BasicQueryEngine implements QueryEngine {
           organizationScope: orgScope,
         })
       }
+      const fallbackFields = searchFilters
+        .filter((filter) => !searchActive || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => String(filter.field))
+      if (fallbackFields.length) {
+        await warnOnCiphertextLikeFallback({
+          entity: String(entity),
+          fields: fallbackFields,
+          tenantId: opts.tenantId ?? null,
+          // `searchEnabled` also folds in the missing-table and
+          // omitAutomaticTenantOrgScope cases, which are "no usable tokens"
+          // rather than "the operator switched search off".
+          reason: searchActive
+            ? 'no-indexable-tokens'
+            : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          service: this.getEncryptionService(),
+        })
+      }
+    }
+    for (const [alias, joinedFilters] of joinFilters) {
+      const filters = joinedFilters.filter((entry) => entry.op === 'like' || entry.op === 'ilike')
+      if (!filters.length) continue
+      const join = joinMap.get(alias)
+      if (!join?.entityId) continue
+      const hasJoinedTokens = searchEnabled
+        ? await this.searchAvailability().hasTokens(join.entityId, opts.tenantId ?? null, orgScope)
+        : false
+      const fallbackFields = filters
+        .filter((filter) => !hasJoinedTokens || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => filter.column)
+      if (!fallbackFields.length) continue
+      await warnOnCiphertextLikeFallback({
+        entity: join.entityId,
+        fields: fallbackFields,
+        tenantId: opts.tenantId ?? null,
+        reason: hasJoinedTokens
+          ? 'no-indexable-tokens'
+          : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+        service: this.getEncryptionService(),
+      })
     }
     const recordIdColumn = qualify('id')
 
@@ -393,11 +462,7 @@ export class BasicQueryEngine implements QueryEngine {
       if (!['like', 'ilike'].includes(filter.op)) return { applied: false, builder }
       if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return { applied: false, builder }
 
-      let searchAvailable = joinSearchAvailability.get(join.entityId)
-      if (searchAvailable === undefined) {
-        searchAvailable = await this.hasSearchTokens(join.entityId, opts.tenantId ?? null, orgScope)
-        joinSearchAvailability.set(join.entityId, searchAvailable)
-      }
+      const searchAvailable = await this.searchAvailability().hasTokens(join.entityId, opts.tenantId ?? null, orgScope)
       if (!searchAvailable) return { applied: false, builder }
 
       const tokens = tokenizeText(String(filter.value), searchConfig)
@@ -468,8 +533,8 @@ export class BasicQueryEngine implements QueryEngine {
     // today's complete selection (base fields + CF projections + extension joins).
     // `projection: 'sortKeys'` selects only `id` + the sort columns — the slim phase-1
     // candidate scan used when `requiresPlaintextSort`. Re-running the WHERE/JOIN logic
-    // twice is cheap: every `columnExists`/`tableExists` check is memoized on
-    // `this.columnCache`/`this.tableCache`, so the second pass hits no extra DB calls.
+    // twice is cheap: every `columnExists` check is memoized on `this.columnCache`,
+    // so the second pass hits no extra DB calls.
     const buildQuery = async (projection: 'full' | 'sortKeys'): Promise<BuiltQuery> => {
       const isSortKeysProjection = projection === 'sortKeys'
       let q: AnyBuilder = db.selectFrom(table as any)
@@ -518,18 +583,21 @@ export class BasicQueryEngine implements QueryEngine {
           group.push(f)
           groups.set(f.orGroup!, group)
         }
-        const resolvedGroupFilters: Array<Array<{ qualified: string; op: string; value: unknown; fieldName: string }>> = []
+        type ResolvedOrClause =
+          | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
+          | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
+        const resolvedGroupFilters: ResolvedOrClause[][] = []
         for (const [, groupFilters] of groups) {
-          const resolved: Array<{ qualified: string; op: string; value: unknown; fieldName: string }> = []
+          const resolved: ResolvedOrClause[] = []
           for (const filter of groupFilters) {
             const column = await this.resolveBaseColumn(table, String(filter.field))
             if (column) {
-              resolved.push({
-                qualified: qualify(column),
-                op: filter.op,
-                value: filter.value,
-                fieldName: String(filter.field),
-              })
+              resolved.push({ kind: 'column', qualified: qualify(column), op: filter.op, value: filter.value })
+            } else {
+              // Field is not a base column — for custom-entity records it lives in
+              // entity_indexes.doc. Build an EXISTS sub-filter so `$or` searches
+              // across doc fields resolve instead of being silently dropped (#3229).
+              resolved.push({ kind: 'doc', field: String(filter.field), op: filter.op, value: filter.value })
             }
           }
           if (resolved.length > 0) resolvedGroupFilters.push(resolved)
@@ -537,7 +605,18 @@ export class BasicQueryEngine implements QueryEngine {
         if (resolvedGroupFilters.length > 0) {
           q = q.where((eb: any) => eb.or(
             resolvedGroupFilters.map((group) => {
-              const parts = group.map((rf) => this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value))
+              const parts = group.map((rf) => rf.kind === 'column'
+                ? this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
+                : this.buildIndexDocOpExpression(eb, {
+                    entity: String(entity),
+                    field: rf.field,
+                    op: rf.op,
+                    value: rf.value,
+                    recordIdColumn,
+                    tenantId: opts.tenantId ?? null,
+                    organizationScope: orgScope,
+                    withDeleted: opts.withDeleted === true,
+                  }))
               return parts.length === 1 ? parts[0] : eb.and(parts)
             })
           ))
@@ -931,7 +1010,7 @@ export class BasicQueryEngine implements QueryEngine {
         )
         return { ...item, ...decrypted }
       } catch (err) {
-        console.error('QueryEngine: error decrypting entity payload', err)
+        logger.error('Error decrypting entity payload', { err })
         return item
       }
     }
@@ -1119,51 +1198,6 @@ export class BasicQueryEngine implements QueryEngine {
     return present
   }
 
-  private async tableExists(table: string): Promise<boolean> {
-    if (this.tableCache.has(table)) return this.tableCache.get(table) ?? false
-    const db = this.getDb()
-    const exists = await db
-      .selectFrom('information_schema.tables' as any)
-      .select(sql<number>`1`.as('one'))
-      .where('table_name' as any, '=', table)
-      .limit(1)
-      .executeTakeFirst()
-    const present = !!exists
-    this.tableCache.set(table, present)
-    return present
-  }
-
-  private async hasSearchTokens(
-    entity: string,
-    tenantId: string | null,
-    orgScope?: { ids: string[]; includeNull: boolean } | null
-  ): Promise<boolean> {
-    try {
-      const db = this.getDb()
-      let query: AnyBuilder = db
-        .selectFrom('search_tokens' as any)
-        .select(sql<number>`1`.as('one'))
-        .where('entity_type' as any, '=', entity)
-        .limit(1)
-      if (tenantId !== undefined) {
-        query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
-      }
-      if (orgScope) {
-        query = this.applyOrganizationScope(query, 'search_tokens.organization_id', orgScope)
-      }
-      const row = await query.executeTakeFirst()
-      return !!row
-    } catch (err) {
-      this.logSearchDebug('search:has-tokens-error', {
-        entity,
-        tenantId,
-        organizationScope: orgScope,
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return false
-    }
-  }
-
   private applySearchTokens(
     q: AnyBuilder,
     opts: {
@@ -1276,9 +1310,29 @@ export class BasicQueryEngine implements QueryEngine {
       return q
     }
 
+    return q.where((eb: any) => this.buildIndexDocOpExpression(eb, opts))
+  }
+
+  // Builds the entity_indexes EXISTS expression for a single doc-field operator,
+  // shared by the regular doc-filter path (applyIndexDocFilter) and the OR-group
+  // path so `$or` queries over custom-entity doc fields resolve instead of being
+  // silently dropped (#3229).
+  private buildIndexDocOpExpression(
+    eb: any,
+    opts: {
+      entity: string
+      field: string
+      op: NormalizedFilter['op']
+      value: unknown
+      recordIdColumn: string
+      tenantId?: string | null
+      organizationScope?: { ids: string[]; includeNull: boolean } | null
+      withDeleted: boolean
+    }
+  ): any {
     const alias = `ei_${this.searchAliasSeq++}`
     const engine = this
-    return q.where((eb: any) => eb.exists((() => {
+    return eb.exists((() => {
       let sub: AnyBuilder = eb
         .selectFrom(`entity_indexes as ${alias}`)
         .select(sql<number>`1`.as('one'))
@@ -1331,7 +1385,7 @@ export class BasicQueryEngine implements QueryEngine {
           break
       }
       return sub
-    })()))
+    })())
   }
 
   private configureCustomFieldSources(
@@ -1375,10 +1429,8 @@ export class BasicQueryEngine implements QueryEngine {
 
   private logSearchDebug(event: string, payload: Record<string, unknown>) {
     try {
-      console.info('[query:search]', event, JSON.stringify(payload))
-    } catch {
-      console.info('[query:search]', event, payload)
-    }
+      logger.debug(event, payload)
+    } catch {}
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {

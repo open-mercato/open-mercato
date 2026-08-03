@@ -62,9 +62,12 @@ export const messageThreadItemSchema = z.object({
 
 export const messageDetailResponseSchema = z.object({
   id: z.string().uuid(),
+  updatedAt: z.string().nullable().optional(),
   type: z.string(),
   isDraft: z.boolean(),
   canEditDraft: z.boolean(),
+  canArchive: z.boolean(),
+  isArchived: z.boolean(),
   visibility: z.enum(['public', 'internal']).nullable().optional(),
   sourceEntityType: z.string().nullable().optional(),
   sourceEntityId: z.string().uuid().nullable().optional(),
@@ -208,6 +211,7 @@ export const okResponseSchema = z.object({
 })
 
 export const errorResponseSchema = z.object({
+  code: z.string().optional(),
   error: z.string(),
 })
 

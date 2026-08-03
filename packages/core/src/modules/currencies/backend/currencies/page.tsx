@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/currencies/extension-points'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -14,6 +15,7 @@ import { Plus, Star } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -188,7 +190,7 @@ export default function CurrenciesPage() {
         flash(t('currencies.flash.deleted'), 'success')
         setReloadToken((token) => token + 1)
       } catch (error) {
-        if (extractOptimisticLockConflict(error)) return
+        if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
         flash(t('currencies.flash.deleteError'), 'error')
       }
     },
@@ -342,7 +344,7 @@ export default function CurrenciesPage() {
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
-          perspective={{ tableId: 'currencies.list' }}
+          perspective={{ tableId: extensionPoints.hosts.currenciesTable.tableId }}
         />
       </PageBody>
       {ConfirmDialogElement}

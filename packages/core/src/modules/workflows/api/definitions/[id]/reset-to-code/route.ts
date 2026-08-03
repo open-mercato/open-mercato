@@ -16,6 +16,10 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { WorkflowDefinition, WorkflowInstance } from '../../../../data/entities'
 import { serializeCodeWorkflowDefinition } from '../../serialize'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
+import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -137,6 +141,12 @@ export async function POST(
     em.remove(definition)
     await em.flush()
 
+    // Trigger ownership falls back to the code registry, so the cached snapshot
+    // still holds the embedded triggers of a row that no longer exists (#4425).
+    if (removedSnapshot.tenantId) {
+      invalidateTriggerCache(removedSnapshot.tenantId, removedSnapshot.organizationId ?? undefined)
+    }
+
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId: tenantId ?? '',
@@ -174,7 +184,7 @@ export async function POST(
         )
       }
     } catch (eventError) {
-      console.error('Failed to emit workflows.definition.reset_to_code event:', eventError)
+      logger.error('Failed to emit workflows.definition.reset_to_code event', { err: eventError })
     }
 
     if (!codeDef) {
@@ -191,7 +201,7 @@ export async function POST(
       message: 'Workflow definition reset to code version',
     })
   } catch (error) {
-    console.error('Error resetting workflow definition to code:', error)
+    logger.error('Error resetting workflow definition to code', { err: error })
     return NextResponse.json(
       { error: 'Failed to reset workflow definition to code' },
       { status: 500 }

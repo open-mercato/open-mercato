@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { updateSyncScheduleSchema } from '../../../data/validators'
 import type { SyncScheduleService } from '../../../lib/sync-schedule-service'
 import { serializeSchedule } from '../serialize'
@@ -28,8 +31,12 @@ export const openApi = {
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')
@@ -44,7 +51,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
   const schedule = await scheduleService.getById(parsedParams.data.id, {
-    organizationId: auth.orgId as string,
+    organizationId,
     tenantId: auth.tenantId,
   })
 
@@ -57,8 +64,12 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')
@@ -78,7 +89,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
   const current = await scheduleService.getById(parsedParams.data.id, scope)
 
   if (!current) {
@@ -111,7 +122,8 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
       timezone: parsed.data.timezone ?? current.timezone,
       fullSync: parsed.data.fullSync ?? current.fullSync,
       isEnabled: parsed.data.isEnabled ?? current.isEnabled,
-    }, scope)
+      expectedUpdatedAt: readOptimisticLockExpected(req),
+    }, scope, container)
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
@@ -126,9 +138,11 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
         metadata: guardResult.metadata ?? null,
       })
     }
-
     return NextResponse.json(serializeSchedule(schedule))
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
     const message = error instanceof Error ? error.message : 'Failed to update sync schedule'
     return NextResponse.json({ error: message }, { status: 422 })
   }
@@ -136,8 +150,12 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')
@@ -151,7 +169,7 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
 
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -168,25 +186,38 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
-  const deleted = await scheduleService.deleteSchedule(parsedParams.data.id, scope)
+  try {
+    const deleted = await scheduleService.deleteSchedule(
+      parsedParams.data.id,
+      scope,
+      container,
+      readOptimisticLockExpected(req),
+    )
 
-  if (!deleted) {
-    return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
+    if (!deleted) {
+      return NextResponse.json({ error: 'Schedule not found' }, { status: 404 })
+    }
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: scope.organizationId,
+        userId: auth.sub,
+        resourceKind: 'data_sync.schedule',
+        resourceId: parsedParams.data.id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    return NextResponse.json({ deleted: true })
+  } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    const message = error instanceof Error ? error.message : 'Failed to delete sync schedule'
+    return NextResponse.json({ error: message }, { status: 422 })
   }
-
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: auth.tenantId,
-      organizationId: scope.organizationId,
-      userId: auth.sub,
-      resourceKind: 'data_sync.schedule',
-      resourceId: parsedParams.data.id,
-      operation: 'delete',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
-
-  return NextResponse.json({ deleted: true })
 }

@@ -83,6 +83,8 @@ describe('sales ACL dependency declarations', () => {
     // employee is an explicit allowlist and must list the new features so the
     // orders/quotes pages stop 403ing on channel/settings reads
     expect(employeeFeatures).toContain('sales.channels.view')
+    expect(employeeFeatures).toContain('sales.channels.manage')
     expect(employeeFeatures).toContain('sales.settings.view')
+    expect(employeeFeatures).toContain('sales.settings.manage')
   })
 })

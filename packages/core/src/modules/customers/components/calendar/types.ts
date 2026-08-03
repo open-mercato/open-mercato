@@ -87,6 +87,7 @@ export interface TimeGridProps {
   showWeekends: boolean
   showConflicts: boolean
   aiSummaries: boolean
+  canManage?: boolean
   highlightItemId?: string | null
   onItemClick(item: CalendarItem): void
   onJoin(item: CalendarItem): void

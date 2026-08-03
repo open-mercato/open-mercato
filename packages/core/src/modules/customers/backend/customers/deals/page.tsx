@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
@@ -62,6 +63,9 @@ import {
   fetchAssignableStaffMembers,
   mapAssignableStaffToFilterOptions,
 } from '../../../components/detail/assignableStaff'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 function makeDealsPresets(): FilterPreset[] {
   return [
@@ -316,11 +320,11 @@ export default function CustomersDealsPage() {
         items.forEach((p) => { if (p.id && p.name) map[p.id] = p.name })
         setPipelineNames(map)
       } catch (err) {
-        console.warn('[customers.deals.list] failed to load pipelines', err)
+        logger.warn('failed to load pipelines', { component: 'deals.list', err })
       }
     }
     loadPipelines().catch((err) => {
-      console.warn('[customers.deals.list] loadPipelines threw', err)
+      logger.warn('loadPipelines threw', { component: 'deals.list', err })
     })
     return () => { cancelled = true }
   }, [reloadToken, scopeVersion])
@@ -1143,7 +1147,7 @@ export default function CustomersDealsPage() {
           }}
           exporter={exportConfig}
           entityId={E.customers.customer_deal}
-          perspective={{ tableId: 'customers.deals.list' }}
+          perspective={{ tableId: extensionPoints.hosts.dealsTable.tableId }}
           advancedFilter={{
             auto: true,
             value: filterPanel.tree,

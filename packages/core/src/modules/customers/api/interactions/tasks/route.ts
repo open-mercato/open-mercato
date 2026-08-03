@@ -17,6 +17,9 @@ import {
   paginateTodoRows,
   sortTodoRows,
 } from '../../../lib/todoCompatibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -114,7 +117,7 @@ export async function GET(request: Request): Promise<Response> {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
     }
-    console.error('customers.interactions.tasks.get failed', err)
+    logger.error('customers.interactions.tasks.get failed', { err })
     return NextResponse.json({ error: translate('customers.errors.internalError', 'Internal server error') }, { status: 500 })
   }
 }

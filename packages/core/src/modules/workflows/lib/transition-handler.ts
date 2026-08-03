@@ -15,7 +15,6 @@ import type { AwilixContainer } from 'awilix'
 import type { EventBus } from '@open-mercato/events'
 import {
   WorkflowInstance,
-  WorkflowDefinition,
   WorkflowEvent,
 } from '../data/entities'
 import * as ruleEvaluator from '../../business_rules/lib/rule-evaluator'
@@ -23,6 +22,7 @@ import * as ruleEngine from '../../business_rules/lib/rule-engine'
 import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
+import { findDefinitionForInstance } from './find-definition'
 import {
   type ExecutionToken,
   rootToken,
@@ -35,6 +35,9 @@ import {
   setTokenPendingTransition,
   touchToken,
 } from './execution-token'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 // ============================================================================
 // Types and Interfaces
@@ -113,9 +116,7 @@ export async function evaluateTransition(
 
   try {
     // Load workflow definition
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -224,9 +225,7 @@ export async function findValidTransitions(
 ): Promise<TransitionEvaluationResult[]> {
   try {
     // Load workflow definition
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return []
@@ -291,7 +290,7 @@ export async function findValidTransitions(
 
     return results
   } catch (error) {
-    console.error('Error finding valid transitions:', error)
+    logger.error('Error finding valid transitions', { err: error })
     return []
   }
 }
@@ -749,9 +748,7 @@ async function evaluatePreConditions(
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -844,7 +841,7 @@ async function evaluatePreConditions(
       errors: errors.length > 0 ? errors : undefined,
     }
   } catch (error) {
-    console.error('Error evaluating pre-conditions:', error)
+    logger.error('Error evaluating pre-conditions', { err: error })
     return {
       allowed: false,
       executedRules: [],
@@ -878,9 +875,7 @@ async function evaluatePostConditions(
 ): Promise<ruleEngine.RuleEngineResult> {
   try {
     // Load workflow definition to get workflow ID
-    const definition = await em.findOne(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (!definition) {
       return {
@@ -968,7 +963,7 @@ async function evaluatePostConditions(
       errors: errors.length > 0 ? errors : undefined,
     }
   } catch (error) {
-    console.error('Error evaluating post-conditions:', error)
+    logger.error('Error evaluating post-conditions', { err: error })
     return {
       allowed: false,
       executedRules: [],

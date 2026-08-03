@@ -3,10 +3,28 @@ import {
   AiModelFactoryError,
   createModelFactory,
   parseSlashShorthand,
+  parseTierModel,
   type AiModelFactoryInput,
   type AiModelFactoryRegistry,
   type CreateModelFactoryDependencies,
 } from '../model-factory'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
 
 type FakeProvider = {
   id: string
@@ -14,6 +32,7 @@ type FakeProvider = {
   resolveApiKey: () => string | null
   createModel: (options: { modelId: string; apiKey: string }) => unknown
   isConfigured: () => boolean
+  usesVendorPrefixedModelIds?: boolean
 }
 
 function makeProvider(overrides: Partial<FakeProvider> = {}): FakeProvider {
@@ -30,6 +49,9 @@ function makeProvider(overrides: Partial<FakeProvider> = {}): FakeProvider {
     resolveApiKey: overrides.resolveApiKey ?? (() => 'test-api-key'),
     createModel,
     isConfigured: overrides.isConfigured ?? (() => true),
+    ...(overrides.usesVendorPrefixedModelIds !== undefined
+      ? { usesVendorPrefixedModelIds: overrides.usesVendorPrefixedModelIds }
+      : {}),
   }
 }
 
@@ -1001,9 +1023,10 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
   })
 
   describe('Phase 1780-5 — OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER>', () => {
-    let warnSpy: jest.SpyInstance
+    let warnSpy: jest.Mock
     beforeEach(() => {
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+      warnSpy = testLogger.warn
+    warnSpy.mockClear()
     })
     afterEach(() => {
       warnSpy.mockRestore()
@@ -1040,7 +1063,8 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
         reason: expect.stringContaining('OM_AI_AVAILABLE_MODELS_OPENAI'),
       })
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[AI Model Factory]'),
+        expect.stringContaining('Allowlist'),
+        expect.anything(),
       )
     })
 
@@ -1096,9 +1120,10 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
   })
 
   describe('Phase 1780-6 — tenantAllowlist clipping', () => {
-    let warnSpy: jest.SpyInstance
+    let warnSpy: jest.Mock
     beforeEach(() => {
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+      warnSpy = testLogger.warn
+    warnSpy.mockClear()
     })
     afterEach(() => {
       warnSpy.mockRestore()
@@ -1188,5 +1213,218 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
     })
     expect(resolution.source).toBe('request_override')
     expect(resolution.modelId).toBe('override-model')
+  })
+})
+
+describe('createModelFactory — end-user safety identifier + moderation capability', () => {
+  // The shared makeProvider helper lists fields explicitly and does not carry
+  // the optional mapEndUserIdentifier / supportsInputModeration members, so we
+  // build providers inline here.
+  type IdentifierProvider = FakeProvider & {
+    mapEndUserIdentifier?: (identifier: string) => Record<string, unknown>
+    supportsInputModeration?: boolean
+  }
+  function makeIdentifierProvider(overrides: Partial<IdentifierProvider> = {}): IdentifierProvider {
+    return {
+      id: 'test-provider',
+      defaultModel: 'provider-default-model',
+      resolveApiKey: () => 'test-api-key',
+      createModel: (options) => ({ kind: 'fake-model', ...options }),
+      isConfigured: () => true,
+      ...overrides,
+    }
+  }
+
+  it('emits the provider-mapped providerOptions fragment when an identifier is supplied', () => {
+    const mapEndUserIdentifier = jest.fn((id: string) => ({ openai: { safetyIdentifier: id } }))
+    const provider = makeIdentifierProvider({ mapEndUserIdentifier, supportsInputModeration: true })
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({ endUserIdentifier: 'hashed-user' })
+    expect(mapEndUserIdentifier).toHaveBeenCalledWith('hashed-user')
+    expect(resolution.providerOptions).toEqual({ openai: { safetyIdentifier: 'hashed-user' } })
+    expect(resolution.supportsInputModeration).toBe(true)
+  })
+
+  it('forwards the identifier to the adapter createModel options', () => {
+    const createModel = jest.fn((options: { modelId: string; apiKey: string }) => ({ ...options }))
+    const provider = makeIdentifierProvider({
+      createModel,
+      mapEndUserIdentifier: (id: string) => ({ openai: { safetyIdentifier: id } }),
+    })
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    factory.resolveModel({ endUserIdentifier: 'hashed-user' })
+    expect(createModel).toHaveBeenCalledWith(
+      expect.objectContaining({ endUserIdentifier: 'hashed-user' }),
+    )
+  })
+
+  it('omits providerOptions when no identifier is supplied', () => {
+    const mapEndUserIdentifier = jest.fn((id: string) => ({ openai: { safety_identifier: id } }))
+    const provider = makeIdentifierProvider({ mapEndUserIdentifier })
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({})
+    expect(mapEndUserIdentifier).not.toHaveBeenCalled()
+    expect(resolution.providerOptions).toBeUndefined()
+  })
+
+  it('omits providerOptions when the provider has no mapping, and reports moderation unsupported', () => {
+    const provider = makeIdentifierProvider()
+    const factory = createModelFactory(fakeContainer, makeFactoryDeps(provider))
+    const resolution = factory.resolveModel({ endUserIdentifier: 'hashed-user' })
+    expect(resolution.providerOptions).toBeUndefined()
+    expect(resolution.supportsInputModeration).toBe(false)
+  })
+})
+
+describe('createModelFactory — vendor-prefix gateways', () => {
+  function gatewayProviders(
+    overrides: { openrouterConfigured?: boolean } = {},
+  ): FakeProvider[] {
+    return [
+      makeProvider({
+        id: 'openrouter',
+        defaultModel: 'meta-llama/llama-3.3-70b-instruct',
+        usesVendorPrefixedModelIds: true,
+        isConfigured: () => overrides.openrouterConfigured ?? true,
+      }),
+      makeProvider({
+        id: 'requesty',
+        defaultModel: 'openai/gpt-4o-mini',
+        usesVendorPrefixedModelIds: true,
+      }),
+      makeProvider({ id: 'anthropic', defaultModel: 'claude-haiku-4-5' }),
+      makeProvider({ id: 'openai', defaultModel: 'gpt-5-mini' }),
+      makeProvider({ id: 'deepinfra', defaultModel: 'zai-org/GLM-5.1' }),
+    ]
+  }
+
+  it('routes a vendor-prefixed model to the configured gateway (the core bug)', () => {
+    const { registry } = makeMultiProviderRegistry(gatewayProviders())
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: { OM_AI_PROVIDER: 'openrouter', OM_AI_MODEL: 'anthropic/claude-sonnet-4.5' },
+    })
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('openrouter')
+    expect(resolution.modelId).toBe('anthropic/claude-sonnet-4.5')
+  })
+
+  it('routes a requesty openai/gpt-4o-mini id to requesty, not native openai', () => {
+    const { registry } = makeMultiProviderRegistry(gatewayProviders())
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: { OM_AI_PROVIDER: 'requesty', OM_AI_MODEL: 'openai/gpt-4o-mini' },
+    })
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('requesty')
+    expect(resolution.modelId).toBe('openai/gpt-4o-mini')
+  })
+
+  it('strips one leading gateway prefix (openrouter/anthropic/claude → anthropic/claude)', () => {
+    const { registry } = makeMultiProviderRegistry(gatewayProviders())
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: { OM_AI_PROVIDER: 'openrouter', OM_AI_MODEL: 'openrouter/anthropic/claude-sonnet-4.5' },
+    })
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('openrouter')
+    expect(resolution.modelId).toBe('anthropic/claude-sonnet-4.5')
+  })
+
+  it('does NOT suppress when the gateway is unconfigured (falls back to native anthropic)', () => {
+    const { registry } = makeMultiProviderRegistry(
+      gatewayProviders({ openrouterConfigured: false }),
+    )
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: { OM_AI_PROVIDER: 'openrouter', OM_AI_MODEL: 'anthropic/claude-sonnet-4.5' },
+    })
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('anthropic')
+    expect(resolution.modelId).toBe('claude-sonnet-4.5')
+  })
+
+  it('a caller slash-pin still wins over a global gateway', () => {
+    const { registry } = makeMultiProviderRegistry(gatewayProviders())
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: { OM_AI_PROVIDER: 'openrouter' },
+    })
+    const resolution = factory.resolveModel({ callerOverride: 'openai/gpt-5-mini' })
+    expect(resolution.source).toBe('caller_override')
+    expect(resolution.providerId).toBe('openai')
+    expect(resolution.modelId).toBe('gpt-5-mini')
+  })
+
+  it('leaves a native (non-gateway) provider hint splitting unchanged', () => {
+    const { registry } = makeMultiProviderRegistry(gatewayProviders())
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: { OM_AI_PROVIDER: 'anthropic', OM_AI_MODEL: 'anthropic/claude-sonnet-4.5' },
+    })
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('anthropic')
+    expect(resolution.modelId).toBe('claude-sonnet-4.5')
+  })
+
+  it('applies per-tier on the module axis (OM_AI_<MODULE>_PROVIDER gateway)', () => {
+    const { registry } = makeMultiProviderRegistry(gatewayProviders())
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: {
+        OM_AI_INBOX_OPS_PROVIDER: 'openrouter',
+        OM_AI_INBOX_OPS_MODEL: 'anthropic/claude-sonnet-4.5',
+      },
+    })
+    const resolution = factory.resolveModel({ moduleId: 'inbox_ops' })
+    expect(resolution.source).toBe('module_env')
+    expect(resolution.providerId).toBe('openrouter')
+    expect(resolution.modelId).toBe('anthropic/claude-sonnet-4.5')
+  })
+
+  it('keeps an unregistered vendor prefix whole even without the gateway flag (regression guard)', () => {
+    const { registry } = makeMultiProviderRegistry(gatewayProviders())
+    const factory = createModelFactory(fakeContainer, {
+      registry,
+      env: { OM_AI_PROVIDER: 'deepinfra', OM_AI_MODEL: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
+    })
+    const resolution = factory.resolveModel({})
+    expect(resolution.providerId).toBe('deepinfra')
+    expect(resolution.modelId).toBe('meta-llama/Llama-3.3-70B-Instruct-Turbo')
+  })
+})
+
+describe('parseTierModel', () => {
+  const { registry } = makeMultiProviderRegistry([
+    makeProvider({ id: 'openrouter', usesVendorPrefixedModelIds: true }),
+    makeProvider({ id: 'anthropic' }),
+  ])
+  const env: Record<string, string | undefined> = {}
+
+  it('keeps a vendor-prefixed token whole for a configured gateway hint', () => {
+    expect(parseTierModel('anthropic/claude-sonnet-4.5', 'openrouter', registry, env)).toEqual({
+      providerHint: 'openrouter',
+      modelId: 'anthropic/claude-sonnet-4.5',
+    })
+  })
+
+  it('strips one leading gateway prefix', () => {
+    expect(parseTierModel('openrouter/anthropic/claude', 'openrouter', registry, env)).toEqual({
+      providerHint: 'openrouter',
+      modelId: 'anthropic/claude',
+    })
+  })
+
+  it('falls back to parseSlashShorthand when the tier hint is not a gateway', () => {
+    expect(parseTierModel('anthropic/claude', 'anthropic', registry, env)).toEqual(
+      parseSlashShorthand('anthropic/claude', registry),
+    )
+  })
+
+  it('falls back to parseSlashShorthand when there is no tier provider hint', () => {
+    expect(parseTierModel('anthropic/claude', null, registry, env)).toEqual({
+      providerHint: 'anthropic',
+      modelId: 'claude',
+    })
   })
 })

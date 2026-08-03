@@ -62,6 +62,16 @@ export interface LlmCreateModelOptions {
    * proxy); Google honors it when the SDK supports it (@ai-sdk/google ≥3.0).
    */
   baseURL?: string
+  /**
+   * Optional opaque, non-reversible end-user identifier attached to the model
+   * call so provider-side abuse enforcement can target a single end user
+   * instead of the whole API-key organization. The runtime computes this as a
+   * tenant-salted HMAC (no PII leaves the platform); the adapter decides how to
+   * map it into per-call `providerOptions` via
+   * {@link LlmProvider.mapEndUserIdentifier}. Adapters without a mapping ignore
+   * it. Always optional — absent identifiers reproduce today's behavior.
+   */
+  endUserIdentifier?: string
 }
 
 /**
@@ -96,6 +106,20 @@ export interface LlmProvider {
   readonly defaultModel: string
   /** Curated list of models shown in the UI dropdown for this provider. */
   readonly defaultModels: readonly LlmModelInfo[]
+  /**
+   * True when this provider is an OpenAI-compatible gateway whose model ids
+   * are themselves `vendor/model` strings (e.g. OpenRouter's
+   * `anthropic/claude-sonnet-4.5`, Requesty's `openai/gpt-4o-mini`, a LiteLLM
+   * proxy relaying `anthropic/…`).
+   *
+   * The routing layer uses this to suppress intra-tier slash provider-splitting:
+   * when a resolution tier explicitly selects such a configured gateway, that
+   * tier's model token's leading `vendor/` is part of the gateway model id, not
+   * a pin to the native `vendor` adapter. Omitted / `undefined` is treated as
+   * `false` — native adapters (Anthropic, OpenAI, Google) and non-gateway
+   * OpenAI-compatible backends (DeepInfra, Together, …) leave it unset.
+   */
+  readonly usesVendorPrefixedModelIds?: boolean
 
   /**
    * Returns true when the provider has all required configuration present
@@ -132,4 +156,27 @@ export interface LlmProvider {
    * behavior at `packages/ai-assistant/src/modules/ai_assistant/api/route/route.ts`.
    */
   createModel(options: LlmCreateModelOptions): unknown
+
+  /**
+   * Optional. Maps a runtime-computed end-user identifier (see
+   * {@link LlmCreateModelOptions.endUserIdentifier}) into the AI SDK
+   * `providerOptions` fragment this provider understands — e.g. OpenAI returns
+   * `{ openai: { safetyIdentifier } }`, Anthropic returns
+   * `{ anthropic: { metadata: { userId } } }`. Keys MUST be the AI SDK
+   * provider-option names (camelCase); the SDK translates them to the
+   * provider's request-body fields and strips unknown keys. The runtime merges
+   * the returned fragment into the per-call `providerOptions`. Adapters that
+   * omit this method send no identifier (today's behavior). Implementations
+   * MUST be pure and stateless.
+   */
+  mapEndUserIdentifier?(identifier: string): Record<string, unknown>
+
+  /**
+   * Optional. When `true`, the runtime may run input pre-moderation through
+   * this provider's moderation endpoint before the model call. Only providers
+   * that actually expose a moderation API (initially the OpenAI adapter) set
+   * this. Absent/`false` means the moderation gate is skipped for this provider
+   * and the surface relies on the provider's own server-side filtering.
+   */
+  readonly supportsInputModeration?: boolean
 }

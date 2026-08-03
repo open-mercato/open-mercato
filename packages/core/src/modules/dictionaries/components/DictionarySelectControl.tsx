@@ -11,6 +11,9 @@ import {
   ensureDictionaryEntries,
   invalidateDictionaryEntries,
 } from './hooks/useDictionaryEntries'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionarySelectControl' })
 
 type DictionarySelectControlProps = {
   dictionaryId: string
@@ -66,7 +69,7 @@ export function DictionarySelectControl({
         }
         setInlineCreateEnabled(true)
       } catch (err) {
-        console.warn('DictionarySelectControl.inlineCreate check failed', err)
+        logger.warn('Inline create check failed', { err })
         if (!cancelled) {
           setInlineCreateEnabled(allowInlineCreate)
         }

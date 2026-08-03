@@ -1,8 +1,24 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { QueuedJob, JobContext } from '@open-mercato/queue'
 import { VectorIndexJobPayload } from '../queue/vector-indexing'
 import { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+
+const searchLoggerWarn = createLogger('search').warn as jest.Mock
 
 // Mock dependencies before importing workers
 jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
@@ -221,7 +237,7 @@ describe('Vector Index Worker', () => {
   it('should skip a batch with one warning when the dimension mismatches (no per-record indexing)', async () => {
     mockTableDimension = 768
     mockEmbeddingService.dimension = 1536
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    searchLoggerWarn.mockClear()
     const job = createMockJob<VectorIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
@@ -236,9 +252,8 @@ describe('Vector Index Worker', () => {
 
     expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
     expect(mockEmbeddingService.createEmbedding).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(String(warnSpy.mock.calls[0][0])).toContain('Skipping vector batch')
-    warnSpy.mockRestore()
+    expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(String(searchLoggerWarn.mock.calls[0][0])).toContain('Skipping vector batch')
   })
 
   it('should skip a batch with one warning when the provider probe is unreachable', async () => {
@@ -247,7 +262,7 @@ describe('Vector Index Worker', () => {
     mockEmbeddingService.createEmbedding.mockRejectedValueOnce(
       new Error('fetch failed. Check OLLAMA_BASE_URL.'),
     )
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    searchLoggerWarn.mockClear()
     const job = createMockJob<VectorIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
@@ -259,15 +274,14 @@ describe('Vector Index Worker', () => {
 
     expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
     expect(mockEmbeddingService.createEmbedding).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(String(warnSpy.mock.calls[0][0])).toContain('Skipping vector batch')
-    warnSpy.mockRestore()
+    expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(String(searchLoggerWarn.mock.calls[0][0])).toContain('Skipping vector batch')
   })
 
   it('should still advance reindex progress/lock when a batch is skipped (no stuck run)', async () => {
     mockTableDimension = 768
     mockEmbeddingService.dimension = 1536
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    searchLoggerWarn.mockClear()
     const mockDb = { kysely: true }
     const containerWithProgress: HandlerContext = {
       resolve: jest.fn((name: string) => {
@@ -298,7 +312,6 @@ describe('Vector Index Worker', () => {
       expect.objectContaining({ type: 'vector', tenantId: 'tenant-123', delta: 2 }),
     )
     expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'vector', 'org-456')
-    warnSpy.mockRestore()
   })
 
   it('counts handled-but-skipped batch records as processed so progress can complete', async () => {
@@ -373,7 +386,7 @@ describe('Vector Index Worker', () => {
   it('should skip a single-record index on dimension mismatch without indexing or embedding', async () => {
     mockTableDimension = 768
     mockEmbeddingService.dimension = 1536
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    searchLoggerWarn.mockClear()
     const job = createMockJob<VectorIndexJobPayload>({
       jobType: 'index',
       entityType: 'customers:customer_person_profile',
@@ -386,8 +399,7 @@ describe('Vector Index Worker', () => {
 
     expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
     expect(mockEmbeddingService.createEmbedding).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    warnSpy.mockRestore()
+    expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
   })
 
   it('should still delete a record even when the provider is misconfigured', async () => {

@@ -22,6 +22,7 @@ export type ReturnOrderLine = {
   lineNumber: number | null
   quantity: number
   returnedQuantity: number
+  shippedQuantity?: number
   thumbnail?: string | null
 }
 

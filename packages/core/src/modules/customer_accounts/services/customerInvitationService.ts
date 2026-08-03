@@ -21,6 +21,7 @@ export class CustomerInvitationService {
     scope: { tenantId: string; organizationId: string },
     options: {
       customerEntityId?: string | null
+      personEntityId?: string | null
       roleIds: string[]
       invitedByUserId?: string | null
       invitedByCustomerUserId?: string | null
@@ -56,6 +57,7 @@ export class CustomerInvitationService {
       existing.email = normalizedEmail
       existing.token = tokenHashed
       existing.customerEntityId = options.customerEntityId || null
+      existing.personEntityId = options.personEntityId || null
       existing.roleIdsJson = options.roleIds
       existing.invitedByUserId = options.invitedByUserId || null
       existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null
@@ -72,6 +74,7 @@ export class CustomerInvitationService {
       emailHash,
       token: tokenHashed,
       customerEntityId: options.customerEntityId || null,
+      personEntityId: options.personEntityId || null,
       roleIdsJson: options.roleIds,
       invitedByUserId: options.invitedByUserId || null,
       invitedByCustomerUserId: options.invitedByCustomerUserId || null,
@@ -83,11 +86,8 @@ export class CustomerInvitationService {
     return { invitation, rawToken: token, reused: false }
   }
 
-  // Hard-delete an invitation row. Used to roll back a freshly-created invite when
-  // its delivery email fails, so the persisted state matches the failure returned
-  // to the caller (no orphaned, un-emailed invitation left behind).
   async removeInvitation(invitation: CustomerUserInvitation): Promise<void> {
-    await this.em.removeAndFlush(invitation)
+    await this.em.remove(invitation).flush()
   }
 
   async findByToken(token: string): Promise<CustomerUserInvitation | null> {
@@ -124,6 +124,7 @@ export class CustomerInvitationService {
       tenantId: invitation.tenantId,
       organizationId: invitation.organizationId,
       customerEntityId: invitation.customerEntityId || null,
+      personEntityId: invitation.personEntityId || null,
       isActive: true,
       emailVerifiedAt: new Date(), // Invitation implicitly verifies email
       failedLoginAttempts: 0,
@@ -140,6 +141,7 @@ export class CustomerInvitationService {
           {
             id: { $in: roleIds } as any,
             tenantId: invitation.tenantId,
+            organizationId: invitation.organizationId,
             deletedAt: null,
           } as any,
           undefined,

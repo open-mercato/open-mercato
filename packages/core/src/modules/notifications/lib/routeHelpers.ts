@@ -2,11 +2,9 @@ import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveNotificationService, type NotificationService } from './notificationService'
 
 /**
@@ -25,6 +23,7 @@ export const NOTIFICATION_SETTINGS_RESOURCE_KIND = 'notifications.settings'
 export interface NotificationScope {
   tenantId: string
   organizationId: string | null
+  organizationIds?: string[] | null
   userId: string | null
 }
 
@@ -67,11 +66,26 @@ export function notificationCrudErrorResponse(error: unknown): Response | null {
  */
 export async function resolveNotificationContext(req: Request): Promise<NotificationRequestContext> {
   const { ctx } = await resolveRequestContext(req)
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container: ctx.container,
+    auth: ctx.auth,
+    request: req,
+    ...(ctx.selectedOrganizationId === undefined
+      ? {}
+      : { selectedId: ctx.selectedOrganizationId }),
+  })
+  const tenantId = organizationScope.tenantId ?? ctx.auth?.tenantId ?? ''
+  const organizationId = organizationScope.selectedId
+  const organizationIds = organizationScope.filterIds
+  ctx.organizationScope = organizationScope
+  ctx.selectedOrganizationId = organizationId
+  ctx.organizationIds = organizationIds
   return {
     service: resolveNotificationService(ctx.container),
     scope: {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? null,
+      tenantId,
+      organizationId,
+      organizationIds,
       userId: ctx.auth?.sub ?? null,
     },
     ctx,
@@ -106,33 +120,28 @@ export async function runGuardedNotificationWrite<T>(
   options: NotificationMutationGuardOptions,
   write: () => Promise<T>,
 ): Promise<GuardedNotificationWriteResult<T>> {
-  const guardScope = {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    userId: scope.userId ?? '',
-    resourceKind: options.resourceKind,
-    resourceId: options.resourceId ?? '',
-    operation: options.operation,
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-  }
-
-  const guardResult = await validateCrudMutationGuard(container, {
-    ...guardScope,
-    mutationPayload: options.payload ?? null,
+  const guarded = await runRouteMutationGuards({
+    container,
+    req,
+    auth: {
+      userId: scope.userId ?? '',
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    input: {
+      resourceKind: options.resourceKind,
+      resourceId: options.resourceId ?? null,
+      operation: options.operation,
+      mutationPayload: options.payload ?? null,
+    },
   })
-  if (guardResult && !guardResult.ok) {
-    return { ok: false, response: Response.json(guardResult.body, { status: guardResult.status }) }
+  if (!guarded.ok) {
+    return { ok: false, response: guarded.response }
   }
 
   const result = await write()
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      ...guardScope,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  await guarded.runAfterSuccess()
 
   return { ok: true, result }
 }

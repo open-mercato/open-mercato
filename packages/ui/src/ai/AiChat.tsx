@@ -77,6 +77,9 @@ import { useAiShortcuts } from './useAiShortcuts'
 import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
 import { AiIcon } from './AiIcon'
 import { readModelPickerValue, writeModelPickerValue } from './modelPickerStorage'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'AiChat' })
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
@@ -301,8 +304,37 @@ function mapErrorCodeToVariant(
     'tool_not_whitelisted',
     'tool_features_denied',
     'attachment_type_not_accepted',
+    // Content-safety rejections are soft: the user can rephrase and retry.
+    'moderation_blocked',
+    'moderation_unavailable',
   ])
   return warningCodes.has(code) ? 'warning' : 'destructive'
+}
+
+/**
+ * Maps known error codes to a translated, user-safe message. For content-safety
+ * codes the raw server message is intentionally generic (no category oracle);
+ * the UI shows the friendly localized copy instead of the internal text.
+ */
+function resolveChatErrorMessage(
+  code: string | undefined,
+  fallback: string,
+  translate: (key: string, fallbackText?: string) => string,
+): string {
+  switch (code) {
+    case 'moderation_blocked':
+      return translate(
+        'ai_assistant.errors.moderationBlocked',
+        'Your message was blocked by the content safety filter. Please rephrase and try again.',
+      )
+    case 'moderation_unavailable':
+      return translate(
+        'ai_assistant.errors.moderationUnavailable',
+        'The content safety check is temporarily unavailable. Please try again in a moment.',
+      )
+    default:
+      return fallback
+  }
 }
 
 const MARKDOWN_TYPOGRAPHY_CLASS = cn(
@@ -936,10 +968,7 @@ function AiUiPartRenderer({
     if (Component) return
     if (isReserved) return
     try {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[AiChat] No component registered for UI part "${part.componentId}".`,
-      )
+      logger.warn('No component registered for UI part', { componentId: part.componentId })
     } catch {
       // noop
     }
@@ -1630,7 +1659,7 @@ export function AiChat({
             {chat.error.code ? (
               <span className="mr-2 font-mono text-xs">{chat.error.code}</span>
             ) : null}
-            {chat.error.message}
+            {resolveChatErrorMessage(chat.error.code, chat.error.message, t)}
           </AlertDescription>
         </Alert>
       ) : null}

@@ -1,5 +1,6 @@
 "use client"
 import { useCallback, useMemo, useState } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -14,10 +15,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
-type SignupResponse = { ok: boolean; error?: string }
+type SignupResponse = { ok: boolean; error?: string; details?: Record<string, string[]> }
 
 export default function PortalSignupPage({ params }: Props) {
   const t = useT()
@@ -28,6 +28,7 @@ export default function PortalSignupPage({ params }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [success, setSuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -35,6 +36,7 @@ export default function PortalSignupPage({ params }: Props) {
     async (event: React.FormEvent) => {
       event.preventDefault()
       setError(null)
+      setFieldErrors({})
 
       if (!tenant.organizationId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
@@ -54,7 +56,28 @@ export default function PortalSignupPage({ params }: Props) {
           return
         }
 
-        setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+        const details = result.result?.details
+        const detailEntries = details ? Object.entries(details).filter(([, messages]) => (messages?.length ?? 0) > 0) : []
+        if (detailEntries.length > 0) {
+          // API detail values are raw untranslated validator strings; each known field maps to one translated message instead.
+          const mapped: Record<string, string> = {}
+          for (const [fieldKey] of detailEntries) {
+            if (fieldKey === 'displayName') {
+              mapped.displayName = t('portal.signup.error.displayName.required', 'Full name is required.')
+            } else if (fieldKey === 'email') {
+              mapped.email = t('portal.signup.error.email.invalid', 'Please enter a valid email address.')
+            } else if (fieldKey === 'password') {
+              mapped.password = t('portal.signup.error.password.minLength', 'Password must be at least 8 characters.')
+            }
+          }
+          const hasUnmappedField = detailEntries.some(([fieldKey]) => !(fieldKey in mapped))
+          setFieldErrors(mapped)
+          if (hasUnmappedField || Object.keys(mapped).length === 0) {
+            setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+          }
+        } else {
+          setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+        }
       } catch {
         setError(t('portal.signup.error.generic', 'Signup failed. Please try again.'))
       } finally {
@@ -111,7 +134,7 @@ export default function PortalSignupPage({ params }: Props) {
         <p className="mt-1.5 text-sm text-muted-foreground">{t('portal.signup.description', 'Sign up for a portal account.')}</p>
       </div>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('signup')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.signupBefore.spotId} context={injectionContext} />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error ? (
@@ -122,17 +145,20 @@ export default function PortalSignupPage({ params }: Props) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="signup-name" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.displayName', 'Full Name')}</Label>
-          <Input id="signup-name" type="text" autoComplete="name" required placeholder={t('portal.signup.displayName.placeholder', 'Jane Smith')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={submitting} className="rounded-lg" />
+          <Input id="signup-name" type="text" autoComplete="name" required placeholder={t('portal.signup.displayName.placeholder', 'Jane Smith')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={submitting} aria-invalid={fieldErrors.displayName ? true : undefined} aria-describedby={fieldErrors.displayName ? 'signup-name-error' : undefined} className="rounded-lg" />
+          {fieldErrors.displayName && <p id="signup-name-error" role="alert" className="text-sm text-destructive">{fieldErrors.displayName}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="signup-email" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
-          <EmailInput id="signup-email" required placeholder={t('portal.signup.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
+          <EmailInput id="signup-email" required placeholder={t('portal.signup.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} aria-invalid={fieldErrors.email ? true : undefined} aria-describedby={fieldErrors.email ? 'signup-email-error' : undefined} className="rounded-lg" />
+          {fieldErrors.email && <p id="signup-email-error" role="alert" className="text-sm text-destructive">{fieldErrors.email}</p>}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="signup-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
-          <PasswordInput id="signup-password" autoComplete="new-password" required placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
+          <PasswordInput id="signup-password" autoComplete="new-password" required placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} aria-invalid={fieldErrors.password ? true : undefined} aria-describedby={fieldErrors.password ? 'signup-password-error' : undefined} className="rounded-lg" />
+          {fieldErrors.password && <p id="signup-password-error" role="alert" className="text-sm text-destructive">{fieldErrors.password}</p>}
         </div>
 
         <Button type="submit" disabled={submitting} className="mt-1 w-full rounded-lg">
@@ -147,7 +173,7 @@ export default function PortalSignupPage({ params }: Props) {
         </p>
       </form>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('signup')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.signupAfter.spotId} context={injectionContext} />
     </div>
   )
 }

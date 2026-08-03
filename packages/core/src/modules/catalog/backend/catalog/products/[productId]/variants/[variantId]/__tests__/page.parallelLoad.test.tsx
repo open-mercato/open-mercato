@@ -40,6 +40,7 @@ jest.mock('next/link', () => ({ children }: { children: React.ReactNode }) => <s
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
+  usePathname: () => '/backend/catalog/products/p1/variants/v1',
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({

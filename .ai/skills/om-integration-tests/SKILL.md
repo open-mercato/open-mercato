@@ -1,26 +1,50 @@
 ---
 name: om-integration-tests
-description: Run and create QA integration tests (Playwright TypeScript), including executing the full suite, converting optional markdown scenarios, and generating new tests from specs or feature descriptions. Use when the user says "run integration tests", "test this feature", "create test for", "convert test case", "run QA tests", or "integration test".
+description: Run and create QA integration tests (Playwright TypeScript), including executing the full suite, converting optional markdown scenarios, and generating new tests from specs or feature descriptions. Defers all environment boot/reuse to the `om-prepare-test-env` skill and attaches to the shared descriptor it writes. Use when the user says "run integration tests", "test this feature", "create test for", "convert test case", "run QA tests", or "integration test".
 ---
 
 # Integration Tests Skill
 
 This skill generates executable Playwright tests in module-local `__integration__` directories (for example `packages/core/src/modules/sales/__integration__/TC-SALES-*.spec.ts`) by exploring the running application. It also covers running existing integration tests after feature/bug implementation and reporting failures with artifact-based diagnosis. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
 
+**Environment boot/reuse is not this skill's job.** Discovering, provisioning, reusing (PID/readiness/freshness), and locking the test environment all live in the shared `om-prepare-test-env` skill (`.agents/skills/om-prepare-test-env/SKILL.md`), which wraps this repo's ephemeral tooling (see "Open Mercato environment" below) and writes a shared descriptor at `.ai/qa/test-env.json`. Integration tests **attach** to that already-booted instance (read `baseUrl`, `credentials`, and the Playwright runner `config` from the descriptor), invoking `om-prepare-test-env` to discover/provision when no valid descriptor exists.
+
 ## Quick Reference
 
 | Action | Command |
 |--------|---------|
-| Run all tests | `yarn test:integration` |
-| Run single test | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path>` |
-| Run in ephemeral containers | `yarn test:integration:ephemeral` |
+| Run all tests (**preferred**) | `yarn test:integration:ephemeral` — provisions or safely reuses the ephemeral env itself |
+| Run tests matching a path substring with the managed env | `yarn mercato test:integration <substring>` (no `--retries` support) |
+| Iterate against a running ephemeral env (small test loops) | `yarn test:integration:ephemeral:start` once, then filtered `yarn mercato test:integration <filter>` runs |
 | Run interactive ephemeral mode | `yarn test:integration:ephemeral:interactive` |
 | Start ephemeral app only (for MCP exploration, tests development, and debugging) | `yarn test:integration:ephemeral:start` |
+| Run all tests against an already-running app (low-level — needs the full runner env block) | `yarn test:integration` |
+| Run single test (against an attached env, with the runner env block) | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path>` |
 | Run standalone create-app integration parity from monorepo | `yarn test:create-app:integration` |
 | View report | `yarn test:integration:report` |
 | Test files location | `<module>/__integration__/TC-XXX.spec.ts` |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
-| Reusable env state file | `.ai/qa/ephemeral-env.json` |
+| Shared env descriptor (attach here) | `.ai/qa/test-env.json` (written by `om-prepare-test-env`) |
+| Underlying repo env state file | `.ai/qa/ephemeral-env.json` (managed by `om-prepare-test-env`) |
+
+## Run Mode — prefer ephemeral, ask the user
+
+Always prefer `yarn test:integration:ephemeral` over plain `yarn test:integration`: the ephemeral
+runner prepares (or safely reuses) its own isolated app + database and injects the full runner env
+block, so it is more autonomous and cannot touch the developer's dev data. Plain
+`yarn test:integration` is a low-level command that only works with the full env block exported —
+never reach for it first.
+
+Before the first run in a session, when a user is present and has not already chosen, ask which
+mode they want (recommend the first — more autonomous, safer regarding data):
+
+1. **Fully managed ephemeral per run** — `yarn test:integration:ephemeral [filter]`.
+2. **Boot once, iterate against the running ephemeral env** — `yarn test:integration:ephemeral:start`,
+   then small filtered `yarn mercato test:integration <filter>` batches; best for short
+   author/debug loops.
+
+When running unattended, default to the fully managed ephemeral mode. The reuse/TTL/lock
+semantics live in the repo-local `om-prepare-test-env` skill (`.ai/skills/om-prepare-test-env/SKILL.md`).
 
 ## Runtime Policy
 
@@ -49,6 +73,17 @@ When a feature touches Next.js routes, generated frontend, Client Islands, share
 
 If performance evidence is not feasible in the environment, state the blocker and the exact command/check that should be run before merge.
 
+## Open Mercato environment (what om-prepare-test-env wraps)
+
+Do not re-implement environment discovery, boot, reuse, PID/freshness checks, or locking here — that is `om-prepare-test-env`'s job (`.agents/skills/om-prepare-test-env/SKILL.md`). This section only names the repo tooling that skill honors under its "Honor repo tooling" rule:
+
+- Ephemeral bring-up/reuse commands: `yarn test:integration:ephemeral` (full suite in ephemeral containers), `yarn test:integration:ephemeral:start` (app only — for MCP exploration, test development, debugging), `yarn test:integration:ephemeral:interactive` (reused ephemeral app + DB for short local loops).
+- Plain suite against an already-running app: `yarn test:integration`. **Caution:** this only works when the caller exports the full runner env block (at minimum `BASE_URL`, `DATABASE_URL` of the ephemeral DB, and `QUEUE_BASE_DIR`); with `BASE_URL` alone, DB-fixture helpers fall back to `apps/mercato/.env`'s dev `DATABASE_URL` and fail with cross-database FK violations. Prefer `yarn mercato test:integration [filter]`, which injects the env block itself. See the repo-local `om-prepare-test-env` skill (`.ai/skills/om-prepare-test-env/SKILL.md`) for the full env contract, reuse-TTL semantics, and owner-lock teardown.
+- Default ephemeral app port is `5001` when available; the actual bound port is recorded in the repo state file.
+- Repo state file: `.ai/qa/ephemeral-env.json` (managed by `om-prepare-test-env`, not written by hand).
+
+`om-prepare-test-env` uses these commands to bring up or reuse the environment, then writes the shared descriptor `.ai/qa/test-env.json` that tests attach to. To get a running instance, invoke that skill; to run tests, read `baseUrl`/`credentials`/runner `config` from the descriptor.
+
 ## Workflow
 
 ### Phase 1 — Identify What to Test
@@ -76,22 +111,17 @@ find apps packages -type f -path "*/__integration__/*" -name "TC-{CATEGORY}-*.sp
 
 Use the highest number found across both directories, then increment. For example, if the last scenario is TC-CRM-011 but the last test is TC-CRM-013, use TC-CRM-014.
 
-### Phase 3 — Reuse Existing Ephemeral Environment First
+### Phase 3 — Attach to the Shared Test Environment
 
-Before starting any new ephemeral app, read `.ai/qa/ephemeral-env.json`.
+Do not boot or reuse an environment yourself. Defer to `om-prepare-test-env` (`.agents/skills/om-prepare-test-env/SKILL.md`), which owns the reuse/PID/freshness/lock protocol and wraps this repo's ephemeral tooling (see "Open Mercato environment" above).
 
-- If it exists and contains `status: running`, use `base_url` from that file.
-- If it does not exist (or cannot be reused), start:
-
-```bash
-yarn test:integration:ephemeral:start
-```
-
-Default ephemeral app port is `5001` when available; fallback port is recorded in `.ai/qa/ephemeral-env.json`.
+- Read the shared descriptor `.ai/qa/test-env.json`. When it reports `status: running` and passes that skill's validation, **attach** to it: take `baseUrl`, `credentials`, and the Playwright runner `config` from the descriptor.
+- When no valid descriptor exists, invoke `om-prepare-test-env` to discover/provision one (it brings up or reuses the ephemeral env via the OM commands above, then writes the descriptor), then attach.
+- Never hardcode a guessed `localhost:<port>` — always take the base URL from the descriptor.
 
 ### Phase 4 — Explore the Feature via Playwright MCP
 
-Use the active base URL from `.ai/qa/ephemeral-env.json` for MCP navigation, then discover the actual UI:
+Use the active `baseUrl` from the shared descriptor `.ai/qa/test-env.json` for MCP navigation, then discover the actual UI:
 
 1. Login with the appropriate role
 2. Navigate to the relevant page
@@ -267,8 +297,11 @@ If the run fails, apply the shared failure-analysis section above.
 ## Rules
 
 - MUST explore the running app before writing — never guess selectors or flows
-- MUST check `.ai/qa/ephemeral-env.json` first and reuse existing environment when available
-- MUST use the active URL from `.ai/qa/ephemeral-env.json` (never assume `localhost:3000`)
+- MUST prefer `yarn test:integration:ephemeral` over plain `yarn test:integration` — the ephemeral runner provisions/reuses its own isolated env and injects the runner env block; plain `yarn test:integration` is low-level and unsafe without that block
+- MUST ask the user which run mode they want (fully managed ephemeral per run vs boot-once via `yarn test:integration:ephemeral:start` + filtered iteration) before the first run when interactive, recommending fully managed ephemeral; default to fully managed ephemeral when unattended
+- MUST defer environment boot/reuse to `om-prepare-test-env`; never re-implement PID/reuse/freshness/lock logic here
+- MUST read the shared descriptor `.ai/qa/test-env.json` first and attach to that running instance; invoke `om-prepare-test-env` to discover/provision when no valid descriptor exists (it manages the underlying `.ai/qa/ephemeral-env.json` state file)
+- MUST use the active `baseUrl` from `.ai/qa/test-env.json` (never assume `localhost:3000`)
 - MUST NOT hardcode record IDs (UUIDs/PKs) in generated tests
 - MUST discover or create test entities at runtime, then navigate using discovered links/URLs
 - MUST NOT rely on seeded/demo data for prerequisites
@@ -316,24 +349,22 @@ Given SPEC-017 (Version History Panel), the skill would produce:
 
 ## Running Existing Tests
 
+Pick the run mode first (see "Run Mode — prefer ephemeral, ask the user"); the environment
+itself is `om-prepare-test-env`'s job (see "Open Mercato environment"):
+
 ```bash
-# Run all integration tests headlessly (zero token cost)
-yarn test:integration
-
-# Run tests matching a module/category path fragment
-npx playwright test --config .ai/qa/tests/playwright.config.ts sales
-
-# Run a single test
-npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/auth/__integration__/TC-AUTH-001.spec.ts
-
-# Run fail-fast in local debugging
-npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/auth/__integration__/TC-AUTH-001.spec.ts --retries=0
-
-# Run in ephemeral containers (Docker required)
+# Run all integration tests headlessly (preferred — provisions/reuses the ephemeral env itself)
 yarn test:integration:ephemeral
 
-# Preferred for short local loops (reused ephemeral app + DB)
-yarn test:integration:ephemeral:interactive
+# Run tests matching a module/category path fragment with the managed env
+yarn mercato test:integration sales
+
+# Iterate: boot the ephemeral env once, then run small filtered batches against it
+yarn test:integration:ephemeral:start
+yarn mercato test:integration auth
+
+# Run a single test, fail-fast while debugging (requires an attached env + runner env block)
+npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/auth/__integration__/TC-AUTH-001.spec.ts --retries=0
 ```
 
 ## Batch Conversion

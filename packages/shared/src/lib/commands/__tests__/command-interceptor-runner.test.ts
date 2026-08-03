@@ -6,6 +6,25 @@ import {
   runCommandInterceptorsAfterUndo,
 } from '../command-interceptor-runner'
 import type { CommandInterceptor, CommandInterceptorContext, CommandInterceptorUndoContext } from '../command-interceptor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  applyAclFeatureOverrides,
+  resetModuleContractOverridesForTests,
+} from '@open-mercato/shared/modules/overrides'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+
 
 const baseContext: CommandInterceptorContext = {
   commandId: 'customers.create-person',
@@ -44,6 +63,10 @@ describe('matchesCommandPattern', () => {
 })
 
 describe('runCommandInterceptorsBefore', () => {
+  afterEach(() => {
+    resetModuleContractOverridesForTests()
+  })
+
   it('returns ok when no interceptors match', async () => {
     const interceptor = makeInterceptor({
       id: 'i1',
@@ -143,6 +166,26 @@ describe('runCommandInterceptorsBefore', () => {
     expect(withWildcard.ok).toBe(false)
     expect(withWildcard.error?.message).toBe('Blocked by wildcard')
   })
+
+  it('does not run an interceptor gated by a nulled ACL feature', async () => {
+    applyAclFeatureOverrides({ 'premium.audit': null })
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      features: ['premium.audit'],
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false }),
+    })
+
+    const result = await runCommandInterceptorsBefore(
+      [interceptor],
+      'customers.create-person',
+      {},
+      baseContext,
+      ['*', 'premium.audit'],
+    )
+
+    expect(result.ok).toBe(true)
+    expect(interceptor.beforeExecute).not.toHaveBeenCalled()
+  })
 })
 
 describe('runCommandInterceptorsAfter', () => {
@@ -161,11 +204,10 @@ describe('runCommandInterceptorsAfter', () => {
       id: 'i1',
       afterExecute: jest.fn().mockRejectedValue(new Error('boom')),
     })
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    loggerError.mockClear()
     const metadata = new Map<string, Record<string, unknown>>()
     await runCommandInterceptorsAfter([interceptor], 'customers.create-person', {}, {}, baseContext, [], metadata)
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(loggerError).toHaveBeenCalled()
   })
 })
 
@@ -208,10 +250,9 @@ describe('runCommandInterceptorsAfterUndo', () => {
       id: 'i1',
       afterUndo: jest.fn().mockRejectedValue(new Error('boom')),
     })
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    loggerError.mockClear()
     const metadata = new Map<string, Record<string, unknown>>()
     await runCommandInterceptorsAfterUndo([interceptor], 'customers.create-person', undoContext, baseContext, [], metadata)
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(loggerError).toHaveBeenCalled()
   })
 })

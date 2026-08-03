@@ -10,6 +10,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateCustomerTodoSettings, type CustomerTodoWidgetSettings } from './config'
 import { resolveExampleIntegrationHref } from '../../../lib/interactionCompatibility'
 import { resolveTodoHref } from '../../../components/detail/utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type TodoLinkSummary = {
   id: string
@@ -114,7 +117,7 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
       const data = await loadTodos(hydrated)
       setItems(data)
     } catch (err) {
-      console.error('Failed to load customer todos widget data', err)
+      logger.error('Failed to load customer todos widget data', { err })
       setError(t('customers.widgets.todos.error'))
     } finally {
       setLoading(false)

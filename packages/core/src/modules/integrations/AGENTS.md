@@ -11,6 +11,7 @@ The `integrations` module is the foundation layer for all external connectors (p
 - **Always scope by organizationId + tenantId** — every entity query and service call
 - **Use `findWithDecryption`/`findOneWithDecryption`** for credential reads
 - **New providers MUST support provider-owned env preconfiguration** when credentials/settings are deployment-managed; implement it in the provider package, not in core
+- **Secret-bearing credential fields MUST use `secret`, `oauth`, or `ssh_keypair`** — never declare tokens, passwords, or private keys as `text`, and never embed credentials in a `url` field
 - **Health check services** must be registered in DI by the provider module, not by integrations
 - **API routes must export `openApi`** for documentation generation
 - **All user-facing strings** via i18n keys in `i18n/en.json`

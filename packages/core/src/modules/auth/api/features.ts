@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { synthesizeRestrictedEntityFeatures } from '@open-mercato/core/modules/entities/lib/restrictedEntityFeatures'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
@@ -44,6 +46,21 @@ export async function GET(req: Request) {
       return base
     })
   )
+  // Append synthesized per-entity features for the tenant's restricted custom
+  // entities so they can be granted in the ACL editor. Tenant-scoped; never
+  // throws (falls back to the static catalog on any failure).
+  try {
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+    const synthesized = await synthesizeRestrictedEntityFeatures(em, auth.tenantId ?? null)
+    for (const item of synthesized) {
+      const deps = normalizeDependsOn(item.dependsOn)
+      const base: FeatureItem = { id: item.id, title: item.title, module: item.module }
+      if (deps) base.dependsOn = deps
+      items.push(base)
+    }
+  } catch {}
+
   // Deduplicate by id (keep first occurrence)
   const byId = new Map<string, FeatureItem>()
   for (const it of items) if (!byId.has(it.id)) byId.set(it.id, it)

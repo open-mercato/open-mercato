@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import {
   SquareCheckBig,
   Mail,
@@ -16,6 +16,8 @@ import {
   MapPin,
 } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 
 export type PersonTabId =
   | 'activities'
@@ -32,13 +34,16 @@ type TabDef = {
   id: PersonTabId
   label: string
   icon?: React.ReactNode
-  badge?: React.ReactNode
+  count?: React.ReactNode
 }
 
-type PersonDetailTabsProps = {
+export const PERSON_DETAIL_TABS_COMPONENT_ID = 'section:customers.people.detailTabs'
+
+export type PersonDetailTabsProps = {
   activeTab: PersonTabId
   onTabChange: (tab: PersonTabId) => void
   injectedTabs?: Array<{ id: string; label: string }>
+  hiddenTabIds?: string[]
   activitiesCount?: number
   dealsCount?: number
   companiesCount?: number
@@ -51,32 +56,23 @@ type PersonDetailTabsProps = {
 
 const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'])
 
-export function resolveLegacyTab(tab: string | null | undefined): PersonTabId {
+export function resolveLegacyTab(tab: string | null | undefined, knownTabIds?: Iterable<string>): PersonTabId {
   if (!tab) return 'activities'
-  return SUPPORTED_TAB_IDS.has(tab as PersonTabId) ? (tab as PersonTabId) : 'activities'
+  if (SUPPORTED_TAB_IDS.has(tab as PersonTabId)) return tab as PersonTabId
+  if (knownTabIds && new Set(knownTabIds).has(tab)) return tab
+  return 'activities'
 }
 
-function CountBadge({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium leading-none text-muted-foreground">
-      {count > 999 ? '999+' : count}
-    </span>
-  )
+function formatTabCount(count: number): string | number | undefined {
+  if (count <= 0) return undefined
+  return count > 999 ? '999+' : count
 }
 
-function NewBadge() {
-  return (
-    <span className="ml-1.5 rounded bg-foreground px-1.5 py-0.5 text-overline font-semibold leading-none text-background">
-      NEW
-    </span>
-  )
-}
-
-export function PersonDetailTabs({
+function DefaultPersonDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  hiddenTabIds = [],
   activitiesCount = 0,
   dealsCount = 0,
   companiesCount = 0,
@@ -94,7 +90,7 @@ export function PersonDetailTabs({
         id: 'activities',
         label: t('customers.people.detail.tabs.activities', 'Activities'),
         icon: <SquareCheckBig className="size-4" />,
-        badge: <CountBadge count={activitiesCount} />,
+        count: formatTabCount(activitiesCount),
       },
       {
         id: 'emails',
@@ -105,83 +101,74 @@ export function PersonDetailTabs({
         id: 'deals',
         label: t('customers.people.detail.tabs.deals', 'Deals'),
         icon: <Briefcase className="size-4" />,
-        badge: <CountBadge count={dealsCount} />,
+        count: formatTabCount(dealsCount),
       },
       {
         id: 'companies',
         label: t('customers.people.detail.tabs.companies', 'Companies'),
         icon: <Building2 className="size-4" />,
-        badge: <CountBadge count={companiesCount} />,
+        count: formatTabCount(companiesCount),
       },
       {
         id: 'addresses',
         label: t('customers.people.detail.tabs.addresses', 'Addresses'),
         icon: <MapPin className="size-4" />,
-        badge: <CountBadge count={addressesCount} />,
+        count: formatTabCount(addressesCount),
       },
       {
         id: 'tasks',
         label: t('customers.people.detail.tabs.tasks', 'Tasks'),
         icon: <Check className="size-4" />,
-        badge: <CountBadge count={tasksCount} />,
+        count: formatTabCount(tasksCount),
       },
       {
         id: 'changelog',
         label: t('customers.people.detail.tabs.changelog', 'Change log'),
         icon: <History className="size-4" />,
-        badge: <NewBadge />,
+        count: 'NEW',
       },
       {
         id: 'files',
         label: t('customers.people.detail.tabs.files', 'Files'),
         icon: <Paperclip className="size-4" />,
-        badge: <CountBadge count={filesCount} />,
+        count: formatTabCount(filesCount),
       },
     ],
     [t, activitiesCount, dealsCount, companiesCount, addressesCount, tasksCount, filesCount],
   )
 
-  const allTabs: TabDef[] = React.useMemo(
-    () => [
+  const allTabs: TabDef[] = React.useMemo(() => {
+    const hidden = new Set(hiddenTabIds)
+    return [
       ...builtInTabs,
       ...injectedTabs.map((tab) => ({
         id: tab.id as PersonTabId,
         label: tab.label,
       })),
-    ],
-    [builtInTabs, injectedTabs],
-  )
+    ].filter((tab) => !hidden.has(tab.id))
+  }, [builtInTabs, hiddenTabIds, injectedTabs])
 
   return (
     <div>
       {/* Tab navigation — full width above both zones */}
-      <div className="flex items-end justify-between gap-2 border-b" role="tablist" aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}>
-        <nav className="-mb-px flex flex-1 gap-1 overflow-x-auto px-1">
-          {allTabs.map((tab) => {
-            const isActive = activeTab === tab.id
-            return (
-              <Button
-                key={tab.id}
-                type="button"
-                variant="ghost"
-                size="sm"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => onTabChange(tab.id)}
-                className={cn(
-                  'h-auto shrink-0 rounded-none border-b-2 px-3 py-2.5 hover:bg-transparent',
-                  isActive
-                    ? 'border-foreground text-foreground font-semibold'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {tab.icon && <span className="mr-1.5">{tab.icon}</span>}
+      <div className="flex items-end justify-between gap-2 border-b">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => onTabChange(value as PersonTabId)}
+          variant="underline"
+          className="min-w-0 flex-1"
+        >
+          <TabsList
+            aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
+            className="-mb-px w-full overflow-x-auto border-b-0 px-1"
+          >
+            {allTabs.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
                 {tab.label}
-                {tab.badge}
-              </Button>
-            )
-          })}
-        </nav>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
         {sectionAction ? (
           <Button
             type="button"
@@ -202,4 +189,21 @@ export function PersonDetailTabs({
       </div>
     </div>
   )
+}
+
+registerComponent<PersonDetailTabsProps>({
+  id: PERSON_DETAIL_TABS_COMPONENT_ID,
+  component: DefaultPersonDetailTabs,
+  metadata: {
+    module: 'customers',
+    description: 'Person detail tab navigation and content.',
+  },
+})
+
+export function PersonDetailTabs(props: PersonDetailTabsProps) {
+  const ResolvedTabs = useRegisteredComponent<PersonDetailTabsProps>(
+    PERSON_DETAIL_TABS_COMPONENT_ID,
+    DefaultPersonDetailTabs,
+  )
+  return <ResolvedTabs {...props} />
 }

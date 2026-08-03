@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customer_accounts/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Globe, Settings } from 'lucide-react'
@@ -191,20 +192,19 @@ function CreateUserDialog({
                 {roleOptions.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
                   return (
-                    <button
+                    <Button
                       key={role.id}
                       type="button"
+                      size="2xs"
+                      variant={isSelected ? 'secondary' : 'outline'}
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedRoleIds((prev) =>
                         prev.includes(role.id) ? prev.filter((rid) => rid !== role.id) : [...prev, role.id],
                       )}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                      }`}
+                      className="rounded-full"
                     >
                       {role.label}
-                    </button>
+                    </Button>
                   )
                 })}
               </div>
@@ -546,7 +546,7 @@ export default function CustomerAccountsPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          perspective={{ tableId: 'customer_accounts.admin.users' }}
+          perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
           emptyState={(
             <ListEmptyState
               entityName={t('customer_accounts.admin.title', 'Users')}

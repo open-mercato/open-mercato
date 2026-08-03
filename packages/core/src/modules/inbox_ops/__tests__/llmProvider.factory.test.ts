@@ -17,6 +17,7 @@
  */
 
 import { generateObject } from 'ai'
+import { AiModelFactoryError } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import * as llmProvider from '../lib/llmProvider'
 import { extractionOutputSchema } from '../data/validators'
 
@@ -148,5 +149,102 @@ describe('inbox_ops llmProvider shim', () => {
       moduleId: 'inbox_ops',
       callerOverride: undefined,
     })
+  })
+
+  it('builds a single-prefixed modelWithProvider for a gateway resolution', async () => {
+    const resolveModel = jest.fn(() => ({
+      model: { __kind: 'gw' },
+      modelId: 'anthropic/claude-sonnet-4.5',
+      providerId: 'openrouter',
+      source: 'env_default' as const,
+    }))
+    llmProvider.__inboxOpsLlmProviderInternal.createModelFactory = (() => ({
+      resolveModel,
+    })) as unknown as typeof originalFactory
+    llmProvider.__inboxOpsLlmProviderInternal.createContainer =
+      (() => ({})) as unknown as typeof originalContainer
+
+    const result = await llmProvider.runExtractionWithConfiguredProvider({
+      systemPrompt: 's',
+      userPrompt: 'u',
+      timeoutMs: 1000,
+    })
+    expect(result.modelWithProvider).toBe('openrouter/anthropic/claude-sonnet-4.5')
+  })
+
+  it('exposes resolveConfiguredStructuredModel that routes through the factory (shared by categorize/translation)', async () => {
+    expect(typeof llmProvider.resolveConfiguredStructuredModel).toBe('function')
+    const model = { __kind: 'shared-model' }
+    const resolveModel = jest.fn(() => ({
+      model,
+      modelId: 'anthropic/claude-sonnet-4.5',
+      providerId: 'openrouter',
+      source: 'module_env' as const,
+    }))
+    llmProvider.__inboxOpsLlmProviderInternal.createModelFactory = (() => ({
+      resolveModel,
+    })) as unknown as typeof originalFactory
+    llmProvider.__inboxOpsLlmProviderInternal.createContainer =
+      (() => ({})) as unknown as typeof originalContainer
+
+    const res = await llmProvider.resolveConfiguredStructuredModel({ moduleId: 'inbox_ops' })
+    expect(res.model).toBe(model)
+    expect(res.modelWithProvider).toBe('openrouter/anthropic/claude-sonnet-4.5')
+    expect(resolveModel).toHaveBeenCalledWith({ moduleId: 'inbox_ops', callerOverride: undefined })
+  })
+
+  it('fails loudly (never silently openai) when a non-native OM_AI_PROVIDER reaches the legacy fallback', async () => {
+    const prev = process.env.OM_AI_PROVIDER
+    process.env.OM_AI_PROVIDER = 'openrouter'
+    const resolveModel = jest.fn(() => {
+      throw new AiModelFactoryError('no_provider_configured', 'none configured')
+    })
+    llmProvider.__inboxOpsLlmProviderInternal.createModelFactory = (() => ({
+      resolveModel,
+    })) as unknown as typeof originalFactory
+    llmProvider.__inboxOpsLlmProviderInternal.createContainer =
+      (() => ({})) as unknown as typeof originalContainer
+
+    try {
+      await expect(
+        llmProvider.resolveConfiguredStructuredModel({ moduleId: 'inbox_ops' }),
+      ).rejects.toThrow(/OM_AI_PROVIDER="openrouter"/)
+    } finally {
+      if (prev === undefined) delete process.env.OM_AI_PROVIDER
+      else process.env.OM_AI_PROVIDER = prev
+    }
+  })
+})
+
+describe('resolveExtractionProviderId — loud failure vs BC fall-through', () => {
+  const savedOm = process.env.OM_AI_PROVIDER
+  const savedOc = process.env.OPENCODE_PROVIDER
+
+  const setEnv = (key: 'OM_AI_PROVIDER' | 'OPENCODE_PROVIDER', value: string | undefined) => {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+
+  afterEach(() => {
+    setEnv('OM_AI_PROVIDER', savedOm)
+    setEnv('OPENCODE_PROVIDER', savedOc)
+  })
+
+  it('throws a descriptive error for a non-native canonical OM_AI_PROVIDER', () => {
+    setEnv('OM_AI_PROVIDER', 'openrouter')
+    setEnv('OPENCODE_PROVIDER', undefined)
+    expect(() => llmProvider.resolveExtractionProviderId()).toThrow(/OM_AI_PROVIDER="openrouter"/)
+  })
+
+  it('still honors a native canonical OM_AI_PROVIDER', () => {
+    setEnv('OM_AI_PROVIDER', 'anthropic')
+    setEnv('OPENCODE_PROVIDER', undefined)
+    expect(llmProvider.resolveExtractionProviderId()).toBe('anthropic')
+  })
+
+  it('leaves the legacy OPENCODE_PROVIDER fall-through untouched (no throw)', () => {
+    setEnv('OM_AI_PROVIDER', undefined)
+    setEnv('OPENCODE_PROVIDER', 'google')
+    expect(llmProvider.resolveExtractionProviderId()).toBe('google')
   })
 })

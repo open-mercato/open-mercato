@@ -29,12 +29,17 @@ import { dismissRecordConflict } from './conflicts/store'
 import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
+import { OrganizationScopeBoundary } from './OrganizationScopeBoundary'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import {
+  BackendRecordInjectionContextProvider,
+  type RecordInjectionContext,
+} from './injection/recordContext'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
 import { mergeMenuItems } from './injection/mergeMenuItems'
@@ -82,6 +87,7 @@ function isBooleanRecord(value: unknown): value is Record<string, boolean> {
 export type ShellLogo = {
   src: string
   alt?: string
+  preserveAspectRatio?: boolean
 }
 
 export type AppShellProps = {
@@ -134,6 +140,12 @@ export type AppShellProps = {
   profilePathPrefixes?: string[]
   mobileSidebarSlot?: React.ReactNode
   /**
+   * Hide the backend footer status bar (app version + terms/privacy links).
+   * Intended for app developers and whitelabel/embedded deployments that want to
+   * suppress the footer entirely. Defaults to `false` (footer shown).
+   */
+  hideFooter?: boolean
+  /**
    * How long (ms) to keep successfully completed progress operations visible
    * before auto-hiding. Pass `false` or `0` to disable. Defaults to 10 000 ms.
    */
@@ -173,6 +185,56 @@ function resolveInjectedMenuLabel(
 function shouldBypassLogoOptimization(src?: string | null): boolean {
   const value = src ?? ''
   return /^https?:\/\//.test(value) || /^\/api\/attachments\/(?:image|file)\//.test(value)
+}
+
+function ShellBrandLogo({
+  logo,
+  brandName,
+  unoptimized,
+  compact = false,
+  mobile = false,
+}: {
+  logo?: ShellLogo
+  brandName: string
+  unoptimized?: boolean
+  compact?: boolean
+  mobile?: boolean
+}) {
+  const src = logo?.src ?? '/open-mercato.svg'
+  const alt = logo?.alt ?? brandName
+  const isCustomLogo = Boolean(logo?.src)
+  const preserveAspectRatio = Boolean(logo?.preserveAspectRatio)
+  if (!isCustomLogo || !preserveAspectRatio) {
+    return (
+      <Image
+        src={src}
+        alt={alt}
+        width={mobile ? 28 : 40}
+        height={mobile ? 28 : 40}
+        className={`${mobile ? 'rounded' : 'rounded-full'} shrink-0 object-cover`}
+        unoptimized={unoptimized ? true : undefined}
+      />
+    )
+  }
+
+  const width = compact ? 40 : mobile ? 96 : 120
+  const height = mobile ? 28 : 40
+  const className = compact
+    ? 'h-10 max-w-10 w-auto shrink-0 object-contain'
+    : mobile
+      ? 'h-7 max-w-24 w-auto shrink-0 object-contain'
+      : 'h-10 max-w-[120px] w-auto shrink-0 object-contain'
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      className={className}
+      unoptimized={unoptimized ? true : undefined}
+    />
+  )
 }
 
 function mergeSidebarItemsWithInjected(
@@ -449,7 +511,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, progressCompletedAutoHideMs }: AppShellProps) {
+function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, hideFooter = false, progressCompletedAutoHideMs }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -591,6 +653,21 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     }),
     [pathname, searchParams],
   )
+
+  // AppShell-owned transport for the current detail record (Phase 0 / S2).
+  // Detail pages publish here; the merged context feeds the global
+  // `backend:record:current` mount so the record_locks widget can resolve the
+  // resource without a hardcoded path allowlist. Stale context (published for a
+  // different path) is ignored so it never leaks across route transitions.
+  const [currentRecordInjectionContext, setCurrentRecordInjectionContext] =
+    React.useState<RecordInjectionContext | null>(null)
+
+  const recordInjectionContext = React.useMemo(() => {
+    if (!currentRecordInjectionContext) return injectionContext
+    const publishedPath = currentRecordInjectionContext.path
+    if (publishedPath && pathname && publishedPath !== pathname) return injectionContext
+    return { ...injectionContext, ...currentRecordInjectionContext }
+  }, [injectionContext, currentRecordInjectionContext, pathname])
 
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
@@ -734,7 +811,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
@@ -867,7 +944,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
                 aria-label={t('appShell.goToDashboard')}
               >
-                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
                 {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
               </Link>
             </div>
@@ -933,7 +1010,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
@@ -1393,30 +1470,36 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           {canManageUpgradeActions ? <UpgradeActionBanner /> : null}
           <LastOperationBanner />
           <RecordConflictBanner />
-          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
+          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={recordInjectionContext} />
           <InjectionSpot
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
             context={injectionContext}
           />
           <div id="om-top-banners" className="mb-3 space-y-2" />
-          {children}
+          <OrganizationScopeBoundary active={isOnSettingsPath}>
+            <BackendRecordInjectionContextProvider setCurrentRecordInjectionContext={setCurrentRecordInjectionContext}>
+              {children}
+            </BackendRecordInjectionContextProvider>
+          </OrganizationScopeBoundary>
           <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
-          {version ? (
-            <span className="text-xs text-muted-foreground">
-              {t('appShell.version', { version })}
-            </span>
-          ) : null}
-          <nav className="flex items-center gap-3 text-xs text-muted-foreground">
-            <Link href="/terms" className="transition hover:text-foreground">
-              {t('common.terms')}
-            </Link>
-            <Link href="/privacy" className="transition hover:text-foreground">
-              {t('common.privacy')}
-            </Link>
-          </nav>
-        </footer>
+        {hideFooter ? null : (
+          <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+            {version ? (
+              <span className="text-xs text-muted-foreground">
+                {t('appShell.version', { version })}
+              </span>
+            ) : null}
+            <nav className="flex items-center gap-3 text-xs text-muted-foreground">
+              <Link href="/terms" className="transition hover:text-foreground">
+                {t('common.terms')}
+              </Link>
+              <Link href="/privacy" className="transition hover:text-foreground">
+                {t('common.privacy')}
+              </Link>
+            </nav>
+          </footer>
+        )}
       </div>
 
       {/* Mobile drawer */}
@@ -1426,7 +1509,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
               <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={28} height={28} className="rounded shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} mobile unoptimized={resolvedLogoBypassesOptimization} />
                 <span className="truncate">{resolvedBrandName}</span>
               </Link>
               <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>
@@ -1462,13 +1545,13 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       aria-selected={isActive}
                       aria-controls="mobile-drawer-tabpanel"
                       onClick={() => setMobileDrawerView(tab.id === 'main' ? 'main' : 'auto')}
-                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
+                      className="relative inline-flex items-center pb-2 text-sm font-medium leading-5 tracking-tight transition-colors outline-none focus-visible:shadow-focus data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
                       data-active={isActive}
                     >
                       <span>{tab.label}</span>
                       {isActive ? (
                         <span
-                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-foreground"
+                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-accent-indigo"
                           aria-hidden="true"
                         />
                       ) : null}
