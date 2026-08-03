@@ -34,6 +34,7 @@ Recreate the useful intent of closed PR #4300 on a fresh `develop` base so relat
 - Relation definitions created outside the current editor may omit `optionsUrl`; synthesizing it from `relatedEntityId` preserves compatibility with those definitions.
 - Multiple relation fields can contain the same raw ID for different targets; display maps must remain field-scoped to avoid cross-entity label collisions.
 - Relation lookup failures must not make the list unusable; raw IDs remain the stable fallback.
+- The repository-wide gate currently fails on 21 missing translation keys and seven customer-invitation test assertions in files unchanged from `develop`; the scoped relation tests, typecheck, builds, client-boundary check, and template parity check pass.
 
 ## Progress
 
@@ -44,7 +45,7 @@ PR: #4904
 ### Phase 1: Correct relation display resolution
 
 - [x] 1.1 Expose relation target metadata additively and resolve record-list relation values through the shared relation-options path. — 85de7cf645
-- [x] 1.2 Render labels and supported links in relation cells while preserving raw-ID titles and progressive fallback behavior. — 85de7cf645
+- [x] 1.2 Render labels and supported links in relation cells while preserving raw-ID titles and progressive fallback behavior. — 85de7cf645, 25aedd1ca
 
 ### Phase 2: Regression coverage and delivery
 
