@@ -21,7 +21,6 @@ import {
 import { resolveRegisteredLucideIconNode } from '@open-mercato/ui/backend/icons/lucideRegistry'
 import { profilePathPrefixes, profileSections } from './profile-sections'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { getNavGroupOrderOverride } from '@open-mercato/shared/modules/overrides'
 import {
   getSelectedOrganizationFromRequest,
@@ -283,10 +282,7 @@ export async function resolveBackendChromePayload({
   const container = await loadScopedContainer()
   const em = container.resolve('em') as EntityManager
   const rbac = container.resolve('rbacService') as {
-    loadAcl: (userId: string, scope: { tenantId: string | null; organizationId: string | null }) => Promise<{
-      isSuperAdmin: boolean
-      features: string[]
-    }>
+    getEffectiveFeatures: (userId: string, scope: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
     userHasAllFeatures: (userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }) => Promise<boolean>
   }
 
@@ -319,15 +315,12 @@ export async function resolveBackendChromePayload({
     concretelySelectedOrganizationId = null
   }
 
-  const acl = allowNavigation
-    ? await rbac.loadAcl(auth.sub, {
+  const grantedFeatures = allowNavigation
+    ? await rbac.getEffectiveFeatures(auth.sub, {
         tenantId: scopedTenantId,
         organizationId: scopedOrganizationId,
       })
-    : { isSuperAdmin: false, features: [] }
-
-  const rawGrantedFeatures = acl.isSuperAdmin ? ['*'] : acl.features
-  const grantedFeatures = filterGrantsByEnabledModules(rawGrantedFeatures)
+    : []
   const featureChecker = async (features: string[]): Promise<string[]> => {
     if (!allowNavigation || !features.length) return []
     const context = {
@@ -461,6 +454,7 @@ export async function resolveBackendChromePayload({
           logo: {
             src: organization.logoUrl,
             alt: `${organization.name} logo`,
+            preserveAspectRatio: !!organization.logoPreserveAspectRatio,
           },
         }
       }

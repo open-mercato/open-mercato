@@ -2,12 +2,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
-import { sql } from 'kysely'
+import {
+  buildCustomFieldDefinitionIndexFromRows,
+  normalizeDefinitionKey,
+  selectDefinitionForRecord,
+  type CustomFieldDefinitionRow,
+} from '@open-mercato/shared/lib/crud/custom-field-definition-index'
+import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField } from './document'
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
+
+type QueryIndexExecutor = Kysely<any> | Transaction<any>
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -96,9 +104,74 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     if (!cfMap[cfKey]) cfMap[cfKey] = []
     cfMap[cfKey].push(val)
   }
+
+  const multiKeys = new Set<string>()
+  const fieldKeys = Object.keys(cfMap).map((key) => key.slice(3))
+  if (fieldKeys.length > 0) {
+    let defQuery = db
+      .selectFrom('custom_field_defs' as any)
+      .select([
+        'key' as any,
+        'kind' as any,
+        'config_json' as any,
+        'organization_id' as any,
+        'tenant_id' as any,
+        'deleted_at' as any,
+        'updated_at' as any,
+      ])
+      .where('entity_id' as any, '=', params.entityType)
+      .where('key' as any, 'in', fieldKeys)
+      .where('is_active' as any, '=', true)
+      .where('deleted_at' as any, 'is', null)
+
+    if (params.organizationId != null) {
+      defQuery = defQuery.where((eb: any) => eb.or([
+        eb('organization_id' as any, '=', params.organizationId),
+        eb('organization_id' as any, 'is', null),
+      ]))
+    } else {
+      defQuery = defQuery.where('organization_id' as any, 'is', null)
+    }
+
+    if (params.tenantId != null) {
+      defQuery = defQuery.where((eb: any) => eb.or([
+        eb('tenant_id' as any, '=', params.tenantId),
+        eb('tenant_id' as any, 'is', null),
+      ]))
+    } else {
+      defQuery = defQuery.where('tenant_id' as any, 'is', null)
+    }
+
+    const defRows = await defQuery.execute() as Array<Record<string, any>>
+    const definitionIndex = buildCustomFieldDefinitionIndexFromRows(
+      defRows.map((row): CustomFieldDefinitionRow => ({
+        key: String(row.key ?? ''),
+        entityId: params.entityType,
+        kind: typeof row.kind === 'string' ? row.kind : null,
+        configJson: row.config_json,
+        organizationId: row.organization_id ?? null,
+        tenantId: row.tenant_id ?? null,
+        deletedAt: row.deleted_at ?? null,
+        updatedAt: row.updated_at ?? null,
+      })),
+      { organizationIds: params.organizationId ? [params.organizationId] : [] },
+    )
+    for (const key of fieldKeys) {
+      const definitions = definitionIndex.get(normalizeDefinitionKey(key)) ?? []
+      const definition = selectDefinitionForRecord(
+        definitions,
+        params.organizationId ?? null,
+        params.tenantId ?? null,
+      )
+      if (definition?.multi) multiKeys.add(key)
+    }
+  }
+
   for (const [key, arr] of Object.entries(cfMap)) {
-    // Store singletons as simple value; multis as array
-    doc[key] = arr.length <= 1 ? arr[0] : arr
+    // Cardinality belongs to the field definition, not the current row count:
+    // a multi field containing one value must still hydrate as an array.
+    const fieldKey = key.slice(3)
+    doc[key] = multiKeys.has(fieldKey) || arr.length > 1 ? arr : arr[0]
   }
 
   // Attach translations under flat keys 'l10n:{locale}:{field}'
@@ -181,12 +254,13 @@ function scopeEntityIndexes<QB extends { where: (...args: any[]) => QB }>(
 
 export async function upsertIndexRow(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean; trx?: QueryIndexExecutor }
 ): Promise<UpsertIndexResult> {
   const db = (em as any).getKysely()
+  const executor = args.trx ?? db
 
   const existing = await scopeEntityIndexes(
-    db.selectFrom('entity_indexes' as any).select(['id' as any, 'deleted_at' as any]),
+    executor.selectFrom('entity_indexes' as any).select(['id' as any, 'deleted_at' as any]),
     args,
   ).executeTakeFirst() as { id: string; deleted_at: Date | null } | undefined
 
@@ -205,12 +279,15 @@ export async function upsertIndexRow(
           organizationId: args.organizationId ?? null,
           tenantId: args.tenantId ?? null,
           doc: null,
+          trx: args.trx,
         })
-      } catch {}
+      } catch (error) {
+        if (args.trx) throw error
+      }
     }
     if (existed) {
       await scopeEntityIndexes(
-        db.deleteFrom('entity_indexes' as any) as any,
+        executor.deleteFrom('entity_indexes' as any) as any,
         args,
       ).execute()
     }
@@ -230,7 +307,7 @@ export async function upsertIndexRow(
 
   // Prefer modern upsert keyed by coalesced org id when available; fallback to update-then-insert
   try {
-    await db
+    await executor
       .insertInto('entity_indexes' as any)
       .values({ ...payload, created_at: sql`now()` } as any)
       .onConflict((oc: any) => oc
@@ -246,16 +323,18 @@ export async function upsertIndexRow(
   } catch {
     // Fallback for schemas without organization_id_coalesced column/index
     const updated = await scopeEntityIndexes(
-      db.updateTable('entity_indexes' as any).set(payload as any) as any,
+      executor.updateTable('entity_indexes' as any).set(payload as any) as any,
       args,
     ).executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
     if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
       try {
-        await db
+        await executor
           .insertInto('entity_indexes' as any)
           .values({ ...payload, created_at: sql`now()` } as any)
           .execute()
-      } catch {}
+      } catch (error) {
+        if (args.trx) throw error
+      }
     }
   }
 
@@ -273,8 +352,11 @@ export async function upsertIndexRow(
         tenantId: args.tenantId ?? null,
         doc,
         searchTokenDoc: args.searchTokenDoc ?? null,
+        trx: args.trx,
       })
-    } catch {}
+    } catch (error) {
+      if (args.trx) throw error
+    }
   }
   return { doc, existed, wasDeleted, created, revived }
 }
@@ -294,6 +376,7 @@ export async function reindexSearchTokensForRecord(
     tenantId?: string | null
     doc: Record<string, any> | null
     searchTokenDoc?: Record<string, unknown> | null
+    trx?: QueryIndexExecutor
   },
 ): Promise<void> {
   const db = (em as any).getKysely()
@@ -303,7 +386,7 @@ export async function reindexSearchTokensForRecord(
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
       tenantId: args.tenantId ?? null,
-    })
+    }, { trx: args.trx })
     return
   }
   const tokenDoc = args.searchTokenDoc ?? (() => {
@@ -323,16 +406,17 @@ export async function reindexSearchTokensForRecord(
     organizationId: args.organizationId ?? null,
     tenantId: args.tenantId ?? null,
     doc: await tokenDoc,
-  })
+  }, { trx: args.trx })
 }
 
 export async function markDeleted(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; trx?: QueryIndexExecutor }
 ): Promise<{ wasActive: boolean }> {
   const db = (em as any).getKysely()
+  const executor = args.trx ?? db
   const existing = await scopeEntityIndexes(
-    db.selectFrom('entity_indexes' as any).select(['deleted_at' as any]),
+    executor.selectFrom('entity_indexes' as any).select(['deleted_at' as any]),
     args,
   ).executeTakeFirst() as { deleted_at: Date | null } | undefined
 
@@ -345,10 +429,12 @@ export async function markDeleted(
         recordId: args.recordId,
         organizationId: args.organizationId ?? null,
         tenantId: args.tenantId ?? null,
-      })
-    } catch {}
+      }, { trx: args.trx })
+    } catch (error) {
+      if (args.trx) throw error
+    }
     await scopeEntityIndexes(
-      db.deleteFrom('entity_indexes' as any) as any,
+      executor.deleteFrom('entity_indexes' as any) as any,
       args,
     ).execute()
   }
