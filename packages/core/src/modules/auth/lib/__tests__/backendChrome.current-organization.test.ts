@@ -149,7 +149,11 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     expect(payload.currentOrganization).toEqual({ id: ORG_ID, name: 'Northwind Ltd' })
     expect(payload.brand).toEqual({
       name: 'Northwind Ltd',
-      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo' },
+      logo: {
+        src: 'https://cdn.example.com/logo.png',
+        alt: 'Northwind Ltd logo',
+        preserveAspectRatio: false,
+      },
     })
   })
 
@@ -180,7 +184,11 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     expect(payload.currentOrganization).toBeNull()
     expect(payload.brand).toEqual({
       name: 'Northwind Ltd',
-      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo' },
+      logo: {
+        src: 'https://cdn.example.com/logo.png',
+        alt: 'Northwind Ltd logo',
+        preserveAspectRatio: false,
+      },
     })
   })
 
