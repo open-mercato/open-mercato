@@ -152,11 +152,12 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
     'customers.nav.group',
     'catalog.nav.group',
     'customers~sales.nav.group',
+    'wms.nav.group',
     'resources.nav.group',
     'staff.nav.group',
     'entities.nav.group',
     'directory.nav.group',
-    'customers.storage.nav.group',
+    'attachments.nav.group',
   ]
   const groupOrderIndex = new Map(defaultGroupOrder.map((id, index) => [id, index]))
   groups.sort((a, b) => {

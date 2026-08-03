@@ -6,7 +6,8 @@ import {
   type ReorderDictionaryEntriesCommandInput,
   type SetDefaultDictionaryEntryCommandInput,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
-import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureDictionaryEntryScope } from '@open-mercato/core/modules/dictionaries/commands/factory'
+import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -34,17 +35,6 @@ const dictionaryCrudEvents: CrudEventsConfig = {
     tenantId: ctx.identifiers.tenantId,
     ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   }),
-}
-
-function ensureScope(ctx: CommandRuntimeContext, scope: DictionaryScope): void {
-  const tenantId = ctx.auth?.tenantId ?? null
-  if (tenantId && tenantId !== scope.tenantId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (organizationId && organizationId !== scope.organizationId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
 }
 
 async function requireDictionary(
@@ -84,7 +74,7 @@ const reorderDictionaryEntriesCommand: CommandHandler<
   async prepare(rawInput, ctx) {
     const parsed = reorderDictionaryEntriesCommandSchema.parse(rawInput)
     const scope: DictionaryScope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
-    ensureScope(ctx, scope)
+    ensureDictionaryEntryScope(ctx, scope)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const ids = parsed.entries.map((e) => e.id)
     const existing = await findWithDecryption(
@@ -108,7 +98,7 @@ const reorderDictionaryEntriesCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = reorderDictionaryEntriesCommandSchema.parse(rawInput)
     const scope: DictionaryScope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
-    ensureScope(ctx, scope)
+    ensureDictionaryEntryScope(ctx, scope)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const dictionary = await requireDictionary(em, parsed.dictionaryId, scope)
@@ -201,7 +191,7 @@ const reorderDictionaryEntriesCommand: CommandHandler<
     const undo = extractUndoPayload<ReorderUndoPayload>(logEntry)
     const before = undo?.before ?? (logEntry?.snapshotBefore as ReorderSnapshot | null | undefined) ?? null
     if (!before) return
-    ensureScope(ctx, before.scope)
+    ensureDictionaryEntryScope(ctx, before.scope)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const ids = before.positions.map((p) => p.id)
@@ -265,7 +255,7 @@ const setDefaultDictionaryEntryCommand: CommandHandler<
   async prepare(rawInput, ctx) {
     const parsed = setDefaultDictionaryEntryCommandSchema.parse(rawInput)
     const scope: DictionaryScope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
-    ensureScope(ctx, scope)
+    ensureDictionaryEntryScope(ctx, scope)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const dictionary = await requireDictionary(em, parsed.dictionaryId, scope)
     const previousDefaults = await findWithDecryption(
@@ -291,7 +281,7 @@ const setDefaultDictionaryEntryCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = setDefaultDictionaryEntryCommandSchema.parse(rawInput)
     const scope: DictionaryScope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
-    ensureScope(ctx, scope)
+    ensureDictionaryEntryScope(ctx, scope)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const dictionary = await requireDictionary(em, parsed.dictionaryId, scope)
@@ -399,7 +389,7 @@ const setDefaultDictionaryEntryCommand: CommandHandler<
     const undo = extractUndoPayload<DefaultUndoPayload>(logEntry)
     const before = undo?.before ?? (logEntry?.snapshotBefore as DefaultSnapshot | null | undefined) ?? null
     if (!before) return
-    ensureScope(ctx, before.scope)
+    ensureDictionaryEntryScope(ctx, before.scope)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const dictionary = await requireDictionary(em, before.dictionaryId, before.scope)

@@ -1,4 +1,4 @@
-import { MAX_IDS_PER_REQUEST, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { MAX_IDS_PER_REQUEST, mergeIdFilter, parseIdsParam, isIdsParamProvided } from '@open-mercato/shared/lib/crud/ids'
 
 describe('crud ids helpers', () => {
   const idA = '550e8400-e29b-41d4-a716-446655440001'
@@ -107,6 +107,36 @@ describe('crud ids helpers', () => {
     })
     expect(mergeIdFilter({ id: null } as any, [idA])).toEqual({
       id: { $in: [idA] },
+    })
+  })
+
+  // #4143 Finding 3: `?ids=<garbage>` parsed to [] and silently dropped the
+  // filter, returning the full list — a record-count side channel. A supplied
+  // but fully-invalid ids param must match nothing, like a valid-unknown UUID.
+  it('isIdsParamProvided distinguishes a supplied param from an absent one', () => {
+    expect(isIdsParamProvided('not-a-uuid')).toBe(true)
+    expect(isIdsParamProvided(`${idA}`)).toBe(true)
+    expect(isIdsParamProvided('')).toBe(false)
+    expect(isIdsParamProvided('   ')).toBe(false)
+    expect(isIdsParamProvided(undefined)).toBe(false)
+    expect(isIdsParamProvided(null)).toBe(false)
+  })
+
+  it('mergeIdFilter matches nothing when ids param was provided but all invalid', () => {
+    // Malformed input: parseIdsParam yields [], but the param WAS provided.
+    expect(mergeIdFilter({}, parseIdsParam('not-a-uuid'), { idsParamProvided: true })).toEqual({
+      id: { $in: [] },
+    })
+    // Preserves any existing filters alongside the match-nothing id clause.
+    expect(
+      mergeIdFilter({ tenantId: 't1' } as any, [], { idsParamProvided: true }),
+    ).toEqual({ tenantId: 't1', id: { $in: [] } })
+  })
+
+  it('mergeIdFilter still no-ops on empty ids when the param was absent (BC)', () => {
+    expect(mergeIdFilter({ tenantId: 't1' } as any, [])).toEqual({ tenantId: 't1' })
+    expect(mergeIdFilter({ tenantId: 't1' } as any, [], { idsParamProvided: false })).toEqual({
+      tenantId: 't1',
     })
   })
 })

@@ -23,6 +23,7 @@ import {
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import {
   getSelectedTenantFromRequest,
@@ -39,6 +40,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   name: z.string().optional(),
   organizationId: z.string().uuid().optional(),
+  scopeToActiveOrganization: z.boolean().optional(),
   roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
 
@@ -223,6 +225,7 @@ function parseUsersListQuery(req: Request): ListQuery | null {
     search: url.searchParams.get('search') || undefined,
     name: url.searchParams.get('name') || undefined,
     organizationId: url.searchParams.get('organizationId') || undefined,
+    scopeToActiveOrganization: parseBooleanFlag(url.searchParams.get('scopeToActiveOrganization') || undefined),
     roleIds: rawRoleIds.length ? rawRoleIds : undefined,
   })
   return parsed.success ? parsed.data : null
@@ -308,6 +311,7 @@ async function resolveUsersListScope(args: {
       effectiveTenantId,
       effectiveSelectedOrganizationId,
       scopeOrganizationId,
+      activeOrganizationId: auth.orgId ?? null,
     },
   }
 }
@@ -425,7 +429,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters.',
+        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record).',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },

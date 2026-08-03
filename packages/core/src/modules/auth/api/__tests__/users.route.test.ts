@@ -242,6 +242,24 @@ describe('GET /api/auth/users', () => {
     expect(mockEm.findAndCount).not.toHaveBeenCalled()
   })
 
+  test('excludes direct and role-derived superadmin users from ordinary tenant lists', async () => {
+    const directSuperAdminUserId = '423e4567-e89b-12d3-a456-426614174910'
+    const roleSuperAdminUserId = '423e4567-e89b-12d3-a456-426614174911'
+    const superAdminRoleId = '323e4567-e89b-12d3-a456-426614174910'
+    mockEm.find
+      .mockResolvedValueOnce([{ user: { id: directSuperAdminUserId } }])
+      .mockResolvedValueOnce([{ role: { id: superAdminRoleId } }])
+    mockFindWithDecryption.mockResolvedValueOnce([{ user: { id: roleSuperAdminUserId } }])
+
+    await GET(makeRequest())
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { id: { $nin: [directSuperAdminUserId, roleSuperAdminUserId] } },
+    ]))
+  })
+
   test('resolves search terms via search_tokens (email column is encrypted) and scopes tokens by tenant', async () => {
     const matchedUserId = '423e4567-e89b-12d3-a456-426614174001'
     mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedUserId }])
@@ -544,6 +562,64 @@ describe('GET /api/auth/users', () => {
       { organizationId: expect.anything() },
     ]))
     expect(body.isSuperAdmin).toBe(true)
+  })
+
+  test('fails closed when the selected tenant cannot be resolved', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId: null,
+    })
+
+    const response = await GET(makeRequest('/api/auth/users', {
+      cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}`,
+    }))
+
+    expect(await response.json()).toEqual({
+      items: [],
+      total: 0,
+      totalPages: 1,
+      isSuperAdmin: true,
+    })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('fails closed when the selected organization scope has no accessible organizations', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: secondaryOrganizationId,
+      filterIds: [],
+      allowedIds: [],
+      tenantId,
+    })
+
+    const response = await GET(makeRequest('/api/auth/users', {
+      cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}`,
+    }))
+
+    expect(await response.json()).toEqual({
+      items: [],
+      total: 0,
+      totalPages: 1,
+      isSuperAdmin: true,
+    })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
   })
 
   test('superadmin selected organization scopes the users list by organization descendants', async () => {
@@ -850,6 +926,56 @@ describe('GET /api/auth/users', () => {
       { tenantId },
     ]))
     expect(body.isSuperAdmin).toBe(true)
+  })
+
+  test('scopeToActiveOrganization=1 narrows non-superadmin results to the caller active organization', async () => {
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest(
+      '/api/auth/users?page=1&pageSize=100&scopeToActiveOrganization=1',
+    ))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId },
+    ]))
+    expect(body.isSuperAdmin).toBe(false)
+  })
+
+  test('omits the active-organization filter when scopeToActiveOrganization is not requested', async () => {
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    await GET(makeRequest('/api/auth/users?page=1&pageSize=100'))
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+    ]))
+    expect(where.$and).not.toEqual(expect.arrayContaining([
+      { organizationId: expect.anything() },
+    ]))
+  })
+
+  test('scopeToActiveOrganization=1 filters to organization-less users when the caller has no active organization', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId,
+      orgId: null,
+      isSuperAdmin: false,
+      roles: ['admin'],
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    await GET(makeRequest('/api/auth/users?page=1&pageSize=100&scopeToActiveOrganization=1'))
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { organizationId: null },
+    ]))
   })
 
   test('allows assigning a role whose wildcard ACL is covered by actor wildcard ACL', async () => {

@@ -34,6 +34,7 @@ function baseScope(overrides: Partial<ResolvedUserListScope> = {}): ResolvedUser
     effectiveTenantId: tenantId,
     effectiveSelectedOrganizationId: null,
     scopeOrganizationId: organizationId,
+    activeOrganizationId: organizationId,
     ...overrides,
   }
 }
@@ -48,7 +49,7 @@ describe('queryUserList', () => {
   })
 
   test('short-circuits to roleFilterEmpty when a role filter matches no users', async () => {
-    mockEm.find.mockResolvedValueOnce([]) // UserRole lookup yields no links
+    mockEm.find.mockResolvedValueOnce([])
 
     const result = await queryUserList(mockEm as unknown as EntityManager, {
       query: { page: 1, pageSize: 50, roleIds: [roleId] },
@@ -77,7 +78,10 @@ describe('queryUserList', () => {
     })
 
     const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
-    expect(where.$and).toEqual(expect.arrayContaining([{ id: { $in: [matchedUserId] } }]))
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { id: { $in: [matchedUserId] } },
+    ]))
     expect(result.kind).toBe('ok')
     if (result.kind === 'ok') {
       expect(result.total).toBe(1)
@@ -93,8 +97,8 @@ describe('queryUserList', () => {
     ])
     mockFindWithDecryption.mockResolvedValueOnce([{ user: { id: userId }, role: { id: roleId, name: 'admin' } }])
     mockEm.find
-      .mockResolvedValueOnce([{ id: organizationId, name: 'Acme' }]) // organization name map
-      .mockResolvedValueOnce([{ id: tenantId, name: 'Tenant A' }]) // tenant name map
+      .mockResolvedValueOnce([{ id: organizationId, name: 'Acme' }])
+      .mockResolvedValueOnce([{ id: tenantId, name: 'Tenant A' }])
 
     const result = await queryUserList(mockEm as unknown as EntityManager, {
       query: { page: 1, pageSize: 50 },
@@ -134,5 +138,85 @@ describe('queryUserList', () => {
     if (result.kind === 'ok') {
       expect(result.items[0]).toMatchObject({ id: userId, hasPassword: true })
     }
+  })
+
+  test('narrows results to the caller active organization when requested', async () => {
+    await queryUserList(mockEm as unknown as EntityManager, {
+      query: { page: 1, pageSize: 50, scopeToActiveOrganization: true },
+      isSuperAdmin: false,
+      scope: baseScope(),
+      authTenantId: tenantId,
+    })
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId },
+    ]))
+  })
+
+  test('keeps the explicit organization filter inside the active-organization boundary', async () => {
+    const explicitOrganizationId = '223e4567-e89b-12d3-a456-426614174002'
+
+    await queryUserList(mockEm as unknown as EntityManager, {
+      query: {
+        page: 1,
+        pageSize: 50,
+        organizationId: explicitOrganizationId,
+        scopeToActiveOrganization: true,
+      },
+      isSuperAdmin: false,
+      scope: baseScope(),
+      authTenantId: tenantId,
+    })
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { organizationId: explicitOrganizationId },
+      { organizationId },
+    ]))
+  })
+
+  test('returns an empty result when the requested user does not hold the requested role', async () => {
+    const requestedUserId = '523e4567-e89b-12d3-a456-426614174010'
+    const roleUserId = '523e4567-e89b-12d3-a456-426614174011'
+    mockEm.find.mockResolvedValueOnce([{ user: { id: roleUserId }, role: { id: roleId } }])
+
+    const result = await queryUserList(mockEm as unknown as EntityManager, {
+      query: { id: requestedUserId, page: 1, pageSize: 1, roleIds: [roleId] },
+      isSuperAdmin: false,
+      scope: baseScope(),
+      authTenantId: tenantId,
+    })
+
+    expect(result).toEqual({ kind: 'roleFilterEmpty' })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('preserves every filter resolved by the request scope', async () => {
+    const excludedUserId = '523e4567-e89b-12d3-a456-426614174099'
+    const descendantOrganizationId = '223e4567-e89b-12d3-a456-426614174099'
+
+    await queryUserList(mockEm as unknown as EntityManager, {
+      query: { page: 1, pageSize: 50 },
+      isSuperAdmin: true,
+      scope: baseScope({
+        baseFilters: [
+          { deletedAt: null },
+          { tenantId },
+          { id: { $nin: [excludedUserId] } },
+          { organizationId: { $in: [organizationId, descendantOrganizationId] } },
+        ],
+      }),
+      authTenantId: tenantId,
+    })
+
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual([
+      { deletedAt: null },
+      { tenantId },
+      { id: { $nin: [excludedUserId] } },
+      { organizationId: { $in: [organizationId, descendantOrganizationId] } },
+    ])
   })
 })

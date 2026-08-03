@@ -5,6 +5,7 @@ import type { RateLimiterService } from './service'
 
 export const RATE_LIMIT_ERROR_KEY = 'api.errors.rateLimit'
 export const RATE_LIMIT_ERROR_FALLBACK = 'Too many requests. Please try again later.'
+export const RATE_LIMIT_FALLBACK_KEY = 'global'
 
 export const rateLimitErrorSchema = z.object({
   error: z.string().describe('Rate limit exceeded message'),
@@ -46,21 +47,24 @@ export async function checkRateLimit(
  *
  * @param trustProxyDepth Number of trusted reverse proxies between the client and the app.
  *   - 0 (default): Do not trust proxy-provided IP headers; return null.
- *   - 1: One trusted proxy (e.g. nginx) — the last entry in X-Forwarded-For is the client IP.
- *   - N: N trusted proxies — the Nth-from-last entry is the client IP.
+ *   - 1: One trusted proxy (e.g. nginx) — the last entry in X-Forwarded-For is the client IP;
+ *     X-Real-IP is accepted only as a single-proxy fallback when X-Forwarded-For is absent.
+ *   - N: N trusted proxies — the Nth-from-last entry is the client IP. If the
+ *     forwarded chain is shorter than N, return null rather than trusting an
+ *     attacker-controlled entry.
  *
  * With depth=0, X-Forwarded-For and X-Real-IP are ignored entirely to prevent spoofing.
  */
 export function getClientIp(req: Request, trustProxyDepth: number = 0): string | null {
   const forwarded = req.headers.get('x-forwarded-for')
-  if (trustProxyDepth <= 0) {
+  if (!Number.isInteger(trustProxyDepth) || trustProxyDepth <= 0) {
     return null
   }
 
   if (forwarded) {
     const ips = forwarded.split(',').map((ip) => ip.trim())
     const clientIndex = ips.length - trustProxyDepth
-    return clientIndex >= 0 ? ips[clientIndex] : ips[0]
+    return clientIndex >= 0 ? ips[clientIndex] || null : null
   }
-  return req.headers.get('x-real-ip') ?? null
+  return trustProxyDepth === 1 ? req.headers.get('x-real-ip')?.trim() || null : null
 }

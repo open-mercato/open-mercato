@@ -3,7 +3,7 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -15,8 +15,8 @@ import type { SalesCalculationService } from '../services/salesCalculationServic
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
 import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine, SalesShipment, SalesShipmentItem } from '../data/entities'
-import { coerceShipmentQuantity } from '../lib/shipments/snapshots'
+import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
+import { loadShippedQuantityByLine } from '../lib/shipments/snapshots'
 import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
 import {
   returnCreateSchema,
@@ -456,7 +456,7 @@ async function restoreReturnEffects(
           { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         )
         if (!order) {
-          throw new CrudHttpError(404, { error: 'sales.returns.orderMissing' })
+          throw notFound('sales.returns.orderMissing')
         }
         ensureSameScope(order, snapshot.organizationId, snapshot.tenantId)
 
@@ -581,36 +581,6 @@ async function restoreReturnEffects(
   return createdLines
 }
 
-async function loadShippedQuantityByLine(
-  em: EntityManager,
-  orderId: string,
-  scope: { tenantId: string; organizationId: string },
-): Promise<Map<string, number>> {
-  const shipments = await findWithDecryption(
-    em,
-    SalesShipment,
-    { order: orderId, deletedAt: null },
-    {},
-    scope,
-  )
-  const shippedByLine = new Map<string, number>()
-  if (!shipments.length) return shippedByLine
-  const items = await findWithDecryption(
-    em,
-    SalesShipmentItem,
-    { shipment: { $in: shipments.map((shipment) => shipment.id) } },
-    {},
-    scope,
-  )
-  items.forEach((item) => {
-    const orderLineId = typeof item.orderLine === 'string' ? item.orderLine : item.orderLine?.id ?? null
-    if (!orderLineId) return
-    const next = (shippedByLine.get(orderLineId) ?? 0) + coerceShipmentQuantity(item.quantity)
-    shippedByLine.set(orderLineId, next)
-  })
-  return shippedByLine
-}
-
 function normalizeLinesInput(lines: ReturnCreateInput['lines']): ReturnLineInput[] {
   const seen = new Set<string>()
   const result: ReturnLineInput[] = []
@@ -650,7 +620,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         { tenantId: input.tenantId, organizationId: input.organizationId },
       )
       if (!order) {
-        throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
+        throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
       }
       ensureSameScope(order, input.organizationId, input.tenantId)
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
@@ -672,7 +642,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       requested.forEach(({ orderLineId, quantity }) => {
         const line = lineMap.get(orderLineId)
         if (!line) {
-          throw new CrudHttpError(404, { error: translate('sales.returns.lineMissing', 'Order line not found.') })
+          throw notFound(translate('sales.returns.lineMissing', 'Order line not found.'))
         }
         const available = computeAvailableReturnQuantity({
           quantity: toNumeric(line.quantity),
@@ -876,7 +846,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
     if (!header) {
-      throw new CrudHttpError(404, { error: 'sales.returns.orderMissing' })
+      throw notFound('sales.returns.orderMissing')
     }
 
     await invalidateOrderCache(ctx.container, {
@@ -941,7 +911,7 @@ const updateReturnCommand: CommandHandler<ReturnUpdateInput, { returnId: string 
         { tenantId: input.tenantId, organizationId: input.organizationId },
       )
       if (!entity || !entity.order) {
-        throw new CrudHttpError(404, { error: translate('sales.returns.notFound', 'Return not found.') })
+        throw notFound(translate('sales.returns.notFound', 'Return not found.'))
       }
       ensureSameScope(entity, input.organizationId, input.tenantId)
       const orderId = typeof entity.order === 'string' ? entity.order : entity.order.id
@@ -1061,7 +1031,7 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
 
     const snapshot = await loadReturnSnapshot(em, input.id)
     if (!snapshot) {
-      throw new CrudHttpError(404, { error: translate('sales.returns.notFound', 'Return not found.') })
+      throw notFound(translate('sales.returns.notFound', 'Return not found.'))
     }
     ensureSameScope(snapshot, input.organizationId, input.tenantId)
     if (input.orderId !== snapshot.orderId) {
@@ -1076,7 +1046,7 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
       { tenantId: input.tenantId, organizationId: input.organizationId },
     )
     if (!header) {
-      throw new CrudHttpError(404, { error: translate('sales.returns.notFound', 'Return not found.') })
+      throw notFound(translate('sales.returns.notFound', 'Return not found.'))
     }
     ensureSameScope(header, input.organizationId, input.tenantId)
     // Lock on the return's own version, captured before any mutation.

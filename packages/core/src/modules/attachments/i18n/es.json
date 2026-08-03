@@ -1,5 +1,4 @@
 {
-  "attachments.customers.storage.nav.group": "Almacenamiento",
   "attachments.errors.activeContentBlocked": "No se permite la carga de contenido activo.",
   "attachments.errors.dangerousExecutable": "No se permiten archivos ejecutables como adjuntos.",
   "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
@@ -94,6 +93,7 @@
   "attachments.library.upload.success": "Archivo adjunto subido.",
   "attachments.library.upload.tagsPlaceholder": "Agregar etiquetas",
   "attachments.library.upload.title": "Subir archivo adjunto",
+  "attachments.nav.group": "Medios",
   "attachments.partitions.actions.add": "Agregar partición",
   "attachments.partitions.actions.cancel": "Cancelar",
   "attachments.partitions.actions.create": "Crear partición",

@@ -19,16 +19,16 @@ export type UserListQuery = {
   search?: string
   name?: string
   organizationId?: string
+  scopeToActiveOrganization?: boolean
   roleIds?: string[]
 }
 
-// Request-bound scope resolved by the route controller and handed to queryUserList,
-// which stays HTTP-agnostic (no Request, no container, no auth object).
 export type ResolvedUserListScope = {
   baseFilters: UserFilter[]
   effectiveTenantId: string | null
   effectiveSelectedOrganizationId: string | null
   scopeOrganizationId: string | null
+  activeOrganizationId: string | null
 }
 
 export type UserListQueryParams = {
@@ -43,7 +43,6 @@ export type UserListQueryResult =
   | { kind: 'searchEmpty' }
   | { kind: 'ok'; items: Array<Record<string, unknown>>; total: number }
 
-// Answers the "list users" query: build the filter, fetch one page, project the rows.
 export async function queryUserList(em: EntityManager, params: UserListQueryParams): Promise<UserListQueryResult> {
   const filter = await buildUserListFilters(em, params)
   if (filter.kind !== 'ok') return filter
@@ -66,13 +65,12 @@ type BuildFiltersResult =
   | { kind: 'roleFilterEmpty' }
   | { kind: 'searchEmpty' }
 
-// Translates the parsed list query + resolved scope into a MikroORM `where`,
-// or signals an empty result when a role/search filter matches nothing.
 async function buildUserListFilters(em: EntityManager, params: UserListQueryParams): Promise<BuildFiltersResult> {
   const { query, isSuperAdmin, scope, authTenantId } = params
-  const { id, search, name, organizationId, roleIds } = query
+  const { id, search, name, organizationId, scopeToActiveOrganization, roleIds } = query
   const filters: UserFilter[] = [...scope.baseFilters]
   if (organizationId) filters.push({ organizationId })
+  if (scopeToActiveOrganization) filters.push({ organizationId: scope.activeOrganizationId })
 
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   if (trimmedName) {
@@ -134,7 +132,7 @@ async function resolveRoleIdFilter(
     if (uid) roleUserIds.add(uid)
   }
   if (roleUserIds.size === 0) return { ok: false }
-  let nextFilter = idFilter
+  let nextFilter = idFilter ? new Set(idFilter) : null
   if (nextFilter) {
     for (const uid of Array.from(nextFilter)) {
       if (!roleUserIds.has(uid)) nextFilter.delete(uid)
@@ -151,7 +149,6 @@ async function collectSearchFilters(
   search: string,
   tenantScope: string | null | undefined,
 ): Promise<UserFilter[]> {
-  // Email is encrypted at rest, so plaintext search must go through search_tokens.
   const searchFilters: UserFilter[] = []
 
   const matchedIds = await findUserIdsBySearchTokens(em, E.auth.user, search, tenantScope)
@@ -210,8 +207,6 @@ async function collectSearchFilters(
   return searchFilters
 }
 
-// Minimal structural view of the Kysely query builder used for search-token lookups.
-// The builder is not exposed on the MikroORM EntityManager type surface.
 type SearchTokenQueryBuilder = {
   selectFrom: (table: string) => SearchTokenQueryBuilder
   select: (column: string) => SearchTokenQueryBuilder
@@ -255,8 +250,6 @@ async function findUserIdsBySearchTokens(
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
-// Projects fetched user rows into API list items, resolving role names,
-// organization/tenant names, and custom fields.
 async function mapUserListItems(
   em: EntityManager,
   args: {

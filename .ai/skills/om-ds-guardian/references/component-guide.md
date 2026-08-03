@@ -4,7 +4,7 @@
 
 | I need to... | Use this | Import |
 |---|---|---|
-| Show an error/success/warning message inline | `<Alert variant="destructive\|success\|warning\|info">` | `@open-mercato/ui/primitives/alert` |
+| Show an error/success/warning message inline | `<Alert status="error\|success\|warning\|information\|feature" style="light\|lighter\|stroke\|filled">` | `@open-mercato/ui/primitives/alert` |
 | Show a toast notification | `flash('message', 'success\|error\|warning\|info')` | `@open-mercato/ui/backend/FlashMessages` |
 | Confirm a destructive action | `useConfirmDialog()` | `@open-mercato/ui/backend/confirm-dialog` |
 | Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` | `@open-mercato/ui/primitives/status-badge` |
@@ -126,22 +126,31 @@ type SectionHeaderProps = {
 
 ## Alert
 
-Inline feedback messages. Replaces deprecated `Notice` component.
+Inline feedback messages, toasts, and notifications — one primitive, Figma-aligned matrix API. Replaced deprecated `Notice`/`ErrorNotice` (migration complete, guard-tested).
 
-**Variants:** `default`, `destructive` (error), `success`, `warning`, `info`
+**API:** `status="information|success|warning|error|feature"` × `style="light|lighter|stroke|filled"` × `size="xs|sm|default"` + `showIcon` / `icon` / `dismissible` / `onDismiss` / `action`
 
 ```tsx
-<Alert variant="destructive">
-  <AlertCircle className="h-4 w-4" />
-  <AlertTitle>Error</AlertTitle>
-  <AlertDescription>Something went wrong.</AlertDescription>
+// Inline error with title + body (step up to size="default" for multi-line)
+<Alert status="error" size="default">
+  <AlertTitle>{t('module.error.title', 'Error')}</AlertTitle>
+  <AlertDescription>{t('module.error.body', 'Something went wrong.')}</AlertDescription>
+</Alert>
+
+// Compact success strip with inline action
+<Alert status="success" dismissible onDismiss={close} action={<LinkButton onClick={undo}>Undo</LinkButton>}>
+  {t('module.saved', 'Saved')}
 </Alert>
 ```
 
 **Rules:**
-- Use `destructive` (not `error`) — aligned with Button variant naming
-- Use composition pattern: `AlertTitle` + `AlertDescription` (not props)
-- For transient feedback, use `flash()` instead
+- The `variant` prop (`destructive`/`info`/…) is **deprecated BC** — never use it in new code; migrate opportunistically (see token-mapping.md "Legacy Alert `variant` → `status`")
+- Default `light`+`sm` fits inline strips/toasts; `lighter` = lowest emphasis; `stroke` = floating card; `filled` = high-contrast call-out
+- Leading icon is automatic per status (icon badge); override via `icon`, hide via `showIcon={false}`
+- `feature` status renders with `status-neutral-*` (Figma `state/faded`), NOT `brand-violet`
+- Use composition: `AlertTitle` + `AlertDescription` (not props)
+- For transient feedback, use `flash()` instead (it wraps Alert internally)
+- Full matrix and MUST rules: `.ai/ui-components.md` § Alert
 
 ## Badge Status Variants
 

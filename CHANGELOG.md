@@ -1,8 +1,11 @@
 
-# 0.6.6 (2026-07-13)
+# 0.6.6 (2026-07-17)
 
 ## Highlights
-<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+Open Mercato `0.6.6` is a big **tighten-the-bolts release** with a lot of new shine on top. The headline is trust: a sweeping 270-fix pass locks down tenant and organization scoping, closes permission gaps across customer accounts, dashboards, messages, attachments, and the AI assistant, and rolls out **unified optimistic locking** everywhere — so concurrent edits stop quietly stepping on each other, and money and orders behave.
+
+This release also runs **noticeably lighter**. A broad performance-and-footprint push trims resource usage across the board: selectable dev-mode watch scopes and the `OM_WATCH_SCOPE` memory lever, per-module CPU/RAM insight, lazy-loaded module commands, a shared dev scheduler/worker, throttled coverage warmup, coalesced job-update broadcasts, and a wide response-cache sweep over detail, list, and unread-count APIs — all backed by a new structured **pino logging** facade. On top of that, **CRM steals the show** with a full calendar (day/week/month/agenda) and a responsive event editor, configurable interaction statuses, and a new deals map view, while the ecosystem opens up with a shared **`om-*` skills mixin**, OpenRouter and Requesty AI presets, a two-way **Discord channel**, hardened MCP keys, signed webhooks, and a batch of security-CVE bumps. Enjoy!
 
 ## ✨ Features
 - ✨ Adopt skills mixin in the standalone create-app template (stacked on #4008). (#4026) *(@pkarw)*
@@ -335,6 +338,10 @@
 - 🔐 Pin logout/session-refresh redirects to allowlisted origin (#2686). (#2876) *(@pkarw)*
 - 🐛 Keep timesheet grid decimal edits through blur. (#2845) *(@pmadajthey)*
 - 🐛 Surface per-field validation errors on signup form (#2081). (#2088) *(@pat-lewczuk)*
+- 🔐 Don't force-logout all users on a transient DB failure. (#4191) *(@patzick)*
+- 🐛 Repair legacy checkout demo webhook failure. (#4193) *(@patzick)*
+- 🐛 Commit CALL_API one-time key outside execution transaction. (#4210) *(@patzick)*
+- 💰 Checkout demo order includes cart lines and non-zero totals. (#4213) *(@patzick)*
 
 ## 🛠️ Improvements
 - 🛠️ Share scheduler with lazy worker in dev mode. (#4125) *(@andrzejewsky)*
