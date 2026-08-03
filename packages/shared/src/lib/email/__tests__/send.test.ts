@@ -1,4 +1,7 @@
 import React from 'react'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { sendEmail } from '../send'
 
 var sendMock: jest.Mock
@@ -15,6 +18,7 @@ jest.mock('resend', () => {
 
 describe('sendEmail', () => {
   const originalEnv = process.env
+  let tempDir: string | null = null
 
   beforeEach(() => {
     process.env = {
@@ -26,7 +30,11 @@ describe('sendEmail', () => {
     ResendMock.mockClear()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true })
+      tempDir = null
+    }
     process.env = originalEnv
   })
 
@@ -155,6 +163,34 @@ describe('sendEmail', () => {
       react: React.createElement('div', null, 'Hi'),
     })
 
+    expect(ResendMock).not.toHaveBeenCalled()
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('captures email links in OM_TEST_MODE without external delivery', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'om-email-capture-'))
+    const capturePath = join(tempDir, 'emails.jsonl')
+    process.env.OM_TEST_MODE = '1'
+    process.env.OM_TEST_EMAIL_CAPTURE_PATH = capturePath
+    delete process.env.RESEND_API_KEY
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Invite',
+      react: React.createElement('div', null, [
+        React.createElement('p', { key: 'text' }, 'Accept your invite'),
+        React.createElement('a', { key: 'link', href: 'https://example.com/portal/invite?token=raw' }, 'Accept'),
+      ]),
+    })
+
+    const rows = (await readFile(capturePath, 'utf8')).trim().split('\n')
+    expect(rows).toHaveLength(1)
+    expect(JSON.parse(rows[0])).toEqual(expect.objectContaining({
+      to: 'user@example.com',
+      subject: 'Invite',
+      links: ['https://example.com/portal/invite?token=raw'],
+      text: 'Accept your invite Accept',
+    }))
     expect(ResendMock).not.toHaveBeenCalled()
     expect(sendMock).not.toHaveBeenCalled()
   })

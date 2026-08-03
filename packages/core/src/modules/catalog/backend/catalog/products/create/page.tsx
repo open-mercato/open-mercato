@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -381,7 +382,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           initialValues={
             initialValuesRef.current ?? createInitialProductFormValues()
           }

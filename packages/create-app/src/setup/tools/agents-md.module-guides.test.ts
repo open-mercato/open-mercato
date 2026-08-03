@@ -109,7 +109,7 @@ test('injectModuleGuides writes exactly the selected ID index, drops the hedge, 
   const firstPass = fs.readFileSync(agentsPath, 'utf8')
 
   assert.match(firstPass, /Enabled module facts: `customers`,`sales`\./)
-  assert.match(firstPass, /Load `\.ai\/guides\/modules\/<id>\.md` only when `<id>` is explicitly named or is the targeted installed module\/host/)
+  assert.match(firstPass, /Load `\.ai\/guides\/modules\/<id>\.md` only for a named or targeted installed module\/host/)
   assert.equal((firstPass.match(/\.ai\/guides\/modules\//g) ?? []).length, 1, 'the reusable path pattern appears once')
   assert.ok(!firstPass.includes('modules/customers.md'), 'module IDs must not expand into per-module paths')
   assert.ok(!firstPass.includes('modules/sales.md'), 'module IDs must not expand into per-module paths')

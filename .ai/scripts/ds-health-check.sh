@@ -170,6 +170,11 @@ else
 fi
 
 report ""
+report "--- Token Snapshot Drift ---"
+TD=$(node scripts/ds-tokens-export.mjs --check --count 2>/dev/null || echo "unavailable")
+report "  Drifted tokens: $TD (target: 0)"
+
+report ""
 report "=== END REPORT ==="
 
 # --- Per-module breakdown (appended after END REPORT; rows use table syntax

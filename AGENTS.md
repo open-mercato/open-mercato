@@ -137,7 +137,7 @@ Most `om-*` automation skills come from the shared [open-mercato/skills](https:/
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; name new spec files `{YYYY-MM-DD}-{kebab-case-title}.md`. Skip for small fixes. Skills: `om-spec-writing` (research/phasing), `om-pre-implement-spec` (readiness audit), `om-implement-spec` (execution).
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
-3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
+3.  **Self-improvement**: After corrections, scan `.ai/lessons.md`; update one tagged lesson record + index row or the relevant AGENTS.md. Never bulk-read lessons.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
 5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
 6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.

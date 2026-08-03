@@ -208,6 +208,7 @@ Both generators recursively emit the same `agentic/` source tree: `src/setup/too
 ### Key Constraints
 
 - `agentic/` files are static assets copied to `dist/agentic/` by `build.mjs` — they are NOT bundled by esbuild
+- `.ai/lessons.md` stays a compact tagged index; nested `.ai/lessons/*.md` records are user-editable harness assets and `scripts/check-lessons.mjs` enforces index/metadata parity
 - Generator code lives in `src/setup/tools/` — each tool has its own generator
 - The Codex generator patches `AGENTS.md` (created by shared generator) — ordering matters
 - `{{PROJECT_NAME}}` is the only placeholder; resolved from `path.basename(targetDir)`

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -922,7 +923,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.details')}</h2>
               <DetailFieldsSection fields={detailFields} />
               <InjectionSpot
-                spotId="customers.person.detail:details"
+                spotId={extensionPoints.hosts.personLegacyDetails.spotId}
                 context={injectionContext}
                 data={data}
                 onDataChange={(next) => setData(next as PersonOverview)}
