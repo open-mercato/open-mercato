@@ -10,10 +10,10 @@ const mockCreateInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockEmit = jest.fn(async () => undefined)
-const mockSendInvitationEmail = jest.fn(async () => undefined)
 const mockIsOwnedCompanyEntity = jest.fn()
 const mockIsOwnedPersonEntity = jest.fn()
 const mockResolveOwnedCompanyForPerson = jest.fn()
+const mockSendCustomerInvitationEmail = jest.fn(async () => undefined)
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: (...args: unknown[]) => mockCheckAuthRateLimit(...args),
@@ -49,7 +49,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerEntityOwners
 }))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', () => ({
-  sendCustomerInvitationEmail: (...args: unknown[]) => mockSendInvitationEmail(...args),
+  sendCustomerInvitationEmail: (...args: unknown[]) => mockSendCustomerInvitationEmail(...args),
 }))
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
