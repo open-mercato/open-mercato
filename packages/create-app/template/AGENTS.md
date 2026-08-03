@@ -1,23 +1,24 @@
 # Standalone Open Mercato App — Agent Rules
 
-Extend this app. Route first; never probe unmatched context.
+Route first; never probe unmatched context.
 
 ## Always
 
 - Route all axes; missing context: `yarn mercato agentic:init --update-harness`.
-- App code: `src/modules/<id>/`; framework context only for a named version gap.
+- Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
+- App code: `src/modules/<id>/`; framework context only for named gaps.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
-- Adding/changing/removing, preserving, or keeping stable a public route/schema/ID/export/seam/signature/event-payload/CLI MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract surface.
-- Localize strings; use shared UI/tokens and complete loading, empty, error, conflict, keyboard, and a11y states.
+- Contract-surface changes (route/schema/ID/export/seam/signature/event payload/CLI) MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
+- Localize strings; use shared UI/tokens and cover loading/empty/error/conflict/keyboard/a11y.
 
 ## Ask First
 
-- Ask before scope/architecture/public-contract/dependency/ejection/canonical-primitive changes; migrations/resets/DB targets; live credentials/providers; or weaker security, concurrency, retries, idempotency, audit, undo.
+- Ask before scope/architecture/public contracts/dependencies/ejection/canonical primitives; migrations/resets/DB targets; live credentials/providers; or weakening security/concurrency/retries/idempotency/audit/undo.
 
 ## Never
 
