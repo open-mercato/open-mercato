@@ -14,6 +14,7 @@
 - `packages/create-app/template/src/app/login/page.tsx`
 - `packages/create-app/template/src/app/__tests__/login-direct-route.test.tsx`
 - `packages/create-app/src/lib/template-login-route.test.ts`
+- `apps/mercato/src/__tests__/storage-s3-routes.test.ts` (test-only isolation required by the full validation gate after a base-branch i18n change)
 
 ## Implementation Plan
 
@@ -49,3 +50,10 @@
 - [x] Post-validation fix: isolate localized storage route tests from the global module registry — 7a998e24a
 - [ ] 2.2 Run targeted tests, the configured validation gate, design-system review, compatibility review, and automated PR review
 - [ ] 2.3 Open a superseding PR with explicit credit to @tomaioo and link/close #4368 after the replacement is ready
+
+## Validation Notes
+
+- Local runner selected because Docker is unavailable in the current WSL environment.
+- The configured validation gate passed in order through `yarn build:app`.
+- `yarn template:sync`, `yarn check:client-boundaries`, and the design-system health check passed.
+- `yarn test:create-app` and `yarn test:create-app:integration` both stopped at the Docker-backed Verdaccio bootstrap before exercising branch code; GitHub's ephemeral standalone matrix is the remaining authoritative check for the PR head.
