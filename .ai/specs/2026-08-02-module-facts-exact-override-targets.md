@@ -439,3 +439,10 @@ No non-compliant item or required human confirmation was identified.
 - **Compatibility:** Passed; generated target facts are additive and runtime behavior is unchanged.
 - **Scope:** Cohesive; framework semantics and topology remain linked dependencies.
 - **Verdict:** Ready for implementation after the provenance prerequisite.
+
+### 2026-08-03 — Code-review corrections
+
+- AI file contracts are split by mode. `aiAgentOverrides` (previously ignored) and `aiToolOverrides` are keyed replace-or-disable maps and emit exact `ai.agents.<id>` / `ai.tools.<id>` targets; additive `aiAgentExtensions` patches stay in the keyless `ai.extensions` array. Only keys are read — replacement definitions and `null` disables are never serialized.
+- `notifications.handlers.<id>` targets are emitted from the reactive-handler contributions, keyed by the declared handler id the runtime applier keys on; a handler declaring no id yields a diagnostic instead of a target.
+- `setup.defaultCustomerRoleFeatures` is emitted when `setup.ts` declares customer-role profiles.
+- An override host the framework catalog does not describe no longer defaults to `disable-replace`: it emits the previously unused `unknown-framework-domain` diagnostic and no target.

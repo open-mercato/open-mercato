@@ -431,3 +431,12 @@ No non-compliant item or required human confirmation was identified.
 - **Compatibility:** Passed as an additive generated-contract change.
 - **Scope:** Cohesive; topology and override targets are explicit sibling specs.
 - **Verdict:** Ready for implementation after parent suite approval.
+
+### 2026-08-03 — Code-review corrections
+
+- `factSources` is now the uniform provenance index the spec calls for: every proven `(kind, id)` is emitted. Kinds whose declaration site is already serialized inline (api routes, pages, CLI commands, AI tools/agents, owned contracts, UMES hosts and contributions) emit a typed `factRef` pointer instead of a duplicated source ref, and `factKey` is omitted when it equals the entry `id`. `ModuleFactIndexRef` is the pointer shape; `packages/cli/src/lib/generators/module-fact-sources.ts` is the single lookup that resolves either projection (including the extra hop for `fact-ref` hosts).
+- Fixed two `fact-ref` host references that pointed at keys absent from the referenced section: query-lifecycle hosts now key into `searchEntities` by entity id, and api-entity hosts carry a real declaration source for the `api/**` file that declares the enricher or mutation-guard resource.
+- Markdown renders a resolved Source cell for entities, events, ACL features, DI tokens, search entities, notifications, UMES hosts and UMES contributions; activation rows render the activation id and bridge instead of a bare kind; contribution resolutions render as their own source-linked section.
+- Page metadata follows the runtime companion-file convention (`page.meta.*`, then `meta.*`) and the runtime `PageMetadata` contract keys with `resolvePageRouteMetadata` alias precedence (`pageGroup ?? group`, `pageGroupKey ?? groupKey`, `pageOrder ?? order`, plus `pageContext`); the non-contract `pageContextId` / `extensionSpotId` aliases were dropped. 212 backend pages that previously emitted no metadata now do.
+- Worker facts derive the runtime id (`metadata.id ?? <module>:workers:<path>`) so id-less root and nested workers are no longer dropped, and resolve `queue` / `name` through local constants. A worker declaring no queue is not registered by runtime and is reported as a diagnostic instead of a contract.
+- The determinism byte guard was raised explicitly, with the reason recorded in `module-facts.bc-guard.test.ts`.

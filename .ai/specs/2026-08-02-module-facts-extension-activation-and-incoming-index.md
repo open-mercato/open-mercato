@@ -431,3 +431,11 @@ No non-compliant item or required human confirmation was identified.
 - **Compatibility:** Passed; legacy arrays and IDs are preserved.
 - **Scope:** Cohesive; owned inventory and override syntax are explicit dependencies/non-goals.
 - **Verdict:** Ready for implementation after the provenance prerequisite.
+
+### 2026-08-03 — Code-review corrections
+
+- Enricher activation is configuration-aware: `queryEngine.enabled === true` is the runtime opt-in the enricher registry selects on, so `{ enabled: false }` is no longer treated as query-enabled. The CRUD `enrichers: { entityId }` option drives `applyResponseEnrichers` only and no longer synthesizes a `query-enricher` activation — that comes from the call shape that enables the stage, `query('<entityId>', { …, extensions })`.
+- API-interceptor binding is derived from real bridge call sites instead of route-file existence: `makeCrudRoute` runs both phases for every HTTP method the file exports, and a hand-written route runs whichever of `runApiInterceptorsBefore` / `runApiInterceptorsAfter` it calls. Correlation intersects a contribution's declared methods and phases with those bridges, activation identity carries the method, and one activation is emitted per bridged method.
+- Mutation-guard extraction parses each bridge shape with its own adapter — the canonical `runRouteMutationGuards({ …, input: { resourceKind, operation } })` nests the resource under `input` — and scans `lib/**` as well as `api/**` because wrappers commonly live there. Activations carry the guarded operations (`'custom'` mapped onto `update`) and correlation requires an operation intersection.
+- The dashboard adapter is reachable: correlation consults the framework host catalog (exact ids, then patterned entries such as `dashboard:*`) with a traceable framework source and bridge fact-ref. Framework hosts own no module surface, so the activation is recorded on the contributor and emits no incoming row; a per-adapter family gate keeps a dashboard target from being claimed by the generic widget-injection adapter.
+- Added a behavioral coverage test that drives one fixture through all eight activation adapters and asserts each produces a bound activation, alongside the existing structural closed-registry gate.
