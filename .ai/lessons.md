@@ -4,6 +4,26 @@
 
 Recurring patterns and mistakes to avoid. Review at session start.
 
+## Query-index custom-field cardinality comes from definitions, not row count
+
+**Context**: A `multi: true` todo label containing one value was searchable, but reopening the edit form showed no tag. The query-index builder collapsed every one-row custom-field group to a scalar, while the controlled tags input correctly accepted only an array.
+
+**Problem**: Inferring cardinality from the current number of stored rows makes the same field change wire shape between one and two values. Read forms then cannot reliably hydrate multi controls, even though token search still sees the scalar value.
+
+**Rule**: When building query-index documents, resolve the scoped custom-field definition and preserve arrays for `multi: true` fields even when exactly one value is stored. Use the shared definition-selection helpers so tenant/organization overrides match CRUD response decoration.
+
+**Applies to**: `packages/core/src/modules/query_index/lib/indexer.ts`, custom-field projection builders, CRUD list responses backed by `entity_indexes.doc`, and edit forms for tags/listbox/multi-select fields.
+
+## CRUD-owned custom-field writes should not emit a second entity event
+
+**Context**: Generic CRUD routes save scalar entity data and custom fields, then emit the canonical CRUD side effect with events and query-index configuration. Letting the intermediate `setCustomFields()` call also emit `<module>.<entity>.updated` creates a second event path through the query-index DI bridge.
+
+**Problem**: The duplicate path can run inside the write transaction, swallow query-index failures as best-effort event work, and obscure the single request-owned side-effect path that is supposed to surface always-consistent index failures.
+
+**Rule**: When a CRUD route owns both the custom-field write and the subsequent `markOrmEntityChange()` / `flushOrmEntityChanges()` call, pass `notify: false` to `setCustomFields()`. The canonical created/updated/deleted side effect should be emitted exactly once after the entity/custom-field write succeeds. That is only half of the dedupe contract: when `DataEngine` also owns an explicit `indexer`, mark its domain-event payload as query-index-managed and have the legacy DI domain bridge skip it (including `skipReindex`). Keep internal ownership markers non-enumerable so client-broadcast and persisted event payloads preserve their public shape. Otherwise the canonical domain event and the inline `query_index.upsert_one` still index the same record twice and duplicate failure logs.
+
+**Applies to**: `packages/shared/src/lib/crud/factory.ts`, command helpers that compose custom fields with CRUD side effects, and module routes that manually combine `setCustomFields()` with query-index side effects.
+
 ## We've got centralized helpers for extracting `UndoPayload`
 
 Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.
@@ -1080,3 +1100,14 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
 
 **Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
+
+## Portaled confirmations must stay inside their parent dialog's React tree
+
+**Context**: A native confirmation dialog was portaled to `document.body` from beside a Radix dialog's content, so real pointer events were classified as outside interactions and Escape was intercepted before the native cancel event.
+
+**Rule**: Render portaled confirmations as React children of the owning `DialogContent`, and handle Escape before the parent overlay's document-capture dismissal when the confirmation owns the active modal interaction.
+
+**Applies to**: nested native dialogs, Radix `DismissableLayer`, and any portaled confirmation shown from an open modal.
+
+- 2026-08-02 · UI preview: an ephemeral environment started before package edits can retain stale package and Next.js artifacts → restart it with `test:integration:ephemeral:start --force-rebuild` before Playwright verification.
+- 2026-08-02 · verification: sandboxed macOS rejected Homebrew Node dylibs and a fresh docs search index was absent → use the bundled Node runtime and build docs before retrying the full gate.

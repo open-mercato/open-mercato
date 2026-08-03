@@ -69,6 +69,35 @@ type StaticContext = {
   resolving: Set<string>
 }
 
+type ApiExtensionHostIds = {
+  entityIds: string[]
+  commandIds: string[]
+  routeIds: string[]
+}
+
+type ModuleExtensionFactExtractionCache = {
+  sourceFiles: Map<string, ts.SourceFile | null>
+  sourceFilesBelow: Map<string, string[]>
+  apiExtensionHostIds: Map<string, ApiExtensionHostIds>
+}
+
+let activeExtractionCache: ModuleExtensionFactExtractionCache | null = null
+
+/** @internal */
+export function withModuleExtensionFactExtractionCache<Result>(operation: () => Result): Result {
+  if (activeExtractionCache) return operation()
+  activeExtractionCache = {
+    sourceFiles: new Map(),
+    sourceFilesBelow: new Map(),
+    apiExtensionHostIds: new Map(),
+  }
+  try {
+    return operation()
+  } finally {
+    activeExtractionCache = null
+  }
+}
+
 const FRAMEWORK_PREFIXES = [
   'dashboard:',
   'menu:',
@@ -163,9 +192,13 @@ function allFrameworkHosts(): ModuleExtensionHostFact[] {
 }
 
 function sourceFile(filePath: string): ts.SourceFile | null {
+  const cached = activeExtractionCache?.sourceFiles.get(filePath)
+  if (cached !== undefined) return cached
   if (!fs.existsSync(filePath)) return null
   const scriptKind = filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  return ts.createSourceFile(filePath, fs.readFileSync(filePath, 'utf8'), ts.ScriptTarget.ES2020, true, scriptKind)
+  const parsed = ts.createSourceFile(filePath, fs.readFileSync(filePath, 'utf8'), ts.ScriptTarget.ES2020, true, scriptKind)
+  activeExtractionCache?.sourceFiles.set(filePath, parsed)
+  return parsed
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -639,6 +672,8 @@ function factRefHost(options: {
 }
 
 function sourceFilesBelow(directory: string): string[] {
+  const cached = activeExtractionCache?.sourceFilesBelow.get(directory)
+  if (cached) return cached
   if (!fs.existsSync(directory)) return []
   const files: string[] = []
   const visit = (current: string): void => {
@@ -652,6 +687,7 @@ function sourceFilesBelow(directory: string): string[] {
     }
   }
   visit(directory)
+  activeExtractionCache?.sourceFilesBelow.set(directory, files)
   return files
 }
 
@@ -663,7 +699,10 @@ function apiRouteId(moduleId: string, moduleRoot: string, filePath: string): str
   return suffix && !suffix.includes('__tests__') ? `${moduleId.replace(/_/g, '-')}/${suffix}` : null
 }
 
-function apiExtensionHostIds(moduleId: string, moduleRoot: string): { entityIds: string[]; commandIds: string[]; routeIds: string[] } {
+function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtensionHostIds {
+  const cacheKey = `${moduleId}\0${moduleRoot}`
+  const cached = activeExtractionCache?.apiExtensionHostIds.get(cacheKey)
+  if (cached) return cached
   const entityIds = new Set<string>()
   const commandIds = new Set<string>()
   const routeIds = new Set<string>()
@@ -699,11 +738,13 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): { entityIds:
     }
     file.forEachChild(visit)
   }
-  return {
+  const result = {
     entityIds: [...entityIds].sort((left, right) => left.localeCompare(right)),
     commandIds: [...commandIds].sort((left, right) => left.localeCompare(right)),
     routeIds: [...routeIds].sort((left, right) => left.localeCompare(right)),
   }
+  activeExtractionCache?.apiExtensionHostIds.set(cacheKey, result)
+  return result
 }
 
 function moduleCommandIds(moduleRoot: string, apiCommandIds: readonly string[]): string[] {
