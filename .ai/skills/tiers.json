@@ -54,6 +54,12 @@
         "om-share-this-session"
       ]
     },
+    "design": {
+      "description": "Figma-side design workflow skills. Opt-in \u2014 presumes Figma tooling.",
+      "skills": [
+        "om-figma-design-with-ds"
+      ]
+    },
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
