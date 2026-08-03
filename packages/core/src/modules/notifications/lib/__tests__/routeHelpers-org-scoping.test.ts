@@ -6,8 +6,10 @@
  * created via `POST /api/notifications` used to be tenant-level (org=null). Devices,
  * push channels, and their encryption maps are all org-scoped, so a null-org
  * notification never reached an org member's device. The fix resolves the org the
- * same way every other org-scoped write does — the selected-org cookie, then the
- * caller's own `auth.orgId` — via `resolveOrganizationScopeForRequest`.
+ * same way every other org-scoped write does — via `resolveOrganizationScopeForRequest`,
+ * which honors the selected-org cookie and otherwise falls back to the caller's own
+ * account org. A deliberate all-organizations selection still resolves to null and stays
+ * tenant-level (see `routeHelpers.scope.test.ts`).
  */
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -60,7 +62,9 @@ describe('resolveNotificationContext organization scoping', () => {
 
   it('inherits the caller org (auth.orgId) when no org is explicitly selected', async () => {
     mockContext({ tenantId: TENANT, orgId: AUTH_ORG, sub: 'user-1' })
-    mockScope(null)
+    // What the shared resolver returns for a caller with no selected-org cookie: it applies
+    // the account-org fallback itself, so the route helper just passes `selectedId` through.
+    mockScope(AUTH_ORG)
 
     const { scope } = await resolveNotificationContext(req)
 
@@ -80,7 +84,7 @@ describe('resolveNotificationContext organization scoping', () => {
     expect(scope.organizationId).toBe(SELECTED_ORG)
   })
 
-  it('stays tenant-level (org=null) when the caller has no org at all', async () => {
+  it('stays tenant-level (org=null) when the resolver reports no organization', async () => {
     mockContext({ tenantId: TENANT, orgId: null, sub: 'user-1' })
     mockScope(null)
 

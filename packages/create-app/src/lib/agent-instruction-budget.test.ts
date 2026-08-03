@@ -142,7 +142,7 @@ test('generated classic Codex root and representative initial chains fit their b
     const classicFactModules = readEnabledModuleIds(path.join(targetDir, 'src', 'modules.ts'))
       .filter((moduleId) => !CLASSIC_APP_ONLY_MODULES.has(moduleId))
       .sort()
-    assert.equal(classicFactModules.length, 48, 'classic scaffold fact index changed; review its root budget')
+    assert.equal(classicFactModules.length, 53, 'classic scaffold fact index changed; review its root budget')
     injectModuleGuides(path.join(targetDir, 'AGENTS.md'), classicFactModules)
     generateCodex(config)
 

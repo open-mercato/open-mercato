@@ -10,6 +10,9 @@ import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+// Read filters AND-compose the organization read scope with the in-app visibility gate: both
+// fragments carry their own `$or`, so they cannot be spread into a single filter object.
+import { inAppVisibleFilter } from '../lib/notificationVisibility'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 jest.mock('../lib/notificationRecipients', () => ({
@@ -466,9 +469,14 @@ describe('notification service', () => {
       recipientUserId: baseCtx.userId,
       tenantId: baseCtx.tenantId,
       status: 'unread',
-      $or: [
-        { organizationId: { $in: ['org-1', 'org-1-child'] } },
-        { organizationId: null },
+      $and: [
+        {
+          $or: [
+            { organizationId: { $in: ['org-1', 'org-1-child'] } },
+            { organizationId: null },
+          ],
+        },
+        inAppVisibleFilter(),
       ],
     })
   })
@@ -489,7 +497,7 @@ describe('notification service', () => {
     expect(em.find).toHaveBeenCalledWith(expect.anything(), {
       recipientUserId: baseCtx.userId,
       tenantId: baseCtx.tenantId,
-      organizationId: null,
+      $and: [{ organizationId: null }, inAppVisibleFilter()],
     }, {
       orderBy: { createdAt: 'desc' },
       limit: 50,
@@ -497,8 +505,8 @@ describe('notification service', () => {
     expect(em.count).toHaveBeenCalledWith(expect.anything(), {
       recipientUserId: baseCtx.userId,
       tenantId: baseCtx.tenantId,
-      organizationId: null,
       status: 'unread',
+      $and: [{ organizationId: null }, inAppVisibleFilter()],
     })
   })
 
@@ -518,6 +526,7 @@ describe('notification service', () => {
     expect(em.find).toHaveBeenCalledWith(expect.anything(), {
       recipientUserId: baseCtx.userId,
       tenantId: baseCtx.tenantId,
+      $and: [{}, inAppVisibleFilter()],
     }, {
       orderBy: { createdAt: 'desc' },
       limit: 50,
@@ -526,6 +535,7 @@ describe('notification service', () => {
       recipientUserId: baseCtx.userId,
       tenantId: baseCtx.tenantId,
       status: 'unread',
+      $and: [{}, inAppVisibleFilter()],
     })
   })
 
@@ -544,6 +554,7 @@ describe('notification service', () => {
     expect(em.find).toHaveBeenCalledWith(expect.anything(), {
       recipientUserId: baseCtx.userId,
       tenantId: baseCtx.tenantId,
+      $and: [{}, inAppVisibleFilter()],
     }, {
       orderBy: { createdAt: 'desc' },
       limit: 50,
@@ -552,6 +563,7 @@ describe('notification service', () => {
       recipientUserId: baseCtx.userId,
       tenantId: baseCtx.tenantId,
       status: 'unread',
+      $and: [{}, inAppVisibleFilter()],
     })
   })
 

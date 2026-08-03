@@ -5,7 +5,6 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveNotificationService, type NotificationService } from './notificationService'
 
 /**
@@ -90,14 +89,15 @@ export async function resolveNotificationContext(req: Request): Promise<Notifica
     service: resolveNotificationService(ctx.container),
     scope: {
       tenantId,
-      // Falls back to the caller's own org when no org is selected (the "all organizations"
-      // view): this is the *creator's* org, and the push strategy later scopes the recipient's
-      // device lookup to it. Same-org and self-notify (the common paths) match; a cross-org
-      // notify — an admin in org A notifying a user whose devices live in org B — won't match the
-      // recipient's devices, so push is silently dropped for that case. In-app delivery is
-      // unaffected (reads are scoped by `organizationIds`). If cross-org push is ever required,
-      // scope device lookup by the recipient's org instead.
-      organizationId: organizationId ?? ctx.auth?.orgId ?? null,
+      // The *creator's* org (the shared resolver already falls back to the caller's own org when
+      // nothing is selected), and the push strategy later scopes the recipient's device lookup to
+      // it. Same-org and self-notify (the common paths) match; a cross-org notify — an admin in
+      // org A notifying a user whose devices live in org B — won't match the recipient's devices,
+      // so push is silently dropped for that case. Same for a deliberate all-organizations
+      // selection, which stays tenant-level (org=null) and so only reaches null-org devices.
+      // In-app delivery is unaffected. If cross-org push is ever required, scope the device
+      // lookup by the recipient's org instead.
+      organizationId,
       organizationIds,
       userId: ctx.auth?.sub ?? null,
     },

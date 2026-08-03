@@ -29,7 +29,11 @@ jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => ({
   resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
 }))
 
+import { inAppVisibleFilter } from '../../lib/notificationVisibility'
 import { GET } from '../route'
+
+// The read scope and the in-app visibility gate each contribute their own `$or`, so the route
+// AND-composes them instead of spreading both into one object (a spread would drop one).
 
 describe('GET /api/notifications organization scope', () => {
   beforeEach(() => {
@@ -55,9 +59,14 @@ describe('GET /api/notifications organization scope', () => {
       recipientUserId: userId,
       tenantId,
       status: { $ne: 'dismissed' },
-      $or: [
-        { organizationId: { $in: [organizationId, childOrganizationId] } },
-        { organizationId: null },
+      $and: [
+        {
+          $or: [
+            { organizationId: { $in: [organizationId, childOrganizationId] } },
+            { organizationId: null },
+          ],
+        },
+        inAppVisibleFilter(),
       ],
     }
     expect(find).toHaveBeenCalledWith(expect.anything(), expectedFilter, {
@@ -81,6 +90,7 @@ describe('GET /api/notifications organization scope', () => {
       recipientUserId: userId,
       tenantId,
       status: { $ne: 'dismissed' },
+      $and: [{}, inAppVisibleFilter()],
     }
     expect(find).toHaveBeenCalledWith(expect.anything(), expectedFilter, expect.anything())
     expect(count).toHaveBeenCalledWith(expect.anything(), expectedFilter)

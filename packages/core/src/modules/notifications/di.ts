@@ -13,6 +13,6 @@ export function register(container: AppContainer): void {
     // request-scoped em) since the request container does not expose this binding.
     notificationPreferenceService: asFunction(({ em }) =>
       createNotificationPreferenceService({ em })
-    ).scoped(),
+    ).scoped().proxy(),
   })
 }
