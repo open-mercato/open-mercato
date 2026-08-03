@@ -73,6 +73,7 @@
   "currencies.list.columns.symbol": "기호",
   "currencies.list.columns.updatedAt": "수정일",
   "currencies.list.confirmDelete": "통화 {{code}}를 삭제하시겠습니까? 이 통화의 모든 환율도 함께 제거됩니다.",
+  "currencies.list.description": "환율은 매일 밤 새로고침됩니다.",
   "currencies.list.error.load": "통화를 불러오지 못했습니다",
   "currencies.list.filters.active": "활성",
   "currencies.list.filters.all": "전체",
