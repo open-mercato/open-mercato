@@ -230,7 +230,9 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
       .then((resolvedDisplays) => {
         if (!abortController.signal.aborted) setRelationDisplaysByField(resolvedDisplays)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!abortController.signal.aborted) setRelationDisplaysByField({})
+      })
 
     return () => abortController.abort()
   }, [rawData, relationDefinitions])
