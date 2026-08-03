@@ -1140,6 +1140,121 @@ test('family 9: the sanitize path recursivelySanitize delegates to redacts the r
   }
 })
 
+// ---------------------------------------------------------------------------------------------
+// Oracle family 10 — an installed source reached through the reason-gated fallback is read-only.
+// Family 6 proves the canonical example half of the spec's immutability oracle; this proves the
+// installed-package half, and pins WHERE the guarantee actually lives so a later change cannot
+// remove it silently.
+// ---------------------------------------------------------------------------------------------
+
+const INSTALLED_SOURCE_CONTENT = 'export async function GET() { return new Response() }\n'
+
+function spawnToolServer(
+  root: string,
+  allowedReads: string[],
+  allowedWrites: string[],
+  calls: Array<{ name: string; arguments: Record<string, unknown> }>,
+) {
+  const messages = [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
+    ...calls.map((entry, index) => ({ jsonrpc: '2.0', id: index + 2, method: 'tools/call', params: entry })),
+  ]
+  return spawnSync(process.execPath, [sourceToolServer, root, 'writable', JSON.stringify(allowedReads), JSON.stringify(allowedWrites)], {
+    input: `${messages.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+    encoding: 'utf8',
+    env: { OM_HARNESS_IMMUTABLE_ROOTS: '[]' },
+  })
+}
+
+/**
+ * Reproduce the writable-target layout `verifyWritableTarget` mandates: a disposable app root
+ * whose `node_modules` is a link into the controller's own protected dependency tree. The
+ * unlinked variant exists only to show that the mandate is load-bearing.
+ */
+function stageInstalledSourceTarget(symlinkDependencies: boolean): { controller: string; target: string } {
+  const controller = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-installed-controller-')))
+  fs.mkdirSync(path.join(controller, path.dirname(INSTALLED_SOURCE)), { recursive: true })
+  fs.writeFileSync(path.join(controller, INSTALLED_SOURCE), INSTALLED_SOURCE_CONTENT)
+  const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-installed-target-')))
+  if (symlinkDependencies) fs.symlinkSync(path.join(controller, 'node_modules'), path.join(target, 'node_modules'), linkType)
+  else fs.cpSync(path.join(controller, 'node_modules'), path.join(target, 'node_modules'), { recursive: true })
+  fs.writeFileSync(path.join(target, 'package.json'), '{"name":"om-installed-fixture","private":true}\n')
+  return { controller, target }
+}
+
+test('family 10: an installed source read through the fallback cannot be written, even under a wildcard write grant', () => {
+  const { controller, target } = stageInstalledSourceTarget(true)
+  const injected = 'node_modules/@open-mercato/core/src/modules/customers/api/injected.ts'
+  try {
+    const replies = callToolServer(target, 'writable', [INSTALLED_SOURCE], ['**'], [EXAMPLE_ROOT], [
+      { name: 'read', arguments: { path: INSTALLED_SOURCE, reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH' } },
+      { name: 'write', arguments: { path: INSTALLED_SOURCE, content: 'tampered\n' } },
+      { name: 'write', arguments: { path: injected, content: 'export const injected = 1\n' } },
+    ])
+    assert.equal(replies[1].result.isError, undefined, 'the reason-gated fallback read still succeeds')
+    assert.equal(replies[1].result.content[0].text, INSTALLED_SOURCE_CONTENT)
+    for (const reply of replies.slice(2)) {
+      assert.equal(reply.result.isError, true)
+      assert.match(reply.result.content[0].text, /write ancestor must be a regular directory/)
+    }
+    assert.equal(fs.readFileSync(path.join(target, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+    assert.equal(fs.readFileSync(path.join(controller, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+    assert.equal(fs.existsSync(path.join(controller, injected)), false, 'nothing new may appear in the dependency tree')
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('family 10: a glob write grant that could reach an installed source is refused before the tool server starts', () => {
+  const { controller, target } = stageInstalledSourceTarget(true)
+  try {
+    for (const grant of ['node_modules/**', 'node_modules/@open-mercato/**', 'node_modules/@open-mercato/core/src/**']) {
+      const result = spawnToolServer(target, [INSTALLED_SOURCE], [grant], [
+        { name: 'write', arguments: { path: INSTALLED_SOURCE, content: 'tampered\n' } },
+      ])
+      assert.equal(result.status, 2, grant)
+      assert.match(result.stderr, /allowed write set is invalid/, grant)
+    }
+    assert.equal(fs.readFileSync(path.join(controller, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('family 10: installed-source immutability rests on the enforced dependency link and the protected-tree fingerprint, not on the write allowlist', () => {
+  const source = evaluatorSource()
+  assert.ok(
+    source.includes("errors.push('writable root node_modules must link to the controller protected dependency tree')"),
+    'the writable target must be rejected when its dependency root is not the controller link',
+  )
+  assert.ok(source.includes('fs.realpathSync(targetDependencies) !== fs.realpathSync(controllerDependencies)'))
+  const verifyIndex = source.indexOf('const targetErrors = verifyWritableTarget(runRoot, root, caseRecord, fixtures)')
+  const snapshotIndex = source.indexOf('const before = writable ? snapshot(runRoot) : undefined')
+  assert.ok(verifyIndex > 0 && snapshotIndex > 0, 'both live-run steps must exist')
+  assert.ok(verifyIndex < snapshotIndex, 'the layout is verified before the run is snapshotted')
+  assert.ok(source.includes("for (const relative of ['.git', 'node_modules', '.next', 'dist', '.ai/harness/results']) {"))
+  assert.ok(source.includes('result.set(relative, protectedTreeFingerprint(path.join(root, relative)))'))
+  assert.ok(source.includes("if (protectedChanges.length) violations.push(`writes to protected roots: ${protectedChanges.join(', ')}`)"))
+
+  // Characterization of why those two guards are load-bearing rather than decorative: replace the
+  // mandated dependency link with a plain directory and the same wildcard grant does reach the
+  // installed source, because the write allowlist alone never protects `node_modules`.
+  const { controller, target } = stageInstalledSourceTarget(false)
+  try {
+    const replies = callToolServer(target, 'writable', [INSTALLED_SOURCE], ['**'], [], [
+      { name: 'write', arguments: { path: INSTALLED_SOURCE, content: 'tampered\n' } },
+    ])
+    assert.equal(replies[1].result.isError, undefined)
+    assert.equal(fs.readFileSync(path.join(target, INSTALLED_SOURCE), 'utf8'), 'tampered\n')
+    assert.equal(fs.readFileSync(path.join(controller, INSTALLED_SOURCE), 'utf8'), INSTALLED_SOURCE_CONTENT)
+  } finally {
+    fs.rmSync(controller, { recursive: true, force: true })
+    fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
 /**
  * A minimal draft-2020-12 subset mirroring the evaluator's own validator, so schema fixtures do
  * not depend on an external validator the harness does not ship.
