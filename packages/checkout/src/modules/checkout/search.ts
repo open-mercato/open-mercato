@@ -53,6 +53,36 @@ export const searchConfig: SearchModuleConfig = {
         }
       },
     },
+    {
+      entityId: CHECKOUT_ENTITY_IDS.transaction,
+      enabled: true,
+      priority: 6,
+      fieldPolicy: {
+        searchable: ['email', 'firstName', 'lastName'],
+      },
+      buildSource: async (ctx) => ({
+        text: [
+          asSearchText(ctx.record.email),
+          asSearchText(ctx.record.firstName),
+          asSearchText(ctx.record.lastName),
+        ],
+        fields: {
+          email: ctx.record.email,
+          first_name: ctx.record.firstName,
+          last_name: ctx.record.lastName,
+        },
+        presenter: {
+          title: asSearchText(ctx.record.email),
+          subtitle: `${asSearchText(ctx.record.firstName)} ${asSearchText(ctx.record.lastName)}`.trim(),
+        },
+        checksumSource: { record: ctx.record },
+      }),
+      formatResult: async (ctx) => ({
+        title: asSearchText(ctx.record.email),
+        subtitle: `${asSearchText(ctx.record.firstName)} ${asSearchText(ctx.record.lastName)}`.trim(),
+        icon: 'lucide:receipt',
+      }),
+    },
   ],
 }
 

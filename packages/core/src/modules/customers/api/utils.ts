@@ -4,8 +4,7 @@ import { sql } from 'kysely'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryCustomFieldSource, QueryJoinEdge, QueryEngine } from '@open-mercato/shared/lib/query/types'
-import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 const { withScopedPayload, parseScopedCommandInput } = createScopedApiHelpers({
@@ -106,36 +105,18 @@ async function findSearchTokenEntityIds({
   fields,
   query,
 }: SearchTokenMatchInput): Promise<string[] | null> {
-  const trimmed = query.trim()
-  if (!trimmed) return null
-
-  const tokens = tokenizeText(trimmed, resolveSearchConfig())
-  if (!tokens.hashes.length) return []
-
   const em = ctx.container.resolve('em') as EntityManager
-  const db = em.getKysely<any>() as any
-  let searchQuery = db
-    .selectFrom('search_tokens')
-    .select('entity_id')
-    .where('entity_type', '=', entityType)
-    .where('field', 'in', fields)
-    .where('token_hash', 'in', tokens.hashes)
-    .groupBy('entity_id')
-    .having(sql<boolean>`count(distinct token_hash) >= ${tokens.hashes.length}`)
-
-  if (ctx.auth?.tenantId !== undefined) {
-    searchQuery = searchQuery.where(sql<boolean>`tenant_id is not distinct from ${ctx.auth?.tenantId ?? null}`)
-  }
-  if (ctx.selectedOrganizationId) {
-    searchQuery = searchQuery.where('organization_id', '=', ctx.selectedOrganizationId)
-  } else if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
-    searchQuery = searchQuery.where('organization_id', 'in', ctx.organizationIds)
-  }
-
-  const rows = await searchQuery.execute() as Array<{ entity_id?: unknown }>
-  return rows
-    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  return findEntityIdsBySearchTokensCompat({
+    db: em.getKysely<SearchTokenDatabase>(),
+    entityType,
+    query,
+    fields,
+    scope: {
+      tenantId: ctx.auth?.tenantId !== undefined ? ctx.auth?.tenantId ?? null : undefined,
+      organizationId: ctx.selectedOrganizationId ?? undefined,
+      organizationIds: ctx.organizationIds,
+    },
+  })
 }
 
 async function mapScopedEntityIds({

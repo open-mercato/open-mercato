@@ -988,7 +988,7 @@ export function DealsSection({
                     {deal.title || emptyLabel}
                   </Link>
                   {deal.description ? (
-                    <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{deal.description}</p>
+                    <p className="mt-1 line-clamp-3 text-sm text-muted-foreground whitespace-pre-wrap">{deal.description}</p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2">

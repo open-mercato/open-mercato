@@ -107,6 +107,17 @@ describe('S3StorageDriver', () => {
       expect(arg.endpoint).toBe('http://minio:9000')
       expect(arg.forcePathStyle).toBe(true)
     })
+
+    it('rejects link-local custom endpoints before constructing an S3 client', () => {
+      expect(() => {
+        new S3StorageDriver({
+          ...BASE_CONFIG,
+          endpoint: 'http://169.254.169.254/latest/meta-data/',
+          forcePathStyle: true,
+        })
+      }).toThrow(/private or reserved IP range/i)
+      expect(S3Client).not.toHaveBeenCalled()
+    })
   })
 
   describe('store()', () => {

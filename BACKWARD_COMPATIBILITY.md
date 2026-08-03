@@ -26,6 +26,7 @@ The following file names, their expected export names, and their role in module 
 | `ce.ts` | `entities: CustomEntitySpec[]` | MUST NOT change `CustomEntitySpec` required fields; may add optional fields |
 | `search.ts` | `searchConfig: SearchModuleConfig` | MUST NOT change `SearchEntityConfig` required fields; may add optional fields |
 | `events.ts` | `eventsConfig` via `createModuleEvents()` | MUST NOT change `EventDefinition` required fields (`id`, `label`); may add optional fields |
+| `extension-points.ts` | `extensionPoints: ModuleExtensionPoints` | New additive convention; declared exact/pattern host IDs, aliases, fallbacks, family/capability semantics, and bound call-site meaning MUST NOT change incompatibly |
 | `translations.ts` | `translatableFields` | MUST NOT change record shape |
 | `notifications.ts` | `notificationTypes: NotificationTypeDefinition[]` | MUST NOT change required fields; may add optional fields |
 | `notifications.client.ts` | — | MUST NOT change renderer props contract |
@@ -63,6 +64,8 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `EventDefinition`: `id`, `label` — MUST NOT remove; `category`, `module`, `entity`, `description` — MUST NOT remove
 - `EventPayload`: `id`, `tenantId`, `organizationId` — MUST NOT remove
 - `EntityExtension`: `base`, `extension`, `join` — MUST NOT remove
+- `ModuleExtensionPoints`: `moduleId`, `hosts` — MUST NOT remove; host declaration discriminants and exact/pattern address semantics are STABLE, and new optional metadata/capabilities may be added
+- `ModuleExtensionSurfaceFacts`: `hosts`, `contributions`, `unresolved` — MUST NOT remove; host IDs/patterns, contribution identities/targets, resolution classes, activation/phases/operations, scope contracts, round-trip IDs, override identities, and sanitized unresolved provenance MUST retain their meaning
 - `CustomFieldDefinition`: `key`, `kind` — MUST NOT remove; all other fields remain optional
 - `CustomEntitySpec`: `id` — MUST NOT remove
 - `InjectionWidgetMetadata`: `id`, `title` — MUST NOT remove
@@ -78,10 +81,11 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `AiAgentDefinition`: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools` — MUST NOT remove; optional fields (`suggestions`, `executionMode`, `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy`, `maxSteps`, `output`, `resolvePageContext`, `keywords`, `domain`, `dataCapabilities`) MAY be extended but MUST NOT be narrowed
 - `AiAgentExtension`: `targetAgentId` — MUST NOT remove; patch fields (`replaceAllowedTools`, `deleteAllowedTools`, `appendAllowedTools`, `replaceSystemPrompt`, `appendSystemPrompt`, `replaceSuggestions`, `deleteSuggestions`, `appendSuggestions`) MUST keep their existing meaning; deprecated `suggestions` remains an append alias until removed through the deprecation protocol
 - `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
-- `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively
+- `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively. `nav` was wired 2026-07-30 under that clause (see [spec](.ai/specs/2026-07-30-nav-group-order-override-domain.md)): `overrides.nav.groupOrder` **prepends** sidebar nav group ids ahead of the built-in `defaultGroupOrder`, and ids it does not name keep their existing position. It is a default applied *beneath* role and per-user sidebar preferences, so an operator's own arrangement still wins. With no override configured, group ordering is byte-identical to before — that guarantee MUST hold for any future change to this domain.
 - `WorkerMeta`: `queue` — MUST NOT remove
 - `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
 - `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
+- `BackendChromePayload`: `groups`, `settingsSections`, `settingsPathPrefixes`, `profileSections`, `profilePathPrefixes`, `grantedFeatures`, `roles` — MUST NOT remove. `currentOrganization?` (`BackendChromeCurrentOrganization | null`) was added 2026-07-30 as an additive optional field (see [spec](.ai/specs/2026-07-30-backend-chrome-current-organization.md)); it is `null` under an all-organizations selection, when no organization is in scope, and when the lookup fails, so consumers MUST treat `null` as "unknown" rather than "no organization". `brand?` is **unchanged** and remains the branding channel — it populates only when the organization has a `logoUrl`, and `currentOrganization` does not supersede it.
 
 ### 3. Function Signatures (STABLE)
 
@@ -96,6 +100,8 @@ These functions are called directly by module code. Their signatures MUST NOT ch
 | `findAndCountWithDecryption(...)` | `@open-mercato/shared/lib/encryption/find` | Same as above |
 | `entityId(moduleId, entity)` | `@open-mercato/shared/modules/dsl` | MUST NOT change |
 | `defineLink(base, extension, opts)` | `@open-mercato/shared/modules/dsl` | MUST NOT change |
+| `defineModuleExtensionPoints(declaration)` | `@open-mercato/shared/modules/widgets/extension-points` | MUST preserve immutable data-only declaration semantics and exact module/host values |
+| `injectionExtensionHost`, `dataTableExtensionHost`, `crudFormExtensionHost`, `componentExtensionHost` | `@open-mercato/shared/modules/widgets/extension-points` | MUST preserve family discrimination, exact/pattern validation, and returned IDs |
 | `defineFields(entity, fields, source?)` | `@open-mercato/shared/modules/dsl` | MUST NOT change |
 | `cf.text`, `cf.multiline`, `cf.integer`, `cf.float`, `cf.boolean`, `cf.select`, `cf.currency`, `cf.dictionary` | `@open-mercato/shared/modules/dsl` | MUST NOT remove any helper or change required params |
 | `lazyDashboardWidget(loader)` | `@open-mercato/shared/modules/dashboard/widgets` | MUST NOT change |
@@ -189,6 +195,9 @@ Feature IDs are stored in database role configurations. Renaming a feature ID or
 - MUST NOT rename an existing feature ID
 - MUST NOT remove an existing feature ID without a data migration that updates all stored role configs
 - MAY add new feature IDs freely
+- App-level `entry.overrides.acl.features[id] = null` is the supported reversible exception: stored grants are preserved but runtime-inert while the override is effective.
+
+**STABLE capability-field shape, changed value semantics in 0.6.6:** `BackendChromePayload.grantedFeatures` and customer portal `resolvedFeatures` remain `string[]`, but now contain concrete effective feature IDs. They no longer expose `*` or namespace wildcard strings. Consumers MUST check concrete IDs and MUST NOT infer staff/portal admin status from a wildcard; use the explicit admin boolean where exposed.
 
 ### 11. Notification Type IDs (FROZEN)
 
@@ -243,6 +252,8 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - MUST NOT change generated AI entry shapes: agent entries keep `{ moduleId, agents, overrides, extensions }`; tool entries keep `{ moduleId, tools, overrides }`
 - MAY add new generated files and new optional fields to `BootstrapData`
 - MAY add new generated AI registry exports additively
+- Generated `.ai/guides/module-facts.json` keeps its existing top-level module record and legacy sections; optional per-module `extensionSurfaces` is ADDITIVE. Its `hosts`, `contributions`, and `unresolved` arrays, correlation-resolution values, and exact public IDs are STABLE once published.
+- Generated `.ai/guides/framework-extension-points.md` is a sibling framework-owned catalog, not a synthetic module-facts key. Existing module Markdown headings, including `Host extension points`, MUST remain available; additive `UMES hosts`/`UMES contributions` sections may not redefine existing IDs.
 
 ---
 
