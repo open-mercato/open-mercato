@@ -40,10 +40,10 @@ findings). Each Progress row below maps 1:1 to a review finding.
 
 ### Phase 4: Activation correctness (Major 7, Major 8, Major 9, Major 10)
 
-- [ ] 4.1 Enrichers: classify query-engine activation from `queryEngine.enabled === true` only
-- [ ] 4.2 API interceptors: derive binding from real bridge call sites, keep method/phase in activation identity
-- [ ] 4.3 Mutation guards: parse the canonical `runRouteMutationGuards` shape and wrappers, carry operations into matching
-- [ ] 4.4 Dashboard adapter: include the framework host catalog in correlation; behavioral coverage for every adapter
+- [x] 4.1 Enrichers: classify query-engine activation from `queryEngine.enabled === true` only — 203178e9a
+- [x] 4.2 API interceptors: derive binding from real bridge call sites, keep method/phase in activation identity — 34833af08
+- [x] 4.3 Mutation guards: parse the canonical `runRouteMutationGuards` shape and wrappers, carry operations into matching — cfe32c31c
+- [x] 4.4 Dashboard adapter: include the framework host catalog in correlation; behavioral coverage for every adapter — 7053022a1
 
 ### Phase 5: Verification and close-out
 
