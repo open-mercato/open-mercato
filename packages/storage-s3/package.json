@@ -37,6 +37,7 @@
       ],
       "default": "./dist/*/*/*.js"
     },
+    "./modules/storage_s3/i18n/*.json": "./src/modules/storage_s3/i18n/*.json",
     "./*/*/*/*": {
       "types": [
         "./src/*/*/*/*.ts",
