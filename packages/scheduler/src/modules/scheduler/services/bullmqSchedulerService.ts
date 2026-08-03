@@ -101,6 +101,10 @@ export class BullMQSchedulerService {
     return this.getScheduleIdFromJobScheduler(job) === scheduleId
   }
 
+  private isCanonicalJobScheduler(job: BullJobScheduler, scheduleId: string): boolean {
+    return job.key === this.getScheduleJobName(scheduleId)
+  }
+
   private supportsJobSchedulers(queue: BullQueue): queue is BullJobSchedulerQueue {
     return typeof queue.upsertJobScheduler === 'function'
       && typeof queue.getJobSchedulers === 'function'
@@ -200,6 +204,7 @@ export class BullMQSchedulerService {
       }
 
       if (this.supportsJobSchedulers(queue)) {
+        const existingJobSchedulers = await queue.getJobSchedulers()
         await queue.upsertJobScheduler(
           jobName,
           repeatOpts,
@@ -209,6 +214,14 @@ export class BullMQSchedulerService {
             opts: jobOptions,
           },
         )
+        for (const jobScheduler of existingJobSchedulers) {
+          if (
+            this.isJobSchedulerForSchedule(jobScheduler, schedule.id)
+            && !this.isCanonicalJobScheduler(jobScheduler, schedule.id)
+          ) {
+            await queue.removeJobScheduler(jobScheduler.key)
+          }
+        }
       } else {
         await this.removeLegacyRepeatableJobs(queue, schedule.id)
         await queue.add(jobName, jobData, { repeat: repeatOpts, ...jobOptions })
@@ -235,9 +248,13 @@ export class BullMQSchedulerService {
       const queue = await this.getQueue()
       if (this.supportsJobSchedulers(queue)) {
         const jobSchedulers = await queue.getJobSchedulers()
-        const exists = jobSchedulers.some((job) => this.isJobSchedulerForSchedule(job, scheduleId))
-        if (exists) {
-          await queue.removeJobScheduler(this.getScheduleJobName(scheduleId))
+        const matchingJobSchedulers = jobSchedulers.filter((job) => (
+          this.isJobSchedulerForSchedule(job, scheduleId)
+        ))
+        if (matchingJobSchedulers.length > 0) {
+          for (const jobScheduler of matchingJobSchedulers) {
+            await queue.removeJobScheduler(jobScheduler.key)
+          }
           logger.debug('Unregistered schedule', { scheduleId })
         } else {
           logger.debug('No job scheduler found for schedule', { scheduleId })
@@ -269,13 +286,17 @@ export class BullMQSchedulerService {
 
     const bullmqScheduleIds = new Set<string>()
     const bullmqScheduleCounts = new Map<string, number>()
+    const canonicalJobSchedulerIds = new Set<string>()
     if (this.supportsJobSchedulers(queue)) {
       const jobSchedulers = await queue.getJobSchedulers()
       for (const job of jobSchedulers) {
         const scheduleId = this.getScheduleIdFromJobScheduler(job)
         if (!scheduleId) continue
         bullmqScheduleIds.add(scheduleId)
-        bullmqScheduleCounts.set(scheduleId, 1)
+        bullmqScheduleCounts.set(scheduleId, (bullmqScheduleCounts.get(scheduleId) ?? 0) + 1)
+        if (this.isCanonicalJobScheduler(job, scheduleId)) {
+          canonicalJobSchedulerIds.add(scheduleId)
+        }
       }
     } else {
       const repeatableJobs = await queue.getRepeatableJobs?.() ?? []
@@ -313,8 +334,11 @@ export class BullMQSchedulerService {
       if (!bullmqScheduleIds.has(schedule.id)) {
         logger.debug('Registering missing schedule', { scheduleId: schedule.id, scheduleName: schedule.name })
         await this.register(schedule)
-      } else if ((bullmqScheduleCounts.get(schedule.id) ?? 0) > 1) {
-        logger.info('Repairing duplicate repeatable jobs', { scheduleId: schedule.id })
+      } else if (
+        (bullmqScheduleCounts.get(schedule.id) ?? 0) > 1
+        || !canonicalJobSchedulerIds.has(schedule.id)
+      ) {
+        logger.info('Migrating legacy or duplicate job scheduler', { scheduleId: schedule.id })
         await this.register(schedule)
       }
     }

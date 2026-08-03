@@ -259,6 +259,30 @@ describe('BullMQSchedulerService', () => {
       )
     })
 
+    it('migrates BullMQ 5 repeatable metadata to the stable scheduler id', async () => {
+      mockQueue.getJobSchedulers.mockResolvedValue([
+        { key: 'legacy-repeat-hash', name: 'schedule-test-1' },
+      ])
+      const schedule = {
+        id: 'test-1',
+        name: 'Test',
+        isEnabled: true,
+        scheduleType: 'cron',
+        scheduleValue: '0 0 * * *',
+        timezone: 'UTC',
+        scopeType: 'system',
+      } as ScheduledJob
+
+      await service.register(schedule)
+
+      expect(mockQueue.upsertJobScheduler).toHaveBeenCalledWith(
+        'schedule-test-1',
+        expect.any(Object),
+        expect.any(Object),
+      )
+      expect(mockQueue.removeJobScheduler).toHaveBeenCalledWith('legacy-repeat-hash')
+    })
+
     it('should update nextRunAt when skipNextRunUpdate is false', async () => {
       const schedule = {
         id: 'test-1',
@@ -402,6 +426,16 @@ describe('BullMQSchedulerService', () => {
       expect(mockQueue.removeJobScheduler).toHaveBeenCalledWith('schedule-test-1')
     })
 
+    it('removes BullMQ 5 repeatable metadata by its generated key', async () => {
+      mockQueue.getJobSchedulers.mockResolvedValue([
+        { name: 'schedule-test-1', key: 'legacy-repeat-hash' },
+      ])
+
+      await service.unregister('test-1')
+
+      expect(mockQueue.removeJobScheduler).toHaveBeenCalledWith('legacy-repeat-hash')
+    })
+
     it('should throw on BullMQ error', async () => {
       const error = new Error('BullMQ error')
       mockQueue.getJobSchedulers.mockRejectedValue(error)
@@ -510,6 +544,32 @@ describe('BullMQSchedulerService', () => {
 
       expect(mockQueue.upsertJobScheduler).not.toHaveBeenCalled()
       expect(mockQueue.removeJobScheduler).not.toHaveBeenCalled()
+    })
+
+    it('migrates a BullMQ 5 repeatable definition during sync', async () => {
+      const dbSchedules = [
+        { id: 'schedule-1', name: 'Schedule 1', isEnabled: true, scheduleType: 'cron', scheduleValue: '0 0 * * *', timezone: 'UTC', scopeType: 'system' },
+      ] as ScheduledJob[]
+
+      mockForkedEm.find.mockResolvedValue(dbSchedules)
+      mockQueue.getJobSchedulers.mockResolvedValueOnce([
+        { name: 'schedule-schedule-1', key: 'legacy-repeat-hash' },
+      ]).mockResolvedValueOnce([
+        { name: 'schedule-schedule-1', key: 'legacy-repeat-hash' },
+      ])
+
+      await service.syncAll()
+
+      expect(loggerInfo).toHaveBeenCalledWith(
+        'Migrating legacy or duplicate job scheduler',
+        { scheduleId: 'schedule-1' },
+      )
+      expect(mockQueue.upsertJobScheduler).toHaveBeenCalledWith(
+        'schedule-schedule-1',
+        expect.any(Object),
+        expect.any(Object),
+      )
+      expect(mockQueue.removeJobScheduler).toHaveBeenCalledWith('legacy-repeat-hash')
     })
 
     it('should log sync completion', async () => {
