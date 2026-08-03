@@ -11,6 +11,7 @@ import {
   writeVersionedIdSet,
   clearVersionedPreference,
 } from '@open-mercato/shared/lib/browser/versionedPreference'
+import { isOpenDealStatus, isWonDealStatus } from '../../lib/dealStatus'
 import type { CompanyOverview, DealSummary, InteractionSummary } from '../formConfig'
 import { formatCurrency } from './utils'
 
@@ -19,7 +20,7 @@ const STORAGE_VERSION = 1
 
 function sumActiveDeals(deals: DealSummary[]): number {
   return deals
-    .filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed')
+    .filter((d) => isOpenDealStatus(d.status))
     .reduce((sum, d) => {
       const amount = typeof d.valueAmount === 'number' ? d.valueAmount : parseFloat(String(d.valueAmount ?? '0'))
       return sum + (Number.isFinite(amount) ? amount : 0)
@@ -27,7 +28,7 @@ function sumActiveDeals(deals: DealSummary[]): number {
 }
 
 function getActiveDeals(deals: DealSummary[]): DealSummary[] {
-  return deals.filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed')
+  return deals.filter((d) => isOpenDealStatus(d.status))
 }
 
 function computeActivityTrend(interactions: InteractionSummary[]): KpiTrend | undefined {
@@ -51,7 +52,7 @@ function computeActivityTrend(interactions: InteractionSummary[]): KpiTrend | un
 }
 
 function computeDealTrend(deals: DealSummary[]): KpiTrend | undefined {
-  const active = deals.filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed')
+  const active = deals.filter((d) => isOpenDealStatus(d.status))
   if (active.length === 0) return undefined
   const now = Date.now()
   const monthMs = 30 * 86_400_000
@@ -81,7 +82,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
 
   const ltvValue = React.useMemo(() => {
     if (data.kpis?.ltvValue !== undefined) return data.kpis.ltvValue
-    const wonDeals = data.deals.filter((d) => d.status === 'won')
+    const wonDeals = data.deals.filter((d) => isWonDealStatus(d.status))
     if (wonDeals.length === 0) return null
     return wonDeals.reduce((sum, d) => {
       const amt = typeof d.valueAmount === 'number' ? d.valueAmount : parseFloat(String(d.valueAmount ?? '0'))
@@ -154,7 +155,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
           : `${v} ${v === 1 ? t('customers.companies.dashboard.kpi.year', 'year') : t('customers.companies.dashboard.kpi.years', 'years')}`
         : undefined,
       comparisonLabel: clientTenureYears !== null
-        ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => d.status === 'won').length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
+        ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
         : t('customers.companies.dashboard.kpi.noInteractions', 'No interactions yet'),
     },
   ], [t, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis])

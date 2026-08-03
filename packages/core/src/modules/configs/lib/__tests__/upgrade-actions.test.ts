@@ -133,3 +133,13 @@ describe('findUpgradeAction', () => {
     }
   })
 })
+
+describe('interaction-statuses seed upgrade action', () => {
+  it('registers the customers interaction-status seed action', () => {
+    const action = upgradeActions.find((candidate) => candidate.id === 'customers.seed-interaction-statuses')
+    expect(action).toBeDefined()
+    expect(action?.version).toBe('0.6.5')
+    expect(action?.messageKey).toBe('customers.config.upgradeActions.interactionStatuses.message')
+    expect(typeof action?.run).toBe('function')
+  })
+})

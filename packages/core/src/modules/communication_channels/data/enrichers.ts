@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  applyMessageParticipantScope,
+  type MessagesParticipantScopeDatabase,
+} from '../../messages/lib/participantScope'
 import { sanitizeChannelHtml } from '../lib/sanitize-channel-html'
 import {
   CommunicationChannel,
@@ -126,6 +130,32 @@ const messageChannelEnricher: ResponseEnricher<
     const organizationId = ctx.organizationId ?? null
     const dscope = { tenantId, organizationId }
 
+    const userId = typeof ctx.userId === 'string' ? ctx.userId : null
+    if (!userId) {
+      return records.map((record) => ({
+        ...record,
+        _channel: null,
+        _channelPayload: null,
+        _channelContact: null,
+      }))
+    }
+
+    const db = em.getKysely<MessagesParticipantScopeDatabase>()
+    let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId)
+      .select('m.id')
+      .distinct()
+      .where('m.id', 'in', messageIds)
+      .where('m.tenant_id', '=', tenantId)
+      .where('m.deleted_at', 'is', null)
+
+    participantQuery = organizationId !== null
+      ? participantQuery.where('m.organization_id', '=', organizationId)
+      : participantQuery.where('m.organization_id', 'is', null)
+
+    const participantRows = await participantQuery.execute()
+    const participantMessageIds = participantRows.map((row) => row.id)
+    const participantMessageIdSet = new Set(participantMessageIds)
+
     // 1) MessageChannelLink — one bounded `$in` query for the whole page, shared by
     // all three enrichments (channel metadata, channel payload, conversation
     // contact). The result set is already bounded by the `messageId $in messageIds`
@@ -135,7 +165,7 @@ const messageChannelEnricher: ResponseEnricher<
       em,
       MessageChannelLink,
       {
-        messageId: { $in: messageIds },
+        messageId: { $in: participantMessageIds },
         tenantId,
         organizationId,
       },
@@ -201,6 +231,10 @@ const messageChannelEnricher: ResponseEnricher<
     }
 
     return records.map((r) => {
+      if (!participantMessageIdSet.has(r.id)) {
+        return { ...r, _channel: null, _channelPayload: null, _channelContact: null }
+      }
+
       const link = linksByMessage.get(r.id)
       if (!link) {
         return { ...r, _channel: null, _channelPayload: null, _channelContact: null }

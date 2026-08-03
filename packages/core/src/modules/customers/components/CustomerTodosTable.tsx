@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -253,7 +254,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         setSearch(value)
         setPage(1)
       }}
-      perspective={{ tableId: 'customers.todos.list' }}
+      perspective={{ tableId: extensionPoints.hosts.todosTable.tableId }}
       rowActions={(row) => {
         const customerLink = buildCustomerHref(row)
         const todoHref = row.externalHref ?? resolveTodoHref(row.todoSource, row.todoId)

@@ -99,6 +99,8 @@ interface ScheduleActivityDialogProps {
   onActivityCreated?: () => void
   /** When provided, dialog opens in edit mode with pre-filled data */
   editData?: ScheduleActivityEditData | null
+  /** Default country ISO2 code for phone number input when value is empty/unparsed */
+  defaultCountryIso2?: string
 }
 
 export function ScheduleActivityDialog({
@@ -111,6 +113,7 @@ export function ScheduleActivityDialog({
   entityType,
   onActivityCreated,
   editData,
+  defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
   const state = useScheduleFormState({ open, editData: editData ?? null })
@@ -689,6 +692,7 @@ export function ScheduleActivityDialog({
               externalError={callPhoneError}
               invalidLabel={callPhoneInvalidMessage}
               minDigits={7}
+              defaultCountryIso2={defaultCountryIso2}
             />
           </div>
         ) : (

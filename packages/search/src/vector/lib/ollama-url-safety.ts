@@ -1,10 +1,14 @@
 import {
   assertStaticallySafeOutboundUrl,
+  safeOutboundFetch,
+  type HostLookup,
+  type SafeOutboundFetchOptions,
   type UrlSafetyReason,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 const SUBJECT = 'Ollama base URL'
+const MAX_OLLAMA_REDIRECTS = 5
 
 export class UnsafeOllamaBaseUrlError extends Error {
   public readonly reason: string
@@ -38,16 +42,94 @@ export function assertSafeOllamaBaseUrl(rawUrl: string): void {
     throw new UnsafeOllamaBaseUrlError('missing_host', `${SUBJECT} is required`)
   }
 
-  const allowPrivate =
-    allowlistMatches(rawUrl, getOllamaBaseUrlAllowlist()) ||
-    isAllowPrivateOllamaBaseUrlEnabled() ||
-    (process.env.NODE_ENV !== 'production' && isLoopbackOnlyUrl(rawUrl))
-
   assertStaticallySafeOutboundUrl(rawUrl, {
     errorFactory: ollamaErrorFactory,
     subject: SUBJECT,
-    allowPrivate,
+    allowPrivate: shouldAllowPrivateOllamaUrl(rawUrl),
   })
+}
+
+export type SafeOllamaFetchDeps = {
+  lookupHost?: HostLookup
+  fetchImpl?: SafeOutboundFetchOptions['fetchImpl']
+  maxRedirects?: number
+}
+
+export async function safeOllamaFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  deps: SafeOllamaFetchDeps = {},
+): Promise<Response> {
+  const request = new Request(input, init)
+  const maxRedirects = deps.maxRedirects ?? MAX_OLLAMA_REDIRECTS
+  let currentUrl = request.url
+  let currentMethod = request.method
+  let currentHeaders = new Headers(request.headers)
+  let currentBody =
+    currentMethod === 'GET' || currentMethod === 'HEAD'
+      ? undefined
+      : await request.clone().arrayBuffer()
+
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    const response = await safeOutboundFetch(
+      currentUrl,
+      {
+        method: currentMethod,
+        headers: currentHeaders,
+        body: currentBody,
+        signal: request.signal,
+        redirect: 'manual',
+      },
+      {
+        errorFactory: ollamaErrorFactory,
+        subject: SUBJECT,
+        allowPrivate: shouldAllowPrivateOllamaUrl(currentUrl),
+        lookupHost: deps.lookupHost,
+        fetchImpl: deps.fetchImpl,
+      },
+    )
+
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return response
+    }
+    const location = response.headers.get('location')
+    if (!location) return response
+    if (redirectCount === maxRedirects) {
+      throw new UnsafeOllamaBaseUrlError(
+        'too_many_redirects',
+        `${SUBJECT} exceeded ${maxRedirects} redirects`,
+      )
+    }
+
+    const nextUrl = new URL(location, currentUrl)
+    if (nextUrl.origin !== new URL(currentUrl).origin) {
+      currentHeaders = new Headers(currentHeaders)
+      currentHeaders.delete('authorization')
+      currentHeaders.delete('cookie')
+      currentHeaders.delete('proxy-authorization')
+    }
+    if (
+      (response.status === 303 && currentMethod !== 'GET' && currentMethod !== 'HEAD') ||
+      ((response.status === 301 || response.status === 302) && currentMethod === 'POST')
+    ) {
+      currentMethod = 'GET'
+      currentBody = undefined
+      currentHeaders.delete('content-length')
+      currentHeaders.delete('content-type')
+    }
+    await response.body?.cancel()
+    currentUrl = nextUrl.toString()
+  }
+
+  throw new UnsafeOllamaBaseUrlError('too_many_redirects')
+}
+
+function shouldAllowPrivateOllamaUrl(rawUrl: string): boolean {
+  return (
+    allowlistMatches(rawUrl, getOllamaBaseUrlAllowlist()) ||
+    isAllowPrivateOllamaBaseUrlEnabled() ||
+    (process.env.NODE_ENV !== 'production' && isLoopbackOnlyUrl(rawUrl))
+  )
 }
 
 function allowlistMatches(rawUrl: string, allowlist: ReadonlySet<string>): boolean {

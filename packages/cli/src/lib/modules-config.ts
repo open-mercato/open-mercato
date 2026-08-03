@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 export type ModuleEntry = {

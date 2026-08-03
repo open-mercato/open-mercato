@@ -2,6 +2,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EmbeddingProviderId } from '../../../vector'
 import { EMBEDDING_PROVIDERS } from '../../../vector'
+import { safeOllamaFetch } from '../../../vector/lib/ollama-url-safety'
 
 const CACHE_VERSION = 'v1'
 const CACHE_TTL_MS = 30_000
@@ -18,7 +19,10 @@ export type ProviderAvailabilityEntry = ProviderAvailability & {
 }
 
 export type EmbeddingProviderProbe = {
-  checkAvailability(providerId: EmbeddingProviderId, options?: { force?: boolean }): Promise<ProviderAvailability>
+  checkAvailability(
+    providerId: EmbeddingProviderId,
+    options?: { force?: boolean; baseUrl?: string },
+  ): Promise<ProviderAvailability>
 }
 
 const ALL_PROVIDERS: EmbeddingProviderId[] = ['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']
@@ -80,7 +84,7 @@ export async function probeOllama(baseUrl: string): Promise<ProviderAvailability
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), OLLAMA_PROBE_TIMEOUT_MS)
   try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/tags`, {
+    const response = await safeOllamaFetch(`${baseUrl.replace(/\/$/, '')}/api/tags`, {
       method: 'GET',
       signal: controller.signal,
     })
@@ -104,10 +108,13 @@ export async function probeOllama(baseUrl: string): Promise<ProviderAvailability
   }
 }
 
-async function computeAvailability(providerId: EmbeddingProviderId): Promise<ProviderAvailability> {
+async function computeAvailability(
+  providerId: EmbeddingProviderId,
+  options?: { baseUrl?: string },
+): Promise<ProviderAvailability> {
   try {
     if (providerId === 'ollama') {
-      return await probeOllama(ollamaBaseUrl())
+      return await probeOllama(options?.baseUrl?.trim() || ollamaBaseUrl())
     }
     return keyPresence(providerId)
   } catch (error) {
@@ -119,11 +126,12 @@ async function computeAvailability(providerId: EmbeddingProviderId): Promise<Pro
 export function createEmbeddingProviderProbe(container: AppContainer): EmbeddingProviderProbe {
   const checkAvailability = async (
     providerId: EmbeddingProviderId,
-    options?: { force?: boolean },
+    options?: { force?: boolean; baseUrl?: string },
   ): Promise<ProviderAvailability> => {
     const cache = resolveCache(container)
     const key = cacheKey(providerId)
-    if (!options?.force && cache) {
+    const probesCandidateUrl = providerId === 'ollama' && options?.baseUrl !== undefined
+    if (!options?.force && !probesCandidateUrl && cache) {
       try {
         const cached = await cache.get(key)
         if (cached && typeof cached === 'object' && 'available' in cached) {
@@ -131,8 +139,8 @@ export function createEmbeddingProviderProbe(container: AppContainer): Embedding
         }
       } catch {}
     }
-    const result = await computeAvailability(providerId)
-    if (cache) {
+    const result = await computeAvailability(providerId, options)
+    if (cache && !probesCandidateUrl) {
       try {
         await cache.set(key, result, { ttl: CACHE_TTL_MS })
       } catch {}

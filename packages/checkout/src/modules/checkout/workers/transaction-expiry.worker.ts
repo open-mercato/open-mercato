@@ -14,6 +14,8 @@ const EXPIRY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours
 
 export type CheckoutExpiryJob = {
   batchSize?: number
+  tenantId: string
+  organizationId: string
 }
 
 export const metadata: WorkerMeta = {
@@ -32,14 +34,23 @@ export default async function handle(job: QueuedJob<CheckoutExpiryJob>, ctx: Han
   const batchSize = job.payload?.batchSize ?? 100
   const cutoff = new Date(Date.now() - EXPIRY_TIMEOUT_MS)
 
+  if (!job.payload?.tenantId || !job.payload?.organizationId) {
+    throw new Error('[internal] tenantId and organizationId are required in CheckoutExpiryJob')
+  }
+
+  const { tenantId, organizationId } = job.payload
+
   const staleTransactions = await findWithDecryption(
     em,
     CheckoutTransaction,
     {
       status: 'processing',
       createdAt: { $lt: cutoff },
+      tenantId,
+      organizationId,
     },
     { limit: batchSize, orderBy: { createdAt: 'ASC' } },
+    { tenantId, organizationId },
   )
 
   for (const transaction of staleTransactions) {

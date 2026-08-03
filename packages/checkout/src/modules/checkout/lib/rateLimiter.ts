@@ -1,4 +1,15 @@
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { getClientIp, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
+import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+
+export function buildCheckoutRateLimitKey(
+  req: Request,
+  rateLimiter: RateLimiterService,
+  namespace: string,
+): string {
+  const clientKey = getClientIp(req, rateLimiter.trustProxyDepth) ?? RATE_LIMIT_FALLBACK_KEY
+  return `${namespace}:${clientKey}`
+}
 
 export const checkoutPublicViewRateLimitConfig = readEndpointRateLimitConfig('CHECKOUT_PUBLIC_VIEW', {
   points: 60,

@@ -103,13 +103,19 @@ const crud = makeCrudRoute({
     entity: FeatureToggle,
     idField: 'id',
     orgField: null,
-    tenantField: "tenantId",
+    // The query engine requires the caller's tenant context even when the
+    // underlying entity is global; the list below explicitly disables its
+    // automatic tenant predicate.
+    tenantField: 'tenantId',
     softDeleteField: 'deletedAt'
   },
   indexer: { entityType: E.feature_toggles.feature_toggle },
   list: {
     schema: listQuerySchema,
     entityId: E.feature_toggles.feature_toggle,
+    // FeatureToggle rows and their query-index projections are global
+    // (null/null scope), so filtering them by the actor's tenant hides them.
+    omitAutomaticTenantOrgScope: true,
     fields: listFields,
     sortFieldMap: {
       id: 'id',

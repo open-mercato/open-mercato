@@ -2,6 +2,7 @@ import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entit
 import type { ActionLogCreateInput } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { commandRegistry } from './registry'
 import type {
+  BulkImportSuppression,
   CommandExecutionOptions,
   CommandExecuteResult,
   CommandHandler,
@@ -30,6 +31,7 @@ import {
 } from './command-interceptor-runner'
 import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'commands' })
@@ -45,6 +47,28 @@ const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
 function asRecord(input: unknown): Record<string, unknown> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   return input as Record<string, unknown>
+}
+
+/** Command handlers often return domain keys (e.g. warehouseId) without `id`; cache invalidation must still resolve the record. */
+function extractPrimaryIdFromCommandResult(result: unknown): string | null {
+  const r = asRecord(result)
+  if (!r) return null
+  const direct = pickFirstIdentifier(r.id, r.entityId, r.recordId)
+  if (direct) return direct
+  for (const key of [
+    'warehouseId',
+    'zoneId',
+    'locationId',
+    'lotId',
+    'reservationId',
+    'profileId',
+    'movementId',
+    'balanceId',
+  ]) {
+    const v = r[key]
+    if (typeof v === 'string' && v.trim().length > 0) return v.trim()
+  }
+  return null
 }
 
 function toISOString(value: unknown): string | null {
@@ -296,7 +320,11 @@ export class CommandBus {
     if (!effectiveOptions.skipCacheInvalidation) {
       await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
     }
-    await this.flushCrudSideEffects(effectiveOptions.ctx.container)
+    // Bulk-import backfills defer heavy per-record side effects: the ctx flags are read here and
+    // threaded as a local into the flush (never stored on the shared dataEngine), so a concurrent
+    // command with different flags can't observe them. Reindex is restored by the caller's
+    // end-of-run `query_index rebuild`. Mirrors `skipCacheInvalidation` above.
+    await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx?.bulkImport)
     return { result: finalResult, logEntry }
   }
 
@@ -579,6 +607,7 @@ export class CommandBus {
 
       const recordId = pickFirstIdentifier(
         metadata?.resourceId,
+        extractPrimaryIdFromCommandResult(result),
         resultRecord?.entityId,
         resultRecord?.id,
         resultRecord?.recordId,
@@ -665,11 +694,14 @@ export class CommandBus {
     }
   }
 
-  private async flushCrudSideEffects(container: AwilixContainer): Promise<void> {
+  private async flushCrudSideEffects(container: AwilixContainer, suppress?: BulkImportSuppression): Promise<void> {
     try {
       const dataEngine = (container.resolve('dataEngine') as DataEngine)
-      await dataEngine.flushOrmEntityChanges()
-    } catch {
+      await dataEngine.flushOrmEntityChanges(suppress)
+    } catch (error) {
+      if (isReadProjectionAlwaysConsistent()) {
+        throw error
+      }
       // best-effort: failures should not block command execution
     }
   }

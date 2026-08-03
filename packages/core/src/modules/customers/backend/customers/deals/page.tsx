@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
@@ -1146,7 +1147,7 @@ export default function CustomersDealsPage() {
           }}
           exporter={exportConfig}
           entityId={E.customers.customer_deal}
-          perspective={{ tableId: 'customers.deals.list' }}
+          perspective={{ tableId: extensionPoints.hosts.dealsTable.tableId }}
           advancedFilter={{
             auto: true,
             value: filterPanel.tree,

@@ -3,15 +3,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { hasFeature } from '@open-mercato/shared/security/features'
-import {
-  resolveOpenCodeModel,
-  requireOpenCodeProviderApiKey,
-} from '@open-mercato/shared/lib/ai/opencode-provider'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { InboxProposal, InboxProposalAction, InboxDiscrepancy } from './data/entities'
 import { inboxProposalCategoryEnum } from './data/validators'
 import { executeAction } from './lib/executionEngine'
-import { resolveExtractionProviderId, createStructuredModel, withTimeout } from './lib/llmProvider'
+import { resolveConfiguredStructuredModel, withTimeout } from './lib/llmProvider'
 import { resolveOptionalEventBus } from './lib/eventBus'
 
 type ToolContext = {
@@ -315,8 +311,10 @@ Returns on error: error message with appropriate detail.`,
 
     // Check target module permission
     if (action.requiredFeature) {
-      const featureGranted =
-        ctx.isSuperAdmin || hasFeature(ctx.userFeatures, action.requiredFeature)
+      const featureGranted = authorizeFeatures([action.requiredFeature], {
+        grantedFeatures: ctx.userFeatures,
+        unrestricted: ctx.isSuperAdmin,
+      })
       if (!featureGranted) {
         return {
           error: 'Insufficient permissions',
@@ -394,11 +392,7 @@ Input text is limited to 10,000 characters for cost control.`,
   handler: async (input: { text: string }, ctx: ToolContext) => {
     requireTenantContext(ctx)
 
-    const providerId = resolveExtractionProviderId()
-    const apiKey = requireOpenCodeProviderApiKey(providerId)
-
-    const modelConfig = resolveOpenCodeModel(providerId, {})
-    const model = await createStructuredModel(providerId, apiKey, modelConfig.modelId)
+    const { model } = await resolveConfiguredStructuredModel({ moduleId: 'inbox_ops' })
 
     const { generateObject } = await import('ai')
 

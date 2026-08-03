@@ -15,7 +15,7 @@ import {
   type DealOption,
   type RelatedEntityOption,
 } from './lookups'
-import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge } from './inputs'
+import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
 
 const OPTION_ROW_CLASS =
   'h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground'
@@ -37,6 +37,8 @@ export function RelatedToField({
 }) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
+  const closeDropdown = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, closeDropdown)
   const [query, setQuery] = React.useState('')
   const [options, setOptions] = React.useState<RelatedEntityOption[]>([])
   const [deals, setDeals] = React.useState<DealOption[]>([])
@@ -92,6 +94,7 @@ export function RelatedToField({
 
   return (
     <div
+      ref={rootRef}
       className="relative w-full"
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)
@@ -99,7 +102,7 @@ export function RelatedToField({
     >
       <div
         className={cn(
-          'flex h-10 w-full items-center rounded-md bg-background pl-2.5 pr-3',
+          'flex h-10 w-full items-center rounded-md bg-background pl-2.5 pr-3 transition-colors hover:bg-accent/50',
           error ? 'border border-status-error-border' : CONTROL_BORDER,
         )}
       >
@@ -110,7 +113,7 @@ export function RelatedToField({
           aria-expanded={open}
           aria-label={label}
           onClick={() => setOpen((previous) => !previous)}
-          className="h-full min-w-0 flex-1 justify-between rounded-none bg-transparent p-0 text-left shadow-none hover:bg-transparent"
+          className="h-full min-w-0 flex-1 justify-between rounded-none bg-transparent p-0 text-left shadow-none hover:bg-transparent dark:hover:bg-transparent"
         >
           <span className="flex min-w-0 items-center gap-2">
             {value ? (
@@ -180,6 +183,7 @@ export function RelatedToField({
                   role="option"
                   aria-selected={value?.id === option.id}
                   aria-label={composeAccessibleName([option.label, option.subtitle, kindLabel(option.kind)])}
+                  title={composeAccessibleName([option.label, option.subtitle])}
                   onClick={() => {
                     onChange({ id: option.id, kind: option.kind, label: option.label })
                     if (value?.id !== option.id) onDealChange(null)
@@ -223,6 +227,7 @@ export function RelatedToField({
                   variant="ghost"
                   role="option"
                   aria-selected={deal?.id === option.id}
+                  title={option.label}
                   onClick={() => {
                     onDealChange(option)
                     setOpen(false)

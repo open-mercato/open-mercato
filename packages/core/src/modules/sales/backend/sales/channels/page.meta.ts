@@ -1,6 +1,10 @@
+import type { RouteVisibilityContext } from '@open-mercato/shared/modules/registry'
+import { isSalesChannelsEnabledForTenant } from '../../../lib/salesChannelsToggle'
+
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['sales.channels.manage'],
+  visible: (ctx: RouteVisibilityContext) => isSalesChannelsEnabledForTenant(ctx.auth?.tenantId ?? null),
   pageTitle: 'Sales channels',
   pageTitleKey: 'sales.channels.nav.title',
   pageGroup: 'Sales',

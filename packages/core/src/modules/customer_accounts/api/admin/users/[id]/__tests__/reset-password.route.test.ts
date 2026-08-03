@@ -49,6 +49,7 @@ import { POST } from '@open-mercato/core/modules/customer_accounts/api/admin/use
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '33333333-3333-4333-8333-333333333333'
+const foreignOrgId = '55555555-5555-4555-8555-555555555555'
 const adminId = '44444444-4444-4444-8444-444444444444'
 const userId = '22222222-2222-4222-8222-222222222222'
 
@@ -168,6 +169,31 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
 
     expect(res.status).toBe(404)
     expect(mockTransactional).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 before changing a same-tenant foreign-org user password', async () => {
+    const foreignUser = {
+      id: userId,
+      tenantId,
+      organizationId: foreignOrgId,
+      email: 'foreign@example.com',
+    }
+    mockFindById.mockImplementation(async (
+      _id: string,
+      _tenantId: string,
+      organizationId?: string,
+    ) => organizationId === orgId ? null : foreignUser)
+
+    const res = await POST(
+      makeRequest({ newPassword: 'new-strong-Passw0rd!' }),
+      { params: { id: userId } },
+    )
+
+    expect(res.status).toBe(404)
+    expect(mockTransactional).not.toHaveBeenCalled()
+    expect(mockUpdatePassword).not.toHaveBeenCalled()
+    expect(mockRevokeAllUserSessions).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
   })
 

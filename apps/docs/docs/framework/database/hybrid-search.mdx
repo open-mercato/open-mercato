@@ -5,44 +5,55 @@ description: Configure searchable entities, strategies, and the unified search s
 
 The `@open-mercato/search` module provides a pluggable search architecture with multiple strategy support. It orchestrates parallel execution across backends, merges results using Reciprocal Rank Fusion, and handles graceful degradation when providers are unavailable.
 
+:::tip Read this first — the mental model that prevents bugs
+Search is often described as "three interchangeable query-time strategies." That is only the **read** side. Underneath there are **three physically independent stores**, each with its **own owner, writer, and reindex pipeline** — and **no single command rebuilds all of them**. In particular, the CLI command `yarn mercato search reindex` **does not populate the Meilisearch fulltext index**. See [Three stores, three pipelines](#three-stores-three-pipelines) before touching indexing.
+:::
+
 ## Module Anatomy
 
 - **Package**: `@open-mercato/search`
-- **Strategies**: `TokenSearchStrategy`, `VectorSearchStrategy`, `MeilisearchStrategy`
+- **Strategies (read interface)**: `TokenSearchStrategy` (id `tokens`), `VectorSearchStrategy` (id `vector`), `FullTextSearchStrategy` (id `fulltext`)
 - **Generated hooks**: `searchService`, `searchStrategies`, `searchIndexer` registered at boot
 - **Subscribers**: Listens to `search.index_record` and `search.delete_record` events
 
-```ts title="packages/search/src/di.ts"
+The three built-in strategy ids are declared in `packages/shared/src/modules/search.ts`:
+
+```ts
+export type SearchStrategyId = 'tokens' | 'vector' | 'fulltext' | (string & Record<string, never>)
+```
+
+`FullTextSearchStrategy` is backed by a pluggable **fulltext driver**; today the only implemented driver is Meilisearch (`createFulltextDriver()` returns it when `MEILISEARCH_HOST` is set). The DI wiring registers each strategy that is not skipped:
+
+```ts title="packages/search/src/di.ts (simplified)"
 export function registerSearchModule(container: SearchContainer, options?: SearchModuleOptions): void {
   const strategies: SearchStrategy[] = []
 
-  // Token strategy (always available)
+  // Token strategy (always available) — Postgres search_tokens via Kysely
   if (!options?.skipTokens) {
-    const knex = container.resolve<Knex>('knex')
-    strategies.push(new TokenSearchStrategy(knex))
+    const db = container.resolve<EntityManager>('em').getKysely()
+    strategies.push(new TokenSearchStrategy(db))
   }
 
-  // Vector strategy (requires embedding service)
+  // Vector strategy (registered even if not yet available; checked lazily at search time)
   if (!options?.skipVector) {
     const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
     const drivers = container.resolve<VectorDriver[]>('vectorDrivers')
-    if (embeddingService?.isConfigured?.() && drivers?.[0]) {
-      strategies.push(new VectorSearchStrategy(embeddingService, drivers[0]))
-    }
+    strategies.push(new VectorSearchStrategy(embeddingService, drivers[0]))
   }
 
-  // Meilisearch strategy (requires host configuration)
-  if (!options?.skipMeilisearch && process.env.MEILISEARCH_HOST) {
-    strategies.push(new MeilisearchStrategy())
+  // Fulltext strategy — wraps a pluggable driver (Meilisearch today)
+  if (!options?.skipFulltext) {
+    const fulltextDriver = createFulltextDriver({ host: process.env.MEILISEARCH_HOST, /* ... */ })
+    if (fulltextDriver) strategies.push(new FullTextSearchStrategy(fulltextDriver))
   }
 
   const searchService = new SearchService({
     strategies,
-    defaultStrategies: determineDefaultStrategies(strategies),
+    defaultStrategies: determineDefaultStrategies(strategies), // prefers fulltext > vector > tokens
     fallbackStrategy: 'tokens',
     mergeConfig: {
       duplicateHandling: 'highest_score',
-      strategyWeights: { meilisearch: 1.2, vector: 1.0, tokens: 0.8 },
+      strategyWeights: { fulltext: 1.2, vector: 1.0, tokens: 0.8 },
     },
   })
 
@@ -54,6 +65,68 @@ export function registerSearchModule(container: SearchContainer, options?: Searc
 }
 ```
 
+## Three stores, three pipelines
+
+The strategy layer is the **read** interface. Writes land in three independent physical stores:
+
+| Store | Backend | Owned by | Written by | Read by |
+|-------|---------|----------|------------|---------|
+| **`search_tokens`** | Postgres table | **query_index** module | The tokenizer during projection (`buildSearchTokenRows` / `replaceSearchTokensForRecord` in `query_index/lib/search-tokens.ts`) | `TokenSearchStrategy` **and directly by list-API routes** |
+| **Fulltext** | Meilisearch | **@open-mercato/search** | The fulltext driver, driven by the `fulltext-indexing` queue/worker | `FullTextSearchStrategy` |
+| **Vector** | pgvector / qdrant / chromadb | **@open-mercato/search** + query_index | `VectorSearchStrategy.index` via the `vector-indexing` queue; embeddings from an `EmbeddingService` | `VectorSearchStrategy` |
+
+**Key invariant: rebuilding one store does not rebuild the others.** They have separate population pipelines, described next.
+
+## Reindexing & keeping indexes fresh
+
+### Incremental (on every record write)
+
+Emitted from `query_index/subscribers/upsert_one.ts` (event `query_index.upsert_one`):
+
+1. Synchronously updates the `entity_indexes` projection row (read-your-writes for list endpoints).
+2. Deferred, fire-and-forget:
+   - `reindexSearchTokensForRecord` → rebuilds **`search_tokens`** for the record.
+   - emits `query_index.vectorize_one` → **vector** store.
+   - emits `search.index_record` → `fulltext_upsert` subscriber → enqueues onto `fulltext-indexing` → worker → `searchService.index` → fulltext driver → **Meilisearch**.
+
+```ts
+// query_index/subscribers/upsert_one.ts (deferred block)
+await reindexSearchTokensForRecord(em, { ...doc })          // search_tokens
+await bus.emitEvent('query_index.vectorize_one', { ... })   // vector store
+await bus.emitEvent('search.index_record', {                // -> fulltext-indexing -> Meilisearch
+  entityId: 'customers:customer_person_profile',
+  recordId: '123',
+  tenantId: 'tenant-abc',
+  organizationId: 'org-xyz',
+})
+```
+
+Deletes mirror this via `search.delete_record`.
+
+### Bulk / operator-triggered
+
+There are **three separate reindex entry points, each covering a different subset of stores**:
+
+| Entry point | Rebuilds | Populates Meilisearch? |
+|-------------|----------|------------------------|
+| **CLI** `yarn mercato search reindex` | `entity_indexes` projection + **`search_tokens`** + emits **vector** events | **No** |
+| **Core API** `POST /api/query_index/reindex` (feature `query_index.reindex`) | Same `reindexEntity` path — projection + tokens + vector | **No** |
+| **Search API** `POST /api/search/reindex` (feature `search.reindex`) | Recreates and repopulates the **Meilisearch** index | **Yes — the only fulltext bulk path** |
+| **Vector API** `POST /api/search/embeddings/reindex` (feature `search.manage`) | Vector store only | No |
+
+:::warning The `search reindex` trap
+`yarn mercato search reindex` is a **tokens + projection + vector** reindex. It does **not** touch Meilisearch, despite the historical help string. To rebuild the fulltext index after a bulk data change, call `POST /api/search/reindex`. For the fulltext path to actually drain you need `QUEUE_STRATEGY=async` and a running worker: `yarn mercato search worker fulltext-indexing`.
+:::
+
+## Division of labor
+
+Which store answers which query:
+
+- **Global search / Cmd+K** (`GET /api/search/global`) — uses the tenant's saved strategy set (default `['fulltext','vector','tokens']`). Fulltext (Meilisearch) is the intended fuzzy/typo-tolerant backend; tokens participate as an always-available fallback. `GET /api/search` additionally accepts a `strategies` override.
+- **AI assistant** (`search.hybrid_search`) — resolves the same `SearchService`.
+- **DataTable list / column filters** — do **not** go through `SearchService`. Each list route (customers, auth users, customer_accounts, messages) queries **`search_tokens` directly**, because searchable PII columns are **encrypted at rest** and `ILIKE` on ciphertext cannot match plaintext. This is why the token index must exist even when Meilisearch is configured.
+- **Exact-match on encrypted PII** (`fieldPolicy.hashOnly`: email, phone, tax_id) — served by token-hash presence, plus a dedicated `emailHash` column for email.
+
 ## Declaring Searchable Entities
 
 Modules opt in by exporting `searchConfig` from `src/modules/<module>/search.ts`.
@@ -62,7 +135,7 @@ Modules opt in by exporting `searchConfig` from `src/modules/<module>/search.ts`
 import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
 
 export const searchConfig: SearchModuleConfig = {
-  defaultStrategies: ['meilisearch', 'tokens'],
+  defaultStrategies: ['fulltext', 'tokens'],
   entities: [
     {
       entityId: 'customers:customer_person_profile',
@@ -133,73 +206,81 @@ interface SearchStrategy {
 }
 ```
 
-### TokenSearchStrategy
+### TokenSearchStrategy (id `tokens`, priority 10)
 
-Uses PostgreSQL `search_tokens` table with hashed tokens. Always available, works with encrypted data.
+Reads the Postgres `search_tokens` table (hashed tokens) via Kysely. Always available, works with encrypted data.
 
 ```ts
-const strategy = new TokenSearchStrategy(knex)
+const strategy = new TokenSearchStrategy(db)
 await strategy.search('john doe', { tenantId: 'tenant-123' })
 ```
 
-### VectorSearchStrategy
+### VectorSearchStrategy (id `vector`, priority 20)
 
-Wraps the vector module's embedding service and driver. Requires configured embedding provider.
+Wraps an `EmbeddingService` and a pluggable `VectorDriver` (pgvector / qdrant / chromadb). Requires a configured embedding provider.
 
 ```ts
 const strategy = new VectorSearchStrategy(embeddingService, vectorDriver)
 await strategy.search('customer support issues', { tenantId: 'tenant-123' })
 ```
 
-### MeilisearchStrategy
+### FullTextSearchStrategy (id `fulltext`, priority 30)
 
-Uses Meilisearch for fast full-text fuzzy search with typo tolerance.
+Wraps a pluggable `FullTextSearchDriver` for fast full-text fuzzy search with typo tolerance. The only implemented driver today is Meilisearch (chosen automatically when `MEILISEARCH_HOST` is set).
 
 ```ts
-const strategy = new MeilisearchStrategy({
+const driver = createFulltextDriver({
   host: process.env.MEILISEARCH_HOST,
   apiKey: process.env.MEILISEARCH_API_KEY,
 })
+const strategy = new FullTextSearchStrategy(driver)
 await strategy.search('jhon doe', { tenantId: 'tenant-123' }) // handles typos
 ```
 
 ## Result Merging
 
-The `mergeAndRankResults` function implements Reciprocal Rank Fusion (RRF):
+`SearchService.search()` runs the selected strategies in parallel (`Promise.allSettled`), then `mergeAndRankResults` combines them with weighted Reciprocal Rank Fusion (RRF):
 
 ```ts
-// RRF score: weight / (k + rank + 1)
-// k = 60 (constant), rank = position in strategy results
+// RRF score: weight / (k + rank + 1), k = 60 (constant), rank = position in strategy results
 
 const merged = mergeAndRankResults(results, {
   duplicateHandling: 'highest_score',
   strategyWeights: {
-    meilisearch: 1.2,  // Boost Meilisearch results
+    fulltext: 1.2,  // Boost fulltext (Meilisearch) results
     vector: 1.0,
-    tokens: 0.8,       // Lower weight for token results
+    tokens: 0.8,    // Lower weight for token results
   },
   minScore: 0.01,
 })
 ```
 
+A strategy that fails or is unavailable is skipped, not fatal; if none are available the service falls back to `tokens`.
+
 ## Field Policy
 
-The `extractSearchableFields` function filters records based on encryption configuration:
+Per-entity `fieldPolicy` controls which fields reach which store:
 
-```ts
-import { extractSearchableFields } from '@open-mercato/search'
+- `searchable` — fuzzy-indexed (Meilisearch / vector text).
+- `hashOnly` — hashed into `search_tokens` for exact/prefix match without exposing plaintext (email, phone, tax_id).
+- `excluded` — never indexed anywhere (passwords, secrets, government ids).
 
-// Automatically removes encrypted and sensitive fields
-const safeFields = extractSearchableFields(record.fields, 'customers:customer_person_profile')
-```
-
-Sensitive field patterns detected automatically:
-- `password`, `secret`, `token`, `api_key`
-- `ssn`, `tax_id`, `bank`, `credit_card`
+In addition, the tokenizer applies a global blocklist: the built-in `password,token,secret,hash` plus anything in `OM_SEARCH_FIELD_BLOCKLIST`.
 
 ## Event Integration
 
-The search module subscribes to events emitted by the query_index module:
+The search module subscribes to events emitted by the query_index module. The **full incremental chain** is:
+
+```text
+record write
+  → query_index.upsert_one (subscriber)
+      → entity_indexes projection (sync)
+      → reindexSearchTokensForRecord         → search_tokens
+      → query_index.vectorize_one            → vector store
+      → search.index_record                  → fulltext_upsert subscriber
+                                                 → fulltext-indexing queue
+                                                   → worker → searchService.index → Meilisearch
+```
 
 ```ts
 // Emitted from query_index/subscribers/upsert_one.ts
@@ -237,20 +318,54 @@ await indexer.indexRecord({
 ## Environment Configuration
 
 ```bash
-# Meilisearch (enables MeilisearchStrategy)
+# Fulltext — Meilisearch (enables FullTextSearchStrategy)
 MEILISEARCH_HOST=http://localhost:7700
 MEILISEARCH_API_KEY=your_master_key_here
 MEILISEARCH_INDEX_PREFIX=om
+SEARCH_EXCLUDE_ENCRYPTED_FIELDS=false   # keep encrypted fields out of the fulltext index
 
 # Vector (enables VectorSearchStrategy via embedding providers)
 OPENAI_API_KEY=sk-...
 # See vector-search.mdx for all embedding provider options
 
-# Token search (built-in, enabled by default)
-OM_SEARCH_ENABLED=true
-OM_SEARCH_MIN_LEN=3
-OM_SEARCH_ENABLE_PARTIAL=true
+# Async indexing (required for the fulltext + vector queues to drain)
+QUEUE_STRATEGY=async
+REDIS_URL=redis://localhost:6379
 ```
+
+The `OM_SEARCH_*` flags below are **token/Postgres-only** — they tune the `search_tokens` index and have **no effect on Meilisearch or the vector store**:
+
+| Variable | Default | Controls |
+|----------|---------|----------|
+| `OM_SEARCH_ENABLED` | `true` | Master kill-switch for token building and `TokenSearchStrategy`. |
+| `OM_SEARCH_MIN_LEN` | `3` | Minimum token length; also the floor of prefix expansion. |
+| `OM_SEARCH_ENABLE_PARTIAL` | `true` | Prefix/partial expansion — indexing "john" stores hashes for `joh`,`john`. Enables prefix matching at the cost of ~5–6× more `search_tokens` rows. |
+| `OM_SEARCH_HASH_ALGO` | `sha256` | Token hash algorithm (`sha1`/`md5` also accepted). |
+| `OM_SEARCH_STORE_RAW_TOKENS` | `false` | Store plaintext token alongside the hash — **security-sensitive**; avoid in production. |
+| `OM_SEARCH_FIELD_BLOCKLIST` | — | Comma-separated extra field names excluded from tokenization (merged with built-in `password,token,secret,hash`). See below for entity-scoped entries. |
+| `OM_SEARCH_DEBUG` | `false` | Verbose token/indexing debug logging (redacted — never logs raw tokens or PII). |
+
+### Excluding fields from the token index
+
+`OM_SEARCH_FIELD_BLOCKLIST` gates both the per-field tokens and the aggregate `search_text`
+field that every entity's search actually queries. Because `search_text` concatenates the
+record's string fields, a field must be blocklisted for it to stay out of the index — you
+cannot blocklist `search_text` itself without disabling search for that entity.
+
+Each comma-separated entry matches field names by substring (case-insensitive), and may carry
+an optional `entityType@` prefix to scope it to a single entity type:
+
+```bash
+# `body` is excluded everywhere; `notes` only on customer interactions
+OM_SEARCH_FIELD_BLOCKLIST=body,customers:customer_interaction@notes
+```
+
+This matters for volume as much as for privacy: with prefix expansion enabled, a large
+free-text column such as an imported e-mail body can dominate `search_tokens`.
+
+Changes take effect for documents built after the change — **reindex the affected entities**
+(`yarn mercato query_index reindex --entity <entityType>`) to drop tokens that are already
+stored.
 
 ## Adding Custom Strategies
 
@@ -270,3 +385,5 @@ export function register(container: AppContainer) {
   }
 }
 ```
+
+Adding a new **fulltext backend** (Typesense, Elasticsearch, …) is better done as a `FullTextSearchDriver` behind `FullTextSearchStrategy` — shipped in a dedicated provider package — so it reuses the existing indexing pipeline. See the search architecture spec (`.ai/specs/2026-07-24-search-architecture-clarification-and-evolution.md`) for the roadmap.

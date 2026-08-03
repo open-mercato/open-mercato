@@ -4,6 +4,26 @@
 
 Recurring patterns and mistakes to avoid. Review at session start.
 
+## Query-index custom-field cardinality comes from definitions, not row count
+
+**Context**: A `multi: true` todo label containing one value was searchable, but reopening the edit form showed no tag. The query-index builder collapsed every one-row custom-field group to a scalar, while the controlled tags input correctly accepted only an array.
+
+**Problem**: Inferring cardinality from the current number of stored rows makes the same field change wire shape between one and two values. Read forms then cannot reliably hydrate multi controls, even though token search still sees the scalar value.
+
+**Rule**: When building query-index documents, resolve the scoped custom-field definition and preserve arrays for `multi: true` fields even when exactly one value is stored. Use the shared definition-selection helpers so tenant/organization overrides match CRUD response decoration.
+
+**Applies to**: `packages/core/src/modules/query_index/lib/indexer.ts`, custom-field projection builders, CRUD list responses backed by `entity_indexes.doc`, and edit forms for tags/listbox/multi-select fields.
+
+## CRUD-owned custom-field writes should not emit a second entity event
+
+**Context**: Generic CRUD routes save scalar entity data and custom fields, then emit the canonical CRUD side effect with events and query-index configuration. Letting the intermediate `setCustomFields()` call also emit `<module>.<entity>.updated` creates a second event path through the query-index DI bridge.
+
+**Problem**: The duplicate path can run inside the write transaction, swallow query-index failures as best-effort event work, and obscure the single request-owned side-effect path that is supposed to surface always-consistent index failures.
+
+**Rule**: When a CRUD route owns both the custom-field write and the subsequent `markOrmEntityChange()` / `flushOrmEntityChanges()` call, pass `notify: false` to `setCustomFields()`. The canonical created/updated/deleted side effect should be emitted exactly once after the entity/custom-field write succeeds. That is only half of the dedupe contract: when `DataEngine` also owns an explicit `indexer`, mark its domain-event payload as query-index-managed and have the legacy DI domain bridge skip it (including `skipReindex`). Keep internal ownership markers non-enumerable so client-broadcast and persisted event payloads preserve their public shape. Otherwise the canonical domain event and the inline `query_index.upsert_one` still index the same record twice and duplicate failure logs.
+
+**Applies to**: `packages/shared/src/lib/crud/factory.ts`, command helpers that compose custom fields with CRUD side effects, and module routes that manually combine `setCustomFields()` with query-index side effects.
+
 ## We've got centralized helpers for extracting `UndoPayload`
 
 Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.
@@ -799,7 +819,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: When a task brief, review artifact, or QA guide says Playwright or integration coverage is required, add or update a module-local `__integration__/TC-*.spec.ts` in the same change. Treat Jest or other low-level tests as complementary, not a replacement.
 
-**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.ai/skills/om-integration-tests/SKILL.md`.
+**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.agents/skills/om-integration-tests/SKILL.md`.
 
 ## Provider credentials must never control authenticated cross-origin requests
 
@@ -848,7 +868,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: Do not add executable `.spec.ts` files under `.ai/qa/tests/`. Place Playwright integration specs under the owning module's `__integration__/` directory, and keep `.ai/qa/tests/` reserved for shared Playwright configuration only.
 
-**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.ai/skills/om-integration-tests/SKILL.md`.
+**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.agents/skills/om-integration-tests/SKILL.md`.
 
 ## Component-scoped notification effects must not depend on header chrome
 
@@ -969,3 +989,96 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
+
+- Notification read scopes must distinguish selected, unrestricted, no-access, and omitted legacy semantics in filters, cache behavior, and isolated integration fixtures.
+- 2026-07-11 · shared data engine: tenant-scope tests covered explicit null but not omitted scope → parameterize non-null, null, and omitted tenantId for every predicate path.
+
+## Shared security-default changes require a complete consumer audit
+
+**Context**: Hardening the shared rate-limit proxy-depth default fixed auth and metadata-driven consumers, but checkout public routes still passed a hard-coded trust depth of `1`.
+
+**Problem**: A secure shared default has no effect when a downstream consumer overrides it. Direct checkout deployments could still trust attacker-controlled forwarding headers and rotate rate-limit buckets.
+
+**Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
+
+**Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-07-10 · payment_gateways: mock-only idempotency coverage missed Stripe partial-refund terminalization and retry advancement → test production adapters, successor-state reconciliation, and rerunnable operation IDs.
+- 2026-07-09 · customer_accounts: organization-scoped RBAC queries can still trust pre-hardening ACL caches → version the cache-key namespace when authorization semantics change
+- 2026-07-10 · payment_gateways: a stale-claim lease without owner heartbeats can steal slow live provider calls; renew token-scoped leases during provider I/O and let followers wait for the shared result.
+- 2026-07-09 · api_keys: Do not confuse a superadmin's immutable actor tenant with its intentional selected-tenant CRUD scope → fail-close organization arrays without overriding effective `auth.tenantId`.
+- 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
+- 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
+- 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+## Classify entity metadata by ORM ownership before custom declarations
+
+**Context**: Entity metadata ACL filtering must distinguish module-owned ORM entities from genuinely custom entities, but `ce.ts` declarations can describe both kinds.
+
+**Problem**: Treating every declared entity as custom made ORM-backed entities require `entities.records.view`, bypassing their owning module's mapped view permission.
+
+**Rule**: Check `isOrmBackedSystemEntityId` first; only classify non-ORM declarations or registrations as custom for metadata authorization.
+
+**Applies to**: entity definitions, entity catalogues, schema discovery, and other target-aware entity metadata ACL checks.
+
+## Security caches must outlive request-scoped providers and cover reserved IPv6 space
+
+**Context**: OIDC discovery hardening initially cached configurations on a provider that dependency injection recreates per request, while the shared IP classifier omitted several IANA-reserved IPv6 prefixes.
+
+**Rule**: Put bounded outbound-discovery caches at process scope when providers are request-scoped, key them by every credential/config input, and verify reserved IPv4 and IPv6 ranges against public-address controls.
+
+**Applies to**: SSRF guards, OIDC/OAuth discovery, JWKS/token/user-info clients, and request-scoped outbound provider services.
+
+## DNS pinning must keep fetch and dispatcher implementations compatible
+
+**Context**: A pinned outbound request used an `undici` package `Agent` with Node's bundled global `fetch`, then returned only the legacy single-address DNS callback shape while Node 24 requested all addresses.
+
+**Rule**: Use `fetch` and `Agent` from the same `undici` implementation, and make custom lookup callbacks support both single-address and `{ all: true }` result shapes. Cover the dispatcher path with a regression test and smoke-test at least one real HTTPS endpoint.
+
+**Applies to**: SSRF-safe fetch helpers, custom `undici` dispatchers, DNS pinning, and runtimes that enable automatic address-family selection.
+
+## Validate persisted-definition consumers before retiring legacy workflow rows
+
+**Context**: A legacy seeded checkout definition shadowed a newer code-defined workflow and carried obsolete webhook activities. Soft-deleting the row looked like the smallest way to restore code-registry fallback.
+
+**Problem**: Workflow start lookup supports code definitions, but transition, task, signal, and timer execution still resolve running instances through the persisted `definition_id`. Removing the legacy row would replace the webhook failure with missing-definition or no-transition failures after start.
+
+**Rule**: Before deleting or soft-deleting a persisted workflow that has a code-defined counterpart, trace every runtime consumer of `WorkflowInstance.definitionId`. Until all consumers support code-registry fallback or an instance snapshot, repair the persisted definition payload in place and preserve its identity and historical references.
+
+**Applies to**: workflow data migrations, code-defined workflow adoption, `workflow-executor`, transition/task/signal/timer handlers, and demo workflow upgrades.
+
+## A self-request needs data committed outside the caller's transaction
+
+**Context**: The checkout demo's `CALL_API` "Create Order Record" activity minted a one-time API key on the request EM (`container.resolve('em')`), then `fetch`ed `/api/sales/orders` with it. It failed with `401 Unauthorized` (issue #4202).
+
+**Problem**: `CALL_API` runs inside `workflowExecutor.executeWorkflow()`'s `em.transactional(...)`. The request EM is forked with `useContext: true`, so while that transaction is open MikroORM's `getContext()` redirects every operation on the container EM — including the API key's persist/flush — into the uncommitted transaction fork. The outbound self-authenticated `fetch` opens a SEPARATE pooled connection that cannot see the uncommitted key, so auth resolution returns null → 401. Resolving `'em'` from the container does not escape this; the transaction context is keyed by EM name via AsyncLocalStorage.
+
+**Rule**: When code must write a row that a subsequent out-of-band request (self `fetch`, worker, another connection) has to read, create/flush it on a context-detached EM: `em.fork({ clear: true, freshEventManager: true, useContext: false })`. That fork commits on its own pooled connection, matching the query_index/webhooks isolated-EM convention.
+
+**Applies to**: `activity-executor` `CALL_API`, any one-time credential minted for a self-request, and anything that persists data then reads it back over HTTP or from a second connection while a transaction is open.
+
+## Standalone agent context must follow the installed package, not the checkout layout
+
+**Context**: Generated apps ignore `node_modules`, while coding agents still need the exact root, package, and module `AGENTS.md` contracts plus implementation source for the installed Open Mercato version.
+
+**Rule**: Publish source and instruction files in package tarballs, resolve them through the app's declared module package and exact installed version, and materialize only the requested read-only context outside `node_modules`. Keep a versioned root/BC snapshot for offline fallback, report version skew, and never teach agents to edit or broadly ingest installed dependencies.
+
+**Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
+
+## Cross-module query precedent is not permission to copy storage coupling
+
+**Context**: Dashboard and customer analytics independently queried the currencies module's table to resolve base currency, so disabling or changing that optional module broke consumers outside its ownership boundary.
+
+**Rule**: Put peer-module table access behind a DI service owned by the source module. Optional consumers should resolve a narrow local interface fail-soft, distinguish missing and ambiguous data, and include disabled-module coverage. Treat an existing cross-module raw SQL query as coupling to retire, not a pattern to repeat.
+
+**Applies to**: optional module integrations, analytics enrichments, and any consumer that reads another module's tables or persistence details.
+
+## Keep fallible document preparation outside encryption guards
+
+**Context**: Query-index aggregation and encryption shared an empty catch, so a configuration failure could skip encryption and let a plaintext document continue to persistence.
+
+**Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
+
+**Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
+
+- 2026-08-02 · verification: sandboxed macOS rejected Homebrew Node dylibs and a fresh docs search index was absent → use the bundled Node runtime and build docs before retrying the full gate.

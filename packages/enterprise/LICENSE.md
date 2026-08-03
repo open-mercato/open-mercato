@@ -6,7 +6,7 @@
 
 You may use this package optionally for non-production, developer-only evaluation purposes.
 
-## Not allowed without a commercial license from Catch The Tornado
+## Not allowed without a commercial license from Open Mercato sp. z o.o.
 
 You may not:
 - use this package in production,

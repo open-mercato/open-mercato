@@ -26,6 +26,19 @@ function isSecretField(type: CredentialFieldType): boolean {
   return SECRET_CREDENTIAL_FIELD_TYPES.has(type)
 }
 
+function redactUrlUserinfo(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    const parsed = new URL(value)
+    if (!parsed.username && !parsed.password) return value
+    parsed.username = ''
+    parsed.password = ''
+    return parsed.toString()
+  } catch {
+    return value
+  }
+}
+
 function hasPresentValue(value: unknown): boolean {
   if (value === undefined || value === null) return false
   if (typeof value === 'string') return value.length > 0
@@ -53,6 +66,10 @@ export function maskSecretCredentials(
   const secretFieldsConfigured: Record<string, boolean> = {}
 
   for (const field of schema?.fields ?? []) {
+    if (field.type === 'url') {
+      credentials[field.key] = redactUrlUserinfo(credentials[field.key])
+      continue
+    }
     if (!isSecretField(field.type)) continue
     const configured = hasPresentValue(credentials[field.key])
     secretFieldsConfigured[field.key] = configured

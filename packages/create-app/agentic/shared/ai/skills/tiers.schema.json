@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/skills/tiers.schema.json",
+  "title": "Standalone Open Mercato skill manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["default", "external", "tiers"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "default": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/tierName" }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ignore": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["claude-code", "codex", "cursor"] }
+        }
+      }
+    },
+    "external": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "ref", "tiers", "skills", "dependencies", "contentHashes"],
+      "properties": {
+        "source": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "ref": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "description": { "type": "string" },
+        "tiers": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/tierName" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["description", "skills"],
+            "properties": {
+              "description": { "type": "string", "minLength": 1 },
+              "skills": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "$ref": "#/$defs/skillName" }
+              }
+            }
+          }
+        },
+        "skills": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/skillName" }
+        },
+        "dependencies": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "additionalProperties": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/skillName" }
+          }
+        },
+        "contentHashes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "additionalProperties": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "tiers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description", "skills"],
+        "properties": {
+          "description": { "type": "string", "minLength": 1 },
+          "skills": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/skillName" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "skillName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "tierName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+  }
+}

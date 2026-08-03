@@ -4,11 +4,13 @@ import { loadAuditLogDisplayMaps } from '@open-mercato/core/modules/audit_logs/a
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildHistoryEntries } from '../../lib/historyHelpers'
 import { SalesNote } from '../../data/entities'
@@ -66,11 +68,21 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, {
-        error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
-      })
+    // Resolve the organization scope the same way every other scoped read does.
+    // Under "All organizations" (super-admin) `rbacOrganizationId` is null and
+    // `where` is empty, so the read scopes by tenant + resource only instead of
+    // failing — the document's `id` is a tenant-unique UUID, so no cross-org leak.
+    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+    const organizationId = orgFilter.rbacOrganizationId
+
+    const requiredFeature = query.kind === 'order' ? 'sales.orders.view' : 'sales.quotes.view'
+    const rbac = container.resolve('rbacService') as RbacService
+    const hasAccess = await rbac.userHasAllFeatures(auth.sub, [requiredFeature], {
+      tenantId: auth.tenantId,
+      organizationId,
+    })
+    if (!hasAccess) {
+      throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
     }
 
     const resourceKind = query.kind === 'order' ? 'sales.order' : 'sales.quote'
@@ -81,7 +93,7 @@ export async function GET(req: Request) {
     const [actionLogList, notes] = await Promise.all([
       actionLogService.list({
         tenantId: auth.tenantId,
-        organizationId,
+        organizationId: organizationId ?? undefined,
         resourceKind,
         resourceId: query.id,
         includeRelated: true,
@@ -96,11 +108,11 @@ export async function GET(req: Request) {
           contextType: query.kind,
           contextId: query.id,
           tenantId: auth.tenantId,
-          organizationId,
+          ...orgFilter.where,
           deletedAt: null,
         },
         { orderBy: { createdAt: 'DESC' } },
-        { tenantId: auth.tenantId, organizationId },
+        { tenantId: auth.tenantId, organizationId: organizationId ?? undefined },
       ),
     ])
     const logs = actionLogList.items as ActionLog[]
@@ -159,6 +171,7 @@ const historyEntrySchema = z.object({
     statusTo: z.string().nullable().optional(),
     documentKind: z.enum(['order', 'quote']).optional(),
     commandId: z.string().optional(),
+    changedFields: z.array(z.string()).optional(),
   }).optional(),
 })
 
@@ -178,6 +191,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'History entries', schema: documentHistoryResponseSchema },
         { status: 400, description: 'Invalid query', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Document not found', schema: z.object({ error: z.string() }) },
       ],
     },
