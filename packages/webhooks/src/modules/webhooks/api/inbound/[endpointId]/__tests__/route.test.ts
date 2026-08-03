@@ -175,6 +175,26 @@ describe('POST', () => {
     expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects an oversized declared body before adapter verification', async () => {
+    const adapter = createAdapter({
+      eventType: 'mock.inbound.received',
+      payload: { ok: true },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    mockGetWebhookEndpointAdapter.mockReturnValue(adapter)
+    const request = new Request('http://localhost/api/webhooks/inbound/mock_inbound', {
+      method: 'POST',
+      headers: { 'content-length': String(1024 * 1024 + 1) },
+      body: '{}',
+    })
+
+    const response = await POST(request, routeContext)
+
+    expect(response.status).toBe(413)
+    expect(adapter.verifyWebhook).not.toHaveBeenCalled()
+  })
+
   it('rejects verified inbound webhooks without tenant and organization scope before side effects', async () => {
     mockGetWebhookEndpointAdapter.mockReturnValue(createAdapter({
       eventType: 'mock.inbound.received',

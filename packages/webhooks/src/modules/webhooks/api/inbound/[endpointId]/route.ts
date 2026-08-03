@@ -10,7 +10,9 @@ import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/serv
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   isWebhookTimestampWithinTolerance,
+  readBoundedRequestBody,
   WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
+  WebhookBodyTooLargeError,
   type InboundWebhookRequest,
 } from '@open-mercato/shared/lib/webhooks'
 import { emitWebhooksEvent } from '../../../events'
@@ -79,7 +81,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     if (rateLimitResponse) return rateLimitResponse
   }
 
-  const body = await request.text()
+  let body: string
+  try {
+    body = await readBoundedRequestBody(request)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return json({ error: 'Webhook payload too large' }, { status: 413 })
+    }
+    throw error
+  }
   const headers = Object.fromEntries(request.headers.entries())
   if (!isInboundWebhookTimestampFresh(headers)) {
     return json({ error: STALE_TIMESTAMP_ERROR }, { status: 400 })
@@ -192,7 +202,6 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   if (!adapter) {
     return json({ error: 'Webhook endpoint not found' }, { status: 404 })
   }
-
   let verified: Awaited<ReturnType<typeof adapter.verifyWebhook>>
   try {
     verified = await adapter.verifyWebhook({
@@ -268,7 +277,10 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Receive inbound webhook',
       description: 'The endpoint id resolves to a registered webhook source first (module-level handler dispatch), otherwise to a legacy adapter provider key.',
       pathParams: z.object({ endpointId: z.string().min(1) }),
-      responses: [{ status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema }],
+      responses: [
+        { status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema },
+        { status: 413, description: 'Webhook payload too large', schema: errorSchema },
+      ],
       errors: [
         { status: 400, description: 'Verification failed or stale webhook timestamp', schema: errorSchema },
         { status: 401, description: 'Signature verification failed (source flow)', schema: errorSchema },
