@@ -29,8 +29,8 @@ findings). Each Progress row below maps 1:1 to a review finding.
 
 ### Phase 2: Runtime parity for owned contracts (Major 1, Major 2)
 
-- [ ] 2.1 Page metadata: honor the runtime companion-file convention (`page.meta.ts` / `meta.ts`) and contract keys (`pageContext`, `pageGroupKey`, `pageOrder`), with a parity fixture
-- [ ] 2.2 Workers: derive the runtime fallback ID for id-less workers, resolve the required `queue`, cover root and nested workers with local-constant queues
+- [x] 2.1 Page metadata: honor the runtime companion-file convention (`page.meta.ts` / `meta.ts`) and contract keys (`pageContext`, `pageGroupKey`, `pageOrder`), with a parity fixture — 916aa49f6
+- [x] 2.2 Workers: derive the runtime fallback ID for id-less workers, resolve the required `queue`, cover root and nested workers with local-constant queues — 916aa49f6
 
 ### Phase 3: Override target coverage (Major 5, Major 6, Minor 1)
 
