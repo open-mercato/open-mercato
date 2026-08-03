@@ -10,6 +10,7 @@ import type {
 import { toSnake } from '../utils'
 import { extractCommandIdsFromSource } from './module-registry'
 import { MODULE_CODE_EXTENSIONS } from './scanner'
+import type { ApiRouteInterceptorBridge } from './module-extension-facts'
 import {
   assertNoUnresolvedExtensionTargets,
   correlateIncomingExtensions,
@@ -2743,7 +2744,11 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
     commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
   })
   assertNoUnresolvedExtensionTargets(correlated)
-  const apiRouteOwners = new Map<string, { moduleId: string; source: ModuleFactSourceRef }>()
+  const apiRouteOwners = new Map<string, {
+    moduleId: string
+    source: ModuleFactSourceRef
+    bridges: ApiRouteInterceptorBridge[]
+  }>()
   const commandOwners = new Map<string, { moduleId: string; source: ModuleFactSourceRef }>()
   for (const source of [...sources].sort((left, right) => left.moduleId.localeCompare(right.moduleId))) {
     const facts = factsByModule[source.moduleId]
@@ -2754,7 +2759,9 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       sourceRoot,
     })
     for (const route of owners.apiRoutes) {
-      if (!apiRouteOwners.has(route.id)) apiRouteOwners.set(route.id, { moduleId: source.moduleId, source: route.source })
+      if (!apiRouteOwners.has(route.id)) {
+        apiRouteOwners.set(route.id, { moduleId: source.moduleId, source: route.source, bridges: route.bridges })
+      }
     }
     for (const command of owners.commands) {
       if (!commandOwners.has(command.id)) commandOwners.set(command.id, { moduleId: source.moduleId, source: command.source })

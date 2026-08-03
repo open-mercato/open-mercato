@@ -785,25 +785,118 @@ export function extractKnownCommandIds(moduleId: string, moduleRoot: string): st
   return moduleCommandIds(moduleRoot, apiHosts.commandIds)
 }
 
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
+export type ApiInterceptorPhase = 'before' | 'after'
+export type ApiRouteInterceptorBridge = {
+  method: (typeof HTTP_METHODS)[number]
+  phases: ApiInterceptorPhase[]
+}
+
+const API_INTERCEPTOR_BRIDGE_CALLS: Record<string, ApiInterceptorPhase> = {
+  runApiInterceptorsBefore: 'before',
+  runApiInterceptorsAfter: 'after',
+}
+
+function isHttpMethodName(value: string): value is (typeof HTTP_METHODS)[number] {
+  return (HTTP_METHODS as readonly string[]).includes(value)
+}
+
+/** HTTP method handlers a route file actually exports. */
+function exportedHttpMethods(file: ts.SourceFile): Array<(typeof HTTP_METHODS)[number]> {
+  const methods = new Set<(typeof HTTP_METHODS)[number]>()
+  const consider = (name: string | undefined): void => {
+    if (name && isHttpMethodName(name)) methods.add(name)
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableStatement(node) && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      for (const declaration of node.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) consider(declaration.name.text)
+      }
+    }
+    if (
+      ts.isFunctionDeclaration(node)
+      && node.name
+      && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      consider(node.name.text)
+    }
+    if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
+      for (const element of node.exportClause.elements) consider(element.name.text)
+    }
+    node.forEachChild(visit)
+  }
+  file.forEachChild(visit)
+  return [...methods].sort((left, right) => left.localeCompare(right))
+}
+
+/**
+ * The interceptor pipeline runs only where a route wires it: `makeCrudRoute` runs
+ * both phases for every method it handles, and a hand-written route runs whichever
+ * of `runApiInterceptorsBefore` / `runApiInterceptorsAfter` it calls. A custom route
+ * that calls neither has no bridge, so an interceptor targeting it is never bound.
+ */
+function extractApiRouteInterceptorBridges(file: ts.SourceFile, context: StaticContext): ApiRouteInterceptorBridge[] {
+  const exportedMethods = exportedHttpMethods(file)
+  const phasesByMethod = new Map<(typeof HTTP_METHODS)[number], Set<ApiInterceptorPhase>>()
+  const addPhase = (method: (typeof HTTP_METHODS)[number], phase: ApiInterceptorPhase): void => {
+    const phases = phasesByMethod.get(method) ?? new Set<ApiInterceptorPhase>()
+    phases.add(phase)
+    phasesByMethod.set(method, phases)
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const calleeName = node.expression.text
+      if (calleeName === 'makeCrudRoute') {
+        for (const method of exportedMethods) {
+          addPhase(method, 'before')
+          addPhase(method, 'after')
+        }
+      }
+      const phase = API_INTERCEPTOR_BRIDGE_CALLS[calleeName]
+      if (phase) {
+        const callOptions = node.arguments[0] ? staticValue(node.arguments[0], context) : undefined
+        const declaredMethod = isStaticObject(callOptions) ? stringValue(callOptions.method) : undefined
+        const methods = declaredMethod && isHttpMethodName(declaredMethod) ? [declaredMethod] : exportedMethods
+        for (const method of methods) addPhase(method, phase)
+      }
+    }
+    node.forEachChild(visit)
+  }
+  file.forEachChild(visit)
+  return [...phasesByMethod.entries()]
+    .map(([method, phases]) => ({
+      method,
+      phases: [...phases].sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => left.method.localeCompare(right.method))
+}
+
 /**
  * Concrete runtime-id owners a module contributes as activation targets: its real
- * `api/**` route ids (which run the interceptor pipeline) and its `commands/**`
- * command ids (dispatched through the command bus). Used post-selection to
- * synthesize `host-reference`/`owner-reference` bindings with a portable source.
+ * `api/**` route ids (with the interceptor bridges each route actually wires) and
+ * its `commands/**` command ids (dispatched through the command bus). Used
+ * post-selection to synthesize `host-reference`/`owner-reference` bindings with a
+ * portable source.
  */
 export function extractActivationTargetOwners(options: {
   moduleId: string
   moduleRoot: string
   sourceRoot: string
 }): {
-  apiRoutes: Array<{ id: string; source: ModuleFactSourceRef }>
+  apiRoutes: Array<{ id: string; source: ModuleFactSourceRef; bridges: ApiRouteInterceptorBridge[] }>
   commands: Array<{ id: string; source: ModuleFactSourceRef }>
 } {
-  const apiRoutes: Array<{ id: string; source: ModuleFactSourceRef }> = []
+  const apiRoutes: Array<{ id: string; source: ModuleFactSourceRef; bridges: ApiRouteInterceptorBridge[] }> = []
   for (const filePath of sourceFilesBelow(path.join(options.moduleRoot, 'api'))) {
     const routeId = apiRouteId(options.moduleId, options.moduleRoot, filePath)
     if (!routeId) continue
-    apiRoutes.push({ id: routeId, source: { sourcePath: portablePath(options.moduleRoot, options.sourceRoot, filePath) } })
+    const file = sourceFile(filePath)
+    const bridges = file ? extractApiRouteInterceptorBridges(file, buildStaticContext(file)) : []
+    apiRoutes.push({
+      id: routeId,
+      source: { sourcePath: portablePath(options.moduleRoot, options.sourceRoot, filePath) },
+      bridges,
+    })
   }
   const commands: Array<{ id: string; source: ModuleFactSourceRef }> = []
   const seenCommands = new Set<string>()
@@ -1707,7 +1800,12 @@ export function correlateModuleExtensionFacts(options: CorrelateExtensionFactsOp
   return result
 }
 
-type IncomingTargetOwner = { moduleId: string; source: ModuleFactSourceRef }
+type IncomingTargetOwner = {
+  moduleId: string
+  source: ModuleFactSourceRef
+  /** Interceptor bridges the owning api route wires (api-route owners only). */
+  bridges?: ApiRouteInterceptorBridge[]
+}
 
 export interface CorrelateIncomingExtensionsOptions {
   surfacesByModule: Readonly<Record<string, ModuleExtensionSurfaceFacts>>
@@ -1865,8 +1963,10 @@ export function correlateIncomingExtensions(
             if (referenceBinding) {
               resolution = 'bound'
               ownerModule = referenceBinding.ownerModule
-              registerSyntheticActivation(referenceBinding.ownerModule, referenceBinding.activation)
-              boundActivationIds = [referenceBinding.activation.id]
+              for (const activation of referenceBinding.activations) {
+                registerSyntheticActivation(referenceBinding.ownerModule, activation)
+              }
+              boundActivationIds = referenceBinding.activations.map((activation) => activation.id)
             } else {
               const hostOwner = boundHostIndex.get(resolvedTarget.id)
               if (hostOwner) {
@@ -1938,6 +2038,32 @@ export function correlateIncomingExtensions(
   return result
 }
 
+/**
+ * Intersects an api-interceptor contribution's declared methods and phases with the
+ * bridges its target route actually wires. A route with no bridge, a phase the route
+ * never runs, or a method the route does not handle yields no binding, so the
+ * contribution stays `capability-only` instead of being reported as active.
+ */
+function matchApiInterceptorBridges(
+  contribution: ModuleExtensionContributionFact,
+  owner: IncomingTargetOwner,
+): ApiRouteInterceptorBridge[] {
+  if (contribution.kind !== 'api-interceptor') return []
+  const bridges = owner.bridges ?? []
+  const declaredMethods = contribution.details.methods ?? []
+  const declaredPhases = contribution.phases ?? []
+  const matched: ApiRouteInterceptorBridge[] = []
+  for (const bridge of bridges) {
+    if (declaredMethods.length > 0 && !declaredMethods.includes(bridge.method)) continue
+    const phases = declaredPhases.length > 0
+      ? bridge.phases.filter((phase) => declaredPhases.includes(phase))
+      : bridge.phases
+    if (phases.length === 0) continue
+    matched.push({ method: bridge.method, phases })
+  }
+  return matched
+}
+
 function resolveReferenceBinding(input: {
   contribution: ModuleExtensionContributionFact
   activationKinds: ModuleExtensionActivationKind[]
@@ -1945,7 +2071,7 @@ function resolveReferenceBinding(input: {
   boundHostIndex: ReadonlyMap<string, { moduleId: string; host: ModuleExtensionHostFact }>
   apiRouteOwners: ReadonlyMap<string, IncomingTargetOwner>
   commandOwners: ReadonlyMap<string, IncomingTargetOwner>
-}): { ownerModule: string; activation: ModuleExtensionActivation } | null {
+}): { ownerModule: string; activations: ModuleExtensionActivation[] } | null {
   for (const kind of input.activationKinds) {
     const adapter = ACTIVATION_ADAPTERS[kind]
     if (adapter.mode === 'call-site-object') continue
@@ -1955,18 +2081,27 @@ function resolveReferenceBinding(input: {
       const routeId = normalizeRouteId(input.targetRef.id)
       const owner = input.apiRouteOwners.get(routeId)
       if (!owner) continue
-      const host: ModuleExtensionTargetRef = { kind: 'api-route', id: routeId, moduleId: owner.moduleId }
+      const matchedBridges = matchApiInterceptorBridges(input.contribution, owner)
+      if (matchedBridges.length === 0) continue
       return {
         ownerModule: owner.moduleId,
-        activation: {
-          id: activationId(host, kind),
-          kind,
-          host,
-          contributionKinds: ['api-interceptor'],
-          phases: ['before', 'after'],
-          source: owner.source,
-          bridge: { factSection: 'apiRoutes', factKey: `/${routeId}` },
-        },
+        activations: matchedBridges.map((bridge) => {
+          const host: ModuleExtensionTargetRef = {
+            kind: 'api-route',
+            id: routeId,
+            moduleId: owner.moduleId,
+            method: bridge.method,
+          }
+          return {
+            id: activationId(host, kind),
+            kind,
+            host,
+            contributionKinds: ['api-interceptor'],
+            phases: bridge.phases,
+            source: owner.source,
+            bridge: { factSection: 'apiRoutes', factKey: `/${routeId}` },
+          }
+        }),
       }
     }
 
@@ -1976,14 +2111,14 @@ function resolveReferenceBinding(input: {
       const host: ModuleExtensionTargetRef = { kind: 'command', id: input.targetRef.id, moduleId: owner.moduleId }
       return {
         ownerModule: owner.moduleId,
-        activation: {
+        activations: [{
           id: activationId(host, kind),
           kind,
           host,
           contributionKinds: ['command-interceptor'],
           source: owner.source,
           bridge: { factSection: 'commands', factKey: input.targetRef.id },
-        },
+        }],
       }
     }
 
@@ -1995,14 +2130,14 @@ function resolveReferenceBinding(input: {
       const host: ModuleExtensionTargetRef = { ...input.targetRef, moduleId: hostEntry.moduleId }
       return {
         ownerModule: hostEntry.moduleId,
-        activation: {
+        activations: [{
           id: activationId(host, kind),
           kind,
           host,
           contributionKinds: adapter.contributionKinds,
           source: hostSource,
           bridge: { factSection: 'hosts', factKey: hostEntry.host.key },
-        },
+        }],
       }
     }
   }

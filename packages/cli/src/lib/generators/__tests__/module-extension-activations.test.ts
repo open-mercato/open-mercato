@@ -8,6 +8,7 @@ import {
   extractActivationTargetOwners,
   extractModuleExtensionFacts,
   withModuleExtensionFactExtractionCache,
+  type ApiRouteInterceptorBridge,
 } from '../module-extension-facts'
 import { renderModuleFactsMarkdown, type ModuleFacts } from '../module-facts'
 import type {
@@ -56,14 +57,20 @@ function runPipeline(
       for (const event of module.events ?? []) eventIds.add(event.id)
       for (const route of module.apiRoutes ?? []) apiRoutes.add(route.path)
     }
-    const apiRouteOwners = new Map<string, { moduleId: string; source: { sourcePath: string } }>()
+    const apiRouteOwners = new Map<string, {
+      moduleId: string
+      source: { sourcePath: string }
+      bridges: ApiRouteInterceptorBridge[]
+    }>()
     const commandOwners = new Map<string, { moduleId: string; source: { sourcePath: string } }>()
     for (const module of modules) {
       const sourceRoot = `node_modules/pkg/src/modules/${module.id}`
       const owners = extractActivationTargetOwners({ moduleId: module.id, moduleRoot: roots[module.id], sourceRoot })
       for (const route of owners.apiRoutes) {
         apiRoutes.add(`/${route.id}`)
-        if (!apiRouteOwners.has(route.id)) apiRouteOwners.set(route.id, { moduleId: module.id, source: route.source })
+        if (!apiRouteOwners.has(route.id)) {
+          apiRouteOwners.set(route.id, { moduleId: module.id, source: route.source, bridges: route.bridges })
+        }
       }
       for (const command of owners.commands) {
         commandIds.add(command.id)
@@ -283,9 +290,11 @@ describe('module extension activations and incoming index', () => {
     const apiIncoming = (result.host.incoming ?? []).find((entry) => entry.contributionId === 'ext.records.interceptor')
     expect(apiIncoming?.resolution).toBe('bound')
     expect(apiIncoming?.target).toEqual(expect.objectContaining({ kind: 'api-route', id: 'host/records', moduleId: 'host' }))
-    expect(apiIncoming?.activationId).toBe('api-route:host/records:api-interceptor-bridge')
-    const apiActivation = (result.host.activations ?? []).find((a) => a.id === 'api-route:host/records:api-interceptor-bridge')
-    expect(apiActivation?.phases).toEqual(['before', 'after'])
+    // The activation identity carries the bridged method the interceptor matched.
+    expect(apiIncoming?.activationId).toBe('api-route:host/records:POST:api-interceptor-bridge')
+    const apiActivation = (result.host.activations ?? []).find((a) => a.id === 'api-route:host/records:POST:api-interceptor-bridge')
+    expect(apiActivation?.phases).toEqual(['after', 'before'])
+    expect(apiActivation?.host.method).toBe('POST')
     expect(apiActivation?.source.sourcePath).toContain('host/api/records/route.ts')
 
     const commandIncoming = (result.host.incoming ?? []).find((entry) => entry.contributionId === 'ext.records.command')
@@ -489,5 +498,74 @@ describe('module extension activations and incoming index', () => {
     expect(markdown).toContain('## Contribution resolutions')
     expect(markdown).toContain('| Contribution | Target | Resolution | Activations | Source |')
     expect(markdown).toContain('| ext.badge | entity:host:record @host | bound | entity:host:record:crud-response-enricher |')
+  })
+
+  it('never binds an api interceptor to a route with no interceptor bridge', () => {
+    write(moduleRoot('host'), 'api/custom/route.ts', `
+      export async function POST(req) { return new Response('ok') }
+    `)
+    write(moduleRoot('ext'), 'api/interceptors.ts', `
+      export const interceptors = [{ id: 'ext.custom.interceptor', targetRoute: 'host/custom', methods: ['POST'], async before() {} }]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', apiRoutes: [{ path: '/host/custom', methods: ['POST'] }] },
+      { id: 'ext' },
+    ])
+
+    const resolution = (result.ext.contributionResolutions ?? [])
+      .find((entry) => entry.contributionId === 'ext.custom.interceptor')
+    expect(resolution?.resolution).toBe('capability-only')
+    expect(resolution?.activationIds).toEqual([])
+    expect((result.host.activations ?? []).filter((a) => a.kind === 'api-interceptor-bridge')).toEqual([])
+  })
+
+  it('binds only the phase a hand-written route actually runs', () => {
+    write(moduleRoot('host'), 'api/custom/route.ts', `
+      import { runApiInterceptorsAfter } from 'x'
+      export async function POST(req) {
+        const response = await handle(req)
+        return runApiInterceptorsAfter({ routePath: '/host/custom', method: 'POST', response, context: ctx })
+      }
+    `)
+    write(moduleRoot('ext'), 'api/interceptors.ts', `
+      export const interceptors = [
+        { id: 'ext.after-only', targetRoute: 'host/custom', methods: ['POST'], async after() {} },
+        { id: 'ext.before-only', targetRoute: 'host/custom', methods: ['POST'], async before() {} },
+      ]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', apiRoutes: [{ path: '/host/custom', methods: ['POST'] }] },
+      { id: 'ext' },
+    ])
+
+    const byId = new Map((result.ext.contributionResolutions ?? []).map((entry) => [entry.contributionId, entry]))
+    expect(byId.get('ext.after-only')?.resolution).toBe('bound')
+    expect(byId.get('ext.after-only')?.activationIds).toEqual(['api-route:host/custom:POST:api-interceptor-bridge'])
+    // The route never runs the before phase, so a before-only interceptor is not active.
+    expect(byId.get('ext.before-only')?.resolution).toBe('capability-only')
+    expect(byId.get('ext.before-only')?.activationIds).toEqual([])
+  })
+
+  it('never binds an api interceptor whose method the route does not handle', () => {
+    write(moduleRoot('host'), 'api/records/route.ts', `
+      import { makeCrudRoute } from 'x'
+      export const crud = makeCrudRoute({ orm: { entity: Rec } })
+      export const GET = crud.GET
+    `)
+    write(moduleRoot('ext'), 'api/interceptors.ts', `
+      export const interceptors = [{ id: 'ext.delete-only', targetRoute: 'host/records', methods: ['DELETE'], async before() {} }]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', apiRoutes: [{ path: '/host/records', methods: ['GET'] }] },
+      { id: 'ext' },
+    ])
+
+    const resolution = (result.ext.contributionResolutions ?? [])
+      .find((entry) => entry.contributionId === 'ext.delete-only')
+    expect(resolution?.resolution).toBe('capability-only')
+    expect(resolution?.activationIds).toEqual([])
   })
 })
