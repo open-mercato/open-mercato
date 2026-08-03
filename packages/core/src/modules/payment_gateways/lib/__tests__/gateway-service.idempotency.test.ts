@@ -176,6 +176,18 @@ describe('payment gateway service session idempotency (#4035)', () => {
     clearGatewayAdapters()
   })
 
+  it('maps a missing gateway adapter to a typed 422 error', async () => {
+    const service = createPaymentGatewayService({
+      em: makeMockEm(),
+      integrationCredentialsService: { resolve: jest.fn(async () => ({})) } as never,
+    })
+
+    await expect(service.createPaymentSession(buildInput('checkout-submit-key-0000'))).rejects.toMatchObject({
+      status: 422,
+      body: { error: `No gateway adapter registered for provider: ${PROVIDER_KEY}` },
+    })
+  })
+
   it('single-flights concurrent keyed calls and reuses the completed provider session', async () => {
     const { service, gate, firstCallStarted, createSession } = buildService()
     const input = buildInput('checkout-submit-key-0001')
