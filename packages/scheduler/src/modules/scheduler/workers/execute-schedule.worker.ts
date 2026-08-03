@@ -6,6 +6,7 @@ import { ScheduledJob } from '../data/entities.js'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { emitSchedulerEvent } from '../events.js'
+import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
 import { buildScheduledCommandContext } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -33,6 +34,11 @@ type RbacServiceLike = {
     tenantId: string | null | undefined,
     feature: string,
     opts?: { organizationId?: string | null },
+  ): Promise<boolean>
+  userHasAllFeatures(
+    userId: string,
+    required: readonly string[],
+    scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<boolean>
 }
 
@@ -205,6 +211,14 @@ export default async function executeScheduleWorker(
 
   } else if (schedule.targetType === 'command' && schedule.targetCommand) {
     const commandBus = new CommandBus()
+    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    await assertSchedulerSafeCommandAuthorized({
+      commandId: schedule.targetCommand,
+      actorUserId,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      rbacService,
+    })
     
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
@@ -212,6 +226,7 @@ export default async function executeScheduleWorker(
       organizationId: schedule.organizationId,
     }
     
+    // Build the schedule-scoped command context after the allowlist/RBAC gate.
     const commandCtx = buildScheduledCommandContext(schedule, ctx as unknown as AppContainer)
     
     const commandResult = await commandBus.execute(schedule.targetCommand, {

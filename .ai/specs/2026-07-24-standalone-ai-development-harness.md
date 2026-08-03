@@ -49,6 +49,9 @@ Build a four-layer harness:
 AGENTS.md                              # small boundary-first router
 .ai/
 ├── agentic.config.json
+├── lessons.md                       # compact app-local lesson index
+├── lessons/
+│   └── _template.md                 # one-record authoring template
 ├── guides/
 │   ├── architecture.md             # app/module/auto-discovery and source ownership
 │   ├── contracts.md                # scoping, BC IDs, optimistic lock, encryption, commands
@@ -73,6 +76,7 @@ AGENTS.md                              # small boundary-first router
 scripts/
 ├── install-skills.mjs                # cross-platform manifest installer
 ├── install-skills.sh                 # compatibility wrapper
+├── check-lessons.mjs                 # tagged index/record consistency gate
 ├── framework-context.mjs             # exact installed-source resolver
 └── evaluate-agent-harness.mjs         # deterministic/live evaluation runner
 ```
@@ -86,13 +90,14 @@ The generated `AGENTS.md` MUST:
 - identify the app as a standalone extension layer over read-only installed packages;
 - route a task to all matching task families (module/data, UI, UMES, integration, AI/workflows, debugging, spec/PR automation);
 - route module-specific analysis to generated facts first and `om-framework-context` only when those facts are insufficient;
+- scan the lesson index by selected router areas, exact modules, and important topics, then load only matching app-local records;
 - preserve tenant/organization scope, canonical mutation/data helpers, auto-discovery, migrations/snapshots, `yarn generate`, and no-edit rules for generated files/`node_modules`;
 - never hard-code a tool-specific skills directory for external skills;
 - contain only generated module-fact rows between stable markers so `agentic:init` can replace them idempotently.
 
 The deterministic budget gate measures bytes, not characters. It caps both standalone root sources at 12 KiB and checks representative generated root-only, module/data, UI, integration, and AI initial chains against Codex's 32,768-byte default. It also caps every daily `SKILL.md` router at 120 lines/12 KiB unless explicitly allowlisted with a reason. Each case declares initial routed-context and total-context byte budgets; progressive references and generated module facts are charged to total context rather than the initial bundle. Token estimates and actually accessed bytes are recorded in live results and compared with the checked-in baseline.
 
-The bare `packages/create-app/template/AGENTS.md` becomes the same small safety/router contract with an explicit `agentic:init` fallback when local skills are absent. Agentic setup enriches generated module rows and tool configuration; it does not replace the app's architecture rules with a second conflicting document.
+The bare `packages/create-app/template/AGENTS.md` becomes the same small safety/router contract with an explicit `agentic:init` fallback when local skills are absent. Agentic setup enriches generated module rows and tool configuration; it does not replace the app's architecture rules with a second conflicting document. The emitted lesson index starts empty: monorepo framework lessons are not copied into an app. The index and every emitted nested lesson asset are user-editable ownership-manifest entries; app-added records remain unknown user assets. Harness refresh therefore preserves local knowledge and emits `.incoming` candidates on generated-path conflicts.
 
 ### Local skill catalog
 
@@ -376,8 +381,8 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 ### Full surface, frontend, design-system, and UX audits
 
 87. Map a complex module brief to every current canonical discovery/support surface, including vector and UI locale files, and reject retired conventions/placeholders.
-88. Select every additive UMES mechanism, including query enrichers/sync subscribers, reactive/DOM/client filters, integration UI, vector, embedded AI, and typed provider registrations.
-89. Audit all wired `entry.overrides` domains plus additive AI extensions, resolved registry/worker keys, entry-scoped setup, disable/replace semantics, and rollback.
+88. Select every additive UMES mechanism from generated named-module/framework facts, including response/query enrichers, interceptors/guards, querying/queried subscribers, client/portal bridges, menus, every bound CrudForm/DataTable surface, correlation/round-trip provenance, specialist registries, and helper-only negatives; treat unresolved first-party targets as blockers.
+89. Audit all wired `entry.overrides` domains from generated contribution/fact-ref provenance, including exact domain/key/mode, additive AI extensions, resolved registry/worker keys, entry-scoped setup, stale/unresolved diagnostics, disable/replace semantics, and rollback.
 90. Build a responsive localized public frontend over installed catalog capabilities with server-first boundaries.
 91. Extend the customer portal with public/guarded metadata, principal-derived scope, frozen extension identifiers, navigation, shared UI, and full UX states.
 92. Redesign a dense operations page for exact Alert/confirm/form contracts, status/tag and brand rules, responsive UX, accessibility, and state coverage.
@@ -570,15 +575,15 @@ The case assertions cover every frozen/stable surface even though the harness do
 `om-evolve-harness` makes new cases structured and repeatable:
 
 1. Capture the failing prompt/transcript or source PR as untrusted evidence.
-2. Classify and deduplicate it against case families/tags.
+2. Classify and deduplicate it against case families/tags; scan the lesson index by the selected areas/modules/topics and open only matching records.
 3. Reproduce it in a fresh scaffold pinned to explicit create-app/framework/agent versions.
 4. Reduce the failure to semantic assertions rather than whole-file golden output.
 5. Select exactly one smallest knowledge owner: root invariant, router row, conceptual guide, local skill reference, generated-fact extractor, external override/config, installer closure, or tool hook.
 6. Run the new case before the edit and save the failure summary.
 7. Update that owner only; references point to it instead of duplicating the rule.
 8. Re-run the target case, related tagged cases, mandatory safety cases, context-budget gate, and scaffold smoke.
-9. Register case metadata and update coverage/changelog.
-10. Report before/after evidence with exact agent and installed framework versions.
+9. Register case metadata and update coverage/changelog; when the evidence is reusable app-local knowledge, update one focused lesson record and its index row.
+10. Run `node scripts/check-lessons.mjs`, then report before/after evidence with exact agent and installed framework versions.
 
 ## 📝 Edge Cases & Failure Scenarios
 
@@ -628,7 +633,7 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | External install with fake/recorded skills CLI | Pinned CLI invocation, repeated skill flags, 15-skill default versus opt-in automation selection, dependency closure, all-set activation/rollback including prior-ledger restoration, retry semantics, external-before-local ordering. |
 | Windows simulated filesystem/command resolution | Junction/link behavior and `.cmd` spawning. |
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
-| Generated module facts | Source-linked API routes, backend pages, frontend pages, CLI commands, AI tools/MCP capabilities, and AI agents resolve to installed source without enabling broad dependency discovery. |
+| Generated module facts | Source-linked API routes, backend pages, frontend pages, CLI commands, AI tools/MCP capabilities, AI agents, and correlated UMES hosts/contributions resolve exact targets and specialist routes without enabling broad dependency discovery; framework-owned hosts remain in the sibling framework extension catalog. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
 | Deterministic harness validation | 202 schema-valid cases, existing references, no contradictory stale patterns, complete emitted module-fact coverage, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
@@ -731,6 +736,8 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
+- **2026-08-03** — Replaced the standalone monolithic lesson placeholder with a tagged progressive index plus one-record template, made nested lesson records user-editable in both copy-pipeline manifests, added the shared consistency checker, and taught root/evolution routing to load only area/module/topic matches.
+- **2026-08-01** — Strengthened OMH-088/089 and targeted enricher/interceptor/guard/form/table/menu/DOM/portal cases around fact-first UMES target resolution, correlation provenance, every bound CrudForm/DataTable family, framework-owned hosts, and exact unified override modes; the UMES umbrella spec is optional provenance only and remains unnecessary in emitted standalone apps.
 - **2026-08-01** — Expanded OMH-006/OMH-168 and aligned the interactive standalone `om-implement-spec` owner with shared `om-auto-implement-spec` resolution, planning/progress, report-section, and stable `Spec:` reference contracts while retaining user confirmation and no-PR local delivery.
 - **2026-07-24** — Skeleton created under the autonomous Open Questions policy; standalone boundary, source-context, evaluation, and migration assumptions resolved from the user brief.
 - **2026-07-24** — Added prior-spec/PR-history findings, the initial case catalog, thin-skill/router architecture, cross-platform installer, exact installed-source escape hatch, harness-evolution workflow, compatibility, failure scenarios, integration coverage, and phased implementation plan.

@@ -8,16 +8,27 @@ import { fileURLToPath } from 'node:url'
 const packagesRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const repositoryRoot = join(packagesRoot, '..')
 
+// `npm pack --dry-run` walks the whole package tree, so it is the dominant cost of this
+// file — @open-mercato/core alone takes seconds. Memoize per directory: core is reached
+// once through the template's declared modules and again for the explicit entities check
+// below, and packing it twice pushed this file past the runner's per-test timeout under
+// CI load, which cancelled it and the file co-scheduled with it.
+const packedFilesByDirectory = new Map<string, string[]>()
+
 function packedFiles(packageDir: string): string[] {
-  const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+  const memoized = packedFilesByDirectory.get(packageDir)
+  if (memoized) return memoized
+
+  const result = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: packageDir,
     encoding: 'utf8',
     maxBuffer: 20 * 1024 * 1024,
-    shell: process.platform === 'win32',
   })
   assert.equal(result.status, 0, result.stderr)
   const parsed = JSON.parse(result.stdout) as Array<{ files?: Array<{ path?: string }> }>
-  return (parsed[0]?.files ?? []).flatMap((entry) => typeof entry.path === 'string' ? [entry.path] : [])
+  const files = (parsed[0]?.files ?? []).flatMap((entry) => typeof entry.path === 'string' ? [entry.path] : [])
+  packedFilesByDirectory.set(packageDir, files)
+  return files
 }
 
 function nearestModuleAgents(packageDir: string, moduleId: string): string | null {

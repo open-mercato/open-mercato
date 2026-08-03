@@ -93,6 +93,10 @@ function stageApp(): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-eval-')))
   fs.cpSync(path.join(sharedRoot, 'ai'), path.join(root, '.ai'), { recursive: true })
   fs.cpSync(guidesRoot, path.join(root, '.ai', 'guides'), { recursive: true })
+  fs.writeFileSync(
+    path.join(root, '.ai', 'guides', 'framework-extension-points.md'),
+    '# Framework extension points\nGenerated framework extension facts.\n',
+  )
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'upstream'), { recursive: true })
   fs.writeFileSync(path.join(root, '.ai', 'guides', 'upstream', 'BACKWARD_COMPATIBILITY.md'), '# Backward compatibility\nPreserve public contracts.\n')
   fs.copyFileSync(path.join(sharedRoot, 'AGENTS.md.template'), path.join(root, 'AGENTS.md'))
@@ -1691,7 +1695,7 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['umes', 'framework-context'], selectedSkills: ['om-system-extension', 'om-framework-context'],
   selectedContext: ${JSON.stringify(context)},
-  decisions: ['mutation-guard', 'backend-consistency', 'status-invariant'], violations: []
+  decisions: ['facts-first-target', 'guard-operations-and-capabilities', 'locking-preserved', 'mutation-guard', 'backend-consistency', 'status-invariant'], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: {
   type: 'command_execution', command: ${JSON.stringify(`cat ${context.join(' ')}`)}
