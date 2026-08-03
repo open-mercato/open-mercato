@@ -42,10 +42,12 @@ makes that PR conflict.
 - [x] Add a regression test proving a synchronous webhook receives an aborted signal
       when its timeout elapses
 - [x] Run the validation gate
-- [ ] Open the replacement PR superseding #4502 with credit to the original authors
+- [x] Open the replacement PR superseding #4502 with credit to the original authors
 
 ## Progress
 
+- **2026-08-03** — Rebuilt the carry-forward on the latest `develop`, applied the
+  structured-logging CI autofix, and opened replacement PR #4918 superseding #4854.
 - **2026-08-02** — Isolated the residual delta, applied the abort wiring on top of
   `develop`, kept the single regression test from #4502 and dropped the tests that
   cover behavior `develop` already ships.
