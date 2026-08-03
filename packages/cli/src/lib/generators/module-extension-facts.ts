@@ -1564,11 +1564,61 @@ export const CONTRIBUTION_ACTIVATION_CLASSIFICATION: Record<
 export const ALL_ACTIVATION_KINDS = Object.keys(ACTIVATION_ADAPTERS) as ModuleExtensionActivationKind[]
 export const ALL_CONTRIBUTION_KINDS = Object.keys(CONTRIBUTION_ACTIVATION_CLASSIFICATION) as ModuleExtensionContributionKind[]
 
-const MUTATION_GUARD_BRIDGES = new Set([
-  'validateCrudMutationGuard',
-  'runMutationGuards',
-  'runRouteMutationGuards',
-])
+/**
+ * Verified mutation-guard bridge shapes. The canonical route helper nests the
+ * resource under `input` (`runRouteMutationGuards({ …, input: { resourceKind } })`),
+ * while the legacy helpers take the resource object directly. Module wrappers around
+ * the canonical helper live under `lib/` as often as under `api/`, so both trees are
+ * scanned.
+ */
+const MUTATION_GUARD_BRIDGE_ADAPTERS: Record<string, { resourceArgument: 'input-property' | 'any-argument' }> = {
+  runRouteMutationGuards: { resourceArgument: 'input-property' },
+  validateCrudMutationGuard: { resourceArgument: 'any-argument' },
+  runMutationGuards: { resourceArgument: 'any-argument' },
+}
+
+const MUTATION_GUARD_SOURCE_DIRECTORIES = ['api', 'lib'] as const
+
+const MUTATION_GUARD_OPERATIONS = new Set(['create', 'update', 'delete', 'custom'])
+
+/**
+ * `'custom'` action endpoints are mapped by `toRegistryMutationOperation` onto the
+ * closest registry operation, `'update'`.
+ */
+function toRegistryGuardOperation(operation: string): string {
+  return operation === 'custom' ? 'update' : operation
+}
+
+function readMutationGuardBridge(
+  node: ts.CallExpression,
+  context: StaticContext,
+): { entityId: string; operations: string[] } | null {
+  const callee = node.expression
+  const calleeName = ts.isIdentifier(callee)
+    ? callee.text
+    : ts.isPropertyAccessExpression(callee)
+      ? callee.name.text
+      : null
+  const adapter = calleeName ? MUTATION_GUARD_BRIDGE_ADAPTERS[calleeName] : undefined
+  if (!adapter) return null
+
+  const argumentObjects = node.arguments
+    .map((argument) => staticValue(argument, context))
+    .filter(isStaticObject)
+  const resourceObjects = adapter.resourceArgument === 'input-property'
+    ? argumentObjects.flatMap((argumentObject) => (isStaticObject(argumentObject.input) ? [argumentObject.input] : []))
+    : argumentObjects
+  for (const resourceObject of resourceObjects) {
+    const entityId = stringValue(resourceObject.resourceKind) ?? stringValue(resourceObject.entityId)
+    if (!entityId) continue
+    const declaredOperation = stringValue(resourceObject.operation)
+    const operations = declaredOperation && MUTATION_GUARD_OPERATIONS.has(declaredOperation)
+      ? [toRegistryGuardOperation(declaredOperation)]
+      : []
+    return { entityId, operations }
+  }
+  return null
+}
 
 function nodeLine(file: ts.SourceFile, node: ts.Node): number {
   return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1
@@ -1614,7 +1664,9 @@ function extractCallSiteActivations(options: ExtractModuleExtensionFactsOptions)
     seen.add(activation.id)
     activations.push(activation)
   }
-  for (const filePath of sourceFilesBelow(path.join(options.moduleRoot, 'api'))) {
+  const scannedFiles = MUTATION_GUARD_SOURCE_DIRECTORIES
+    .flatMap((directory) => sourceFilesBelow(path.join(options.moduleRoot, directory)))
+  for (const filePath of scannedFiles) {
     const file = sourceFile(filePath)
     if (!file) continue
     const context = buildStaticContext(file)
@@ -1651,22 +1703,16 @@ function extractCallSiteActivations(options: ExtractModuleExtensionFactsOptions)
           })
         }
       }
-      if (
-        ts.isCallExpression(node)
-        && ts.isIdentifier(node.expression)
-        && MUTATION_GUARD_BRIDGES.has(node.expression.text)
-      ) {
-        const argObject = node.arguments
-          .map((argument) => staticValue(argument, context))
-          .find(isStaticObject)
-        const entityId = argObject ? (stringValue(argObject.resourceKind) ?? stringValue(argObject.entityId)) : undefined
-        if (entityId) {
-          const host: ModuleExtensionTargetRef = { kind: 'entity', id: entityId, moduleId: options.moduleId }
+      if (ts.isCallExpression(node)) {
+        const bridge = readMutationGuardBridge(node, context)
+        if (bridge) {
+          const host: ModuleExtensionTargetRef = { kind: 'entity', id: bridge.entityId, moduleId: options.moduleId }
           push({
             id: activationId(host, 'mutation-guard'),
             kind: 'mutation-guard',
             host,
             contributionKinds: ['mutation-guard'],
+            ...(bridge.operations.length > 0 ? { operations: bridge.operations } : {}),
             source: { sourcePath, line: nodeLine(file, node) },
           })
         }
@@ -1818,6 +1864,19 @@ function normalizeRouteId(routeId: string): string {
   return routeId.replace(/^\//, '')
 }
 
+/**
+ * A call site that guards only some operations does not activate a contribution
+ * declaring none of them. Either side leaving operations undeclared means "any".
+ */
+function operationsIntersect(
+  activationOperations: readonly string[] | undefined,
+  contributionOperations: readonly string[] | undefined,
+): boolean {
+  if (!activationOperations || activationOperations.length === 0) return true
+  if (!contributionOperations || contributionOperations.length === 0) return true
+  return contributionOperations.some((operation) => activationOperations.includes(operation))
+}
+
 function contributionSourceRef(contribution: ModuleExtensionContributionFact): ModuleFactSourceRef {
   return {
     sourcePath: contribution.source.path,
@@ -1914,13 +1973,16 @@ export function correlateIncomingExtensions(
     contributionKind: ModuleExtensionContributionKind,
     activationKinds: ModuleExtensionActivationKind[],
     targetRef: ModuleExtensionTargetRef,
+    contributionOperations: readonly string[] | undefined,
   ): Array<{ moduleId: string; activation: ModuleExtensionActivation }> => {
     const matches: Array<{ moduleId: string; activation: ModuleExtensionActivation }> = []
     for (const kind of activationKinds) {
       if (ACTIVATION_ADAPTERS[kind].mode !== 'call-site-object') continue
       const bucket = activationIndex.get(activationKey(kind, targetRef.kind, targetRef.id)) ?? []
       for (const entry of bucket) {
-        if (entry.activation.contributionKinds.includes(contributionKind)) matches.push(entry)
+        if (!entry.activation.contributionKinds.includes(contributionKind)) continue
+        if (!operationsIntersect(entry.activation.operations, contributionOperations)) continue
+        matches.push(entry)
       }
     }
     return matches.sort((left, right) => left.activation.id.localeCompare(right.activation.id))
@@ -1946,7 +2008,12 @@ export function correlateIncomingExtensions(
           resolution = 'unresolved'
         } else {
           const activationKinds = classification === 'capability-only' ? [] : classification
-          const callSiteMatches = findCallSiteActivations(contribution.kind, activationKinds, baseTarget)
+          const callSiteMatches = findCallSiteActivations(
+            contribution.kind,
+            activationKinds,
+            baseTarget,
+            contribution.operations,
+          )
           if (callSiteMatches.length > 0) {
             resolution = 'bound'
             ownerModule = callSiteMatches[0].moduleId

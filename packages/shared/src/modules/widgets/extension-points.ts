@@ -285,6 +285,11 @@ export type ModuleExtensionActivation = {
   host: ModuleExtensionTargetRef
   contributionKinds: ModuleExtensionContributionKind[]
   phases?: string[]
+  /**
+   * Mutation operations the call site guards, when statically declared. A
+   * contribution declaring only other operations is not bound by this activation.
+   */
+  operations?: string[]
   source: ModuleFactSourceRef
   bridge?: ModuleFactRef
 }

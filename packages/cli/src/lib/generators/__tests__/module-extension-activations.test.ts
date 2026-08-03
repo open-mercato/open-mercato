@@ -568,4 +568,81 @@ describe('module extension activations and incoming index', () => {
     expect(resolution?.resolution).toBe('capability-only')
     expect(resolution?.activationIds).toEqual([])
   })
+
+  it('binds the canonical runRouteMutationGuards shape declared in a lib wrapper', () => {
+    write(moduleRoot('host'), 'lib/route-mutation-guard.ts', `
+      import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+      export async function guardRecordMutation(container, req, auth) {
+        return runRouteMutationGuards({
+          container,
+          req,
+          auth,
+          input: { resourceKind: 'host:record', operation: 'delete' },
+        })
+      }
+    `)
+    write(moduleRoot('ext'), 'data/guards.ts', `
+      export const guards = [{ id: 'ext.rec-delete', targetEntity: 'host:record', operations: ['delete'], async validate() {} }]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', entities: [{ id: 'host:record' }] },
+      { id: 'ext' },
+    ])
+
+    const activation = (result.host.activations ?? []).find((entry) => entry.kind === 'mutation-guard')
+    expect(activation?.host).toEqual({ kind: 'entity', id: 'host:record', moduleId: 'host' })
+    expect(activation?.operations).toEqual(['delete'])
+    expect(activation?.source.sourcePath).toContain('host/lib/route-mutation-guard.ts')
+
+    const resolution = (result.ext.contributionResolutions ?? [])
+      .find((entry) => entry.contributionId === 'ext.rec-delete')
+    expect(resolution?.resolution).toBe('bound')
+    expect(resolution?.activationIds).toEqual(['entity:host:record:mutation-guard'])
+  })
+
+  it('does not bind a guard whose operations the call site never guards', () => {
+    write(moduleRoot('host'), 'lib/route-mutation-guard.ts', `
+      import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+      export async function guardRecordDelete(container, req, auth) {
+        return runRouteMutationGuards({ container, req, auth, input: { resourceKind: 'host:record', operation: 'delete' } })
+      }
+    `)
+    write(moduleRoot('ext'), 'data/guards.ts', `
+      export const guards = [{ id: 'ext.rec-create', targetEntity: 'host:record', operations: ['create'], async validate() {} }]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', entities: [{ id: 'host:record' }] },
+      { id: 'ext' },
+    ])
+
+    const resolution = (result.ext.contributionResolutions ?? [])
+      .find((entry) => entry.contributionId === 'ext.rec-create')
+    expect(resolution?.resolution).toBe('capability-only')
+    expect(resolution?.activationIds).toEqual([])
+  })
+
+  it('maps a custom action endpoint onto the update registry operation', () => {
+    write(moduleRoot('host'), 'api/records/archive/route.ts', `
+      import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+      export async function POST(req) {
+        return runRouteMutationGuards({ container, req, auth, input: { resourceKind: 'host:record', operation: 'custom' } })
+      }
+    `)
+    write(moduleRoot('ext'), 'data/guards.ts', `
+      export const guards = [{ id: 'ext.rec-update', targetEntity: 'host:record', operations: ['update'], async validate() {} }]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', entities: [{ id: 'host:record' }] },
+      { id: 'ext' },
+    ])
+
+    const activation = (result.host.activations ?? []).find((entry) => entry.kind === 'mutation-guard')
+    expect(activation?.operations).toEqual(['update'])
+    const resolution = (result.ext.contributionResolutions ?? [])
+      .find((entry) => entry.contributionId === 'ext.rec-update')
+    expect(resolution?.resolution).toBe('bound')
+  })
 })
