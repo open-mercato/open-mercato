@@ -54,7 +54,7 @@ Land the compatible parts of PR #4896 on `develop`, with the workspace's BullMQ 
 ### Phase 2: Align and prove BullMQ compatibility
 
 - [x] 2.1 Widen the queue and scheduler BullMQ peer ranges to accept versions 5 and 6, then refresh the lockfile — 485fad015
-- [ ] 2.2 Exercise BullMQ 6 queue, worker, and scheduler paths against real Redis and add regression coverage if a repository test gap is exposed
+- [x] 2.2 Exercise BullMQ 6 queue, worker, and scheduler paths against real Redis and add regression coverage if a repository test gap is exposed — 0e2535f8f
 
 ### Phase 3: Correct reviewer-facing metadata
 
