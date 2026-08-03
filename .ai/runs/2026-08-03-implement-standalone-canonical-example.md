@@ -184,7 +184,7 @@ reaching any new code). The activation fixtures they host were instead exercised
   a single ephemeral app and cannot host two mutually-exclusive module sets, so covering this needs two
   boots — an architecture change to that harness. **Not addressed here; must be resolved before those
   specs can be trusted as standalone coverage.**
-- `OMH-018` has **49 bytes** of `maxInitialContextBytes` slack left. Anyone growing
+- `OMH-018` has **3 bytes** of `maxInitialContextBytes` slack left (measured 2026-08-03 session 3: the five initial-context files total 40,957 of 40,960 — `AGENTS.md.template` 10,987 + `contracts.md` 8,357 + `om-module-scaffold/SKILL.md` 4,557 + `extensions.md` 12,305 + `om-system-extension/SKILL.md` 4,751; `.ai/guides/modules/**` is excluded from the initial budget by `isInitialContextPath`). The earlier "49 bytes" figure was wrong. Anyone growing
   `om-module-scaffold/SKILL.md`, its `contracts.md`/`extensions.md`, or `om-system-extension/SKILL.md`
   will hit it. This, not the root instruction budget, is now the binding constraint on that skill.
 - The `installedVersionFallback` schema field is implemented and fixture-covered, but the live-runner
@@ -230,3 +230,43 @@ reaching any new code). The activation fixtures they host were instead exercised
   commit and pushed. Reverted in `e211d2e3d`; `packages/cli/` now has a zero diff against
   `origin/develop`. **Rule: never `git add -A` while background agents are running — stage explicit
   paths, and diff `--name-only` against the base before committing.**
+
+## Sequenced Wave Plan (from recon workflow `wf_e7482555-423`, 2026-08-03)
+
+Nine parallel planners plus a conflict-aware sequencer decomposed the whole remaining backlog.
+Full per-slice plans (files, tests, contract surfaces, conflict sets) are in that workflow's
+`journal.jsonl`. Summary of the execution order:
+
+| Wave | Parallel-safe | Slices |
+|---|---|---|
+| 1 | no | **W0** truth-up + program conventions (spec/run corrections, per-lane OMH id reservations) |
+| 2 | yes | **C1** packages/cli reader fixes (MERGED: registry-static-readability R1 + 4883 reader gaps steps 1-4) · **C2** exact-file fact links · **F1** cache DI-token doc fix · **F2** READ-P2 redaction fixtures |
+| 3 | yes | **E1** optimistic locking + shared Todo form · **H1** GOV-P1 |
+| 4 | yes | **E2** translations/extension-points/notifications.client · **H2** SPEC-P2 evaluator plumbing · **C3** local-reference fact emission |
+| 5 | yes | **E3** registry static-readability (example half) · **H3** SPEC-P2 six routing cases |
+| 6 | yes | **E4** encryption + search · **H4** CANON-C link migration (budget rebalance first) |
+| 7 | yes | **E5** cache/DI/seeding · **H5** CANON-C harness cases · **C4** source-link baseline |
+| 8 | yes | **E6** remaining fact families · **H6** SPEC-P2 writable proofs |
+| 9 | yes | **E7** bulk action + outbox + scheduler + progress · **H7** GOV-P2 |
+| 10 | yes | **C5** source-link inventory generator · **H8** harness source-selection assertions |
+| 11 | no | **E8** entity extensions (needs a `packages/shared` query-engine PR first) |
+| 12 | — | Blocked backlog: read-policy oracle families 4/9/10/11/12, GOV-P1 source-link branch, CANON-C packed-artifact work |
+
+**Hard sequencing findings:**
+
+- **C1 must ship as ONE PR.** Two planners independently planned edits to
+  `packages/cli/src/lib/generators/module-extension-facts.ts` with overlapping but *different*
+  defect lists (propsTransform/staticObject/CallExpression/`Array.isArray` vs payload-collapse
+  and unknown-framework-mode). Shipped separately each silently undoes half the other's fix.
+  C1 is also a hard prerequisite for E3 and E6 — the extractor reads **zero** entries from both
+  example registries today, so "made it statically readable" is unverifiable without it.
+- **Two program-level cautions to state in every PR body:** (1) no generated artifact contains
+  app-local example facts today (both `build.mjs` callers feed `extractAllModuleFacts` from
+  `discoverPackageModuleSources` only), so until C3 lands a new example fact is provable only by
+  a direct-extractor unit test; (2) zero of the 203 shipped cases declare `exampleRoots`, so new
+  capability rows are inert for the live harness until wave 7 and must not be reported as harness
+  coverage.
+- **11 decisions need a maintainer** before their slices can start. They are listed in the
+  workflow result; the biggest are entity-extension routing (E8), injection-table optionality (E3),
+  the bulk-action widget shape (E7), the CANON-C baseline/inventory circular dependency, and the
+  SPEC-P2 oracle carrier.
