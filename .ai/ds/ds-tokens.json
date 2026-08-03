@@ -214,7 +214,7 @@
         "name": "brand/lime",
         "type": "COLOR"
       },
-      "note": "Brand lime — theme-invariant (no .dark override). Brand violet is themed (see below + .dark)."
+      "note": "Brand lime + yellow — theme-invariant (no .dark override). Brand violet is themed (see below + .dark)."
     },
     "brand-linkedin": {
       "kind": "color",
@@ -273,6 +273,21 @@
       "themeAlias": "color-brand-x",
       "figma": {
         "name": "brand/x",
+        "type": "COLOR"
+      }
+    },
+    "brand-yellow": {
+      "kind": "color",
+      "light": "#EEFB63",
+      "dark": null,
+      "hex": {
+        "light": "#eefb63",
+        "dark": "#eefb63"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-yellow",
+      "figma": {
+        "name": "brand/yellow",
         "type": "COLOR"
       }
     },
@@ -390,6 +405,7 @@
         "dark": "#f4ba26"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-amber",
       "figma": {
         "name": "chart/amber",
         "type": "COLOR"
@@ -404,6 +420,7 @@
         "dark": "#2b7fff"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-blue",
       "figma": {
         "name": "chart/blue",
         "type": "COLOR"
@@ -419,6 +436,7 @@
         "dark": "#00d3f2"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-cyan",
       "figma": {
         "name": "chart/cyan",
         "type": "COLOR"
@@ -433,6 +451,7 @@
         "dark": "#00bc7d"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-emerald",
       "figma": {
         "name": "chart/emerald",
         "type": "COLOR"
@@ -447,6 +466,7 @@
         "dark": "#615fff"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-indigo",
       "figma": {
         "name": "chart/indigo",
         "type": "COLOR"
@@ -461,6 +481,7 @@
         "dark": "#ff9624"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-orange",
       "figma": {
         "name": "chart/orange",
         "type": "COLOR"
@@ -475,6 +496,7 @@
         "dark": "#fb64b6"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-pink",
       "figma": {
         "name": "chart/pink",
         "type": "COLOR"
@@ -489,6 +511,7 @@
         "dark": "#ff637e"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-rose",
       "figma": {
         "name": "chart/rose",
         "type": "COLOR"
@@ -503,6 +526,7 @@
         "dark": "#00bba4"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-teal",
       "figma": {
         "name": "chart/teal",
         "type": "COLOR"
@@ -517,6 +541,7 @@
         "dark": "#a684ff"
       },
       "themeInvariant": false,
+      "themeAlias": "color-chart-violet",
       "figma": {
         "name": "chart/violet",
         "type": "COLOR"
