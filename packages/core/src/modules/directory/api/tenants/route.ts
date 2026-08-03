@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { tenantCreateSchema, tenantUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
@@ -94,6 +95,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
   }
 
+  const container = await createRequestContainer()
+  try {
+    await requireSuperAdmin({ auth, container })
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const url = new URL(req.url)
   const parsed = listQuerySchema.safeParse({
     id: url.searchParams.get('id') ?? undefined,
@@ -111,8 +119,8 @@ export async function GET(req: Request) {
     )
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+
 
   const { id, page, pageSize, search, sortField, sortDir, isActive } = parsed.data
   const where: FilterQuery<Tenant> = { deletedAt: null }
