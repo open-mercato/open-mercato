@@ -324,7 +324,10 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       : null
 
     if (scheduleChanged && !nextRunAt) {
-      throw new CrudHttpError(422, { error: 'Invalid schedule value.' })
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('scheduler.error.invalid_schedule_value', 'Invalid schedule value.'),
+      })
     }
 
     // Update fields

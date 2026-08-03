@@ -239,6 +239,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) â€
 | Skill | When to use |
 |-------|-------------|
 | `om-auto-upgrade-0.4.10-to-0.5.0` | Migrate a downstream Open Mercato user codebase from 0.4.10 to 0.5.0. Executable companion to UPGRADE_NOTES.md â€” detects which codemod patterns are in use, applies them in place, typechecks, and reports what still needs human review. Triggers on "upgrade open-mercato to 0.5.0", "bump to 0.5.0", or "apply UPGRADE_NOTES migrations". |
+| `om-auto-upgrade-0.6.6-to-0.6.7` | Migrate downstream Open Mercato user code from 0.6.6 to 0.6.7. Applies the pg-errors import move, safely unwraps proven scheduler queue payload consumers, audits query-index callbacks and removed scheduler metadata, then typechecks and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.6.7", "migrate 0.6.6 to 0.6.7", or "apply the 0.6.7 upgrade notes". |
 
 ### infra
 

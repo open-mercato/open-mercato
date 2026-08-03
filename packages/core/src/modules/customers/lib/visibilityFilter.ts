@@ -1,5 +1,5 @@
 import type { FilterQuery } from '@mikro-orm/postgresql'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { CustomerInteraction } from '../data/entities'
 
 /**
@@ -22,7 +22,9 @@ export const EMAIL_VIEW_PRIVATE_FEATURE = 'customers.email.view_private'
  */
 export function callerHasEmailViewPrivate(userFeatures: string[] | null | undefined): boolean {
   if (!Array.isArray(userFeatures) || userFeatures.length === 0) return false
-  return hasFeature(userFeatures, EMAIL_VIEW_PRIVATE_FEATURE)
+  return authorizeFeatures([EMAIL_VIEW_PRIVATE_FEATURE], {
+    grantedFeatures: userFeatures,
+  })
 }
 
 /**
@@ -92,7 +94,7 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
 }
 
 type RbacServiceLike = {
-  getGrantedFeatures?: (
+  getEffectiveFeatures?: (
     userId: string,
     scope: { tenantId: string | null; organizationId: string | null },
   ) => Promise<string[] | undefined>
@@ -118,8 +120,8 @@ export async function resolveCallerEmailFeatures(
   if (!userId) return undefined
   try {
     const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return undefined
-    return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
+    if (!rbac?.getEffectiveFeatures) return undefined
+    return await rbac.getEffectiveFeatures(userId, { tenantId, organizationId })
   } catch {
     return undefined
   }
