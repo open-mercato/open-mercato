@@ -45,6 +45,10 @@ type Evaluator = {
   exampleReadAllowlist: (caseRecord: unknown, appRoot?: string) => string[]
   immutableExampleRoots: (caseRecord: unknown) => string[]
   normalizeExampleReadPath: (value: unknown) => { relative?: string; violation?: string }
+  sanitizedExampleReadPolicy: (trace: unknown, root: string) => {
+    roots: Array<{ root: string; entrypoints: string[]; capabilities: string[]; files: number; bytes: number }>
+    fallback: { reason: string | null; files: number; bytes: number }
+  }
   observedContext: (
     stdout: string,
     root: string,
@@ -1032,9 +1036,16 @@ test('family 9: the published result contract admits no summary field that could
 
 test('family 9: the evaluator projects only the contract keys into the result and sanitizes them first', () => {
   const source = evaluatorSource()
+  // The emission site calls the exported seam, and that seam is the ONLY composition of the
+  // projection with the sanitizer — so the behavioural test above and this structural test
+  // cover the same code path rather than two restatements of it.
   assert.ok(
-    source.includes('recursivelySanitize(exampleReadPolicySummary(trace.exampleReadPolicy), runRoot)'),
-    'the summary must reach the result record only through recursivelySanitize',
+    source.includes('exampleReadPolicy: sanitizedExampleReadPolicy(trace.exampleReadPolicy, runRoot)'),
+    'the summary must reach the result record only through the sanitized seam',
+  )
+  assert.ok(
+    source.includes('export function sanitizedExampleReadPolicy(trace, root) {\n  return recursivelySanitize(exampleReadPolicySummary(trace), root)\n}'),
+    'the seam must be exactly recursivelySanitize composed over the projection',
   )
   const start = source.indexOf('function exampleReadPolicySummary(trace) {')
   assert.ok(start > 0, 'the summary projection must exist')
@@ -1111,6 +1122,44 @@ test('family 9: only declaration-derived values reach the summary, so an adversa
     assert.equal(liveSummaryInputs.includes(root), false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 9: the REAL production projection redacts an absolute path, a home directory, and a credential', async () => {
+  // The other family-9 fixtures validate a hand-built literal against the schema and grep the
+  // evaluator's source text. Neither runs the projection the result record actually uses, so a
+  // leak introduced into it — or the emission site simply forgetting to sanitize — survives them.
+  // `sanitizedExampleReadPolicy` IS the emission site's own call, exported as a seam, so this
+  // exercises production code rather than a restatement of it.
+  const evaluator = await loadEvaluator()
+  const runRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-policy-redaction-')))
+  try {
+    const hostileTrace = {
+      roots: [{
+        root: `${runRoot}/src/modules/example`,
+        entrypoints: [`${os.homedir()}/.ssh/id_rsa`],
+        capabilities: ['api.crud-factory', 'authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz012345'],
+        files: 3,
+        bytes: 4096,
+      }],
+      fallback: { reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH', files: 1, bytes: 2048 },
+    }
+
+    const projected = evaluator.sanitizedExampleReadPolicy(hostileTrace, runRoot)
+    const serialized = JSON.stringify(projected)
+
+    assert.equal(serialized.includes(runRoot), false, 'the run root must not survive the projection')
+    assert.equal(serialized.includes(os.homedir()), false, 'the home directory must not survive the projection')
+    assert.match(serialized, /<redacted-path>/)
+    assert.doesNotMatch(serialized, /sk-abcdefghijklmnopqrstuvwxyz012345/)
+
+    // The projection must still be the real shape, not an empty object that trivially "leaks nothing".
+    assert.equal(projected.fallback.reason, 'INSTALLED_VERSION_CONTRACT_MISMATCH')
+    assert.equal(projected.fallback.files, 1)
+    assert.equal(projected.roots.length, 1)
+    assert.equal(projected.roots[0].files, 3)
+  } finally {
+    fs.rmSync(runRoot, { recursive: true, force: true })
   }
 })
 

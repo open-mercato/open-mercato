@@ -1917,6 +1917,10 @@ function expandObservedPath(root, relative, expand) {
 // Sanitized, content-free accounting of the example read policy for the result record.
 // It makes a reason-gated installed-source read auditable in captured evidence without
 // carrying any file bytes; the paths it names are already app-relative.
+export function sanitizedExampleReadPolicy(trace, root) {
+  return recursivelySanitize(exampleReadPolicySummary(trace), root)
+}
+
 function exampleReadPolicySummary(trace) {
   return {
     roots: (trace.roots ?? []).map((entry) => ({
@@ -3358,7 +3362,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         declaredContext: declaredStats,
         ...(trace.refusedPaths?.length ? { refusedContextReads: recursivelySanitize(trace.refusedPaths, runRoot) } : {}),
         ...(trace.exampleReadPolicy?.roots?.length || trace.exampleReadPolicy?.fallback?.reason
-          ? { exampleReadPolicy: recursivelySanitize(exampleReadPolicySummary(trace.exampleReadPolicy), runRoot) }
+          ? { exampleReadPolicy: sanitizedExampleReadPolicy(trace.exampleReadPolicy, runRoot) }
           : {}),
         ...(writableResult ? { writable: writableResult } : {}),
       }
