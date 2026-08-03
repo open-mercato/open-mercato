@@ -344,6 +344,120 @@ test('spec routing binds integration coverage to its decision label', () => {
   assert.match(root, /Commit\+ready PR MUST add `spec-pr`, read `\.ai\/skills\/om-auto-create-pr\/SKILL\.md`, and keep task routes \(`delivery-route-preserves-task-routes`\)/)
 })
 
+// The spec-first gate is the only planning rule that must fire BEFORE routing, so it lives in
+// the emitted root. Both emitted roots must state it once and identically: `template/AGENTS.md`
+// is the `--agents none` fallback and `agentic/shared/AGENTS.md.template` is the generated one.
+const ROOT_INSTRUCTION_SOURCES = [
+  { label: 'agentic/shared/AGENTS.md.template', read: () => readAgentic('shared/AGENTS.md.template') },
+  { label: 'template/AGENTS.md', read: () => readPackage('create-app/template/AGENTS.md') },
+] as const
+
+test('every emitted root states the ordered spec-first gate exactly once', () => {
+  for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
+    const root = read()
+    assert.equal(
+      (root.match(/Spec gate before code:/g) ?? []).length,
+      1,
+      `${label} must state the spec gate exactly once; one rule, one owner`,
+    )
+    // The six ordered branches from the decision contract, in order.
+    assert.match(
+      root,
+      /Spec gate before code: new capability\/architecture\/schema\/API contract\/cross-module\/multi-phase -> spec first \(`spec-first`\)/,
+      `${label} must require a spec before a new capability, architecture, contract, cross-module, or multi-phase change`,
+    )
+    assert.match(
+      root,
+      /covering `\.ai\/specs` match -> reuse and update it \(`reuse-spec`\)/,
+      `${label} must reuse a covering spec instead of duplicating it`,
+    )
+    assert.match(
+      root,
+      /bug fix\/minor fix\/docs\/dependency\/isolated refactor -> proceed \(`direct`\)/,
+      `${label} must let maintenance categories proceed without a spec`,
+    )
+    assert.match(
+      root,
+      /only the request's explicit words waive a feature spec/,
+      `${label} must accept only a current explicit instruction as the skip override`,
+    )
+    assert.match(
+      root,
+      /workflow-changing ambiguity -> ask once \(`ask`\)/,
+      `${label} must ask exactly one bounded question for material ambiguity`,
+    )
+    // One-way handoff: the root routes, the module skill owns the procedure.
+    assert.match(
+      root,
+      /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
+      `${label} must hand approved module work to om-module-scaffold at the canonical example README`,
+    )
+    assert.doesNotMatch(
+      root,
+      /surface-inventory\.json/,
+      `${label} must route to the inventory through om-module-scaffold, not restate its procedure`,
+    )
+  }
+})
+
+test('the spec-first gate only links owners that exist in the emitted harness', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
+  const tiers = JSON.parse(readAgentic('shared/ai/skills/tiers.json')) as unknown
+  const declaredSkills = new Set(
+    [...JSON.stringify(tiers).matchAll(/"(om-[a-z0-9-]+)"/g)].map((match) => match[1]),
+  )
+  for (const skillId of ['om-spec-writing', 'om-module-scaffold']) {
+    assert.match(root, new RegExp(`\`${skillId}\``), `the gate must route to ${skillId}`)
+    assert.ok(declaredSkills.has(skillId), `${skillId} must be an installed skill in tiers.json`)
+  }
+  assert.ok(
+    fs.existsSync(path.join(agenticRoot, 'shared/ai/skills/om-module-scaffold/SKILL.md')),
+    'om-module-scaffold must ship a local SKILL.md',
+  )
+  assert.ok(
+    fs.existsSync(path.join(agenticRoot, 'guides/spec-delivery.md')),
+    '.ai/guides/spec-delivery.md must exist for the relocated delivery procedure',
+  )
+  assert.ok(
+    fs.existsSync(path.join(packagesRoot, 'create-app/template/src/modules/example/README.md')),
+    'the gate must point at a README the scaffold actually emits',
+  )
+  assert.ok(
+    fs.existsSync(
+      path.join(packagesRoot, 'create-app/template/src/modules/example/references/surface-inventory.json'),
+    ),
+    'om-module-scaffold must resolve capabilities against an emitted inventory',
+  )
+})
+
+test('module scaffold owns the one-way canonical-example handoff', () => {
+  const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
+  assert.match(skill, /START at `src\/modules\/example\/README\.md`/)
+  assert.match(skill, /adapt only the `references\/surface-inventory\.json` rows it names/)
+  assert.match(
+    skill,
+    /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe`, or add direct cross-module ORM relationships/,
+  )
+})
+
+test('spec-delivery guide owns the expanded branches and the relocated delivery procedure', () => {
+  const guide = readAgentic('guides/spec-delivery.md')
+  assert.match(guide, /`AGENTS\.md` owns the ordered rule/)
+  assert.match(guide, /a plan-only request stops there/)
+  assert.match(guide, /Silence, urgency, an "it's small" estimate, and an earlier generic preference are not overrides/)
+  assert.match(guide, /Do not ask when repository evidence/)
+  assert.match(guide, /one-way handoff/)
+  assert.match(guide, /Never propose a second teaching module, copy the example tree wholesale, or treat `ratelimit_probe` as a blueprint/)
+  assert.match(guide, /names its own self-contained integration test/)
+  // Relocated out of the root router; the guide is now their only owner.
+  assert.match(guide, /Pinned delivery skills install with `yarn install-skills` \(refresh: `--update`\)/)
+  assert.match(guide, /run `yarn install-skills` once; never substitute/)
+  assert.match(guide, /`om-integration-tests` and `om-auto-qa-pr`/)
+  const root = readAgentic('shared/AGENTS.md.template')
+  assert.doesNotMatch(root, /om-auto-qa-pr/)
+  assert.doesNotMatch(root, /Absent skill/)
+})
+
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
   const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
   assert.match(skill, /complete one-shot module or CRUD vertical slice/)

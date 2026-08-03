@@ -2,6 +2,26 @@
 
 Use this guide for a new application, multi-module feature, or other non-trivial business slice.
 
+## Spec-first decision gate
+
+`AGENTS.md` owns the ordered rule; this section only expands it with examples and the surrounding delivery procedure. Apply it before writing code, in order:
+
+1. Search the configured specs path (`.ai/specs`, plus any enterprise directory the config names) once for a covering specification. Open the one match; a plan-only request stops there.
+2. A new user-facing or platform capability, an architecture decision, a schema or public API contract, cross-module behavior, or multi-phase behavior means authoring or amending a spec **before** coding (`spec-first`). Examples: "add a rental-booking module", "let customers self-serve returns", "introduce a second pricing engine".
+3. A bug fix, minor behavioral correction, small documentation change, dependency maintenance, or an isolated refactor that adds no architecture and no public contract proceeds without a spec (`direct`). Examples: "the overdue filter is off by one day", "rename an internal helper", "bump the queue dependency".
+4. A covering spec already exists: implement against it and update it in place (`reuse-spec`). Never open a second spec for the same capability.
+5. A new feature skips the spec **only** when the user's current request explicitly says to skip or bypass it. Silence, urgency, an "it's small" estimate, and an earlier generic preference are not overrides; neither is your own time estimate.
+6. When the classification is genuinely ambiguous **and** the answer materially changes the workflow, ask one bounded question (`ask`). Do not ask when repository evidence — an existing spec, an existing module, a reproducible defect — already resolves it.
+
+After `spec-first` or `reuse-spec`, implementation routing is a one-way handoff: module work loads `om-module-scaffold`, which starts at `src/modules/example/README.md` and its `references/surface-inventory.json`, and adapts only the capability-linked source files. UI-bearing work additionally loads `om-backend-ui-design`. Never propose a second teaching module, copy the example tree wholesale, or treat `ratelimit_probe` as a blueprint. Every newly added or materially changed extension surface names its own self-contained integration test in the plan.
+
+## Delivery skills
+
+- Pinned delivery skills install with `yarn install-skills` (refresh: `--update`). When a skill is absent, run `yarn install-skills` once; never substitute a similarly named skill or improvise its workflow.
+- `om-implement-spec` runs approved phases locally; `om-auto-implement-spec`, `om-auto-create-pr`, `om-auto-fix-issue`, and `om-auto-review-pr` own whole-spec, commit+ready PR, issue, and review delivery.
+- Integration, E2E, and UI QA delivery uses `om-integration-tests` and `om-auto-qa-pr`.
+- Routing note: specs themselves are `spec-pr` work; implementation owns the domain guides. Do not load delivery skills when no PR or spec workflow was requested.
+
 ## Authoring readiness gate
 
 1. Invoke `om-spec-writing` before authoring or revising. Mentioning the skill or reading only `SPEC-000-template.md` is not sufficient.

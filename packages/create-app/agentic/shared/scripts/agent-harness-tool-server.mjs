@@ -65,15 +65,25 @@ const rootArg = process.argv[2]
 const mode = process.argv[3]
 let allowedReads
 let allowedWrites
+let immutableRoots
 try { allowedReads = JSON.parse(process.argv[4] ?? '[]') } catch { fail('allowed read set is invalid JSON') }
 try { allowedWrites = JSON.parse(process.argv[5] ?? '[]') } catch { fail('allowed write set is invalid JSON') }
+try { immutableRoots = JSON.parse(process.env.OM_HARNESS_IMMUTABLE_ROOTS ?? '[]') } catch { fail('immutable root set is invalid JSON') }
 if (!path.isAbsolute(rootArg ?? '')) fail('root must be absolute')
 if (!['read-only', 'writable'].includes(mode)) fail('mode must be read-only or writable')
 if (!Array.isArray(allowedReads) || allowedReads.some((entry) => !safeRelative(entry, { allowInstalledSourcePatterns: true }) || ['*', '**'].includes(entry))) fail('allowed read set is invalid')
 if (!Array.isArray(allowedWrites) || allowedWrites.some((entry) => !safeRelative(entry))) fail('allowed write set is invalid')
+if (!Array.isArray(immutableRoots) || immutableRoots.some((entry) => !safeRelative(entry) || entry.includes('*') || entry.includes('?'))) fail('immutable root set is invalid')
 const root = fs.realpathSync(rootArg)
 const readMatchers = allowedReads.map(globToRegExp)
 const writeMatchers = allowedWrites.map(globToRegExp)
+const immutablePrefixes = immutableRoots.map((entry) => entry.replaceAll('\\', '/'))
+
+// Root immutability precedence: declared read-only roots are resolved BEFORE the write
+// allowlist, so a broader writable grant such as `src/modules/**` can never reach inside one.
+function isImmutablePath(normalized) {
+  return immutablePrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`))
+}
 
 function resolveRead(relative) {
   if (!safeRelative(relative)) throw new Error('path is outside the allowed app context')
@@ -94,7 +104,10 @@ function resolveRead(relative) {
 
 function resolveWrite(relative) {
   if (mode !== 'writable') throw new Error('writes are disabled for this evaluation')
-  if (!safeRelative(relative) || !writeMatchers.some((matcher) => matcher.test(relative.replaceAll('\\', '/')))) throw new Error('path is outside the case write allowlist')
+  if (!safeRelative(relative)) throw new Error('path is outside the case write allowlist')
+  const normalized = relative.replaceAll('\\', '/')
+  if (isImmutablePath(normalized)) throw new Error('path is inside a read-only declared root and can never be written')
+  if (!writeMatchers.some((matcher) => matcher.test(normalized))) throw new Error('path is outside the case write allowlist')
   const lexical = path.resolve(root, relative)
   if (!isInside(root, lexical)) throw new Error('path escapes the app root')
   let cursor = path.dirname(lexical)

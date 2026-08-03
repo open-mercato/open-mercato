@@ -85,6 +85,28 @@ for (const presetId of PRESET_IDS) {
       assert.doesNotMatch(modulesTs, /id: 'design_system'/)
       assert.doesNotMatch(modulesTs, /id: 'example',/)
 
+      // The spec-first gate must reach every preset, and it must point at a README this
+      // very scaffold emitted — a routed entrypoint that does not exist is a dead link.
+      const rootInstructions = readFileSync(join(targetDir, 'AGENTS.md'), 'utf8')
+      assert.equal(
+        (rootInstructions.match(/Spec gate before code:/g) ?? []).length,
+        1,
+        `preset ${presetId} must emit the spec-first gate exactly once`,
+      )
+      assert.match(rootInstructions, /-> spec first \(`spec-first`\)/)
+      assert.match(rootInstructions, /-> proceed \(`direct`\)/)
+      assert.match(rootInstructions, /\(`reuse-spec`\)/)
+      assert.match(rootInstructions, /ask once \(`ask`\)/)
+      assert.match(rootInstructions, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+      assert.ok(
+        existsSync(join(exampleDir, 'README.md')),
+        `preset ${presetId} routes the spec gate at src/modules/example/README.md, which must exist`,
+      )
+      assert.ok(
+        existsSync(join(exampleDir, 'references', 'surface-inventory.json')),
+        `preset ${presetId} must emit the capability inventory om-module-scaffold resolves against`,
+      )
+
       const quickLinksUrl = pathToFileURL(join(targetDir, 'src', 'lib', 'homeQuickLinks.ts')).href
       const { buildHomeQuickLinks } = (await import(quickLinksUrl)) as {
         buildHomeQuickLinks: (modules: readonly { id: string }[]) => { href: string }[]
