@@ -34,9 +34,9 @@ findings). Each Progress row below maps 1:1 to a review finding.
 
 ### Phase 3: Override target coverage (Major 5, Major 6, Minor 1)
 
-- [ ] 3.1 AI file contracts: parse `aiAgentOverrides` and `aiToolOverrides` separately, emit exact `ai.agents.<id>` / `ai.tools.<id>` targets without serializing values
-- [ ] 3.2 Nested override coverage: emit `notifications.handlers` and `setup.defaultCustomerRoleFeatures`
-- [ ] 3.3 Unknown framework override modes emit a diagnostic instead of a guessed `disable-replace`
+- [x] 3.1 AI file contracts: parse `aiAgentOverrides` and `aiToolOverrides` separately, emit exact `ai.agents.<id>` / `ai.tools.<id>` targets without serializing values — ab412ca20
+- [x] 3.2 Nested override coverage: emit `notifications.handlers` and `setup.defaultCustomerRoleFeatures` — ab412ca20
+- [x] 3.3 Unknown framework override modes emit a diagnostic instead of a guessed `disable-replace` — ab412ca20
 
 ### Phase 4: Activation correctness (Major 7, Major 8, Major 9, Major 10)
 
