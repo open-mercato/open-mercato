@@ -127,6 +127,9 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
+      acl: {
+        features: { 'example.manage': null },
+      },
       // Keep the real-bootstrap nav override probe isolated from normal app behavior. The integration
       // runner sets OM_INTEGRATION_TEST, while development and production keep Example at the tail.
       nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
