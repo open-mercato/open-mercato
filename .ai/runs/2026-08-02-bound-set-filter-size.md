@@ -89,4 +89,6 @@ PR: #4855
 - [x] Phase 2.1 — schema edge coverage — 9f9090680
 - [x] Phase 2.2 — route 400 coverage — 9f9090680
 - [x] Phase 2.3 — OpenAPI `maxItems` coverage — 9f9090680
+- [x] Phase 2.4 — single and batch API integration coverage — 6ded353e0
 - [x] Phase 3.1 — validation gate, PR, review pass — 4310aacf6
+- [x] Phase 3.2 — review autofix for empty-set compatibility and typed OpenAPI assertions — 6ded353e0
