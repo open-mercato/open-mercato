@@ -87,6 +87,11 @@
     "logger:check-console": "node scripts/logger-check-console.mjs",
     "logger:check-console:ci": "node scripts/logger-check-console.mjs --strict",
     "check:dep-versions": "tsx scripts/check-dep-versions.ts",
+    "ds:tokens": "node scripts/ds-tokens-export.mjs --write",
+    "ds:tokens:check": "node scripts/ds-tokens-export.mjs --check",
+    "ds:tokens:figma": "node scripts/ds-tokens-export.mjs --figma-ops",
+    "ds:code-connect:check": "yarn workspace @open-mercato/ui figma connect parse",
+    "ds:code-connect:publish": "yarn workspace @open-mercato/ui figma connect publish",
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
@@ -109,7 +114,8 @@
     "check:client-boundaries:fail": "node scripts/check-client-boundaries.mjs --fail",
     "check:time-bombs": "node scripts/time-bomb-scanner.mjs",
     "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail",
-    "agents:check-budget": "node scripts/check-agents-md-budget.mjs"
+    "agents:check-budget": "node scripts/check-agents-md-budget.mjs",
+    "lessons:check": "node packages/create-app/agentic/shared/scripts/check-lessons.mjs --root ."
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.2",
