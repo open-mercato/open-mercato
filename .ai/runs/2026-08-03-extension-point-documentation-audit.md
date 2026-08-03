@@ -56,8 +56,8 @@ Source implementation: PR #4883 (`feat/module-facts-source-linked-contracts`), i
 
 ### Phase 2: Official documentation coverage
 
-- [ ] 2.1 Close verified documentation gaps
-- [ ] 2.2 Wire authoritative navigation and cross-links
+- [x] 2.1 Close verified documentation gaps — 1dda6a967
+- [x] 2.2 Wire authoritative navigation and cross-links — 1dda6a967
 
 ### Phase 3: Verification and publication
 
