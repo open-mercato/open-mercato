@@ -18,6 +18,7 @@ const logger = createLogger('auth').child({ component: 'profile-page' })
 
 type ProfileResponse = {
   email?: string | null
+  name?: string | null
 }
 
 type ProfileUpdateResponse = {

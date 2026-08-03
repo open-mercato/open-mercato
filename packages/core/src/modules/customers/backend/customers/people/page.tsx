@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -914,7 +915,7 @@ export default function CustomersPeoplePage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customers.people.list.searchPlaceholder')}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
-          perspective={{ tableId: 'customers.people.list' }}
+          perspective={{ tableId: extensionPoints.hosts.peopleTable.tableId }}
           onRowClick={(row) => router.push(`/backend/customers/people-v2/${row.id}`)}
           sortable
           manualSorting

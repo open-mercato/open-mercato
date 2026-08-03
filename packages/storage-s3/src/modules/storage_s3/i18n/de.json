@@ -1,0 +1,17 @@
+{
+  "storage_s3.errors.activeContentBlocked": "Das Hochladen aktiver Inhalte ist nicht erlaubt.",
+  "storage_s3.errors.dangerousExecutable": "Ausführbare Dateitypen sind als Anhänge nicht erlaubt.",
+  "storage_s3.errors.fileNotFound": "Datei nicht gefunden",
+  "storage_s3.errors.fileRequired": "Das Feld „file“ ist erforderlich",
+  "storage_s3.errors.integrationNotConfigured": "Die S3-Integration ist nicht konfiguriert.",
+  "storage_s3.errors.invalidPayload": "Ungültige Anfragedaten",
+  "storage_s3.errors.invalidQuery": "Ungültige Abfrageparameter",
+  "storage_s3.errors.keyAccessDenied": "Zugriff verweigert: Der Schlüssel ist nicht auf diesen Tenant beschränkt.",
+  "storage_s3.errors.keyOverrideAccessDenied": "Zugriff verweigert: Die Schlüsselüberschreibung ist nicht auf diesen Tenant beschränkt.",
+  "storage_s3.errors.keyRequired": "Der Abfrageparameter „key“ ist erforderlich",
+  "storage_s3.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
+  "storage_s3.errors.multipartRequired": "multipart/form-data wurde erwartet",
+  "storage_s3.errors.prefixAccessDenied": "Zugriff verweigert: Das Präfix ist nicht auf diesen Tenant beschränkt.",
+  "storage_s3.errors.quotaExceeded": "Das Speicherlimit für Anhänge dieses Tenants wurde überschritten.",
+  "storage_s3.errors.unauthorized": "Nicht autorisiert"
+}

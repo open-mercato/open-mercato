@@ -7,12 +7,35 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { isWebhookTimestampWithinTolerance, WEBHOOK_SIGNATURE_TOLERANCE_SECONDS } from '@open-mercato/shared/lib/webhooks'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  isWebhookTimestampWithinTolerance,
+  WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
+  type InboundWebhookRequest,
+} from '@open-mercato/shared/lib/webhooks'
 import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
+import { getWebhookSource } from '../../../lib/inbound-registry'
+import { enqueueInboundDispatch } from '../../../lib/queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from '../../../lib/integration-state'
 import { json } from '../../helpers'
-import { WebhookInboundReceiptEntity } from '../../../data/entities'
+import { InboundEndpointConfigEntity, WebhookIngestionEntity, WebhookInboundReceiptEntity } from '../../../data/entities'
+
+type IntegrationCredentialsService = {
+  resolve: (
+    integrationId: string,
+    scope: { organizationId: string; tenantId: string },
+  ) => Promise<Record<string, unknown> | null>
+}
+
+function toStringCredentials(credentials: Record<string, unknown> | null): Record<string, string> {
+  const result: Record<string, string> = {}
+  if (!credentials) return result
+  for (const [key, value] of Object.entries(credentials)) {
+    if (typeof value === 'string') result[key] = value
+  }
+  return result
+}
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -33,10 +56,11 @@ const STALE_TIMESTAMP_ERROR = 'Webhook timestamp is outside the allowed replay w
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   const params = await context.params
-  const adapter = getWebhookEndpointAdapter(params.endpointId)
+  const source = getWebhookSource(params.endpointId)
+  const adapter = source ? undefined : getWebhookEndpointAdapter(params.endpointId)
   const { translate } = await resolveTranslations()
 
-  if (!adapter) {
+  if (!source && !adapter) {
     return json({ error: 'Webhook endpoint not found' }, { status: 404 })
   }
 
@@ -59,6 +83,114 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   const headers = Object.fromEntries(request.headers.entries())
   if (!isInboundWebhookTimestampFresh(headers)) {
     return json({ error: STALE_TIMESTAMP_ERROR }, { status: 400 })
+  }
+
+  if (source) {
+    let parsedBody: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(body)
+      if (parsed && typeof parsed === 'object') parsedBody = parsed as Record<string, unknown>
+    } catch {
+      parsedBody = {}
+    }
+    const inboundRequest: InboundWebhookRequest = { body, headers, parsedBody }
+
+    const credentialsService = tryResolve<IntegrationCredentialsService>(container, 'integrationCredentialsService')
+    const configs = await findWithDecryption(
+      em,
+      InboundEndpointConfigEntity,
+      { sourceKey: params.endpointId, isActive: true },
+      {},
+    )
+
+    let verifiedScope: { organizationId: string; tenantId: string } | null = null
+    for (const config of configs) {
+      const scope = { organizationId: config.organizationId, tenantId: config.tenantId }
+      const credentials = credentialsService
+        ? await credentialsService.resolve(`webhook_source_${params.endpointId}`, scope)
+        : null
+      let valid = false
+      try {
+        valid = await source.verifier(inboundRequest, toStringCredentials(credentials))
+      } catch {
+        valid = false
+      }
+      if (valid) {
+        verifiedScope = scope
+        break
+      }
+    }
+
+    if (!verifiedScope) {
+      return json({ error: 'Signature verification failed' }, { status: 401 })
+    }
+
+    const eventType = source.eventTypeExtractor(parsedBody, headers)
+    const messageId = source.messageIdExtractor?.(parsedBody, headers)
+      ?? resolveInboundReceiptMessageId({
+        endpointId: params.endpointId,
+        providerKey: params.endpointId,
+        headers,
+        body,
+      })
+
+    try {
+      em.persist(em.create(WebhookInboundReceiptEntity, {
+        endpointId: params.endpointId,
+        messageId,
+        providerKey: params.endpointId,
+        eventType,
+        tenantId: verifiedScope.tenantId,
+        organizationId: verifiedScope.organizationId,
+        createdAt: new Date(),
+      }))
+      await em.flush()
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return json({ ok: true, duplicate: true })
+      }
+      throw error
+    }
+
+    const ingestion = em.create(WebhookIngestionEntity, {
+      sourceKey: params.endpointId,
+      eventType,
+      externalMessageId: messageId,
+      payload: parsedBody,
+      headers,
+      status: 'received',
+      handlerCount: 0,
+      organizationId: verifiedScope.organizationId,
+      tenantId: verifiedScope.tenantId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(ingestion)
+    await em.flush()
+
+    await enqueueInboundDispatch({
+      ingestionId: ingestion.id,
+      sourceKey: params.endpointId,
+      eventType,
+      tenantId: verifiedScope.tenantId,
+      organizationId: verifiedScope.organizationId,
+    })
+
+    await emitWebhooksEvent('webhooks.inbound.received', {
+      providerKey: params.endpointId,
+      endpointId: params.endpointId,
+      messageId,
+      eventType,
+      payload: parsedBody,
+      tenantId: verifiedScope.tenantId,
+      organizationId: verifiedScope.organizationId,
+    }, { persistent: true })
+
+    return json({ ok: true })
+  }
+
+  if (!adapter) {
+    return json({ error: 'Webhook endpoint not found' }, { status: 404 })
   }
 
   let verified: Awaited<ReturnType<typeof adapter.verifyWebhook>>
@@ -134,11 +266,12 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Receive inbound webhook',
-      description: 'Endpoint ids currently resolve to registered adapter provider keys.',
+      description: 'The endpoint id resolves to a registered webhook source first (module-level handler dispatch), otherwise to a legacy adapter provider key.',
       pathParams: z.object({ endpointId: z.string().min(1) }),
       responses: [{ status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema }],
       errors: [
         { status: 400, description: 'Verification failed or stale webhook timestamp', schema: errorSchema },
+        { status: 401, description: 'Signature verification failed (source flow)', schema: errorSchema },
         { status: 404, description: 'Endpoint not found', schema: errorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
         { status: 503, description: 'Webhook integration disabled', schema: errorSchema },

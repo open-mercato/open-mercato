@@ -7,6 +7,7 @@ import { LocalLockStrategy } from '../lib/localLockStrategy'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
 import { buildScheduledCommandContext } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -15,6 +16,7 @@ const logger = createLogger('scheduler').child({ component: 'local' })
 
 export interface RbacServiceLike {
   tenantHasFeature(tenantId: string | null | undefined, feature: string, opts?: { organizationId?: string | null }): Promise<boolean>
+  userHasAllFeatures(userId: string, required: readonly string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean>
 }
 
 export interface LocalSchedulerConfig {
@@ -276,6 +278,14 @@ export class LocalSchedulerService {
     }
 
     const commandBus = new CommandBus()
+    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    await assertSchedulerSafeCommandAuthorized({
+      commandId: schedule.targetCommand,
+      actorUserId,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      rbacService: this.rbacService,
+    })
     
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
@@ -283,6 +293,7 @@ export class LocalSchedulerService {
       organizationId: schedule.organizationId,
     }
     
+    // Build the schedule-scoped command context after the allowlist/RBAC gate.
     const commandCtx = buildScheduledCommandContext(
       schedule,
       {

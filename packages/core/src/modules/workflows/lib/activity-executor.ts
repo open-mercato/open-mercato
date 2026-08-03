@@ -22,7 +22,6 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
@@ -107,7 +106,40 @@ export interface ActivityDefinition {
   async?: boolean // Flag to execute activity asynchronously via queue
   retryPolicy?: RetryPolicy
   timeoutMs?: number
+  /**
+   * @deprecated Use `timeoutMs`. Legacy ISO 8601 duration string accepted by
+   * the definition schema before #4424; normalized by `resolveActivityTimeoutMs`.
+   */
+  timeout?: string
   compensate?: boolean // Flag to execute compensation on failure
+}
+
+/**
+ * Effective timeout for an activity, in milliseconds.
+ *
+ * The editor and this executor both speak `timeoutMs`, but the definition
+ * schema historically accepted only an ISO 8601 `timeout` string — so stored
+ * definitions can carry either. Prefer `timeoutMs`; fall back to parsing
+ * `timeout`, ignoring a malformed value rather than throwing mid-execution
+ * (an unparseable timeout must not fail an activity that would otherwise
+ * succeed). Returns undefined when no usable timeout is configured (#4424).
+ */
+export function resolveActivityTimeoutMs(activity: {
+  timeoutMs?: number
+  timeout?: string
+}): number | undefined {
+  if (typeof activity.timeoutMs === 'number' && activity.timeoutMs > 0) {
+    return activity.timeoutMs
+  }
+  if (typeof activity.timeout === 'string' && activity.timeout.trim().length > 0) {
+    try {
+      const parsed = parseDuration(activity.timeout.trim())
+      if (Number.isFinite(parsed) && parsed > 0) return parsed
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 export interface RetryPolicy {
@@ -130,27 +162,29 @@ export interface ActivityContext {
 }
 
 type RbacFeatureResolver = {
-  getGrantedFeatures: (
+  userHasAllFeatures: (
     userId: string,
+    required: string[],
     opts: { tenantId: string | null; organizationId: string | null }
-  ) => Promise<string[]>
+  ) => Promise<boolean>
 }
 
-async function resolveWorkflowUserFeatures(
+async function workflowUserHasAllFeatures(
   container: AwilixContainer,
   userId: string,
+  required: readonly string[],
   tenantId: string | null,
   organizationId: string | null
-): Promise<string[]> {
+): Promise<boolean> {
   try {
     const rbac = container.resolve('rbacService') as RbacFeatureResolver | undefined
-    if (rbac?.getGrantedFeatures) {
-      return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
+    if (rbac?.userHasAllFeatures) {
+      return await rbac.userHasAllFeatures(userId, [...required], { tenantId, organizationId })
     }
   } catch {
     // Fail closed below when the workflow executor cannot prove the actor's grants.
   }
-  return []
+  return false
 }
 
 export interface ActivityExecutionResult {
@@ -332,11 +366,13 @@ export async function executeActivity(
     try {
       const startTime = Date.now()
 
-      // Execute with timeout if specified
-      const result = activity.timeoutMs
+      // Execute with timeout if specified (timeoutMs, or a legacy ISO 8601
+      // `timeout` string normalized to ms — see resolveActivityTimeoutMs).
+      const timeoutMs = resolveActivityTimeoutMs(activity)
+      const result = timeoutMs
         ? await executeWithTimeout(
             () => executeActivityByType(em, container, activity, context),
-            activity.timeoutMs
+            timeoutMs
           )
         : await executeActivityByType(em, container, activity, context)
 
@@ -646,13 +682,14 @@ export async function executeUpdateEntity(
     throw new Error('UPDATE_ENTITY requires an authenticated workflow user')
   }
 
-  const userFeatures = await resolveWorkflowUserFeatures(
+  const authorized = await workflowUserHasAllFeatures(
     container,
     actorUserId,
+    workflowSafeCommand.requiredFeatures,
     context.workflowInstance.tenantId,
     context.workflowInstance.organizationId
   )
-  if (!hasAllFeatures(userFeatures, workflowSafeCommand.requiredFeatures)) {
+  if (!authorized) {
     throw new Error('UPDATE_ENTITY command is not authorized')
   }
 
