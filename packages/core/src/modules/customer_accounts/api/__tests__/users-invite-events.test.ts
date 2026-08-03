@@ -8,7 +8,7 @@ const inviteCompoundConfig: RateLimitConfig = { points: 5, duration: 60, blockDu
 
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
-const mockRemoveInvitation = jest.fn()
+const mockRollbackInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockGetCustomerAuthFromRequest = jest.fn()
@@ -25,7 +25,7 @@ const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'customerRbacService') return {}
-    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation, removeInvitation: mockRemoveInvitation }
+    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation, rollbackInvitation: mockRollbackInvitation }
     if (token === 'em') return { find: jest.fn() }
     return null
   }),
@@ -106,8 +106,9 @@ describe('customer invitation endpoints — invitation-created event', () => {
       },
       rawToken: 'raw-secret-token',
       reused: false,
+      rollbackState: null,
     })
-    mockRemoveInvitation.mockResolvedValue(undefined)
+    mockRollbackInvitation.mockResolvedValue(undefined)
     mockEmit.mockResolvedValue(undefined)
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
     mockFindWithDecryption.mockResolvedValue([{ id: roleId, name: 'Buyer', customerAssignable: true }])
@@ -162,7 +163,7 @@ describe('customer invitation endpoints — invitation-created event', () => {
 
     expect(res.status).toBe(502)
     expect(invitedEvents()).toHaveLength(0)
-    expect(mockRemoveInvitation).toHaveBeenCalledTimes(1)
+    expect(mockRollbackInvitation).toHaveBeenCalledTimes(1)
     consoleErrorSpy.mockRestore()
   })
 
@@ -177,7 +178,7 @@ describe('customer invitation endpoints — invitation-created event', () => {
 
     expect(res.status).toBe(502)
     expect(invitedEvents()).toHaveLength(0)
-    expect(mockRemoveInvitation).toHaveBeenCalledTimes(1)
+    expect(mockRollbackInvitation).toHaveBeenCalledTimes(1)
     consoleErrorSpy.mockRestore()
   })
 

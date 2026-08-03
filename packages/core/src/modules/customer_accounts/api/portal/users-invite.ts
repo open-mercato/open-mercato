@@ -91,7 +91,7 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const { invitation, rawToken, reused } = await customerInvitationService.createInvitation(
+  const { invitation, rawToken, rollbackState } = await customerInvitationService.createInvitation(
     parsed.data.email,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
     {
@@ -111,15 +111,10 @@ export async function POST(req: Request) {
     })
   } catch (error) {
     console.error('[customer_accounts.portal.users-invite] invitation email failed', error)
-    // Roll back a freshly-created invite so a 502 leaves no orphaned, un-emailed
-    // invitation. A reused (already-pending) invite is left intact — removing it
-    // would drop a prior legitimate invitation.
-    if (!reused) {
-      try {
-        await customerInvitationService.removeInvitation(invitation)
-      } catch (rollbackError) {
-        console.error('[customer_accounts.portal.users-invite] invitation rollback failed', rollbackError)
-      }
+    try {
+      await customerInvitationService.rollbackInvitation(invitation, rollbackState)
+    } catch (rollbackError) {
+      console.error('[customer_accounts.portal.users-invite] invitation rollback failed', rollbackError)
     }
     return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
   }
