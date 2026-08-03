@@ -599,6 +599,36 @@ describe('Action Executor', () => {
         expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
       })
 
+      it('should mint the one-time key without createdBy so a cross-org trigger still authenticates', async () => {
+        mockFetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ok: true }),
+        } as any)
+        const { context, createdApiKeys } = createOpenMercatoContext({
+          executedBy: 'user-from-other-org',
+          user: { id: 'user-from-other-org', organizationId: 'org-other' },
+        } as Partial<ActionContext>)
+        const action: Action = {
+          type: 'CALL_OPEN_MERCATO',
+          config: {
+            endpoint: '/api/business_rules/rules',
+            method: 'GET',
+            apiKeyId: apiKeyProfileId,
+          },
+        }
+
+        const result = await executeAction(action, context)
+
+        expect(result.success).toBe(true)
+        expect(createdApiKeys).toHaveLength(1)
+        expect(createdApiKeys[0].createdBy).toBeNull()
+        expect(createdApiKeys[0].tenantId).toBe('tenant-456')
+        expect(createdApiKeys[0].organizationId).toBe('org-789')
+      })
+
       it('should send auth, tenant, organization, trace headers, and interpolated body', async () => {
         mockFetch.mockResolvedValue({
           ok: true,

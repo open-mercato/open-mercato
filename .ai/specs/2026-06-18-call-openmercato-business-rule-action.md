@@ -84,7 +84,7 @@ The selected `apiKeyId` references an existing `ApiKey` row only as a role profi
 Requires:
 
 - `business_rules.manage`
-- `api_keys.view`
+- `api_keys.create`
 
 Response:
 
@@ -165,8 +165,9 @@ The action executor:
 - Authorization headers are not persisted.
 - Endpoint execution is allowlisted by current OpenAPI/route metadata and relative `/api/...` paths.
 - API key profile resolution is scoped by tenant and organization.
-- The options route requires both business-rule management and API-key viewing permissions.
-- Rule execution logs persist only action type, success flag, and error summary for action results.
+- The options route requires both business-rule management and API-key minting permissions.
+- The one-time key is minted with `createdBy: null`. It is a machine-to-machine credential whose identity is fully defined by its own tenant and organization, so `resolveApiKeyAuth` resolves it through the tenant/organization active-check branch. Binding it to the triggering principal would make runtime auth fail closed whenever the trigger comes from another organization or from a since-deleted user. This matches the `workflows` activity executor.
+- Rule execution logs persist only action type, success flag, and error summary for action results. Non-2xx failures record the status code only — the endpoint response body is never interpolated into the persisted error message.
 
 ## Alternatives Considered
 
@@ -205,7 +206,7 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 
 - Severity: High
 - Scenario: A rule author selects a profile with broader roles than intended.
-- Mitigation: Configuring this action requires `business_rules.manage` and `api_keys.view`. Runtime uses only roles already assigned to a scoped API key profile.
+- Mitigation: Configuring this action requires `business_rules.manage` and `api_keys.create`. The mint permission is deliberate: at execution the one-time key inherits every role of the selected profile, so gating on the read-only `api_keys.view` would let a user who cannot mint a key drive authenticated internal calls with roles beyond their own grants. A user who already holds `api_keys.create` can mint an arbitrary-role key directly and therefore gains no new privilege here. Runtime uses only roles already assigned to a scoped API key profile.
 - Residual risk: Administrators must manage API key profiles carefully.
 
 ### Secret Exposure in Logs
@@ -232,6 +233,12 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Spec, spec directory, changelog, unit tests, and integration coverage are included.
 
 ## Changelog
+
+### 2026-08-03
+
+- Tightened the configurator gate from `api_keys.view` to `api_keys.create` on both the options route and the rule create/update path, so configuring the action requires the permission that can already mint an arbitrary-role key.
+- Minted the one-time execution key with `createdBy: null` so cross-organization and non-user rule triggers no longer fail closed in `resolveApiKeyAuth`, with regression coverage.
+- Dropped the endpoint response body from the persisted non-2xx error message, honoring the logging guarantee this spec already stated.
 
 ### 2026-06-18
 

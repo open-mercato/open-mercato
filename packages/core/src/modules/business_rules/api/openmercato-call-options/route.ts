@@ -42,7 +42,7 @@ const errorResponseSchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['business_rules.manage', 'api_keys.view'] },
+  GET: { requireAuth: true, requireFeatures: ['business_rules.manage', 'api_keys.create'] },
 }
 
 export async function GET(req: Request) {

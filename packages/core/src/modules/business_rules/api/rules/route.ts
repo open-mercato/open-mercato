@@ -99,7 +99,7 @@ async function requireOpenMercatoCallConfiguratorAccess(
 ): Promise<Response | null> {
   if (!auth.sub) {
     return NextResponse.json(
-      { error: 'Forbidden', requiredFeatures: ['api_keys.view'] },
+      { error: 'Forbidden', requiredFeatures: ['api_keys.create'] },
       { status: 403 },
     )
   }
@@ -111,14 +111,14 @@ async function requireOpenMercatoCallConfiguratorAccess(
       scope: { tenantId: string | null; organizationId: string | null },
     ) => Promise<boolean>
   } | undefined
-  const allowed = await rbac?.userHasAllFeatures?.(auth.sub, ['api_keys.view'], {
+  const allowed = await rbac?.userHasAllFeatures?.(auth.sub, ['api_keys.create'], {
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
   })
   if (allowed) return null
 
   return NextResponse.json(
-    { error: 'Forbidden', requiredFeatures: ['api_keys.view'] },
+    { error: 'Forbidden', requiredFeatures: ['api_keys.create'] },
     { status: 403 },
   )
 }

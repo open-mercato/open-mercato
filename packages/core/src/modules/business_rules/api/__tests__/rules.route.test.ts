@@ -1024,7 +1024,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(response.status).toBe(201)
       expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
         'user-1',
-        ['api_keys.view'],
+        ['api_keys.create'],
         { tenantId: validTenantId, organizationId: validOrgId },
       )
     })
@@ -1116,7 +1116,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(mockEm.findOne).not.toHaveBeenCalled()
     })
 
-    test('should require api_keys.view when configuring CALL_OPEN_MERCATO', async () => {
+    test('should require api_keys.create when configuring CALL_OPEN_MERCATO', async () => {
       mockUserHasAllFeatures.mockResolvedValue(false)
 
       const newRule = {
@@ -1145,7 +1145,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
 
       expect(response.status).toBe(403)
       const body = await response.json()
-      expect(body.requiredFeatures).toEqual(['api_keys.view'])
+      expect(body.requiredFeatures).toEqual(['api_keys.create'])
     })
   })
 

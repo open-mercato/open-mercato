@@ -89,7 +89,7 @@ describe('Business Rules API - /api/business_rules/openmercato-call-options', ()
   test('should have correct RBAC requirements', () => {
     expect(metadata.GET).toEqual({
       requireAuth: true,
-      requireFeatures: ['business_rules.manage', 'api_keys.view'],
+      requireFeatures: ['business_rules.manage', 'api_keys.create'],
     })
   })
 
