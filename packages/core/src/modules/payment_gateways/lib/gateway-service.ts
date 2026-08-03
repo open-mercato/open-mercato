@@ -18,7 +18,7 @@ import {
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
-import { conflict } from '@open-mercato/shared/lib/crud/errors'
+import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
@@ -191,11 +191,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       : undefined
     const adapter = getGatewayAdapter(providerKey, selectedVersion)
     if (!adapter) {
-      throw new Error(
-        selectedVersion
-          ? `No gateway adapter registered for provider: ${providerKey} (version: ${selectedVersion})`
-          : `No gateway adapter registered for provider: ${providerKey}`,
-      )
+      const message = selectedVersion
+        ? `No gateway adapter registered for provider: ${providerKey} (version: ${selectedVersion})`
+        : `No gateway adapter registered for provider: ${providerKey}`
+      throw new CrudHttpError(422, { error: message })
     }
     const credentials = await integrationCredentialsService.resolve(integrationId, scope) ?? {}
 
