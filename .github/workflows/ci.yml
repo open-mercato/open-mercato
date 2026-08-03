@@ -159,6 +159,12 @@ jobs:
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
+      - name: Check Lucide registry parity
+        # This must run before build:packages, which intentionally regenerates the
+        # committed registry. Otherwise a stale file would be repaired in CI before
+        # any check could prove that the pull request committed the generator output.
+        run: yarn lucide:check
+
       - name: Build packages
         # Always builds all packages — no filter. Turbo cache handles the speedup:
         # unchanged packages are cache hits and restored to disk in milliseconds.

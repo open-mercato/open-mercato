@@ -3,6 +3,14 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Project, ScriptKind, SyntaxKind, type ObjectLiteralExpression, type SourceFile } from 'ts-morph'
 import { buildLucideRegistrySource } from '../../../../scripts/lucideRegistrySource.cjs'
+import {
+  assertLucideRegistryCurrent,
+  collectIconNames,
+  generateLucideRegistrySource,
+  kebabToLucideExportName,
+  normalizeKebabIconName,
+  resolveLucideIcons,
+} from '../../../../scripts/lucideRegistryGenerator.cjs'
 
 const packageDir = join(__dirname, '..', '..', '..', '..')
 const iconsDir = join(packageDir, 'src', 'backend', 'icons')
@@ -132,6 +140,57 @@ describe('buildLucideRegistrySource', () => {
     expect(() => buildLucideRegistrySource([{ kebab: 'broken', exportName: 'not a valid export' }])).toThrow(
       /not syntactically valid/
     )
+  })
+})
+
+describe('lucide registry discovery', () => {
+  it.each([
+    ['lucide:CircleGauge', 'circle-gauge'],
+    ['CircleGauge', 'circle-gauge'],
+    ['circle_gauge', 'circle-gauge'],
+    ['circle gauge', 'circle-gauge'],
+    ['circle-gauge', 'circle-gauge'],
+  ])('normalizes %s to %s', (input, expected) => {
+    expect(normalizeKebabIconName(input)).toBe(expected)
+  })
+
+  it('discovers serializable icon metadata and string props', () => {
+    expect([
+      ...collectIconNames(`
+        export const metadata = { icon: 'CircleGauge' }
+        export function Example() { return <Nav icon="lucide:badge-check" /> }
+        const ignored = { icon: getIcon() }
+      `),
+    ].sort()).toEqual(['badge-check', 'circle-gauge'])
+  })
+
+  it('maps only valid Lucide exports and excludes the generic Icon export', () => {
+    const resolved = resolveLucideIcons(
+      new Set(['badge-check', 'circle-gauge', 'icon', 'not-real']),
+      new Set(['BadgeCheck', 'CircleGauge', 'Icon']),
+    )
+    expect(resolved).toEqual([
+      { kebab: 'badge-check', exportName: 'BadgeCheck' },
+      { kebab: 'circle-gauge', exportName: 'CircleGauge' },
+    ])
+    expect(kebabToLucideExportName('badge-check')).toBe('BadgeCheck')
+  })
+
+  it('reports stale output with the exact repair command', () => {
+    expect(() => assertLucideRegistryCurrent({
+      actualSource: 'stale',
+      expectedSource: 'current',
+      outputPath: join(packageDir, 'src/backend/icons/lucideRegistry.generated.tsx'),
+      repoRoot: join(packageDir, '..', '..'),
+    })).toThrow(
+      'Lucide registry drift detected in packages/ui/src/backend/icons/lucideRegistry.generated.tsx. ' +
+      'Run `yarn lucide:sync` and commit the regenerated file.',
+    )
+  })
+
+  it('keeps the committed registry byte-identical to real repository discovery', async () => {
+    const generated = await generateLucideRegistrySource({ packageDir })
+    expect(readFileSync(join(iconsDir, 'lucideRegistry.generated.tsx'), 'utf8')).toBe(generated.source)
   })
 })
 

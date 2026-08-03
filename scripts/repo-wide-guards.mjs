@@ -154,7 +154,7 @@ export const REPO_WIDE_GUARDS = [
       },
       {
         path: 'src/backend/icons/__tests__/lucideRegistryGenerator.test.ts',
-        scans: 'git-tracked files repo-wide — importers of the deep lucideRegistry.generated path',
+        scans: 'apps/ and packages/ icon literals plus git-tracked files — generated Lucide registry drift and deep-path importers',
       },
     ],
   },

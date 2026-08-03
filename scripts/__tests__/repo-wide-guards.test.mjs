@@ -16,6 +16,7 @@ import {
 const repoRoot = path.resolve(import.meta.dirname, '..', '..')
 const workflowPath = path.join(repoRoot, '.github', 'workflows', 'ci.yml')
 const STEP_NAME = 'Run repo-wide audit guards (always, unfiltered)'
+const LUCIDE_STEP_NAME = 'Check Lucide registry parity'
 
 function readWorkflowStep(name) {
   const lines = fs.readFileSync(workflowPath, 'utf8').split('\n')
@@ -106,6 +107,25 @@ test('ci.yml runs the repo-wide guards unconditionally', () => {
 test('the yarn shortcut used by ci.yml exists', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
   assert.equal(manifest.scripts['test:repo-wide-guards'], 'node scripts/repo-wide-guards.mjs')
+})
+
+test('ci.yml checks committed Lucide registry parity before a build can repair drift', () => {
+  const step = readWorkflowStep(LUCIDE_STEP_NAME)
+  assert.ok(step, `ci.yml has no "${LUCIDE_STEP_NAME}" step — stale generated output could merge.`)
+  assert.match(step.join('\n'), /run: yarn lucide:check/, 'The parity step must run `yarn lucide:check`.')
+  assert.ok(!step.some((line) => /^\s+if:/.test(line)), 'The parity check must stay unconditional.')
+
+  const workflow = fs.readFileSync(workflowPath, 'utf8')
+  assert.ok(
+    workflow.indexOf(`- name: ${LUCIDE_STEP_NAME}`) < workflow.indexOf('- name: Build packages'),
+    'The parity check must run before build:packages regenerates the registry.',
+  )
+})
+
+test('the Lucide sync and check shortcuts use the same generator entrypoint', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
+  assert.equal(manifest.scripts['lucide:sync'], 'node packages/ui/scripts/lucideRegistry.mjs sync')
+  assert.equal(manifest.scripts['lucide:check'], 'node packages/ui/scripts/lucideRegistry.mjs check')
 })
 
 test('the detector recognizes a cross-package audit and ignores a package-local test', () => {
