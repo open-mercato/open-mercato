@@ -50,27 +50,19 @@ async function fetchNav(
   return (await readJsonSafe<NavPayload>(response)) ?? {};
 }
 
+function requireHomeOrganizationId(token: string): string {
+  const { organizationId } = getTokenScope(token);
+  expect(
+    organizationId,
+    'this caller must carry a home organization, otherwise the all-organizations assertions are vacuous',
+  ).toBeTruthy();
+  return organizationId as string;
+}
+
 test.describe('admin nav current organization', () => {
-  test('diagnostic: reports what the real scope resolution produces', async ({ request }) => {
-    const token = await getAuthToken(request, ROLE);
-    const scope = getTokenScope(token);
-    const concrete = scope.organizationId
-      ? await fetchNav(request, token, scope.organizationId)
-      : null;
-    const all = await fetchNav(request, token, ALL_ORGANIZATIONS);
-    console.log('[TC-AUTH-NAV-ORG-001] token scope:', JSON.stringify(scope));
-    console.log('[TC-AUTH-NAV-ORG-001] concrete currentOrganization:', JSON.stringify(concrete?.currentOrganization ?? null));
-    console.log('[TC-AUTH-NAV-ORG-001] all-orgs currentOrganization:', JSON.stringify(all.currentOrganization ?? null));
-    // A caller with no home organization cannot exercise the auth.orgId fallback at all.
-    expect(
-      scope.organizationId,
-      'this caller must carry a home organization, otherwise the all-organizations assertions below are vacuous',
-    ).toBeTruthy();
-  });
   test('names the organization when a concrete one is selected', async ({ request }) => {
     const token = await getAuthToken(request, ROLE);
-    const { organizationId } = getTokenScope(token);
-    test.skip(!organizationId, 'admin token carries no organization to select');
+    const organizationId = requireHomeOrganizationId(token);
 
     const payload = await fetchNav(request, token, organizationId);
 
@@ -87,6 +79,7 @@ test.describe('admin nav current organization', () => {
 
   test('reports no organization while viewing all organizations', async ({ request }) => {
     const token = await getAuthToken(request, ROLE);
+    requireHomeOrganizationId(token);
 
     const payload = await fetchNav(request, token, ALL_ORGANIZATIONS);
 
@@ -100,8 +93,7 @@ test.describe('admin nav current organization', () => {
 
   test('does not serve the home-organization payload for an all-organizations request', async ({ request }) => {
     const token = await getAuthToken(request, ROLE);
-    const { organizationId } = getTokenScope(token);
-    test.skip(!organizationId, 'admin token carries no organization to select');
+    const organizationId = requireHomeOrganizationId(token);
 
     // Warm the concrete-selection response first, then ask for all organizations. Both resolve to
     // the same fallback organization id, so a cache key derived only from the resolved scope would
@@ -125,9 +117,9 @@ test.describe('admin nav current organization', () => {
 
   test('keeps returning a usable nav payload in both scopes', async ({ request }) => {
     const token = await getAuthToken(request, ROLE);
-    const { organizationId } = getTokenScope(token);
+    const organizationId = requireHomeOrganizationId(token);
 
-    for (const selection of [organizationId, ALL_ORGANIZATIONS].filter(Boolean) as string[]) {
+    for (const selection of [organizationId, ALL_ORGANIZATIONS]) {
       const payload = await fetchNav(request, token, selection);
       expect(Array.isArray(payload.groups), `groups should be present for selection ${selection}`).toBe(true);
     }

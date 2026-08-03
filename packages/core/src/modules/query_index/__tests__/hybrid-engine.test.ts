@@ -2,6 +2,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
+import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
+
+// The token-presence answer is cached process-wide (TTL); without clearing it,
+// probe-count assertions would observe hits from earlier tests in this file.
+beforeEach(() => {
+  clearSearchTokenPresenceCache()
+})
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -85,6 +92,10 @@ function createFakeKysely(config: KyselyMockConfig) {
       distinct: () => chain,
       where: (...args: any[]) => {
         // Capture just the raw args (Kysely expression callbacks are opaque).
+        log.wheres.push(args)
+        return chain
+      },
+      whereRef: (...args: unknown[]) => {
         log.wheres.push(args)
         return chain
       },
@@ -1149,7 +1160,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
     expect(chains.some((chain) => chain.table === 'todos')).toBe(false)
   })
 
-  describe('search_tokens coverage probe', () => {
+  describe('search_tokens coverage probe (#4723)', () => {
     type ChainRecordingDb = { _chains: ChainLog[] }
 
     const countProbes = (db: ChainRecordingDb): number =>
@@ -1225,6 +1236,52 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
       })
 
       expect(countProbes(db)).toBeGreaterThan(0)
+    })
+
+    test('probes each joined-source entity once even when several filters hit the same source', async () => {
+      const db = buildDb()
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        filters: [
+          { field: 'title', op: 'ilike', value: '%abc%' },
+          { field: 'description', op: 'ilike', value: '%def%' },
+        ],
+      })
+
+      expect(countProbes(db)).toBe(1)
+    })
+
+    test('a join-only search probes the joined entity without probing the base source', async () => {
+      const db = createFakeKysely({
+        baseTable: 'todos',
+        hasIndexAny: true,
+        baseCount: 10,
+        indexCount: 10,
+        customFieldKeys: {},
+        columns: [{ table_name: 'users', column_name: 'display_name' }],
+      })
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        joins: [{
+          alias: 'assignee',
+          entityId: 'auth:user',
+          from: { field: 'assignee_id' },
+          to: { field: 'id' },
+        }],
+        filters: [{ field: 'assignee.display_name', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBe(1)
+      const tokenProbe = (db._chains as ChainLog[]).find((chain) => chain.table === 'search_tokens')
+      expect(tokenProbe?.wheres).toContainEqual(['entity_type', '=', 'auth:user'])
     })
   })
 })

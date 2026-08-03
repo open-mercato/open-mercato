@@ -103,20 +103,28 @@ API routes are located in `src/modules/<module>/api/<path>/route.ts` and are aut
 ```typescript
 // packages/my-module/src/modules/my_module/api/todos/route.ts
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+
+const ENTITY_ID = 'my_module:todo' as const
 
 export async function GET(request: Request) {
   try {
+    // Fail closed: the query engine requires a tenant scope and throws without one
+    const auth = await getAuthFromCookies()
+    if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     const container = await createRequestContainer()
     const queryEngine = container.resolve<QueryEngine>('queryEngine')
-    
-    // Your logic here
-    const todos = await queryEngine.find('todo', {
-      // query options
+
+    // `query()` is the only method on the QueryEngine interface
+    const todos = await queryEngine.query(ENTITY_ID, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? undefined,
     })
-    
-    return NextResponse.json({ items: todos, total: todos.length })
+
+    return NextResponse.json({ items: todos.items, total: todos.total })
   } catch (error) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
@@ -498,10 +506,12 @@ export const metadata = {
 **API Route:**
 ```typescript
 // packages/my-module/src/modules/my_module/api/todos/route.ts
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromCookies } from '@/lib/auth/server'
-import { E } from '@/generated/entities.ids.generated'
+import { NextResponse } from 'next/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+
+const ENTITY_ID = 'my_module:todo' as const
 
 export const metadata = {
   GET: {
@@ -516,18 +526,23 @@ export const metadata = {
 
 export async function GET(request: Request) {
   try {
+    const auth = await getAuthFromCookies()
+    if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     const container = await createRequestContainer()
     const queryEngine = container.resolve<QueryEngine>('queryEngine')
-    
+
     const url = new URL(request.url)
     const page = parseInt(url.searchParams.get('page') || '1')
     const pageSize = parseInt(url.searchParams.get('pageSize') || '50')
-    
-    const todos = await queryEngine.find('todo', {
-      pagination: { page, pageSize },
+
+    const todos = await queryEngine.query(ENTITY_ID, {
+      page: { page, pageSize },
       filters: {
         // Add filters based on query parameters
-      }
+      },
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? undefined,
     })
     
     return NextResponse.json({

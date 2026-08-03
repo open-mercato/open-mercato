@@ -12,8 +12,8 @@ const ORIGINAL_NODE_ENV = process.env.NODE_ENV
 function resetEnv() {
   if (ORIGINAL_ENV === undefined) delete process.env.MOCK_CARRIER_WEBHOOK_SECRET
   else process.env.MOCK_CARRIER_WEBHOOK_SECRET = ORIGINAL_ENV
-  if (ORIGINAL_NODE_ENV === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV')
-  else Reflect.set(process.env, 'NODE_ENV', ORIGINAL_NODE_ENV)
+  if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = ORIGINAL_NODE_ENV
 }
 
 describe('mockShippingAdapter.verifyWebhook', () => {
@@ -99,7 +99,7 @@ describe('mockShippingAdapter.verifyWebhook', () => {
   })
 
   it('refuses to fall back to the dev secret in production', async () => {
-    Reflect.set(process.env, 'NODE_ENV', 'production')
+    process.env.NODE_ENV = 'production'
     delete process.env.MOCK_CARRIER_WEBHOOK_SECRET
     const rawBody = JSON.stringify({ type: 'shipment.delivered', data: {} })
     const sig = computeMockCarrierWebhookSignature(rawBody, MOCK_CARRIER_DEV_WEBHOOK_SECRET)
