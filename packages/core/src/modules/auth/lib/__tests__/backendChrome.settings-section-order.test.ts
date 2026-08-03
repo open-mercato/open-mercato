@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { settingsSectionOrder } from '../backendChrome'
 
@@ -17,20 +17,23 @@ import { settingsSectionOrder } from '../backendChrome'
 
 const PACKAGES_DIR = join(__dirname, '../../../../../..')
 
-function collectPageMetaFiles(dir: string, found: string[] = []): string[] {
-  let dirEntries: string[]
+// `withFileTypes` classifies without a follow-up stat, so a dangling symlink anywhere under
+// packages/ cannot take the whole suite down the way a bare statSync would.
+function readDirentsSafely(dir: string): Dirent[] {
   try {
-    dirEntries = readdirSync(dir)
+    return readdirSync(dir, { withFileTypes: true })
   } catch {
-    return found
+    return []
   }
-  for (const entry of dirEntries) {
-    if (entry === 'node_modules' || entry === 'dist' || entry === '.next') continue
-    const fullPath = join(dir, entry)
-    if (statSync(fullPath).isDirectory()) {
-      collectPageMetaFiles(fullPath, found)
-    } else if (entry === 'page.meta.ts') {
-      found.push(fullPath)
+}
+
+function collectPageMetaFiles(dir: string, found: string[] = []): string[] {
+  for (const entry of readDirentsSafely(dir)) {
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.next') continue
+    if (entry.isDirectory()) {
+      collectPageMetaFiles(join(dir, entry.name), found)
+    } else if (entry.isFile() && entry.name === 'page.meta.ts') {
+      found.push(join(dir, entry.name))
     }
   }
   return found
