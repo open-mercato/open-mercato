@@ -92,7 +92,7 @@ await buildPackage(packageDir, {
     // the freshly built ts-morph extractor + resolver-routed discovery, so
     // `mercato agentic:init` bundles the same guides as a create-mercato-app scaffold
     // (packages/create-app/build.mjs). Discovery goes through the resolver, never a
-    // hardcoded packages/* path (.ai/lessons.md §161-169).
+    // hardcoded packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
     const { extractAllModuleFacts, renderModuleFactsJson } = await import(
       pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts.js')).href
     )

@@ -58,3 +58,16 @@ reorganizing agent rules:
   dependencies, branch/deploy flow, or contract surfaces.
 - `Never` — prohibited actions and unsafe shortcuts.
 - `Validation Commands` — short, real commands agents can run to prove the relevant path.
+
+## Lesson knowledge structure
+
+`.ai/lessons.md` is a retrieval index, not a session-start document. Route the task first, scan its
+catalog rows by exact module plus every matched standalone-harness area and important topic, then
+open only the linked `.ai/lessons/*.md` records that apply. Never bulk-read the lesson directory.
+
+After a correction produces reusable knowledge, update one existing focused record or add one
+kebab-case record with JSON-valued `title`, `modules`, `areas`, and `topics` front matter. Areas use
+the exact standalone router vocabulary; module tags use snake_case; topic tags use kebab-case. Add
+the matching index row, keep cited titles stable, and run `yarn lessons:check`. Hard safety and
+workflow boundaries still belong in the closest `AGENTS.md`; a lesson carries the evidence,
+recurring failure mode, durable rule, and affected surfaces.
