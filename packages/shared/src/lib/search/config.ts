@@ -10,9 +10,21 @@ export type SearchConfig = {
   storeRawTokens: boolean
   blocklistedFields: string[]
   entityBlocklistedFields?: Record<string, string[]>
+  maxFieldChars?: number
+  maxTokensPerField?: number
+  maxTokensPerRecord?: number
 }
 
 export const DEFAULT_SEARCH_MIN_TOKEN_LENGTH = 3
+export const DEFAULT_SEARCH_MAX_FIELD_CHARS = 20_000
+export const DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD = 5_000
+export const DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD = 20_000
+
+export type SearchTokenLimits = {
+  maxFieldChars: number
+  maxTokensPerField: number
+  maxTokensPerRecord: number
+}
 
 const DEFAULT_BLOCKLIST = ['password', 'token', 'secret', 'hash']
 
@@ -24,6 +36,19 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
 
 function parseNumber(raw: string | undefined, fallback: number, min = 1): number {
   return parseNumberWithDefault(raw, fallback, { integer: true, min })
+}
+
+export function resolveSearchTokenLimits(config: SearchConfig): SearchTokenLimits {
+  const resolveLimit = (value: number | undefined, fallback: number): number => {
+    if (value === undefined) return fallback
+    if (!Number.isFinite(value) || value < 0) return fallback
+    return Math.trunc(value)
+  }
+  return {
+    maxFieldChars: resolveLimit(config.maxFieldChars, DEFAULT_SEARCH_MAX_FIELD_CHARS),
+    maxTokensPerField: resolveLimit(config.maxTokensPerField, DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD),
+    maxTokensPerRecord: resolveLimit(config.maxTokensPerRecord, DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD),
+  }
 }
 
 function parseHashAlgorithm(raw: string | undefined): 'sha256' | 'sha1' | 'md5' {
@@ -89,6 +114,9 @@ export function resolveSearchConfig(): SearchConfig {
     storeRawTokens: parseBoolean(process.env.OM_SEARCH_STORE_RAW_TOKENS, false),
     blocklistedFields: blocklist.global,
     entityBlocklistedFields: blocklist.byEntity,
+    maxFieldChars: parseNumber(process.env.OM_SEARCH_MAX_FIELD_CHARS, DEFAULT_SEARCH_MAX_FIELD_CHARS, 0),
+    maxTokensPerField: parseNumber(process.env.OM_SEARCH_MAX_TOKENS_PER_FIELD, DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD, 0),
+    maxTokensPerRecord: parseNumber(process.env.OM_SEARCH_MAX_TOKENS_PER_RECORD, DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD, 0),
   }
 }
 

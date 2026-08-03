@@ -39,6 +39,13 @@ test.describe('TC-SALES-040: Deprecated order payment-ledger inputs', () => {
         token,
         data: {
           currencyCode: 'USD',
+          lines: [{
+            currencyCode: 'USD',
+            quantity: 1,
+            name: 'QA seed line',
+            unitPriceNet: 0,
+            unitPriceGross: 0,
+          }],
           outstandingAmount: 0,
           paidTotalAmount: 100,
           refundedTotalAmount: 0,

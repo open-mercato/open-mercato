@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { resolveSearchConfig, type SearchConfig } from './config'
+import { resolveSearchConfig, resolveSearchTokenLimits, type SearchConfig } from './config'
 
 export type TokenizationResult = {
   tokens: string[]
@@ -20,13 +20,28 @@ function splitTokens(text: string, minLength: number): string[] {
     .filter((token) => token.length >= minLength)
 }
 
-function expandToken(token: string, config: SearchConfig): string[] {
-  if (!config.enablePartials) return [token]
-  const results: string[] = []
-  for (let i = config.minTokenLength; i <= token.length; i += 1) {
-    results.push(token.slice(0, i))
+function appendExpandedToken(
+  token: string,
+  config: SearchConfig,
+  seen: Set<string>,
+  tokens: string[],
+  limit: number,
+): void {
+  const append = (candidate: string): boolean => {
+    if (seen.has(candidate)) return tokens.length < limit
+    seen.add(candidate)
+    tokens.push(candidate)
+    return tokens.length < limit
   }
-  return results
+
+  if (!config.enablePartials) {
+    append(token)
+    return
+  }
+
+  for (let length = config.minTokenLength; length <= token.length; length += 1) {
+    if (!append(token.slice(0, length))) return
+  }
 }
 
 export function hashToken(token: string, config?: SearchConfig): string {
@@ -36,10 +51,17 @@ export function hashToken(token: string, config?: SearchConfig): string {
 
 export function tokenizeText(text: string, config?: SearchConfig): TokenizationResult {
   const cfg = config ?? resolveSearchConfig()
-  const baseTokens = splitTokens(text, cfg.minTokenLength)
-  const expanded = baseTokens.flatMap((token) => expandToken(token, cfg))
-  const unique = Array.from(new Set(expanded))
-  const tokens = unique.filter((token) => token.length >= cfg.minTokenLength)
+  const limits = resolveSearchTokenLimits(cfg)
+  const boundedText = limits.maxFieldChars > 0 ? text.slice(0, limits.maxFieldChars) : text
+  const tokenLimit = limits.maxTokensPerField > 0 ? limits.maxTokensPerField : Number.POSITIVE_INFINITY
+  const seen = new Set<string>()
+  const tokens: string[] = []
+
+  for (const token of splitTokens(boundedText, cfg.minTokenLength)) {
+    if (tokens.length >= tokenLimit) break
+    appendExpandedToken(token, cfg, seen, tokens, tokenLimit)
+  }
+
   const hashes = tokens.map((token) => hashToken(token, cfg))
   return { tokens, hashes }
 }

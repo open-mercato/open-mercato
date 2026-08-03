@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  applyMessageParticipantScope,
+  type MessagesParticipantScopeDatabase,
+} from '../../messages/lib/participantScope'
 import { sanitizeChannelHtml } from '../lib/sanitize-channel-html'
 import {
   CommunicationChannel,
@@ -41,21 +45,6 @@ import {
 type MessageRecord = Record<string, unknown> & {
   id: string
   threadId?: string | null
-}
-
-type MessageParticipantDatabase = {
-  messages: {
-    id: string
-    tenant_id: string
-    organization_id: string | null
-    sender_user_id: string
-    deleted_at: Date | null
-  }
-  message_recipients: {
-    message_id: string
-    recipient_user_id: string
-    deleted_at: Date | null
-  }
 }
 
 type ResolvedCtx = EnricherContext & {
@@ -151,22 +140,13 @@ const messageChannelEnricher: ResponseEnricher<
       }))
     }
 
-    const db = em.getKysely<MessageParticipantDatabase>()
-    let participantQuery = db
-      .selectFrom('messages as m')
-      .leftJoin('message_recipients as r', (join) => join
-        .onRef('m.id', '=', 'r.message_id')
-        .on('r.recipient_user_id', '=', userId)
-        .on('r.deleted_at', 'is', null))
+    const db = em.getKysely<MessagesParticipantScopeDatabase>()
+    let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId)
       .select('m.id')
       .distinct()
       .where('m.id', 'in', messageIds)
       .where('m.tenant_id', '=', tenantId)
       .where('m.deleted_at', 'is', null)
-      .where((eb) => eb.or([
-        eb('m.sender_user_id', '=', userId),
-        eb('r.message_id', 'is not', null),
-      ]))
 
     participantQuery = organizationId !== null
       ? participantQuery.where('m.organization_id', '=', organizationId)

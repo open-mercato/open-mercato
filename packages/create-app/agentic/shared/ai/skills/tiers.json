@@ -156,6 +156,7 @@
         "om-troubleshooter",
         "om-framework-context",
         "om-evolve-harness",
+        "om-judge-agent-session",
         "om-share-this-session",
         "om-eject-and-customize"
       ]
@@ -166,7 +167,10 @@
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only for the named upgrade.",
-      "skills": ["om-auto-upgrade-0.4.10-to-0.5.0"]
+      "skills": [
+        "om-auto-upgrade-0.4.10-to-0.5.0",
+        "om-auto-upgrade-0.6.6-to-0.6.7"
+      ]
     }
   }
 }

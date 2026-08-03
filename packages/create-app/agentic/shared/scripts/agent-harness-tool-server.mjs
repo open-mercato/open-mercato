@@ -10,7 +10,7 @@ const SAFE_TEXT_EXTENSIONS = new Set([
   '.cjs', '.css', '.graphql', '.html', '.js', '.json', '.jsx', '.md', '.mdx',
   '.mjs', '.prisma', '.sql', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml',
 ])
-const FORBIDDEN_SEGMENTS = new Set(['.git', '.docker', '.kube', '.aws', '.ssh', '.codex', '.claude', 'node_modules', '.next', 'dist'])
+const FORBIDDEN_SEGMENTS = new Set(['.git', '.docker', '.kube', '.aws', '.ssh', '.codex', '.claude', '.next', 'dist'])
 const FORBIDDEN_BASENAMES = new Set([
   '.npmrc', '.netrc', '.pypirc', '.git-credentials', 'secrets.json', 'credentials.json',
   'service-account-credentials.json',
@@ -27,13 +27,23 @@ function isInside(root, candidate) {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
 }
 
-function safeRelative(value) {
+function isInstalledSourcePath(value, allowPatterns) {
+  const normalized = value.replaceAll('\\', '/')
+  const segments = normalized.split('/')
+  if (segments.length < 5 || segments[0] !== 'node_modules' || segments[1] !== '@open-mercato' || segments[3] !== 'src') return false
+  if (!segments[2] || segments.slice(4).some((entry) => !entry)) return false
+  return allowPatterns || !normalized.includes('*') && !normalized.includes('?')
+}
+
+function safeRelative(value, { allowInstalledSourcePatterns = false } = {}) {
   if (typeof value !== 'string' || !value || value.includes('\0') || path.isAbsolute(value)) return false
   const normalized = value.replaceAll('\\', '/')
   if (normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) return false
   const segments = normalized.split('/')
   const basename = segments.at(-1) ?? ''
-  if (segments.some((entry) => FORBIDDEN_SEGMENTS.has(entry))) return false
+  const installedSource = segments.includes('node_modules')
+  if (installedSource && !isInstalledSourcePath(normalized, allowInstalledSourcePatterns)) return false
+  if ((installedSource ? segments.slice(4) : segments).some((entry) => FORBIDDEN_SEGMENTS.has(entry))) return false
   if (normalized === '.ai/harness' || normalized.startsWith('.ai/harness/')) return false
   if (basename === '.env' || basename.startsWith('.env.') || FORBIDDEN_BASENAMES.has(basename)) return false
   return !FORBIDDEN_SECRET_EXTENSIONS.has(path.extname(basename).toLowerCase())
@@ -59,7 +69,7 @@ try { allowedReads = JSON.parse(process.argv[4] ?? '[]') } catch { fail('allowed
 try { allowedWrites = JSON.parse(process.argv[5] ?? '[]') } catch { fail('allowed write set is invalid JSON') }
 if (!path.isAbsolute(rootArg ?? '')) fail('root must be absolute')
 if (!['read-only', 'writable'].includes(mode)) fail('mode must be read-only or writable')
-if (!Array.isArray(allowedReads) || allowedReads.some((entry) => !safeRelative(entry) || ['*', '**'].includes(entry))) fail('allowed read set is invalid')
+if (!Array.isArray(allowedReads) || allowedReads.some((entry) => !safeRelative(entry, { allowInstalledSourcePatterns: true }) || ['*', '**'].includes(entry))) fail('allowed read set is invalid')
 if (!Array.isArray(allowedWrites) || allowedWrites.some((entry) => !safeRelative(entry))) fail('allowed write set is invalid')
 const root = fs.realpathSync(rootArg)
 const readMatchers = allowedReads.map(globToRegExp)
@@ -72,7 +82,10 @@ function resolveRead(relative) {
   const lexical = path.resolve(root, relative)
   if (!isInside(root, lexical)) throw new Error('path escapes the app root')
   const real = fs.realpathSync(lexical)
-  if (!isInside(root, real)) throw new Error('path resolves outside the app root')
+  if (isInstalledSourcePath(normalized, false)) {
+    const dependencyRoot = fs.realpathSync(path.join(root, 'node_modules'))
+    if (!isInside(dependencyRoot, real)) throw new Error('installed source resolves outside the protected dependency root')
+  } else if (!isInside(root, real)) throw new Error('path resolves outside the app root')
   const stat = fs.statSync(real)
   if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('path must be a bounded regular file')
   if (!SAFE_TEXT_EXTENSIONS.has(path.extname(real).toLowerCase()) && path.basename(real) !== 'AGENTS.md') throw new Error('path is not an allowed text file')
@@ -103,7 +116,7 @@ function resolveWrite(relative) {
 const tools = [
   {
     name: 'read',
-    description: 'Read one exact app-relative instruction, fact, source, or allowed target file. Absolute paths, discovery, credentials, dependencies, Git, and harness internals are rejected.',
+    description: 'Read one exact app-relative instruction, fact, source, or allowed target file. Fact-linked @open-mercato package source reads are allowed; absolute paths, discovery, credentials, dependency writes, Git, and harness internals are rejected.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' } } },
   },
   ...(mode === 'writable' ? [{

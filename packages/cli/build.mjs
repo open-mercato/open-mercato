@@ -92,7 +92,7 @@ await buildPackage(packageDir, {
     // the freshly built ts-morph extractor + resolver-routed discovery, so
     // `mercato agentic:init` bundles the same guides as a create-mercato-app scaffold
     // (packages/create-app/build.mjs). Discovery goes through the resolver, never a
-    // hardcoded packages/* path (.ai/lessons.md §161-169).
+    // hardcoded packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
     const { extractAllModuleFacts, renderModuleFactsJson } = await import(
       pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts.js')).href
     )
@@ -111,7 +111,7 @@ await buildPackage(packageDir, {
         coreVersion = null
       }
 
-      const { factsByModule, markdownByModule, warnings } = extractAllModuleFacts({
+      const { factsByModule, markdownByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
         sources,
         registryPath: existsSync(registryPath) ? registryPath : null,
         coreVersion,
@@ -123,6 +123,7 @@ await buildPackage(packageDir, {
         writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
       }
       writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+      writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
       for (const warning of warnings) console.warn(warning)
       console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)

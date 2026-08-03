@@ -12,6 +12,7 @@ import { E as CoreEntities } from '#generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -1396,13 +1397,22 @@ async function seedCustomerExamples(
     )
   )
   if (exampleDealTitles.length > 0) {
-    const already = await em.count(CustomerDeal, {
-      tenantId,
-      organizationId,
-      title: { $in: exampleDealTitles as any },
-    })
-    if (already > 0) {
-      return false
+    const exampleTitles = new Set(exampleDealTitles)
+    const batchSize = 100
+    let offset = 0
+    while (true) {
+      const existingDeals = await findWithDecryption(
+        em,
+        CustomerDeal,
+        { tenantId, organizationId },
+        { fields: ['title'], limit: batchSize, offset, orderBy: { id: 'asc' } },
+        { tenantId, organizationId },
+      )
+      if (existingDeals.some((deal) => typeof deal.title === 'string' && exampleTitles.has(deal.title))) {
+        return false
+      }
+      if (existingDeals.length < batchSize) break
+      offset += existingDeals.length
     }
   }
 

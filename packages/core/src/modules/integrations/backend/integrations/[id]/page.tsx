@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/integrations/extension-points'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -31,7 +32,6 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
-  LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID,
   type CredentialFieldType,
   type IntegrationCredentialField,
   type IntegrationDetailBuiltInTab,
@@ -530,7 +530,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   }, [logLevel, resolveCurrentIntegrationId])
 
   const detailWidgetSpotId = React.useMemo(
-    () => resolveIntegrationDetailWidgetSpotId(detail?.integration ?? null, LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID),
+    () => resolveIntegrationDetailWidgetSpotId(detail?.integration ?? null, extensionPoints.hosts.legacyDetailTabs.spotId),
     [detail?.integration],
   )
   const mutationContextId = React.useMemo(
