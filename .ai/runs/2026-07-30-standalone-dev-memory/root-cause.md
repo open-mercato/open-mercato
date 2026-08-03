@@ -4,7 +4,8 @@ Date: 2026-07-30
 
 Status: **the current-dependency stable runtime composition misses the 30% memory
 gate; no runtime control is selected for production. Its CPU reduction is parked
-as verified follow-up evidence while one source-graph hypothesis is prepared.**
+as verified follow-up evidence, and the registry-split source-graph measurement is
+invalid and parked after two incomplete browser workflows.**
 
 ## Conclusion
 
@@ -19,14 +20,15 @@ is not a substitute for the memory gate. No warmup, scheduler, supervisor,
 dependency, manifest, or lockfile change is selected for the next implementation
 task.
 
-The next falsifiable direction is source-graph scoping. The retained fixture emits
+The next falsifiable direction was source-graph scoping. The retained fixture emits
 `modules.app.generated.ts` at 855,779 bytes with 586 static imports and
 `modules.bootstrap.generated.ts` at 155,026 bytes with 361 static imports. A
-separate approved experiment must show that route-scoping those registries removes
-enough first-route compiler work while preserving authentication, the protected
-page, and in-place HMR. The stable-composition evidence and proposed boundary are
-recorded below; the older historical attribution remains useful but is superseded
-for production selection by this decision.
+fixture-only split proved structural parity, but both browser measurements were
+invalid and are excluded. A future rerun must show that route-scoping those
+registries removes enough first-route compiler work while preserving
+authentication, the protected page, and in-place HMR. The stable-composition
+evidence and parked boundary are recorded below; the older historical attribution
+remains useful but is superseded for production selection by this decision.
 
 **The default module-resource telemetry snapshots written below
 `.mercato/module-resource-usage/` were one real cause: they triggered repeated
@@ -555,6 +557,37 @@ above that ceiling rejects this hypothesis for the current goal even if it is a
 directional improvement. Any need to touch shared bootstrap internals, catch-all
 route contracts, generated filenames/exports, or files outside the boundary above
 requires a new architecture decision before editing them.
+
+### Registry-split fixture experiment — invalid, 2026-08-03
+
+The additive registry-split arm proved that the fixture could preserve the ordered
+52-module bootstrap inventory while replacing the monolithic bootstrap registry
+with per-module generated loaders. This was fixture-only structural evidence; no
+production source, package manifest, lockfile, or installed dependency changed.
+
+Neither measurement attempt satisfied the browser contract. In the first attempt,
+Chrome detached while entering the login credentials. In the retry, the browser
+remained at `about:blank` through the T+100 source edit, so authentication, the
+protected page, marker A-to-B HMR, feature ownership, subscriber behavior, and
+split-loader execution were never observed. The raw profiler outputs are retained
+for diagnosis, but their RSS and CPU values are excluded from all comparisons.
+The arm is therefore neither accepted nor rejected on performance, and no memory
+or CPU delta is claimed.
+
+The experiment is parked until a deterministic browser harness can complete every
+workflow gate on app port 4100. The 30% memory ceiling remains 6,025.52 MB, no
+production candidate is selected, and dependency updates remain prohibited.
+
+The manifest-guarded revert completed at `2026-08-03T19:47:26.049Z`. Its final
+audit verified the original `src/bootstrap.ts` and marker-A hashes, all 5,629
+canonical Next dev-cache entries and manifest digest, the 102-file generated
+inventory, and the registered OpenAPI outputs. All 53 additive split outputs and
+the experiment driver/coordinator manifest were removed; ports 4100 and 4000 were
+idle. Port 3000 was unrelated and explicitly excluded. Generator structure
+checksums include source mtimes, so restoration required a one-time guarded
+sidecar rebaseline; a transient static OpenAPI fallback was subsequently replaced
+by a successful normal generation with the registered 428-route output. These are
+restoration facts, not product-performance findings.
 
 ## Stable composition restoration audit
 

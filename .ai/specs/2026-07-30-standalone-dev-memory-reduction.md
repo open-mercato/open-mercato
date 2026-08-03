@@ -25,6 +25,15 @@ defaults. The next work is a separately approved, single-hypothesis source-graph
 experiment on the broad generated app and bootstrap registries; dependencies and
 the lockfile remain unchanged.
 
+**Registry-split update (2026-08-03): both fixture-only browser attempts were
+invalid and their profiler values are excluded.** The first lost its Chrome
+session during login; the retry remained on `about:blank` through the scheduled
+edit and therefore proved none of the login, protected-page, HMR, subscriber, or
+split-loader gates. No performance conclusion or production change follows. The
+source-graph direction is parked until the browser harness can execute the full
+contract on app port 4100; the baseline, 6,025.52 MB ceiling, dependency set, and
+no-candidate decision remain unchanged.
+
 This capability is intentionally separate from the monorepo profiling harness in
 `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md`. It reuses that harness through
 its public `--pid` seam but owns standalone fixture creation, workflow automation,
@@ -1012,6 +1021,17 @@ bounded, additive route-scoped registry experiment above.
   savings, restored and audited the fixture, and bounded the next additive route-
   scoped registry experiment without authorizing implementation.
 
+### 2026-08-03
+
+- Exercised the fixture-only additive registry split twice. Classified both runs
+  as invalid because the browser workflow did not complete, excluded their raw RSS
+  and CPU reports from comparison, and parked the hypothesis without selecting a
+  production candidate.
+- Completed the manifest-guarded fixture restoration: exact 5,629-entry canonical
+  cache and marker A, original bootstrap, 102 generated artifacts, and registered
+  OpenAPI outputs; removed all 53 additive outputs and experiment support files.
+  Ports 4100/4000 were idle, while unrelated port 3000 remained out of scope.
+
 ### Review — 2026-07-30
 
 - **Reviewer**: Agent plus fresh-context scope review
@@ -1035,3 +1055,14 @@ bounded, additive route-scoped registry experiment above.
 - **Verdict**: Stable runtime controls rejected for the memory goal; no Task 5
   implementation is authorized, and the bounded source-graph proposal requires a
   separate architecture decision
+
+### Review — 2026-08-03
+
+- **Reviewer**: Fixture experiment and restoration evidence review
+- **Performance**: No verdict; both browser workflows were invalid and all raw
+  profiler values are excluded
+- **Compatibility**: Passed; no dependency, lockfile, production, or generated
+  contract change is retained
+- **Restoration**: Passed; canonical cache, marker, bootstrap, generated inventory,
+  OpenAPI outputs, and ports 4100/4000 were independently rechecked
+- **Verdict**: Registry-split hypothesis parked without a performance conclusion
