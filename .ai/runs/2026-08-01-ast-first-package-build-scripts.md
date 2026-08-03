@@ -95,6 +95,7 @@ PR: #4816
 ### Phase 5: Validation gate
 
 - [x] 5.1 Run the full configured validation gate plus `yarn lint` — green except two pre-existing `@open-mercato/core` failures documented below
+- [x] Post-review fix: restore autologin helper usage while preserving standalone template compatibility and zero-drift sync — d6bce7a59 (`yarn template:sync`; compatibility test 2/2)
 
 ### Validation gate result (2026-08-01, local runner)
 
