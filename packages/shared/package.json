@@ -48,6 +48,10 @@
       "types": "./src/lib/events/patterns.ts",
       "default": "./dist/lib/events/patterns.js"
     },
+    "./lib/data/consistency": {
+      "types": "./src/lib/data/consistency.ts",
+      "default": "./dist/lib/data/consistency.js"
+    },
     "./lib/logger": {
       "types": "./src/lib/logger/index.ts",
       "default": "./dist/lib/logger/index.js"
@@ -115,6 +119,7 @@
     "@types/jest": "^30.0.0",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
+    "ts-morph": "^28.0.0",
     "typescript": "7.0.2"
   },
   "publishConfig": {
