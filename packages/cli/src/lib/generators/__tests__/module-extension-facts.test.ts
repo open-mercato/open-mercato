@@ -312,6 +312,39 @@ describe('module extension facts', () => {
     ]))
   })
 
+  it('fails closed on an unknown member call instead of publishing its first argument', () => {
+    // The generic call fallback used to forward the FIRST ARGUMENT of any call expression.
+    // For a member call that COMPUTES its value from the arguments — a handle builder, an
+    // enum lookup, anything namespaced — that publishes an id the argument merely contributed
+    // to, which resolves to nothing. `ComponentReplacementHandles.*` is intercepted by an
+    // explicit formula above, so only a builder the reader does NOT know exercises this path.
+    // The failure is silent (the fact vanishes rather than erroring), so it needs its own test.
+    write(moduleRoot, 'widgets/components.ts', `
+      import { SomeOtherRegistry } from '@open-mercato/shared/modules/widgets/component-registry'
+      export const componentOverrides = [
+        {
+          target: { componentId: SomeOtherRegistry.derive('alpha.records.list') },
+          priority: 50,
+          wrapper: (Original) => Original,
+        },
+      ]
+    `)
+
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+
+    const overrides = facts.contributions.filter((contribution) => contribution.kind === 'component-override')
+    expect(overrides).toEqual([])
+    expect(JSON.stringify(facts)).not.toContain('alpha.records.list')
+  })
+
   it('classifies component overrides by the ComponentOverride discriminant and resolves handle builders', () => {
     write(moduleRoot, 'widgets/components.ts', `
       import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
