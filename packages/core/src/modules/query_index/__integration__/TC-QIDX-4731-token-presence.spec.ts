@@ -57,7 +57,7 @@ test.describe('TC-QIDX-4731: token presence routing', () => {
       }
 
       const tokenRecord = await createRecord(request, token, tokenEntityId, {
-        title: `The ${tokenMarker} record`,
+        title: 'The token-routed record',
       })
       expect(tokenRecord.ok(), `token record create failed: ${tokenRecord.status()}`).toBeTruthy()
       const tokenRecordBody = await readJsonSafe<{ item?: { recordId?: string } }>(tokenRecord)
