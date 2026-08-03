@@ -304,11 +304,11 @@ const notesAdapter: NotesDataAdapter = {
   entityId={personId}
   viewerUserId={viewer.id}
   viewerName={viewer.name}
-  emptyLabel={t('customers.people.detail.notes.empty')}
-  addActionLabel={t('customers.people.detail.notes.add')}
+  emptyLabel={t('customers.people.detail.empty.comments')}
+  addActionLabel={t('customers.people.detail.notes.addLabel')}
   emptyState={{
-    title: t('customers.people.detail.notes.emptyTitle'),
-    actionLabel: t('customers.people.detail.notes.add'),
+    title: t('customers.people.detail.emptyState.notes.title'),
+    actionLabel: t('customers.people.detail.notes.addLabel'),
   }}
   translator={t}
   dataAdapter={notesAdapter}
@@ -348,10 +348,10 @@ const addressesAdapter: AddressDataAdapter = {
 
 <AddressesSection
   entityId={personId}
-  emptyLabel={t('customers.people.detail.addresses.empty')}
+  emptyLabel={t('customers.people.detail.empty.addresses')}
   addActionLabel={t('customers.people.detail.addresses.add')}
   emptyState={{
-    title: t('customers.people.detail.addresses.emptyTitle'),
+    title: t('customers.people.detail.empty.addresses'),
     actionLabel: t('customers.people.detail.addresses.add'),
   }}
   translator={t}
@@ -386,8 +386,8 @@ const attachmentsSectionEntry: GalleryEntry = {
 <AttachmentsSection
   entityId="customers:person"
   recordId={person?.id ?? null}
-  title={t('customers.people.detail.attachments.title')}
-  description={t('customers.people.detail.attachments.description')}
+  title={t('attachments.library.title')}
+  description={t('customers.people.detail.files.subtitle')}
 />`,
     },
   ],
