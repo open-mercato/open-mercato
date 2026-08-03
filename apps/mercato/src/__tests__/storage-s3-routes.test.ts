@@ -21,6 +21,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (_translationKey: string, fallback: string) => fallback,
+  }),
+}))
+
 jest.mock('../../../../packages/storage-s3/src/modules/storage_s3/lib/s3-driver', () => ({
   S3StorageDriver: jest.fn().mockImplementation(() => ({
     putObject: putObjectMock,
