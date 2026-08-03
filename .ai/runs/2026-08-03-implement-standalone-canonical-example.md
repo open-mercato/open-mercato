@@ -59,6 +59,8 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 11 | Fix the cross-request tenant bleed in `example/api/todos/route.ts`; add the `ListConfig.csv` function form; regression test; flip `api.crud-query-engine-custom-fields` | CANON-A1 reference-quality / READ-P1a | done | `c6cf75d34` |
 | 12 | Clear the five remaining remediable `qa-only` rows (`cli.ts`, `enrichers.ts`, `example-event.ts`, `organizations`, `tags`/`assignees`/`notifications`); DS tokens on `widgets/components.ts` | CANON-B reference-quality | done | `7dea5f0cf` |
 | 13 | Remove the universal `node_modules/@open-mercato/*/src/**` read permission from all 202 cases + checked-disposition test + doc sync | READ-P1b | done | `66998e1c7` |
+| 14 | Wire the installed-source fallback reason channel into live runs (`harness.read` reason/capabilityId, trace collector, sanitized `exampleReadPolicy` result summary, 4 family-8 fixtures) | READ-P2 (partial) | done | `ce351d1aa` |
+| 15 | Give the new CSV-form fixture route an indexer so `crud-indexer-config` guard passes | — | done | `105288d42` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -79,7 +81,7 @@ Each row keeps its dependency edge so a follow-up run can start immediately.
 | CANON-C: local reference-fact generation (`portableSourceRoot` / `sourceKind: "local-reference"`) | PR #4883 | `toPortableSourceRoot` needs a new discriminant; 4 emission points. |
 | CANON-C: skill/guide link migration (8 owner families) | Task 4 | One PR per owner family. |
 | CANON-C: harness case additions | Task 9 | Dedup against OMH-027/035/181/185/193; count pinned in 6 places, writable ids in 5. |
-| READ-P2: reason-gated `installedVersionFallback` + redaction fixtures | Task 9 | — |
+| READ-P2 **remainder**: the "generated facts render exact-file source links only" half of Phase 1 step 2, the redaction fixtures, and the oracle families beyond the eight now covered | Task 9, Task 14 | The reason-gated fallback itself and its live channel landed in Task 14. |
 | GOV-P1/P2: `knowledge-change.schema.json`, validator/controller, 9 mandatory workflow steps | CANON-C source-link-inventory | Validator consumes the inventory; needs a real knowledge-contract change to exercise. |
 | SPEC-P2: 6 routing cases + 2 writable ordering proofs | Task 8, Task 9 | — |
 
@@ -208,3 +210,13 @@ reaching any new code). The activation fixtures they host were instead exercised
   and updated on every push. **Next session starts at the Deferred Backlog**, top row first (the
   `api/todos/route.ts` cross-request tenant bleed).
 - **2026-08-03 — session 2 (`/om-auto-continue-pr 4897`):** Resumed from the Deferred Backlog. **Upstream PR #4883 merged** at 12:09Z, so `packages/cli/src/lib/generators/module-override-targets.ts` is now on `develop` and every backlog row that named it as a blocker is unblocked (none were implemented in this session). Three rows landed: the top-priority `api/todos/route.ts` cross-request tenant bleed (`c6cf75d34`), the reference-quality remediation batch (`7dea5f0cf`), and the read-policy broad-glob migration (`66998e1c7`). Decision recorded against the backlog's first row: `api.crud-factory` **stays** on `api/customer-priorities/route.ts` because the two capability rows demonstrate different CRUD mechanisms; only `api.crud-query-engine-custom-fields` flipped. Observed once in four full `yarn workspace create-mercato-app test` runs: `agent-harness-evaluator.test.ts` → "live Codex retries one successful startup that emitted no context reads" failed with `$.durationMs is below minimum 0`, a clock artifact in the fake-runner duration measurement; it did not reproduce in the other three runs and is independent of every change in this session. **Next session starts at the remaining Deferred Backlog rows**, in order: the CANON-B gap slices, the registry static-readability refactor (which is what still holds `umes.component-replacement` at `qa-only`), CANON-C source-link work (now unblocked), READ-P2, SPEC-P2, and GOV-P1/P2.
+- **2026-08-03 — session 3 (`/om-auto-continue-pr 4897`):** Re-entered on `1bf4d162b`, merged `origin/develop` again (now `21fff9068`). Landed the READ-P2 live reason-code channel (`ce351d1aa`) and a guard fix for the previous session's CSV fixture route (`105288d42`) — `crud-indexer-config.test.ts` scans test fixtures too, and `repo-wide-guards` had been run *before* that fixture was added, which is how it was missed. **Lesson recorded: run `node scripts/repo-wide-guards.mjs` after the last test file is written, not before.** Create-app suite 483 tests / 480 pass / 0 fail; repo-wide guards green.
+
+  **In flight at the time of writing:** user asked for multi-agent orchestration over the whole remaining backlog. Background workflow `wf_e7482555-423` (`canonical-example-backlog-recon`) is running 9 read-only planners — one per backlog row group — plus a conflict-aware sequencer. Script:
+  `~/.claude/projects/.../workflows/scripts/canonical-example-backlog-recon-wf_e7482555-423.js`;
+  transcript dir: `~/.claude/projects/.../subagents/workflows/wf_e7482555-423`.
+  If this session dies before it returns, its per-agent results are recoverable from `journal.jsonl` in that transcript dir, or re-run it with `Workflow({scriptPath, resumeFromRunId: 'wf_e7482555-423'})` — completed agents return cached results. **Nothing in that workflow writes to the repo**, so an interrupted run leaves no partial state to clean up.
+
+  **Known contended files** any parallel implementation must serialize on: `apps/mercato/src/modules/example/references/surface-inventory.json`, `.../surface-map.md`, `packages/create-app/agentic/shared/ai/harness/cases.json`, the byte-mirrored `packages/create-app/template/src/modules/example/**` tree, and the four specs' changelogs.
+
+  **Next session starts** from the sequencer's wave 1 (or, without it, the Deferred Backlog top-down).
