@@ -65,6 +65,20 @@ Three behavior changes follow:
 
 **Action for downstream:** none required for callers that ignore the return value — `Promise<void>` → `Promise<UpsertIndexBatchResult>` is assignment-compatible. Expect previously-green reindex jobs to start failing where they were silently dropping records; the failures are pre-existing data loss becoming visible, not new breakage. Custom `encryptDoc`/`decryptDoc` callbacks passed to `upsertIndexBatch` should no longer swallow their own errors, or the new accounting cannot see them.
 
+### MFA self-service management now requires `security.mfa.manage` (#3855)
+
+Regenerating recovery codes and removing an MFA method now require `security.mfa.manage`. Starting or confirming an MFA provider requires the same feature during ordinary self-service use, but remains available to a tenant user who is actively compelled to enroll by an MFA enforcement policy. If enforcement verification is unavailable and backend navigation fails closed to enrollment, provider setup and confirmation stay available as the recovery path instead of turning the redirect into a lockout.
+
+New tenants grant `security.mfa.manage` to the default `employee` role so ordinary users retain voluntary MFA management outside an enforcement flow.
+
+**Action for existing tenants:** synchronize role ACLs after deployment, then restart application instances so their in-process ACL caches load the new grant:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Tenant-created roles are not modified by this command. A role deliberately denied `security.mfa.manage` cannot manage recovery codes, remove methods, or start voluntary enrollment, but an actively enforced non-compliant user can still complete provider enrollment and escape the enforcement redirect.
+
 ### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
 
 The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:
