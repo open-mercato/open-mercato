@@ -60,5 +60,5 @@ This run is based on the Korean localization contributed by `@moduvoice` in PR #
 
 ### Phase 3: Verify and prepare the superseding PR
 
-- [ ] 3.1 Pass targeted locale parity, type, and integration checks
+- [x] 3.1 Pass targeted locale parity, type, and integration checks — 8a8db67f6
 - [ ] 3.2 Pass the full validation and review gates and finalize the superseding PR
