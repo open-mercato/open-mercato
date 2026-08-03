@@ -1948,7 +1948,7 @@ Phase A keeps core changes minimal, but it does introduce one **additive** contr
 - **Gateway descriptor surface**: new additive service/API only; no existing fields or routes are removed or renamed
 - **API routes**: additive only; checkout introduces new `/api/checkout/*` endpoints
 - **Database schema**: additive only; checkout introduces its checkout-owned tables/columns and `payment_gateways` adds the internal `gateway_session_initializations` coordination table
-- **Retention**: completed `gateway_session_initializations` rows have a documented 24-hour replay guarantee and are deleted only after expiry by an additive tenant-scoped queue worker and schedule; an idempotent upgrade action registers the schedule for existing organizations, and no entity or migration change is required
+- **Retention**: completed `gateway_session_initializations` rows have a documented 24-hour replay guarantee and are deleted only after expiry by an additive tenant-scoped queue worker and schedule; an idempotent upgrade action registers the schedule for existing organizations, and an additive partial index on `(tenant_id, organization_id, updated_at)` supports the bounded prune query without indexing incomplete claims
 - **Widget spots**: additive only; checkout adds new UMES spots and checkout-owned widgets
 
 Optional future enhancements to generic payment-source correlation in `payment_gateways` must be specified separately and follow the full deprecation / BC process if they alter existing contracts.

@@ -1,12 +1,14 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const mockEnqueue = jest.fn()
+const mockCreateModuleQueue = jest.fn(() => ({ enqueue: mockEnqueue }))
 
 jest.mock('@open-mercato/queue', () => ({
-  createModuleQueue: jest.fn(() => ({ enqueue: mockEnqueue })),
+  createModuleQueue: mockCreateModuleQueue,
 }))
 
 import {
+  PAYMENT_SESSION_INITIALIZATION_PRUNE_QUEUE,
   PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE,
   PAYMENT_SESSION_REPLAY_WINDOW_MS,
   pruneCompletedPaymentSessionInitializations,
@@ -73,13 +75,15 @@ describe('payment session initialization retention (#4861)', () => {
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
-  it('queues a continuation after a full worker batch', async () => {
+  it('lazily queues a continuation after a full or overreported worker batch', async () => {
     const execute: ExecuteSpy = jest.fn().mockResolvedValue({
-      affectedRows: PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE,
+      affectedRows: PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE + 1,
     })
     const em = makeEmStub(execute) as EntityManager & { fork: () => EntityManager }
     em.fork = () => em
     const resolve = jest.fn(() => em)
+
+    expect(mockCreateModuleQueue).not.toHaveBeenCalled()
 
     await handle(
       { payload: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID } } as never,
@@ -87,6 +91,11 @@ describe('payment session initialization retention (#4861)', () => {
     )
 
     expect(execute).toHaveBeenCalledTimes(1)
+    expect(mockCreateModuleQueue).toHaveBeenCalledTimes(1)
+    expect(mockCreateModuleQueue).toHaveBeenCalledWith(
+      PAYMENT_SESSION_INITIALIZATION_PRUNE_QUEUE,
+      { concurrency: 1 },
+    )
     expect(mockEnqueue).toHaveBeenCalledWith(
       { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
       { delayMs: 1_000 },
