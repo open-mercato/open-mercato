@@ -12,7 +12,8 @@ module.exports = {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
   },
   transform: {
-    '^.+\\.(t|j)sx?$': [
+    // `.cjs` is included so the build-time source emitters under scripts/ are testable.
+    '^.+\\.(cjs|(t|j)sx?)$': [
       '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {

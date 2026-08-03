@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { ConfirmDialog } from '../ConfirmDialog'
 
@@ -59,5 +59,37 @@ describe('ConfirmDialog', () => {
     const dialog = screen.getByRole('alertdialog')
     expect(container.contains(dialog)).toBe(false)
     expect(dialog.parentElement).toBe(document.body)
+  })
+
+  it('closes only the confirmation that owns an Escape event', () => {
+    const firstOpenChange = jest.fn()
+    const secondOpenChange = jest.fn()
+
+    renderWithProviders(
+      <>
+        <ConfirmDialog
+          open
+          onOpenChange={firstOpenChange}
+          onConfirm={() => undefined}
+          title="First confirmation"
+          confirmText="Confirm first"
+          cancelText="Cancel first"
+        />
+        <ConfirmDialog
+          open
+          onOpenChange={secondOpenChange}
+          onConfirm={() => undefined}
+          title="Second confirmation"
+          confirmText="Confirm second"
+          cancelText="Cancel second"
+        />
+      </>,
+    )
+
+    const secondDialog = screen.getByRole('alertdialog', { name: 'Second confirmation' })
+    fireEvent.keyDown(within(secondDialog).getByRole('button', { name: 'Cancel second' }), { key: 'Escape' })
+
+    expect(firstOpenChange).not.toHaveBeenCalled()
+    expect(secondOpenChange).toHaveBeenCalledWith(false)
   })
 })

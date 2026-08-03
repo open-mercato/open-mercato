@@ -385,6 +385,16 @@ export interface AiAgentDefinition {
   readOnly?: boolean
   mutationPolicy?: AiAgentMutationPolicy
   /**
+   * Marks this agent as accepting untrusted end-user input (e.g. a customer
+   * portal or public-widget surface). When `true`, input pre-moderation is
+   * ENFORCED on every turn wherever the resolved chat provider supports it —
+   * tenants cannot disable it. Other agents default to off and are tenant
+   * opt-in. Additive + optional; omitting it preserves today's behavior.
+   *
+   * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
+   */
+  untrustedInput?: boolean
+  /**
    * @deprecated Use `loop.maxSteps` instead. Honored as alias when `loop` is
    * omitted. When both `maxSteps` and `loop.maxSteps` are specified, `loop.maxSteps`
    * wins. This field will be removed in a future minor release.

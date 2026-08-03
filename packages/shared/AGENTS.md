@@ -34,6 +34,7 @@ yarn workspace @open-mercato/shared build
 |-----------|-------------|-------------|
 | `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
+| `auth/organizationScope` | When an organization-scoped API route must resolve the caller's organization — falls back to `actorOrgId` for an "all organizations" selection, but only while the effective tenant is still the actor's tenant. On `null` for an authenticated caller answer with `organizationScopeRequiredResponse()` (400, code `organization_scope_required`) — never 401 | `@open-mercato/shared/lib/auth/organizationScope` — `resolveActiveOrganizationId(auth)`, `organizationScopeRequiredResponse()` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
@@ -188,9 +189,23 @@ The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) li
 import { withScopedPayload, createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 ```
 
-### Feature Matching — MUST use shared wildcard-aware helpers
+### Feature Policy and Matching
 
-Use shared helpers whenever you evaluate raw granted feature arrays in infrastructure code:
+Server authorization MUST use the consolidated policy:
+
+```typescript
+import {
+  authorizeFeatures,
+  resolveEffectiveFeatures,
+} from '@open-mercato/shared/security/featurePolicy'
+```
+
+- Prefer the realm service (`rbacService.userHasAllFeatures` or `customerRbacService.userHasAllFeatures`) when a user and scope are available.
+- Use `authorizeFeatures(required, subject)` only when the caller already has an ACL snapshot. It owns removed-feature, disabled-module, unrestricted-user, scope, and wildcard ordering.
+- Use `resolveEffectiveFeatures(grants)` for browser capability payloads. It returns concrete IDs and never wildcards.
+- Raw `loadAcl` / `getGrantedFeatures` remain valid for ACL management and infrastructure inspection, not as authorization entrypoints.
+
+The low-level helpers remain pure for browser checks over effective projections and isolated grant-matching utilities:
 
 ```typescript
 import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/features'
@@ -198,7 +213,8 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 
 - Use `hasFeature(granted, 'module.action')` for single-feature checks.
 - Use `hasAllFeatures(granted, required)` for arrays such as `features`, `requireFeatures`, or handler guard lists.
-- MUST NOT gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks in shared registries or runners; wildcard grants like `module.*` and `*` are part of the RBAC contract.
+- MUST NOT use these low-level helpers as server authorization entrypoints.
+- MUST NOT gate feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks.
 
 ### CRUD HTTP Errors — MUST use the shared helpers instead of hand-rolling `CrudHttpError`
 
