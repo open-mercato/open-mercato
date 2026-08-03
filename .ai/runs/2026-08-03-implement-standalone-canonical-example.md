@@ -52,10 +52,10 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 4 | Add `example/README.md`, `references/surface-map.md`, `references/surface-inventory.json` (existing-surface rows) + mirror | CANON-A1.3 | done | — |
 | 5 | `TEMPLATE_CONTENT_TRANSFORMS` entry for `src/modules.ts`; drop `empty.files.remove`; remove `example` + `design_system` from template registry | CANON-A2.1 | done | — |
 | 6 | Flip preset assertions; add preset-matrix test (source-present / registration-absent / no dead nav) | CANON-A2.2 | done | — |
-| 7 | Activation fixtures: `{ id: 'example', from: '@app' }` and `{ id: 'design_system', from: '@open-mercato/core' }` | CANON-A2.3 | pending | — |
-| 8 | Spec-first routing rule in emitted `AGENTS.md` + planning-skill handoff (resolve instruction-budget headroom first) | SPEC-P1 | pending | — |
-| 9 | `exampleRoots` / `installedVersionFallback` / `sourceReferenceIds` case-schema fields + evaluator + oracle fixtures | READ-P1a | pending | — |
-| 10 | Full validation gate + spec changelog updates | CANON-D (partial) | pending | — |
+| 7 | Activation fixtures: `{ id: 'example', from: '@app' }` and `{ id: 'design_system', from: '@open-mercato/core' }` | CANON-A2.3 | done | — |
+| 8 | Spec-first routing rule in emitted `AGENTS.md` + planning-skill handoff (resolve instruction-budget headroom first) | SPEC-P1 | done | — |
+| 9 | `exampleRoots` / `installedVersionFallback` case-schema fields + evaluator + oracle fixtures | READ-P1a | done | — |
+| 10 | Full validation gate + spec changelog updates | CANON-D (partial) | done | — |
 
 ## Deferred Backlog (not in this PR)
 
@@ -146,9 +146,64 @@ yarn test
 yarn build:app
 ```
 
+## Gate Results (2026-08-03, local runner)
+
+| Command | Result |
+|---|---|
+| `yarn template:sync` | pass — app and template in sync |
+| `yarn build:packages` | pass |
+| `yarn generate` | pass |
+| `yarn i18n:check-sync` | pass — 51 modules, all in sync |
+| `yarn i18n:check-usage` | 21 missing keys — **all pre-existing**, in `design_system/gallery/entries/**` and `packages/ui/src/backend/schedule/ScheduleToolbar.tsx`; none of those files are in this branch's 42-file diff |
+| `yarn workspace create-mercato-app test` | pass — 474 tests, 471 pass, 0 fail, 3 skipped |
+| `node scripts/repo-wide-guards.mjs` | pass — 23 test files |
+| `yarn agents:check-budget` | pass — no new overage; 4 chains now *smaller* than baseline |
+| `yarn typecheck` | pass — 21/21 tasks |
+| `yarn test` | 1 pre-existing failure: `apps/mercato/src/__tests__/storage-s3-routes.test.ts` (5 tests, `[Bootstrap] Modules not registered`). **Verified pre-existing** by checking out `origin/develop` and reproducing the identical 5 failures. Unrelated to this diff. |
+| `yarn build:app` | pass |
+
+Two environment issues surfaced mid-run and were fixed by `yarn install` + `yarn build:packages`, not
+by code changes: a missing `typescript-standalone` dependency and a stale `packages/cli/dist` tree.
+They accounted for the 11 create-app failures seen earlier.
+
+**Not executed here:** `yarn test:create-app` and `yarn test:create-app:integration`. Both require
+Verdaccio via Docker, which is unavailable in this WSL distro (`yarn registry:publish` fails before
+reaching any new code). The activation fixtures they host were instead exercised against real
+`mercato generate` output inside a staged standalone app, and the fixture engine runs on every
+`yarn workspace create-mercato-app test`. The untested residue is the Verdaccio publish, the
+`yarn install`, and the `yarn generate` shell wrapper.
+
+## Known Gaps Introduced by This Change
+
+- **Example integration specs now run against an app where the module is unregistered.** With every
+  preset shipping `example` disabled, the 22 specs under `apps/mercato/src/modules/example/__integration__/`
+  (and `packages/core/src/modules/design_system/__integration__/design-system-gallery.spec.ts`) execute
+  against a standalone app that registers neither module. `scripts/test-create-app-integration.ts` boots
+  a single ephemeral app and cannot host two mutually-exclusive module sets, so covering this needs two
+  boots — an architecture change to that harness. **Not addressed here; must be resolved before those
+  specs can be trusted as standalone coverage.**
+- `OMH-018` has **49 bytes** of `maxInitialContextBytes` slack left. Anyone growing
+  `om-module-scaffold/SKILL.md`, its `contracts.md`/`extensions.md`, or `om-system-extension/SKILL.md`
+  will hit it. This, not the root instruction budget, is now the binding constraint on that skill.
+- The `installedVersionFallback` schema field is implemented and fixture-covered, but the live-runner
+  trace has no reason-code channel yet, so live installed reads fail closed. Wiring that channel is
+  READ-P2.
+- **Read-policy Phase 1 is not fully closed.** The spec's Phase 1 has three steps and step 2 *is* the
+  broad-glob audit/migration, which the user scoped out. All 202 cases still carry
+  `node_modules/@open-mercato/*/src/**` in their context. The schema, evaluator and fixtures landed;
+  the migration did not.
+- **Oracle-family coverage is partial.** The read-policy spec enumerates twelve oracle families; the
+  new `agent-harness-example-read-policy.test.ts` covers seven (its own `family 1`–`family 7`
+  numbering is a subset, not the spec's list). The remainder depend on PR #4883/#4301/#4277 surfaces
+  that are not yet consumable.
+
 ## Handoff Log
 
 - **2026-08-03 — session 1:** Branched off `develop` at `68b544764`. Ran a 7-agent reconnaissance
   workflow over presets, template-sync, the example module, the harness, skills, and platform APIs;
   results in the Reconnaissance Corrections table above. Scope bounded by user to Milestone A +
   policy/schema foundations. `modules.ts` divergence mechanism chosen: `TEMPLATE_CONTENT_TRANSFORMS`.
+  All 10 tasks completed and the gate run recorded above. PR
+  [#4897](https://github.com/open-mercato/open-mercato/pull/4897) opened as a draft on the first commit
+  and updated on every push. **Next session starts at the Deferred Backlog**, top row first (the
+  `api/todos/route.ts` cross-request tenant bleed).
