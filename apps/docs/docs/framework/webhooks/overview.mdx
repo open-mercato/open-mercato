@@ -117,6 +117,12 @@ Webhooks support pattern-based event subscriptions:
 | `POST` | `/api/webhooks/deliveries/:id/retry` | Retry failed delivery |
 | `GET` | `/api/webhooks/events` | List available event types |
 
+## Inbound Replay Protection
+
+Inbound webhook sources and legacy adapters must verify provider-specific signatures and any provider-specific timestamp rules before returning a verified event. The shared inbound route adds a provider-neutral backstop for Standard Webhooks and Svix-style timestamp headers: when `webhook-timestamp` or `svix-timestamp` is present, requests outside the replay window are rejected before either the source-first or legacy adapter flow persists or emits the inbound receipt.
+
+The default replay window is 5 minutes. Set `OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS` when a deployment needs to accept a wider delay.
+
 ## Verifying Webhooks (Consumer Guide)
 
 If you're building a service that receives webhooks from Open Mercato, verify the signature to ensure authenticity:
@@ -236,8 +242,11 @@ interface WebhookEndpointAdapter {
 
 Inbound webhooks are:
 - **Rate limited** to 60 requests per minute per endpoint and client IP when the rate-limiter service is available
+- **Body limited** before signature verification (1 MiB by default)
 - **Deduplicated** by message ID
 - Processed via **fire-and-forget** (return 200 immediately, emit event for async processing)
+
+Set `OM_WEBHOOK_MAX_BODY_BYTES` to a positive byte count when globally bounded webhook receivers legitimately need a different default. InboxOps inherits that value when it is set; `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` can override only the email-ingress source, whose legacy fallback remains 2 MiB when neither variable is configured. Payment gateway handlers preserve legacy reads unless their registration opts into `maxBodyBytes`. The bounded reader checks a valid declared `Content-Length` before reading and also counts streamed bytes, so missing, invalid, or understated lengths cannot bypass the cap. Requests over the applicable limit return `413` without invoking provider verification. Keep the ingress or reverse-proxy limit scoped to the webhook paths and aligned with the effective application values.
 
 ## Shared Primitives
 
