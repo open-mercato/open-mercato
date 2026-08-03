@@ -4,6 +4,14 @@ import { ScheduledJob } from '../../data/entities.js'
 import type { BullMQSchedulerService } from '../bullmqSchedulerService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (key: string, _fallback?: string, params?: Record<string, unknown>) => (
+      params?.max === undefined ? `translated:${key}` : `translated:${key}:max=${params.max}`
+    ),
+  }),
+}))
+
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
     debug: jest.fn(),
@@ -198,7 +206,10 @@ describe('SchedulerService', () => {
           tenantId: 'tenant-1',
           scheduleType: 'interval',
           scheduleValue: '15m',
-        })).rejects.toThrow('Active scheduled job limit reached')
+        })).rejects.toMatchObject({
+          status: 422,
+          body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+        })
 
         expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
           tenantId: 'tenant-1',
@@ -427,7 +438,10 @@ describe('SchedulerService', () => {
         mockForkedEm.findOne.mockResolvedValue(schedule)
         mockForkedEm.count.mockResolvedValue(2)
 
-        await expect(service.update('test-1', { isEnabled: true })).rejects.toThrow('Active scheduled job limit reached')
+        await expect(service.update('test-1', { isEnabled: true })).rejects.toMatchObject({
+          status: 422,
+          body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+        })
 
         expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
           tenantId: 'tenant-1',
