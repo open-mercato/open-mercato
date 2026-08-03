@@ -4,12 +4,12 @@ import {
   VALID_CHECKOUT_TRANSITIONS,
   assertValidCheckoutStatusTransition,
   isValidCheckoutStatusTransition,
-} from '../../lib/transaction-status-machine'
+} from '../transaction-status-machine'
 
 describe('VALID_CHECKOUT_TRANSITIONS', () => {
-  it('pending can transition to processing, failed, cancelled, expired', () => {
+  it('pending can transition to processing, completed, failed, cancelled, expired', () => {
     expect(VALID_CHECKOUT_TRANSITIONS.pending).toEqual(
-      expect.arrayContaining(['processing', 'failed', 'cancelled', 'expired']),
+      expect.arrayContaining(['processing', 'completed', 'failed', 'cancelled', 'expired']),
     )
   })
 
@@ -28,99 +28,101 @@ describe('VALID_CHECKOUT_TRANSITIONS', () => {
 })
 
 describe('isValidCheckoutStatusTransition', () => {
-  // --- Allowed transitions ---
-
-  it('pending → processing is valid', () => {
+  it('pending -> processing is valid', () => {
     expect(isValidCheckoutStatusTransition('pending', 'processing')).toBe(true)
   })
 
-  it('pending → failed is valid', () => {
+  it('pending -> completed is valid (captured webhook arrives before processing)', () => {
+    expect(isValidCheckoutStatusTransition('pending', 'completed')).toBe(true)
+  })
+
+  it('pending -> failed is valid', () => {
     expect(isValidCheckoutStatusTransition('pending', 'failed')).toBe(true)
   })
 
-  it('pending → cancelled is valid', () => {
+  it('pending -> cancelled is valid', () => {
     expect(isValidCheckoutStatusTransition('pending', 'cancelled')).toBe(true)
   })
 
-  it('pending → expired is valid', () => {
+  it('pending -> expired is valid', () => {
     expect(isValidCheckoutStatusTransition('pending', 'expired')).toBe(true)
   })
 
-  it('processing → completed is valid', () => {
+  it('processing -> completed is valid', () => {
     expect(isValidCheckoutStatusTransition('processing', 'completed')).toBe(true)
   })
 
-  it('processing → failed is valid', () => {
+  it('processing -> failed is valid', () => {
     expect(isValidCheckoutStatusTransition('processing', 'failed')).toBe(true)
   })
 
-  it('processing → cancelled is valid', () => {
+  it('processing -> cancelled is valid', () => {
     expect(isValidCheckoutStatusTransition('processing', 'cancelled')).toBe(true)
   })
 
-  it('processing → expired is valid', () => {
+  it('processing -> expired is valid', () => {
     expect(isValidCheckoutStatusTransition('processing', 'expired')).toBe(true)
   })
 
-  // --- Rejected regression transitions (the race condition targets) ---
-
-  it('completed → processing is INVALID (regression guard)', () => {
+  it('completed -> processing is INVALID (regression guard)', () => {
     expect(isValidCheckoutStatusTransition('completed', 'processing')).toBe(false)
   })
 
-  it('completed → failed is INVALID', () => {
+  it('completed -> failed is INVALID', () => {
     expect(isValidCheckoutStatusTransition('completed', 'failed')).toBe(false)
   })
 
-  it('completed → pending is INVALID', () => {
+  it('completed -> pending is INVALID', () => {
     expect(isValidCheckoutStatusTransition('completed', 'pending')).toBe(false)
   })
 
-  it('failed → processing is INVALID', () => {
+  it('failed -> processing is INVALID', () => {
     expect(isValidCheckoutStatusTransition('failed', 'processing')).toBe(false)
   })
 
-  it('failed → completed is INVALID', () => {
+  it('failed -> completed is INVALID', () => {
     expect(isValidCheckoutStatusTransition('failed', 'completed')).toBe(false)
   })
 
-  it('cancelled → processing is INVALID', () => {
+  it('cancelled -> processing is INVALID', () => {
     expect(isValidCheckoutStatusTransition('cancelled', 'processing')).toBe(false)
   })
 
-  it('expired → processing is INVALID', () => {
+  it('expired -> processing is INVALID', () => {
     expect(isValidCheckoutStatusTransition('expired', 'processing')).toBe(false)
   })
 
-  it('expired → completed is INVALID', () => {
+  it('expired -> completed is INVALID', () => {
     expect(isValidCheckoutStatusTransition('expired', 'completed')).toBe(false)
   })
 
-  // --- Same-state transitions are allowed (idempotency support) ---
-
-  it('pending → pending is valid', () => {
+  it('pending -> pending is valid', () => {
     expect(isValidCheckoutStatusTransition('pending', 'pending')).toBe(true)
   })
 
-  it('processing → processing is valid', () => {
+  it('processing -> processing is valid', () => {
     expect(isValidCheckoutStatusTransition('processing', 'processing')).toBe(true)
   })
 
-  it('completed → completed is valid', () => {
+  it('completed -> completed is valid', () => {
     expect(isValidCheckoutStatusTransition('completed', 'completed')).toBe(true)
   })
 })
 
 describe('assertValidCheckoutStatusTransition', () => {
-  it('does not throw for a valid transition (pending → processing)', () => {
+  it('does not throw for a valid transition (pending -> processing)', () => {
     expect(() => assertValidCheckoutStatusTransition('pending', 'processing')).not.toThrow()
   })
 
-  it('does not throw for a valid transition (processing → completed)', () => {
+  it('does not throw for a valid transition (pending -> completed)', () => {
+    expect(() => assertValidCheckoutStatusTransition('pending', 'completed')).not.toThrow()
+  })
+
+  it('does not throw for a valid transition (processing -> completed)', () => {
     expect(() => assertValidCheckoutStatusTransition('processing', 'completed')).not.toThrow()
   })
 
-  it('throws a 409 CrudHttpError for completed → processing', () => {
+  it('throws a 409 CrudHttpError for completed -> processing', () => {
     expect.assertions(3)
     try {
       assertValidCheckoutStatusTransition('completed', 'processing')
@@ -132,7 +134,7 @@ describe('assertValidCheckoutStatusTransition', () => {
     }
   })
 
-  it('throws a 409 CrudHttpError for expired → completed', () => {
+  it('throws a 409 CrudHttpError for expired -> completed', () => {
     expect.assertions(3)
     try {
       assertValidCheckoutStatusTransition('expired', 'completed')
@@ -144,7 +146,7 @@ describe('assertValidCheckoutStatusTransition', () => {
     }
   })
 
-  it('does not throw for same-state transition (processing → processing)', () => {
+  it('does not throw for same-state transition (processing -> processing)', () => {
     expect(() => assertValidCheckoutStatusTransition('processing', 'processing')).not.toThrow()
   })
 })

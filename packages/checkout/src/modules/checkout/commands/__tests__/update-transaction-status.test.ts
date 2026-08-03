@@ -75,10 +75,26 @@ type MockEm = {
   transactional: (fn: (tx: MockEm) => Promise<unknown>) => Promise<unknown>
 }
 
-function makeMockEm(transaction: ReturnType<typeof makeTransaction>, nativeUpdateResult = 1): MockEm {
+function makeMockEm(
+  transaction: ReturnType<typeof makeTransaction>,
+  nativeUpdateResult = 1,
+  // When nativeUpdate returns 0, the post-CAS findOne should return a
+  // different status to simulate the winning writer's value.
+  postCasStatus?: CheckoutTransaction['status'],
+): MockEm {
+  let findOneCallCount = 0
   const mockTx: MockEm = {
     findOne: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) => {
-      if (filter.id === TX_ID) return transaction
+      findOneCallCount++
+      if (filter.id === TX_ID) {
+        // After a CAS miss (nativeUpdate=0) the command re-reads the row with
+        // refresh:true to fetch the winning writer's status. Return the
+        // post-CAS status on subsequent calls when one is provided.
+        if (findOneCallCount > 1 && postCasStatus !== undefined) {
+          return { ...transaction, status: postCasStatus }
+        }
+        return transaction
+      }
       if (filter.id === LINK_ID) return makeLink()
       return null
     }),
@@ -250,9 +266,11 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
   describe('TOCTOU guard — nativeUpdate returns 0 (concurrent write wins)', () => {
     it('nativeUpdate=0 throws 409 with code concurrent_status_update', async () => {
       expect.assertions(5)
-      // Transaction is still processing from our read, but another writer won the race
+      // Transaction is still processing from our read, but another writer won
+      // the race and set status to completed. The post-CAS re-read (refresh:true)
+      // should return the winner's status, not the stale identity-mapped value.
       const transaction = makeTransaction('processing')
-      const em = makeMockEm(transaction, 0)
+      const em = makeMockEm(transaction, 0, 'completed')
 
       try {
         await runUpdateStatus(em, 'completed')
@@ -261,7 +279,8 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
         expect(error.status).toBe(409)
         expect(error.body?.code).toBe('concurrent_status_update')
         expect(error.body?.expectedStatus).toBe('processing')
-        expect(error.body?.currentStatus).toBe('processing')
+        // currentStatus must reflect the winning writer's value, not the stale snapshot
+        expect(error.body?.currentStatus).toBe('completed')
         // The terminal event must NOT be emitted when the update was a no-op
         expect(emitCheckoutEvent).not.toHaveBeenCalledWith(
           'checkout.transaction.completed',
@@ -308,6 +327,35 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
         expect.anything(),
         expect.objectContaining({ status: 'completed' }),
         expect.objectContaining({ status: 'completed' }),
+      )
+    })
+
+    it('completed → completed: does NOT re-emit checkout.transaction.completed (idempotent redelivery guard)', async () => {
+      const transaction = makeTransaction('completed')
+      const em = makeMockEm(transaction, 1)
+
+      await runUpdateStatus(em, 'completed')
+
+      expect(emitCheckoutEvent).not.toHaveBeenCalledWith(
+        'checkout.transaction.completed',
+        expect.any(Object),
+      )
+    })
+
+    it('authorized → captured (both → completed): CAS succeeds but terminal event is NOT re-emitted', async () => {
+      // Both payment_gateways.payment.authorized and .captured map to 'completed'.
+      // The second delivery (captured) finds the transaction already completed;
+      // the CAS still succeeds (same-state), but checkout.transaction.completed
+      // must NOT fire a second time so the customer does not receive a duplicate notification.
+      const transaction = makeTransaction('completed')
+      const em = makeMockEm(transaction, 1)
+
+      await runUpdateStatus(em, 'completed')
+
+      expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+      expect(emitCheckoutEvent).not.toHaveBeenCalledWith(
+        'checkout.transaction.completed',
+        expect.any(Object),
       )
     })
   })

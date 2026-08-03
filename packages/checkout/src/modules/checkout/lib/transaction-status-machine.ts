@@ -11,6 +11,7 @@ import type { CheckoutTransaction } from '../data/entities'
  *
  * Allowed path:
  *   pending     ──► processing  (transaction created, payment session initiated)
+ *   pending     ──► completed   (captured webhook arrives before processing state)
  *   processing  ──► completed   (webhook: payment captured)
  *   processing  ──► failed      (webhook or session error)
  *   processing  ──► cancelled   (customer or merchant cancellation)
@@ -23,7 +24,7 @@ import type { CheckoutTransaction } from '../data/entities'
  *   expired   ──► *   REJECTED
  */
 export const VALID_CHECKOUT_TRANSITIONS: Record<CheckoutTransaction['status'], CheckoutTransaction['status'][]> = {
-  pending: ['processing', 'failed', 'cancelled', 'expired'],
+  pending: ['processing', 'completed', 'failed', 'cancelled', 'expired'],
   processing: ['completed', 'failed', 'cancelled', 'expired'],
   // Terminal states — no transitions out
   completed: [],
@@ -62,7 +63,7 @@ export function assertValidCheckoutStatusTransition(
 ): void {
   if (isValidCheckoutStatusTransition(from, to)) return
   throw new CrudHttpError(409, {
-    error: `Cannot transition payment from "${from}" to "${to}"`,
+    error: `[internal] Cannot transition payment from "${from}" to "${to}"`,
     code: 'invalid_status_transition',
     currentStatus: from,
     requestedStatus: to,

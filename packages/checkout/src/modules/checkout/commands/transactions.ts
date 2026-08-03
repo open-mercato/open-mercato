@@ -200,11 +200,16 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       )
 
       if (affected === 0) {
-        // A concurrent writer (webhook or poller) already advanced the status.
-        // Re-read the actual status from the database to report it accurately.
-        const actualTx = await tx.findOne(CheckoutTransaction, { id: parsed.id }, { fields: ['status'] })
+        // A concurrent writer already advanced the status. Force a DB round-trip
+        // (refresh: true bypasses the MikroORM identity map) so the reported
+        // currentStatus reflects the winning writer's value, not the stale snapshot.
+        const actualTx = await tx.findOne(
+          CheckoutTransaction,
+          { id: parsed.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+          { fields: ['status'], refresh: true },
+        )
         throw new CrudHttpError(409, {
-          error: `Transaction status was already updated by a concurrent process (expected status "${previousStatus}", actual "${actualTx?.status ?? 'unknown'}")`,
+          error: `[internal] Transaction status was already updated by a concurrent process (expected "${previousStatus}", actual "${actualTx?.status ?? 'unknown'}")`,
           code: 'concurrent_status_update',
           expectedStatus: previousStatus,
           currentStatus: actualTx?.status ?? 'unknown',
@@ -218,6 +223,9 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // during the subsequent tx.flush().
       await tx.refresh(transaction)
 
+      // Only apply terminal link state and emit the terminal event when the
+      // status actually changes — prevents double-notification on idempotent
+      // redeliveries (e.g. authorized → captured, both mapping to 'completed').
       if (!previousTerminal && nextTerminal) {
         const { usageLimitReached } = applyTerminalTransactionState(link, nextStatus)
         await tx.flush()
@@ -227,7 +235,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           usageLimitReachedLinkSlug = link.slug
         }
       }
-      if (nextTerminal) {
+      if (nextTerminal && previousStatus !== nextStatus) {
         terminalEventPayload = {
           transactionId: transaction.id,
           linkId: transaction.linkId,
@@ -245,14 +253,16 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
         }
       }
     })
-    if (parsed.status === 'completed') {
-      await emitCheckoutEvent('checkout.transaction.completed', terminalEventPayload ?? {}).catch(() => undefined)
-    } else if (parsed.status === 'failed') {
-      await emitCheckoutEvent('checkout.transaction.failed', terminalEventPayload ?? {}).catch(() => undefined)
-    } else if (parsed.status === 'cancelled') {
-      await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload ?? {}).catch(() => undefined)
-    } else if (parsed.status === 'expired') {
-      await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload ?? {}).catch(() => undefined)
+    if (terminalEventPayload !== null) {
+      if (parsed.status === 'completed') {
+        await emitCheckoutEvent('checkout.transaction.completed', terminalEventPayload).catch(() => undefined)
+      } else if (parsed.status === 'failed') {
+        await emitCheckoutEvent('checkout.transaction.failed', terminalEventPayload).catch(() => undefined)
+      } else if (parsed.status === 'cancelled') {
+        await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload).catch(() => undefined)
+      } else if (parsed.status === 'expired') {
+        await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload).catch(() => undefined)
+      }
     }
     if (emitUsageLimitReached && usageLimitReachedLinkId && usageLimitReachedLinkSlug) {
       await emitCheckoutEvent('checkout.link.usageLimitReached', {
