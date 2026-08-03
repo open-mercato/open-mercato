@@ -45,6 +45,8 @@ Land the compatible parts of PR #4896 on `develop`, with the workspace's BullMQ 
 
 ## Progress
 
+PR: #4911
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Already landed on this PR (reconstructed)
@@ -62,4 +64,4 @@ Land the compatible parts of PR #4896 on `develop`, with the workspace's BullMQ 
 
 ### Phase 4: Validate and finalize
 
-- [ ] 4.1 Run the configured validation gate and authoritative autofix review, then normalize the PR for review
+- [x] 4.1 Run the configured validation gate and authoritative autofix review, then normalize the PR for review — 95976698b, 23fb5c67c
