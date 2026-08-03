@@ -34,10 +34,46 @@ import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/cip
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
 const DECRYPT_CONCURRENCY = 8
+const AUTO_REINDEX_DEBOUNCE_DEFAULT_MS = 30_000
+const AUTO_REINDEX_DEBOUNCE_MAX_SCOPES = 10_000
+const AUTO_REINDEX_SCHEDULED_AT_KEY = Symbol.for('@open-mercato/query-index/auto-reindex-scheduled-at')
+
+type GlobalWithAutoReindexSchedule = typeof globalThis & {
+  [AUTO_REINDEX_SCHEDULED_AT_KEY]?: Map<string, number>
+}
+
+function getAutoReindexScheduledAt(): Map<string, number> {
+  const globalScope = globalThis as GlobalWithAutoReindexSchedule
+  if (!globalScope[AUTO_REINDEX_SCHEDULED_AT_KEY]) {
+    globalScope[AUTO_REINDEX_SCHEDULED_AT_KEY] = new Map<string, number>()
+  }
+  return globalScope[AUTO_REINDEX_SCHEDULED_AT_KEY]
+}
+
+function markAutoReindexScheduled(key: string, debounceMs: number, now: number): boolean {
+  const autoReindexScheduledAt = getAutoReindexScheduledAt()
+  const previous = autoReindexScheduledAt.get(key)
+  if (previous !== undefined && now - previous < debounceMs) return false
+
+  if (autoReindexScheduledAt.size >= AUTO_REINDEX_DEBOUNCE_MAX_SCOPES) {
+    for (const [scopeKey, scheduledAt] of autoReindexScheduledAt) {
+      if (now - scheduledAt >= debounceMs) autoReindexScheduledAt.delete(scopeKey)
+    }
+    if (autoReindexScheduledAt.size >= AUTO_REINDEX_DEBOUNCE_MAX_SCOPES) {
+      const oldestKey = autoReindexScheduledAt.keys().next().value
+      if (oldestKey !== undefined) autoReindexScheduledAt.delete(oldestKey)
+    }
+  }
+
+  autoReindexScheduledAt.delete(key)
+  autoReindexScheduledAt.set(key, now)
+  return true
+}
 
 function buildFilterableCustomFieldJoins(
   sources: QueryCustomFieldSource[] | undefined,
@@ -152,6 +188,7 @@ export class HybridQueryEngine implements QueryEngine {
   private sqlDebugEnabled: boolean | null = null
   private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
+  private autoReindexDebounceMs: number | null = null
   private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
   private searchAvailabilityInstance: SearchTokenAvailability | null = null
@@ -1998,6 +2035,11 @@ export class HybridQueryEngine implements QueryEngine {
       organizationId: organizationIdOverride ?? opts.organizationId ?? null,
       force: false,
     }
+    const debounceMs = this.getAutoReindexDebounceMs()
+    if (debounceMs > 0) {
+      const key = [payload.entityType, payload.tenantId ?? '__tenant__', payload.organizationId ?? '__org__'].join('|')
+      if (!markAutoReindexScheduled(key, debounceMs, Date.now())) return
+    }
     const context = stats
       ? { entity, tenantId: payload.tenantId, organizationId: payload.organizationId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
       : { entity, tenantId: payload.tenantId, organizationId: payload.organizationId }
@@ -2065,6 +2107,16 @@ export class HybridQueryEngine implements QueryEngine {
     const parsed = parseBooleanToken(raw)
     this.autoReindexEnabled = parsed === null ? true : parsed
     return this.autoReindexEnabled
+  }
+
+  private getAutoReindexDebounceMs(): number {
+    if (this.autoReindexDebounceMs != null) return this.autoReindexDebounceMs
+    this.autoReindexDebounceMs = parseNumberWithDefault(
+      process.env.OM_QUERY_INDEX_AUTO_REINDEX_DEBOUNCE_MS,
+      AUTO_REINDEX_DEBOUNCE_DEFAULT_MS,
+      { integer: true, min: 0 },
+    )
+    return this.autoReindexDebounceMs
   }
 
   private isCoverageOptimizationEnabled(): boolean {

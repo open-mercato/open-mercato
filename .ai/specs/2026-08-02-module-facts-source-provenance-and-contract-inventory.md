@@ -415,6 +415,14 @@ No non-compliant item or required human confirmation was identified.
 - Specified additive source references, complete safe DI classification, runtime discovery parity, and standalone package/harness proof.
 - Kept established rich extension/search/AI facts authoritative and made root-record compatibility an explicit regression gate.
 
+### 2026-08-03 — Implemented
+
+- Added the additive provenance vocabulary (`ModuleFactSourceRef`, `ModuleFactRef`, `ModuleFactSourceKind`, `factSources`, `factDiagnostics`) and `ownedContracts` families (module-metadata, command, worker, page-middleware, setup, encryption, di-registration, custom-entity, ai-extension, generator-plugin) to `packages/cli/src/lib/generators/module-facts.ts`, with rich Awilix DI classification (`asFunction`/`asClass`/`asValue`/alias) and legacy `diTokens` preserved.
+- Aligned the subscriber reader to runtime recursion and completed integration array/bundle coverage; added `factSources` provenance without duplicating rich payloads; added safe static page metadata and Markdown source columns/sections.
+- Provenance index (`factSources`) covers fact kinds lacking an inline source; kinds already carrying `sourcePath`/`source` are referenced by identity, keeping the aggregate JSON within the determinism byte guard.
+- Verified additively: `@open-mercato/cli` suite green (no legacy field/count change; customers golden fixture unchanged), determinism + no-leak negatives covered by `module-facts.owned-contracts.test.ts`.
+- Deferred (infra-gated): the fresh-Verdaccio scaffold `harness:release` proof runs in Linux CI with Docker + a model runner; the deterministic packaging path is covered by the create-app byte-identical fact-index test.
+
 ## Review — 2026-08-02
 
 - **Fresh-context scope verdict:** KEEP after canonicalizing portable source paths and duplicate-source selection.
@@ -423,3 +431,12 @@ No non-compliant item or required human confirmation was identified.
 - **Compatibility:** Passed as an additive generated-contract change.
 - **Scope:** Cohesive; topology and override targets are explicit sibling specs.
 - **Verdict:** Ready for implementation after parent suite approval.
+
+### 2026-08-03 — Code-review corrections
+
+- `factSources` is now the uniform provenance index the spec calls for: every proven `(kind, id)` is emitted. Kinds whose declaration site is already serialized inline (api routes, pages, CLI commands, AI tools/agents, owned contracts, UMES hosts and contributions) emit a typed `factRef` pointer instead of a duplicated source ref, and `factKey` is omitted when it equals the entry `id`. `ModuleFactIndexRef` is the pointer shape; `packages/cli/src/lib/generators/module-fact-sources.ts` is the single lookup that resolves either projection (including the extra hop for `fact-ref` hosts).
+- Fixed two `fact-ref` host references that pointed at keys absent from the referenced section: query-lifecycle hosts now key into `searchEntities` by entity id, and api-entity hosts carry a real declaration source for the `api/**` file that declares the enricher or mutation-guard resource.
+- Markdown renders a resolved Source cell for entities, events, ACL features, DI tokens, search entities, notifications, UMES hosts and UMES contributions; activation rows render the activation id and bridge instead of a bare kind; contribution resolutions render as their own source-linked section.
+- Page metadata follows the runtime companion-file convention (`page.meta.*`, then `meta.*`) and the runtime `PageMetadata` contract keys with `resolvePageRouteMetadata` alias precedence (`pageGroup ?? group`, `pageGroupKey ?? groupKey`, `pageOrder ?? order`, plus `pageContext`); the non-contract `pageContextId` / `extensionSpotId` aliases were dropped. 212 backend pages that previously emitted no metadata now do.
+- Worker facts derive the runtime id (`metadata.id ?? <module>:workers:<path>`) so id-less root and nested workers are no longer dropped, and resolve `queue` / `name` through local constants. A worker declaring no queue is not registered by runtime and is reported as a diagnostic instead of a contract.
+- The determinism byte guard was raised explicitly, with the reason recorded in `module-facts.bc-guard.test.ts`.

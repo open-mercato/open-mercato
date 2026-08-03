@@ -69,13 +69,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   } = useScheduleDialog()
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-  const initialTab = React.useMemo(() => resolveLegacyTab(searchParams?.get('tab')), [searchParams])
-  const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
-
-  React.useEffect(() => {
-    setActiveTab(initialTab)
-  }, [initialTab])
-
   const currentDealId = data?.deal.id ?? id
   const { injectionContext, runMutationWithContext } = useDealMutationContext({
     currentDealId,
@@ -108,6 +101,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setData,
   })
 
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  const initialTab = React.useMemo(
+    () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
+    [injectedTabIds, searchParams],
+  )
+  const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
+
+  React.useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
   const { searchPeoplePage, fetchPeopleByIds, searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
     excludeLinkedDealId: data?.deal.id ?? null,
   })
@@ -131,6 +135,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: entry.id,
           label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
           kind: entry.kind,
+          isPrimary: entry.isPrimary === true,
         }))
       : []),
     [data],
@@ -141,7 +146,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setSelectedActivityEntityId((current) => {
       if (activityEntities.length === 1) return activityEntities[0].id
       if (current && activityEntities.some((entry) => entry.id === current)) return current
-      return null
+      const primary = activityEntities.find((entry) => entry.isPrimary)
+      return (primary ?? activityEntities[0])?.id ?? null
     })
   }, [activityEntities])
 
@@ -629,7 +635,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isSaving={isSaving}
           />
 
-          <InjectionSpot spotId={extensionPoints.hosts.dealStatusBadges.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.dealStatusBadges.spotId} context={injectionContext} data={data} onDataChange={setData} />
 
           <PipelineStepper
             stages={data.pipelineStages}
