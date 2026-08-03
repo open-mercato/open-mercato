@@ -523,6 +523,10 @@ export async function executeSingleRule(
           data: context.data,
           ruleId: rule.ruleId,
           ruleName: rule.ruleName,
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+          executedBy: context.executedBy ?? context.user?.id ?? null,
+          em: em as any,
         }
 
         // Execute actions
