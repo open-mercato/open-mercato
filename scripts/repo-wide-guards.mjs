@@ -137,6 +137,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/cache',
+    workspaceDir: 'packages/cache',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/cache-di-contract-docs.test.ts',
+        scans: 'packages/core/src/bootstrap.ts, packages/cache/AGENTS.md and .ai/review-checklist.md — cache DI token and CacheStrategy method names quoted by the docs',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/content',
     workspaceDir: 'packages/content',
     jestConfig: 'jest.config.cjs',

@@ -21,7 +21,7 @@ The memory strategy is bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE
 
 ## Always
 
-1. **MUST resolve via DI** — always use `container.resolve('cacheService')`, never instantiate cache directly
+1. **MUST resolve via DI** — always use `container.resolve('cache')`, never instantiate cache directly. The DI token is `cache` (registered in `packages/core/src/bootstrap.ts`); there is no `cacheService` registration.
 2. **MUST scope to tenant** — include `tenantId` in cache keys or use `runWithCacheTenant()` for automatic scoping
 3. **MUST use tag-based invalidation** for CRUD side effects — tag entries so related data can be invalidated together
 
@@ -48,12 +48,17 @@ yarn workspace @open-mercato/cache build
 Use tags when cached data relates to a specific entity or scope. Invalidating a tag clears all entries with that tag.
 
 ```typescript
-// When caching, attach tags
-await cacheService.set('key', value, { tags: ['tenant:123', 'customers'] })
+const cache = container.resolve('cache')
 
-// When data changes, invalidate by tag
-await cacheService.invalidateTag('customers')  // Clears all customer-related cache
+// When caching, attach tags
+await cache.set('key', value, { tags: ['tenant:123', 'customers'] })
+
+// When data changes, invalidate by tag — `deleteByTags` takes an ARRAY of tags
+// (any entry carrying ANY of them is dropped) and returns the number of deleted keys.
+await cache.deleteByTags(['customers'])  // Clears all customer-related cache
 ```
+
+`CacheStrategy` is the only cache surface: `get`, `set`, `has`, `delete`, `deleteByTags`, `clear`, `keys`, `stats`, plus optional `healthcheck`, `cleanup`, `close`. There is no `invalidateTag` — MUST NOT invent per-tag helpers in module code.
 
 ## Consistency vs commit timing
 
@@ -63,7 +68,7 @@ The opt-in env flag `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default **OFF**, 100% b
 
 ## Adding Caching to a Module
 
-1. Resolve `cacheService` from DI in your service or route handler
+1. Resolve the `cache` service from DI (`container.resolve('cache')`) in your service or route handler
 2. Define cache keys with tenant scoping: `${tenantId}:${module}:${identifier}`
 3. Tag entries with entity type and tenant for targeted invalidation
 4. Add cache invalidation to CRUD side effects (`emitCrudSideEffects` with `cacheAliases`)
@@ -82,3 +87,4 @@ packages/cache/src/
 - Follow the strategy pattern — add new strategies in `strategies/` with the same interface
 - Run `yarn test` in `packages/cache` after changes
 - Verify tag invalidation works across all strategies when modifying invalidation logic
+- The DI token and method names quoted in this file and in `.ai/review-checklist.md` are pinned to the real sources by `src/__tests__/cache-di-contract-docs.test.ts` (it re-derives the token from `packages/core/src/bootstrap.ts` and the members from `CacheStrategy`). Renaming the token or a method MUST update both docs in the same change.
