@@ -21,6 +21,7 @@ Source docs:
 - Preserve the implementation-topic coverage formerly carried by embedded harness snippets with visible, exact links from every emitted knowledge owner to local example or installed package source.
 - Make the canonical Todo DataTable demonstrate a long-running bulk action that reports platform operation progress in the top bar.
 - Require self-contained integration coverage for every new example extension surface.
+- Reconcile PR #4883's generated extension topology and module-fact conventions against the canonical example, adding representative executable coverage or exact specialist-source routing for every kind.
 - Keep the four related specs consistent, implementation-ready, and explicit about validation and compatibility.
 
 ## Non-goals
@@ -48,6 +49,13 @@ Source docs:
 1. Inventory the complete emitted harness and map every implementation-bearing example from the `main` baseline to one retained normative snippet or one visible exact source link.
 2. Define deterministic local-example and installed-package link resolution, ownership, drift, and fresh-scaffold validation contracts.
 3. Require the canonical Todo DataTable bulk action to create a real progress job and drive the platform top progress bar, with integration coverage for every newly added extension surface.
+
+### Phase 4: PR #4883 extension-topology coverage
+
+1. Inventory every public contribution, activation, host, capability, specialized-registry, target, and resolution kind introduced by PR #4883.
+2. Map each executable source convention to current canonical-example code, fact readability, an additive example gap, or an exact specialist installed-source route.
+3. Extend the canonical and companion specs with fact-readable exports, generated-topology assertions, and self-contained integration coverage for each new executable example surface.
+4. Re-run consistency, adversarial review, documentation validation, and the PR publication gates.
 
 ## Risks
 
@@ -80,6 +88,13 @@ PR: #4878
 - [x] 3.2 Define visible direct-link and installed-source resolution contracts — b42b1755d
 - [x] 3.3 Specify DataTable bulk-operation progress and extension integration coverage — b42b1755d, 3d0ff4c0d
 - [x] 3.4 Complete independent review and docs-only validation — 3d0ff4c0d
+
+### Phase 4: PR #4883 extension-topology coverage
+
+- [ ] 4.1 Inventory PR #4883 extension and module-fact taxonomies
+- [ ] 4.2 Classify canonical-example fact coverage and exact specialist routes
+- [ ] 4.3 Specify fact-readable additions and integration/generator proofs
+- [ ] 4.4 Complete independent review and publication validation
 
 ## Validation Evidence
 
