@@ -1,4 +1,5 @@
 import { formatEntityId, resolveEntityTypeLabel } from '../entityTypeLabel'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 describe('formatEntityId', () => {
   it('humanizes module · entity', () => {
@@ -10,13 +11,15 @@ describe('formatEntityId', () => {
 })
 
 describe('resolveEntityTypeLabel', () => {
-  const t = (key: string, fallback?: string) =>
-    key === 'search.entityType.sales.sales_order' ? 'Order' : (fallback as string)
+  const t: TranslateFn = (key, fallbackOrParams) =>
+    key === 'search.entityType.sales.sales_order'
+      ? 'Order'
+      : (typeof fallbackOrParams === 'string' ? fallbackOrParams : key)
 
   it('returns the translated label when a key exists', () => {
-    expect(resolveEntityTypeLabel(t as any, 'sales:sales_order')).toBe('Order')
+    expect(resolveEntityTypeLabel(t, 'sales:sales_order')).toBe('Order')
   })
   it('falls back to the humanized string for unknown entity types', () => {
-    expect(resolveEntityTypeLabel(t as any, 'thirdparty:widget_thing')).toBe('Thirdparty · Widget Thing')
+    expect(resolveEntityTypeLabel(t, 'thirdparty:widget_thing')).toBe('Thirdparty · Widget Thing')
   })
 })

@@ -1,6 +1,6 @@
 # Search Presenter i18n
 
-**Status:** ready for implementation
+**Status:** implementation complete; deployment pending
 **Owner:** search / core
 **Date:** 2026-05-20 (decisions resolved 2026-06-08)
 **Tracking issue:** [open-mercato/open-mercato#327](https://github.com/open-mercato/open-mercato/issues/327)
@@ -13,7 +13,7 @@
 
 **Scope:**
 - `presenter.title`, `presenter.subtitle`, `presenter.badge` and `link.label` across every `search.ts` (10 modules).
-- The runtime gate `needsSearchResultEnrichment` in `packages/search/src/lib/search-result-enrichment.ts` that currently short-circuits enrichment when a stored presenter exists.
+- The config-aware runtime gate in `packages/search/src/lib/presenter-enricher.ts` that must bypass the legacy missing-data-only short circuit when a stored presenter exists.
 - The entity-type group headings rendered by `formatEntityId()` — duplicated across `GlobalSearchDialog.tsx`, `HybridSearchTable.tsx`, and `TopbarSearchInline.tsx` — translated via a **client-side i18n map** (`search.entityType.<module>.<entity>`) with the humanized string as fallback.
 - **Real `en`/`pl`/`es`/`de` copy** for every new key, landed in this PR (not English-only fallbacks).
 
@@ -38,7 +38,7 @@ The original Open Questions are resolved as follows (block removed per spec conv
 2. **Vector** (pgvector) — `presenter.title`/`subtitle` stored in `result_title`/`result_subtitle` columns at index time (`packages/search/src/vector/services/vector-index.service.ts:724`), same freezing problem.
 3. **Tokens** — no stored presenter; `presenterEnricher` computes one at search time using the **request's** locale.
 
-`SearchService.search()` then runs `presenterEnricher` (`packages/search/src/service.ts:144`), but `presenter-enricher.ts:207` only enriches results that match `needsSearchResultEnrichment()` (`packages/search/src/lib/search-result-enrichment.ts:11-17`) — missing title, encrypted value, or no url+links. Everything else is returned as-stored. So fulltext and vector ship the worker's locale; tokens ship the requester's locale. Same query, different locales per strategy. Bug.
+Before this change, `SearchService.search()` ran `presenterEnricher` only for results that matched `needsSearchResultEnrichment()` — missing title, encrypted value, or no url+links. Everything else was returned as stored. Fulltext and vector therefore shipped the worker's locale while tokens shipped the requester's locale. Same query, different locales per strategy. Bug.
 
 Beyond the bug, four modules never adopted `resolveTranslations()` at all and ship hard-coded English literals (see [Audit](#audit) below).
 
@@ -154,21 +154,22 @@ GlobalSearchDialog                                  /api/search/global
 
 | Layer | File | Change |
 |---|---|---|
-| Enrichment gate | `packages/search/src/lib/search-result-enrichment.ts` | Accept an optional `entityHasConfig` predicate; return `true` when the entity has a `formatResult`/`buildSource` regardless of stored presenter |
-| Enricher | `packages/search/src/lib/presenter-enricher.ts` | Pass `entityConfigMap` lookup into the gate; ensure per-request `resolveTranslations()` is called once and reused via `SearchBuildContext` (cache on the closure) |
+| Enrichment gate | `packages/search/src/lib/presenter-enricher.ts` | Treat configured entities as always enrichable, regardless of stored presenter/navigation data |
+| Enricher | `packages/search/src/lib/presenter-enricher.ts` | Prefer `formatResult`, fall back to `buildSource`, and replace stored presenter/link labels with the request-time values |
+| Search orchestration | `packages/search/src/service.ts` | Always delegate merged results to the self-gating presenter enricher |
 | Per-module `search.ts` (untranslated) | `customers`, `messages`, `checkout`, `inbox_ops` | Add `resolveTranslations()`, replace literals with `t(key, fallback)` |
 | Per-module `i18n/{en,pl,es,de}.json` | All migrated modules | Add `<module>.search.*` keys with real copy |
 | Entity-type heading components | `GlobalSearchDialog.tsx`, `HybridSearchTable.tsx`, `TopbarSearchInline.tsx` | Resolve heading via `t(`search.entityType.${module}.${entity}`, formatEntityId(...))`; add `useT()` where missing |
 | Search module i18n | `packages/search/src/modules/search/i18n/{en,pl,es,de}.json` | Add ~45 `search.entityType.*` keys with real copy |
 
-`SearchService.search()`, the indexer write path, and the storage schemas are unchanged. `GlobalSearchDialog`'s presenter rendering is unchanged; only its entity-type heading is now resolved via `useT()`.
+The indexer write path and storage schemas are unchanged. `SearchService.search()` now always delegates merged results to the self-gating enricher. `GlobalSearchDialog`'s presenter rendering is unchanged; only its entity-type heading is now resolved via `useT()`.
 
 ### Performance considerations
 
 Recomputing on every request adds work for fulltext + vector hits that previously short-circuited. Two amortizations:
 
 1. **Doc batching** is already in place (`presenter-enricher.ts:42` `fetchDocsBatch`). The added cost is only the `buildSource`/`formatResult` invocations and any `queryEngine` hydration inside them.
-2. **`resolveTranslations()` per request** loads the merged dictionary once. Subsequent calls within the same request reuse it via closure.
+2. **`resolveTranslations()`** reuses the process-level per-locale dictionary cache, which is invalidated whenever the registered module dictionaries change.
 
 If profiling shows `buildSource`-driven hydration (the customers module loads the parent customer entity via `queryEngine`) is the bottleneck, a `formatResult`-only fast path (skip `buildSource` for already-stored presenters) is a follow-up optimization.
 
@@ -265,7 +266,7 @@ In the search module's i18n (`packages/search/src/modules/search/i18n/{en,pl,es,
 
 1. Add `hasPresenterConfig(entityId)` lookup to `presenter-enricher.ts` (consults the existing `entityConfigMap`).
 2. Update `needsSearchResultEnrichment()` (or its caller in `presenter-enricher.ts:207`) to include results where `hasPresenterConfig(entityId)` is true, regardless of stored presenter state.
-3. Cache `resolveTranslations()` inside the enricher closure for the duration of a single search request.
+3. Reuse the shared process-level per-locale dictionary cache across the `resolveTranslations()` calls made while enriching one request.
 4. Verify that the `SearchBuildContext` already passes through `queryEngine`/`organizationId`/`tenantId` (it does — `packages/search/src/lib/presenter-enricher.ts:132`).
 
 ### Phase 2: Migrate `messages` and `checkout` (smallest deltas)
@@ -304,9 +305,10 @@ In the search module's i18n (`packages/search/src/modules/search/i18n/{en,pl,es,
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `packages/search/src/lib/search-result-enrichment.ts` | Modify | Accept entity-config-aware gate; treat configured entities as always-enrich |
-| `packages/search/src/lib/presenter-enricher.ts` | Modify | Pass entity-config map into gate; cache `resolveTranslations()` per request |
-| `packages/search/src/__tests__/presenter-enricher.test.ts` | Modify or create | Unit tests for the new gate |
+| `packages/search/src/lib/presenter-enricher.ts` | Modify | Apply the entity-config-aware gate, prefer `formatResult`, and replace stored presenter/link labels |
+| `packages/search/src/service.ts` | Modify | Always delegate merged results to the self-gating enricher |
+| `packages/search/src/__tests__/presenter-enricher.test.ts` | Modify | Unit tests for the new gate |
+| `packages/search/src/modules/search/api/__tests__/global-search.routes.test.ts` | Create | Route-level locale coverage across fulltext, vector, and tokens |
 | `packages/core/src/modules/customers/search.ts` | Modify | Replace ~15 hard-coded literals with `t(key, fallback)` |
 | `packages/core/src/modules/customers/i18n/{en,pl,es,de}.json` | Modify | Add `customers.search.*` keys with real copy |
 | `packages/core/src/modules/messages/search.ts` | Modify | Translate `badge: 'Message'` |
@@ -323,7 +325,7 @@ In the search module's i18n (`packages/search/src/modules/search/i18n/{en,pl,es,
 ### Testing Strategy
 
 - **Unit**: `presenter-enricher.test.ts` — verify that results with a stored presenter and a registered `formatResult` are re-enriched; that results without a registered config retain the stored presenter (fallback); that `resolveTranslations()` is called with the request's locale; that `formatResult` throwing does not break the response (stored presenter is returned).
-- **Integration**: `packages/search/src/modules/search/api/__tests__/global-search.routes.test.ts` (new or extended) — submit a search with `Accept-Language: pl-PL`, confirm presenters in the response are translated for fulltext + vector + tokens hits.
+- **Integration**: `packages/search/src/modules/search/api/__tests__/global-search.routes.test.ts` — submit a search with `Accept-Language: pl-PL`, confirm presenters and stored link labels in the response are translated for fulltext + vector + tokens hits.
 - **Unit (headings)**: cover the shared heading-resolution helper — known entity type resolves to its `search.entityType.*` value; unknown entity type falls back to `formatEntityId()`.
 - **Manual smoke** (per `.ai/qa/AGENTS.md`): exercise Cmd+K against seeded customers/sales/catalog data in each supported locale; confirm both presenter strings and entity-type headings localize across the dialog, hybrid table, and topbar inline.
 
@@ -416,9 +418,13 @@ None.
 
 ### Verdict
 
-- **Fully compliant** — ready for implementation. Q1–Q3 and the architectural fork resolved 2026-06-08 (see [Resolved Decisions](#resolved-decisions-2026-06-08)).
+- **Fully compliant** — implementation complete and pending merge/deployment. Q1–Q3 and the architectural fork were resolved 2026-06-08 (see [Resolved Decisions](#resolved-decisions-2026-06-08)).
 
 ## Changelog
+
+### 2026-08-03
+
+- Completed the request-time presenter/link localization implementation, including the config-aware enrichment gate, format-first recomputation, translated entity-type headings, and route-level coverage across fulltext, vector, and tokens.
 
 ### 2026-06-08
 
