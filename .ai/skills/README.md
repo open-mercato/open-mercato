@@ -73,9 +73,9 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `analysis` | opt-in | 2 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
-| `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
+| `migration` | opt-in | 2 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 25 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+| external | always | 26 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
