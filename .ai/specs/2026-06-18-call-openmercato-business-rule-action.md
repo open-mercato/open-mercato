@@ -166,6 +166,7 @@ The action executor:
 - Endpoint execution is allowlisted by current OpenAPI/route metadata and relative `/api/...` paths.
 - API key profile resolution is scoped by tenant and organization.
 - The options route requires both business-rule management and API-key minting permissions.
+- The configurator gate is evaluated against the **stored** rule as well as the incoming payload. Because the update schema is partial, a request that omits `successActions` / `failureActions` leaves an existing `CALL_OPEN_MERCATO` action in place; without checking the stored rule, such a request could retarget when and on what that privileged call fires (entity type, event, condition, `enabled`) without holding `api_keys.create`.
 - The one-time key is minted with `createdBy: null`. It is a machine-to-machine credential whose identity is fully defined by its own tenant and organization, so `resolveApiKeyAuth` resolves it through the tenant/organization active-check branch. Binding it to the triggering principal would make runtime auth fail closed whenever the trigger comes from another organization or from a since-deleted user. This matches the `workflows` activity executor.
 - Rule execution logs persist only action type, success flag, and error summary for action results. Non-2xx failures record the status code only — the endpoint response body is never interpolated into the persisted error message.
 
@@ -239,6 +240,7 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Tightened the configurator gate from `api_keys.view` to `api_keys.create` on both the options route and the rule create/update path, so configuring the action requires the permission that can already mint an arbitrary-role key.
 - Minted the one-time execution key with `createdBy: null` so cross-organization and non-user rule triggers no longer fail closed in `resolveApiKeyAuth`, with regression coverage.
 - Dropped the endpoint response body from the persisted non-2xx error message, honoring the logging guarantee this spec already stated.
+- Closed an update-path bypass of that gate: `PUT /api/business_rules/rules` now loads the target rule before the permission check and requires `api_keys.create` when the **stored** rule carries a `CALL_OPEN_MERCATO` action, not only when the incoming payload does. Covered by a route test that fails without the check.
 
 ### 2026-06-18
 

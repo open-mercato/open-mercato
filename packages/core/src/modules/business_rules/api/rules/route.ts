@@ -336,7 +336,22 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
-  if (hasOpenMercatoCallAction(parsed.data.successActions) || hasOpenMercatoCallAction(parsed.data.failureActions)) {
+  const rule = await em.findOne(BusinessRule, {
+    id: parsed.data.id,
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+
+  if (!rule) {
+    return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
+  }
+
+  const touchesOpenMercatoCall = hasOpenMercatoCallAction(parsed.data.successActions)
+    || hasOpenMercatoCallAction(parsed.data.failureActions)
+    || hasOpenMercatoCallAction(rule.successActions)
+    || hasOpenMercatoCallAction(rule.failureActions)
+  if (touchesOpenMercatoCall) {
     const accessError = await requireOpenMercatoCallConfiguratorAccess(container, auth)
     if (accessError) return accessError
   }
@@ -353,17 +368,6 @@ export async function PUT(req: Request) {
   ]
   if (actionErrors.length > 0) {
     return NextResponse.json({ error: `Validation failed: ${actionErrors.join(', ')}` }, { status: 400 })
-  }
-
-  const rule = await em.findOne(BusinessRule, {
-    id: parsed.data.id,
-    tenantId,
-    organizationId,
-    deletedAt: null,
-  })
-
-  if (!rule) {
-    return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
   }
 
   try {

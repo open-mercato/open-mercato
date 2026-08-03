@@ -1195,7 +1195,16 @@ describe('Business Rules API - /api/business_rules/rules', () => {
     })
 
     test('should reject unavailable CALL_OPEN_MERCATO API key profile on update', async () => {
-      mockEm.findOne.mockResolvedValue(null)
+      mockEm.findOne.mockImplementation(async (Entity: any) => {
+        if (Entity?.name === 'ApiKey') return null
+        return {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          ruleId: 'RULE-OM-UPDATE',
+          tenantId: validTenantId,
+          organizationId: validOrgId,
+          deletedAt: null,
+        }
+      })
 
       const updateData = {
         id: '123e4567-e89b-12d3-a456-426614174000',
@@ -1220,6 +1229,44 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(response.status).toBe(400)
       const body = await response.json()
       expect(body.error).toContain('selected API key profile is not available')
+    })
+
+    test('should require api_keys.create to update a rule that already has a CALL_OPEN_MERCATO action', async () => {
+      mockUserHasAllFeatures.mockResolvedValue(false)
+      mockEm.findOne.mockImplementation(async () => ({
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        ruleId: 'RULE-OM-STORED',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174010',
+            },
+          },
+        ],
+        failureActions: null,
+      }))
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          entityType: 'Order',
+          eventType: 'afterCreate',
+          enabled: true,
+        }),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(403)
+      const body = await response.json()
+      expect(body.requiredFeatures).toEqual(['api_keys.create'])
+      expect(mockEm.flush).not.toHaveBeenCalled()
     })
   })
 })
