@@ -8,6 +8,9 @@ import {
   optionsResponseSchema,
 } from '../openapi'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('example')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
@@ -24,7 +27,10 @@ export async function GET(request: Request) {
     const rows = await em.find(CustomFieldValue, {
       entityId: 'example:todo',
       fieldKey: 'labels',
-      $or: [ { organizationId: auth.orgId as any }, { organizationId: null } ],
+      $and: [
+        { $or: [ { organizationId: auth.orgId as any }, { organizationId: null } ] },
+        { $or: [ { tenantId: auth.tenantId as any }, { tenantId: null } ] },
+      ],
     })
     const set = new Set<string>()
     for (const r of rows) {
@@ -50,6 +56,7 @@ export async function GET(request: Request) {
     const items = Array.from(set).map((t) => ({ value: t, label: t }))
     return new Response(JSON.stringify({ items }), { headers: { 'content-type': 'application/json' } })
   } catch (e) {
+    logger.error('Failed to resolve example tag options', { error: e })
     return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
 }

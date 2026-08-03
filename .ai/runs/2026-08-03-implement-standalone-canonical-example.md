@@ -46,8 +46,8 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 
 | # | Step | Spec phase | Status | Commit |
 |---|---|---|---|---|
-| 1 | Housekeeping: delete stray `template/src/modules/reference_module/`, remove invalid `TEMP:`/`git checkout --` comment from both `backend/page.tsx`, correct stale spec baselines | CANON-A1.1 | done | — |
-| 2 | Fix live cross-tenant leak in `example/api/tags/route.ts` (missing `tenantId` predicate) | CANON-A1 reference-quality | pending | — |
+| 1 | Housekeeping: remove the leaked "do not commit" date-picker demo block (and its invalid `git checkout --` recovery hint) from `example/backend/page.tsx`; correct stale spec baselines | CANON-A1.1 | done | — |
+| 2 | Fix live cross-tenant leak in `example/api/tags/route.ts` (missing `tenantId` predicate) | CANON-A1 reference-quality | done | — |
 | 3 | Add `template-example-module-parity.test.ts` (sorted paths + SHA-256) + `repo-wide-guards.mjs` exception | CANON-A1.2 | pending | — |
 | 4 | Add `example/README.md`, `references/surface-map.md`, `references/surface-inventory.json` (existing-surface rows) + mirror | CANON-A1.3 | pending | — |
 | 5 | `TEMPLATE_CONTENT_TRANSFORMS` entry for `src/modules.ts`; drop `empty.files.remove`; remove `example` + `design_system` from template registry | CANON-A2.1 | pending | — |
@@ -80,6 +80,13 @@ Each row keeps its dependency edge so a follow-up run can start immediately.
 | READ-P2: reason-gated `installedVersionFallback` + redaction fixtures | Task 9 | — |
 | GOV-P1/P2: `knowledge-change.schema.json`, validator/controller, 9 mandatory workflow steps | CANON-C source-link-inventory | Validator consumes the inventory; needs a real knowledge-contract change to exercise. |
 | SPEC-P2: 6 routing cases + 2 writable ordering proofs | Task 8, Task 9 | — |
+
+## Corrections to the Reconnaissance Itself
+
+- **`packages/create-app/template/src/modules/reference_module/` is NOT a repo artifact.** Recon reported
+  it as a stray shadow-module skeleton copied into every scaffold. It is untracked local working-tree
+  pollution: `git ls-tree -r origin/develop` has zero entries under that path, and git does not track
+  empty directories. No fix was required and none is claimed. Anyone seeing it locally can simply delete it.
 
 ## Open Decisions Carried Forward
 
