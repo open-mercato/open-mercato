@@ -23,9 +23,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
-import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
-import { sql } from 'kysely'
+import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import {
   getSelectedTenantFromRequest,
@@ -505,31 +503,13 @@ async function findUserIdsBySearchTokens(
   tenantScope: string | null | undefined,
   field?: string,
 ): Promise<string[] | null> {
-  const trimmed = search.trim()
-  if (!trimmed) return null
-  const searchConfig = resolveSearchConfig()
-  if (!searchConfig.enabled) return []
-  const { hashes } = tokenizeText(trimmed, searchConfig)
-  if (!hashes.length) return []
-
-  const db = (em as any).getKysely() as any
-  let query = db
-    .selectFrom('search_tokens')
-    .select('entity_id')
-    .where('entity_type', '=', entityType)
-    .where('token_hash', 'in', hashes)
-    .groupBy('entity_id')
-    .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
-  if (field) {
-    query = query.where('field', '=', field)
-  }
-  if (tenantScope !== undefined) {
-    query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
-  }
-  const rows = (await query.execute()) as Array<{ entity_id?: unknown }>
-  return rows
-    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  return findEntityIdsBySearchTokensCompat({
+    db: em.getKysely<SearchTokenDatabase>(),
+    entityType,
+    query: search,
+    fields: field ? [field] : undefined,
+    scope: { tenantId: tenantScope },
+  })
 }
 
 async function assertCanModifySuperAdminTarget(req: Request, targetUserId: string) {

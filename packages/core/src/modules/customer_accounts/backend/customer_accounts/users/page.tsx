@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customer_accounts/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Globe, Settings } from 'lucide-react'
@@ -545,7 +546,7 @@ export default function CustomerAccountsPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          perspective={{ tableId: 'customer_accounts.admin.users' }}
+          perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
           emptyState={(
             <ListEmptyState
               entityName={t('customer_accounts.admin.title', 'Users')}

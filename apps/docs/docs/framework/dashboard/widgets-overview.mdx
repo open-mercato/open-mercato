@@ -48,6 +48,16 @@ const widget: DashboardWidgetModule = {
 }
 ```
 
+The dynamic `import()` is load-bearing, not a style preference. When the CLI bundles a module's
+sources it replaces local `*.client` **dynamic imports** with an inert stub, which is what keeps
+`widget.ts` importable in Node while the browser-only subgraph (charts, editors, anything reaching
+`next/dynamic`) stays out of the CLI bundle. A static `import MyWidgetClient from './widget.client'`
+in `widget.ts` is not stubbed: its transitive browser imports are hoisted into the CLI bundle and
+every CLI entry point — `yarn dev` included — fails to boot.
+
+Only dynamic imports are rewritten, so a server-side helper that merely follows a `*.client.ts`
+naming convention keeps working when it is imported statically.
+
 ## Discovery and runtime
 
 The generator (`mercato generate registry` via `packages/cli/src/lib/generators/module-registry.ts`) records every widget as `{ moduleId, key, loader }`. At runtime:
