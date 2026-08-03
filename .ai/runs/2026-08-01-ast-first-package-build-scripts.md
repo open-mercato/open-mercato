@@ -66,7 +66,8 @@ Plus `yarn lint`, which the spec's own gate names.
 
 ## Progress
 
-PR: #4816
+Original PR: #4816
+Carry-forward PR: #4867
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -121,3 +122,20 @@ Both `@open-mercato/core` failures are unrelated to this change, which touches n
 
 `yarn test` at the repo's pinned `--max-old-space-size=768` also OOMs in `open-mercato-docs`; the run
 above used a 4 GB heap. Both are known local-runner limits, not regressions from this branch.
+
+### Resume validation result (2026-08-03, local runner)
+
+The carry-forward branch was revalidated from a clean isolated worktree after applying the
+maintainer's autologin-helper review feedback. The current configured gate is fully green:
+
+| Command | Result |
+|---|---|
+| `yarn build:packages` (before and after `yarn generate`) | ✅ 21/21 tasks both times |
+| `yarn generate` | ✅ |
+| `yarn i18n:check-sync` / `yarn i18n:check-usage` | ✅ (unused-key report is advisory) |
+| `yarn typecheck` | ✅ 21/21 tasks |
+| `yarn test` | ✅ 24/24 tasks; core 8,815 tests passed |
+| `yarn build:app` | ✅ |
+| `yarn lint` | ✅ 0 errors (12 existing warnings in `@open-mercato/app`) |
+| `yarn template:sync` | ✅; canonical/template dev scripts are byte-identical |
+| standalone template TypeScript compatibility test | ✅ 2/2 |
