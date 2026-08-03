@@ -104,7 +104,8 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
       'commands/nested/deep.ts',
       "import { registerCommand } from '@open-mercato/shared'\nregisterCommand({ id: 'facts.reindex' })\nregisterCommand({ id: 'facts.sync' })\n",
     )
-    // Workers: recursive discovery + static queue/name/concurrency, plus an unresolvable id.
+    // Workers: recursive discovery, declared and derived ids, local-constant queues,
+    // a dynamic queue, and a worker runtime skips because it declares no queue.
     writeFixture(
       moduleRoot,
       'workers/sync.ts',
@@ -113,12 +114,49 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     writeFixture(
       moduleRoot,
       'workers/nested/deep.ts',
-      "export const metadata = { id: 'facts:deep' }\nexport default async function handle() {}\n",
+      "export const metadata = { id: 'facts:deep', queue: 'facts-deep' }\nexport default async function handle() {}\n",
+    )
+    writeFixture(
+      moduleRoot,
+      'workers/reindex.ts',
+      "const REINDEX_QUEUE = 'facts-reindex'\nexport const metadata = { queue: REINDEX_QUEUE, concurrency: 4 }\nexport default async function handle() {}\n",
+    )
+    writeFixture(
+      moduleRoot,
+      'workers/nested/cleanup.ts',
+      "const CLEANUP_QUEUE = 'facts-cleanup'\nexport const metadata = { queue: CLEANUP_QUEUE }\nexport default async function handle() {}\n",
+    )
+    writeFixture(
+      moduleRoot,
+      'workers/queueless.ts',
+      "export const metadata = { id: 'facts:queueless' }\nexport default async function handle() {}\n",
     )
     writeFixture(
       moduleRoot,
       'workers/dynamic.ts',
       "const QUEUE = computeQueue()\nexport const metadata = { queue: QUEUE }\nexport default async function handle() {}\n",
+    )
+    // Pages: companion metadata files (`page.meta.*`, then `meta.*`) win over the
+    // page component, exactly as runtime discovery resolves them.
+    writeFixture(
+      moduleRoot,
+      'backend/facts/config/page.tsx',
+      "export const metadata = { requireAuth: false, group: 'ignored' }\nexport default function ConfigPage() { return null }\n",
+    )
+    writeFixture(
+      moduleRoot,
+      'backend/facts/config/page.meta.ts',
+      "export const metadata = { requireAuth: true, requireFeatures: ['facts.configure'], pageGroup: 'settings-group', pageGroupKey: 'facts.settings', pageOrder: 30, pageContext: 'settings', navHidden: true }\n",
+    )
+    writeFixture(
+      moduleRoot,
+      'backend/facts/reports/page.tsx',
+      "export default function ReportsPage() { return null }\n",
+    )
+    writeFixture(
+      moduleRoot,
+      'backend/facts/reports/meta.ts',
+      "export const metadata = { requireAuth: true, order: 5, pageContext: 'admin', pageContextId: 'not-a-contract-key' }\n",
     )
     // Subscribers: nested directory must be discovered like runtime.
     writeFixture(
@@ -190,15 +228,34 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     expect(duplicate?.source?.sourcePath).toBe('node_modules/@open-mercato/example/src/modules/facts/commands/root.ts')
   })
 
-  it('discovers recursive workers with static metadata and diagnoses dynamic ids', () => {
+  it('matches runtime worker identity for declared, derived, and id-less workers', () => {
     const sync = ownedById(facts, 'worker', 'facts:sync')
     expect(sync?.metadata).toEqual({ queue: 'facts-sync', name: 'Sync', concurrency: 2 })
     expect(ownedById(facts, 'worker', 'facts:deep')).toBeDefined()
-    const dynamic = facts.factDiagnostics?.find(
+
+    // Runtime falls back to `<module>:workers:<...path>:<file>` when metadata.id is absent,
+    // at the root and in nested directories, and resolves a local-constant queue.
+    expect(ownedById(facts, 'worker', 'facts:workers:reindex')?.metadata).toEqual({
+      queue: 'facts-reindex',
+      concurrency: 4,
+    })
+    expect(ownedById(facts, 'worker', 'facts:workers:nested:cleanup')?.metadata).toEqual({
+      queue: 'facts-cleanup',
+    })
+  })
+
+  it('reports workers whose required queue is missing or dynamic', () => {
+    const workerDiagnostics = (facts.factDiagnostics ?? []).filter(
       (diagnostic) => diagnostic.code === 'unresolved-static-contract' && diagnostic.kind === 'worker',
     )
-    expect(dynamic).toBeDefined()
-    // The unresolvable queue identifier must never be serialized.
+    expect(workerDiagnostics.map((diagnostic) => diagnostic.id).sort()).toEqual([
+      'facts:queueless',
+      'facts:workers:dynamic',
+    ])
+    // A worker with no queue is never registered by runtime, so it is not a contract.
+    expect(ownedById(facts, 'worker', 'facts:queueless')).toBeUndefined()
+    // A dynamic queue still yields a worker contract, minus the unresolvable value.
+    expect(ownedById(facts, 'worker', 'facts:workers:dynamic')).toBeDefined()
     expect(JSON.stringify(facts.ownedContracts?.worker)).not.toContain('QUEUE')
   })
 
@@ -346,6 +403,31 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
   it('attaches only statically-declared safe page metadata', () => {
     const page = facts.backendPages.find((entry) => entry.path === '/backend/facts')
     expect(page?.metadata).toEqual({ requireAuth: true, requireFeatures: ['facts.view'], navGroup: 'crm' })
+    expect(page?.metadataSourcePath).toBeUndefined()
+  })
+
+  it('reads page metadata from the runtime companion file convention', () => {
+    const companionPage = facts.backendPages.find((entry) => entry.path === '/backend/facts/config')
+    expect(companionPage?.metadataSourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/backend/facts/config/page.meta.ts',
+    )
+    expect(companionPage?.metadata).toEqual({
+      requireAuth: true,
+      requireFeatures: ['facts.configure'],
+      navGroup: 'settings-group',
+      navGroupKey: 'facts.settings',
+      navOrder: 30,
+      pageContext: 'settings',
+      navHidden: true,
+    })
+
+    // `meta.*` is the documented fallback name, and page-component metadata is
+    // ignored entirely when a companion exists (runtime imports only the companion).
+    const fallbackPage = facts.backendPages.find((entry) => entry.path === '/backend/facts/reports')
+    expect(fallbackPage?.metadataSourcePath).toBe(
+      'node_modules/@open-mercato/example/src/modules/facts/backend/facts/reports/meta.ts',
+    )
+    expect(fallbackPage?.metadata).toEqual({ requireAuth: true, navOrder: 5, pageContext: 'admin' })
   })
 
   it('emits portable POSIX source paths and is deterministic across runs', () => {

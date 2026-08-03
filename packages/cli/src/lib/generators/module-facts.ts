@@ -9,6 +9,7 @@ import type {
 } from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
 import { extractCommandIdsFromSource } from './module-registry'
+import { MODULE_CODE_EXTENSIONS } from './scanner'
 import {
   assertNoUnresolvedExtensionTargets,
   correlateIncomingExtensions,
@@ -48,6 +49,13 @@ export interface ModuleApiRouteFact {
   sourcePath: string | null
 }
 
+/**
+ * Statically declared page metadata that affects extensibility or access, using the
+ * runtime `PageMetadata` contract keys and the same alias precedence as
+ * `resolvePageRouteMetadata` (`pageGroup ?? group`, `pageGroupKey ?? groupKey`,
+ * `pageOrder ?? order`). Executable guards, icons, titles and translation results are
+ * never serialized.
+ */
 export interface ModulePageMetadata {
   requireAuth?: boolean
   requireCustomerAuth?: boolean
@@ -55,15 +63,16 @@ export interface ModulePageMetadata {
   requireCustomerFeatures?: string[]
   navHidden?: boolean
   navGroup?: string
+  navGroupKey?: string
   navOrder?: number
-  pageGroup?: string
-  pageContextId?: string
-  extensionSpotId?: string
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
 }
 
 export interface ModulePageFact {
   path: string
   sourcePath: string
+  /** Companion metadata file (`page.meta.*` / `meta.*`) when runtime reads metadata from one. */
+  metadataSourcePath?: string
   metadata?: ModulePageMetadata
 }
 
@@ -968,7 +977,7 @@ function extractModulePages(
     const fileName = segments.pop() as string
     const fileStem = fileName.replace(/\.tsx$/, '')
     const isModernPage = fileStem === 'page'
-    if (!isModernPage && (fileStem.endsWith('.meta') || /^[A-Z]/.test(fileStem))) continue
+    if (!isModernPage && (fileStem === 'meta' || fileStem.endsWith('.meta') || /^[A-Z]/.test(fileStem))) continue
     const sourceFile = readSourceFile(filePath)
     if (!sourceFile || !sourceHasDefaultExport(sourceFile)) continue
     const routeSegments = isModernPage ? segments : [...segments, fileStem]
@@ -981,10 +990,15 @@ function extractModulePages(
             : [moduleId, ...routeSegments].filter(Boolean).join('/')}`
     if (seen.has(routePath)) continue
     seen.add(routePath)
-    const metadata = readPageMetadata(sourceFile)
+    const metadataFilePath = resolvePageMetadataFile(path.dirname(filePath))
+    const metadataSourceFile = metadataFilePath ? readSourceFile(metadataFilePath) : sourceFile
+    const metadata = metadataSourceFile ? readPageMetadata(metadataSourceFile) : undefined
     pages.push({
       path: routePath,
       sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, filePath),
+      ...(metadataFilePath
+        ? { metadataSourcePath: toPortableSourcePath(moduleRoot, sourceRoot, metadataFilePath) }
+        : {}),
       ...(metadata ? { metadata } : {}),
     })
   }
@@ -1301,6 +1315,22 @@ function dedupeOwnedContractFacts(facts: readonly ModuleOwnedContractFact[]): Mo
   return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id))
 }
 
+const PAGE_CONTEXT_VALUES = new Set(['main', 'admin', 'settings', 'profile'])
+
+function readAliasedStringProperty(
+  metadata: ts.ObjectLiteralExpression,
+  preferred: string,
+  fallback: string,
+): string | undefined {
+  return readStringPropertyInitializer(metadata, preferred) ?? readStringPropertyInitializer(metadata, fallback)
+}
+
+function readNumericProperty(metadata: ts.ObjectLiteralExpression, propertyName: string): number | undefined {
+  const initializer = getObjectPropertyInitializer(metadata, propertyName)
+  if (!initializer || !ts.isNumericLiteral(initializer)) return undefined
+  return Number(initializer.text)
+}
+
 function readPageMetadata(sourceFile: ts.SourceFile): ModulePageMetadata | undefined {
   const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
   if (!metadata) return undefined
@@ -1317,19 +1347,32 @@ function readPageMetadata(sourceFile: ts.SourceFile): ModulePageMetadata | undef
   }
   const navHidden = readBooleanPropertyInitializer(metadata, 'navHidden')
   if (navHidden !== undefined) result.navHidden = navHidden
-  const navGroup = readStringPropertyInitializer(metadata, 'group')
+  const navGroup = readAliasedStringProperty(metadata, 'pageGroup', 'group')
   if (navGroup) result.navGroup = navGroup
-  const pageGroup = readStringPropertyInitializer(metadata, 'pageGroup')
-  if (pageGroup) result.pageGroup = pageGroup
-  const pageContextId = readStringPropertyInitializer(metadata, 'pageContextId')
-  if (pageContextId) result.pageContextId = pageContextId
-  const extensionSpotId = readStringPropertyInitializer(metadata, 'extensionSpotId')
-  if (extensionSpotId) result.extensionSpotId = extensionSpotId
-  const navOrderInitializer = getObjectPropertyInitializer(metadata, 'order')
-  if (navOrderInitializer && ts.isNumericLiteral(navOrderInitializer)) {
-    result.navOrder = Number(navOrderInitializer.text)
+  const navGroupKey = readAliasedStringProperty(metadata, 'pageGroupKey', 'groupKey')
+  if (navGroupKey) result.navGroupKey = navGroupKey
+  const navOrder = readNumericProperty(metadata, 'pageOrder') ?? readNumericProperty(metadata, 'order')
+  if (navOrder !== undefined) result.navOrder = navOrder
+  const pageContext = readStringPropertyInitializer(metadata, 'pageContext')
+  if (pageContext && PAGE_CONTEXT_VALUES.has(pageContext)) {
+    result.pageContext = pageContext as ModulePageMetadata['pageContext']
   }
   return Object.keys(result).length > 0 ? result : undefined
+}
+
+/**
+ * Mirrors the runtime companion-file convention: a page's metadata comes from
+ * `page.meta.*` (or `meta.*`) in the page directory when one exists, and only
+ * otherwise from the page component itself.
+ */
+function resolvePageMetadataFile(pageDirectory: string): string | null {
+  for (const baseName of ['page.meta', 'meta']) {
+    for (const extension of MODULE_CODE_EXTENSIONS) {
+      const candidate = path.join(pageDirectory, `${baseName}${extension}`)
+      if (fs.existsSync(candidate)) return candidate
+    }
+  }
+  return null
 }
 
 function extractModuleMetadataContract(
@@ -1375,6 +1418,38 @@ function extractCommandContractCandidates(
   return candidates
 }
 
+/**
+ * Runtime worker id: `metadata.id` when declared, otherwise the path-derived
+ * `<moduleId>:workers:<...segments>:<fileStem>` that `discoverWorkers` builds.
+ */
+function deriveWorkerId(moduleId: string, workersRoot: string, filePath: string): string {
+  const relativePath = path.relative(workersRoot, filePath).split(path.sep).join('/')
+  const segments = relativePath.split('/')
+  const fileName = segments.pop() as string
+  const fileStem = fileName.replace(/\.tsx?$/, '')
+  return [moduleId, 'workers', ...segments, fileStem].filter(Boolean).join(':')
+}
+
+/** Resolves a string property directly or through a local `const` in the same file. */
+function readResolvedStringProperty(
+  objectLiteral: ts.ObjectLiteralExpression,
+  propertyName: string,
+  initializers: Map<string, ts.Expression>,
+): string | undefined {
+  const initializer = getObjectPropertyInitializer(objectLiteral, propertyName)
+  if (!initializer) return undefined
+  const resolved = unwrapExpression(initializer)
+  if (ts.isStringLiteralLike(resolved)) return resolved.text
+  if (ts.isIdentifier(resolved)) {
+    const declaration = initializers.get(resolved.text)
+    if (declaration) {
+      const declarationValue = unwrapExpression(declaration)
+      if (ts.isStringLiteralLike(declarationValue)) return declarationValue.text
+    }
+  }
+  return undefined
+}
+
 function extractWorkerContracts(
   moduleId: string,
   moduleRoot: string,
@@ -1390,20 +1465,24 @@ function extractWorkerContracts(
     const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
     if (!metadata) continue
     const sourcePath = toPortableSourcePath(moduleRoot, sourceRoot, filePath)
-    const workerId = readStringPropertyInitializer(metadata, 'id')
-    if (!workerId) {
-      unresolved.push({
-        code: 'unresolved-static-contract',
-        kind: 'worker',
-        id: sourcePath,
-        source: { sourcePath, exportName: 'metadata', line: nodeLine(sourceFile, metadata) },
-      })
+    const source = { sourcePath, exportName: 'metadata', line: nodeLine(sourceFile, metadata) }
+    const initializers = buildVariableInitializerMap(sourceFile)
+    const workerId = readResolvedStringProperty(metadata, 'id', initializers)
+      ?? deriveWorkerId(moduleId, workersRoot, filePath)
+
+    // Runtime skips any worker without a queue, so a worker missing the required
+    // property is not a contract; a present-but-dynamic queue is reported instead.
+    const hasQueueProperty = getObjectPropertyInitializer(metadata, 'queue') !== undefined
+    const queue = readResolvedStringProperty(metadata, 'queue', initializers)
+    if (!hasQueueProperty) {
+      unresolved.push({ code: 'unresolved-static-contract', kind: 'worker', id: workerId, source })
       continue
     }
+
     const workerMetadata: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]> = {}
-    const queue = readStringPropertyInitializer(metadata, 'queue')
     if (queue) workerMetadata.queue = queue
-    const name = readStringPropertyInitializer(metadata, 'name')
+    else unresolved.push({ code: 'unresolved-static-contract', kind: 'worker', id: workerId, source })
+    const name = readResolvedStringProperty(metadata, 'name', initializers)
     if (name) workerMetadata.name = name
     const concurrencyInitializer = getObjectPropertyInitializer(metadata, 'concurrency')
     if (concurrencyInitializer && ts.isNumericLiteral(concurrencyInitializer)) {
@@ -1412,7 +1491,7 @@ function extractWorkerContracts(
     facts.push({
       kind: 'worker',
       id: workerId,
-      source: { sourcePath, exportName: 'metadata', line: nodeLine(sourceFile, metadata) },
+      source,
       ...(Object.keys(workerMetadata).length > 0 ? { metadata: workerMetadata } : {}),
     })
   }
