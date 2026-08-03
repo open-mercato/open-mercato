@@ -91,6 +91,27 @@ it('accepts a valid source webhook: records ingestion, enqueues dispatch, emits 
   )
 })
 
+it('rejects an oversized source webhook before verification or persistence', async () => {
+  const verifier = jest.fn(async () => true)
+  registerWebhookSource(makeSource({ verifier }))
+  const request = new Request('http://localhost/api/webhooks/inbound/stripe', {
+    method: 'POST',
+    body: '{}',
+    headers: {
+      'content-length': String(1024 * 1024 + 1),
+      'content-type': 'application/json',
+    },
+  })
+
+  const response = await POST(request, { params: Promise.resolve({ endpointId: 'stripe' }) })
+
+  expect(response.status).toBe(413)
+  expect(verifier).not.toHaveBeenCalled()
+  expect(findWithDecryption).not.toHaveBeenCalled()
+  expect(persist).not.toHaveBeenCalled()
+  expect(enqueueInboundDispatch).not.toHaveBeenCalled()
+})
+
 it('rejects with 401 when no candidate scope verifies', async () => {
   registerWebhookSource(makeSource({ verifier: async () => false }))
   const res = await postTo('stripe')
