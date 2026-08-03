@@ -1081,4 +1081,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
 
+## Portaled confirmations must stay inside their parent dialog's React tree
+
+**Context**: A native confirmation dialog was portaled to `document.body` from beside a Radix dialog's content, so real pointer events were classified as outside interactions and Escape was intercepted before the native cancel event.
+
+**Rule**: Render portaled confirmations as React children of the owning `DialogContent`, and handle Escape before the parent overlay's document-capture dismissal when the confirmation owns the active modal interaction.
+
+**Applies to**: nested native dialogs, Radix `DismissableLayer`, and any portaled confirmation shown from an open modal.
+
+- 2026-08-02 · UI preview: an ephemeral environment started before package edits can retain stale package and Next.js artifacts → restart it with `test:integration:ephemeral:start --force-rebuild` before Playwright verification.
 - 2026-08-02 · verification: sandboxed macOS rejected Homebrew Node dylibs and a fresh docs search index was absent → use the bundled Node runtime and build docs before retrying the full gate.

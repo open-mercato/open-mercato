@@ -7901,6 +7901,7 @@ __metadata:
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:^2.17.5"
     ts-jest: "npm:^29.4.11"
+    ts-morph: "npm:^28.0.0"
     typescript: "npm:7.0.2"
     undici: "npm:^8.7.0"
   languageName: unknown
@@ -7989,6 +7990,7 @@ __metadata:
     recharts: "npm:^3.9.2"
     remark-gfm: "npm:^4.0.1"
     ts-jest: "npm:^29.4.11"
+    ts-morph: "npm:^28.0.0"
     typescript: "npm:7.0.2"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
