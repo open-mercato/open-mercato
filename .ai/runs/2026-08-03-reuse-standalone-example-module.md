@@ -49,6 +49,8 @@ Source docs:
 
 ## Progress
 
+PR: #4878
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Canonical reuse design
