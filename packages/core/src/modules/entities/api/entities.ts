@@ -10,6 +10,8 @@ import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/syst
 import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { canReadEntityMetadata, getDeclaredCustomEntityRestriction } from '../lib/entityAcl'
 import {
   beginEntitiesMutationGuard,
   ENTITY_DEFINITION_RESOURCE_KIND,
@@ -29,6 +31,11 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const rbac = resolve('rbacService') as RbacService
+  const acl = await rbac.loadAcl(auth.sub ?? '', {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+  })
 
   // Generated entities from code
   const AllEntities = getEntityIds()
@@ -68,6 +75,7 @@ export async function GET(req: Request) {
       labelField: (c as any).labelField ?? undefined,
       defaultEditor: (c as any).defaultEditor ?? undefined,
       showInSidebar: (c as any).showInSidebar ?? false,
+      accessRestricted: (c as any).accessRestricted ?? false,
       updatedAt: c.updatedAt instanceof Date ? c.updatedAt.toISOString() : (c.updatedAt ?? undefined),
     }))
 
@@ -78,8 +86,27 @@ export async function GET(req: Request) {
     byId.set(cu.entityId, { ...existing, ...cu, source: existing?.source ?? cu.source })
   }
 
+  const visibleEntityIds = new Set(
+    Array.from(byId.values())
+      .filter((item: any) => {
+        const isOrmBacked = isOrmBackedSystemEntityId(em, item.entityId)
+        const declaredRestriction = isOrmBacked
+          ? undefined
+          : getDeclaredCustomEntityRestriction(item.entityId)
+        return canReadEntityMetadata({
+          entityId: item.entityId,
+          isCustomEntity: !isOrmBacked
+            && (item.source === 'custom' || declaredRestriction !== undefined),
+          isRestricted: declaredRestriction ?? item.accessRestricted === true,
+          acl,
+        })
+      })
+      .map((item: any) => item.entityId),
+  )
+  if (!visibleEntityIds.size) return NextResponse.json({ items: [] })
+
   // Count field definitions scoped to current tenant/org (same scoping as custom entities)
-  const defsWhere: any = { isActive: true }
+  const defsWhere: any = { isActive: true, entityId: { $in: Array.from(visibleEntityIds) } }
   defsWhere.$and = [
     //{ $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] }, // the entities and custom fields are defined per tenant
     { tenantId: auth.tenantId ?? undefined as any },
@@ -98,7 +125,9 @@ export async function GET(req: Request) {
   const counts: Record<string, number> = {}
   for (const [eid, set] of keySets.entries()) counts[eid] = set.size
 
-  const items = Array.from(byId.values()).map((it: any) => ({ ...it, count: counts[it.entityId] || 0 }))
+  const items = Array.from(byId.values())
+    .filter((item: any) => visibleEntityIds.has(item.entityId))
+    .map((item: any) => ({ ...item, count: counts[item.entityId] || 0 }))
   return NextResponse.json({ items })
 }
 
@@ -113,6 +142,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
   const input = parsed.data
+  // Distinguish "caller did not send the field" (apply tenant default-restricted
+  // policy on create) from "caller explicitly chose false".
+  const accessRestrictedExplicit = body != null && typeof body === 'object'
+    && Object.prototype.hasOwnProperty.call(body, 'accessRestricted')
 
   const container = await createRequestContainer()
   const { resolve } = container
@@ -157,6 +190,7 @@ export async function POST(req: Request) {
   })
   if (guard.blockedResponse) return guard.blockedResponse
 
+  const isCreate = !ent
   if (!ent) ent = em.create(CustomEntity, { ...where, createdAt: new Date() })
   ent.label = input.label
   ent.description = input.description ?? null
@@ -164,6 +198,27 @@ export async function POST(req: Request) {
   ent.labelField = input.labelField ?? ent.labelField ?? null
   ent.defaultEditor = input.defaultEditor ?? ent.defaultEditor ?? null
   ent.showInSidebar = input.showInSidebar ?? ent.showInSidebar ?? false
+  // Never silently flip a security control on a partial upsert. `access_restricted`
+  // changes ONLY when the caller explicitly sends the field. On create without it,
+  // fall back to the tenant default-restricted policy; on update without it, keep
+  // the entity's current value (a metadata-only update must not un-restrict).
+  if (accessRestrictedExplicit) {
+    ent.accessRestricted = input.accessRestricted === true
+  } else if (isCreate) {
+    let policyDefault = false
+    try {
+      const moduleConfigService = resolve('moduleConfigService') as {
+        getValue: (m: string, n: string, o?: { defaultValue?: unknown; scope?: { tenantId?: string | null } }) => Promise<unknown>
+      }
+      policyDefault = (await moduleConfigService.getValue('entities', 'newEntitiesRestrictedByDefault', {
+        defaultValue: false,
+        scope: { tenantId: auth.tenantId ?? null },
+      })) === true
+    } catch {}
+    ent.accessRestricted = policyDefault
+  } else {
+    ent.accessRestricted = ent.accessRestricted ?? false
+  }
   ent.updatedAt = new Date()
   em.persist(ent)
   await em.flush()
@@ -229,6 +284,7 @@ const entitySummarySchema = z.object({
   labelField: z.string().optional(),
   defaultEditor: z.string().optional(),
   showInSidebar: z.boolean().optional(),
+  accessRestricted: z.boolean().optional(),
   updatedAt: z.string().optional(),
   count: z.number(),
 })

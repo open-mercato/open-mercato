@@ -12,6 +12,7 @@ import {
   integrationApiRoutePaths,
   runIntegrationsReadBeforeInterceptors,
 } from '../umes-read'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -26,8 +27,12 @@ export const openApi = {
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')
@@ -57,7 +62,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
   const logService = container.resolve('integrationLogService') as IntegrationLogService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId: organizationId, tenantId: auth.tenantId }
 
   const [credentials, credentialsUpdatedAt, state, analyticsMap] = await Promise.all([
     credentialsService.resolve(integration.id, scope).catch((err) => {

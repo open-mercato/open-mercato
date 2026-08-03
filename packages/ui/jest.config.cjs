@@ -16,7 +16,8 @@ module.exports = {
     '^remark-gfm$': '<rootDir>/jest.markdown-mock.tsx',
   },
   transform: {
-    '^.+\\.(t|j)sx?$': [
+    // `.cjs` is included so the build-time source emitters under scripts/ are testable.
+    '^.+\\.(cjs|(t|j)sx?)$': [
       '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {

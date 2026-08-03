@@ -2,6 +2,7 @@
 
 import {
   assertEntityAclForRequest,
+  canReadEntityMetadata,
   resolveEntityAclRequirement,
 } from '@open-mercato/core/modules/entities/lib/entityAcl'
 
@@ -14,6 +15,14 @@ type AclResult = {
 function makeRbac(result: AclResult) {
   return {
     loadAcl: jest.fn().mockResolvedValue(result),
+    userHasAllFeatures: jest.fn().mockImplementation(async (
+      _userId: string,
+      required: string[],
+    ) => result.isSuperAdmin || required.every((feature) => (
+      result.features.includes(feature)
+      || result.features.includes('*')
+      || result.features.some((grant) => grant.endsWith('.*') && feature.startsWith(grant.slice(0, -1)))
+    ))),
   }
 }
 
@@ -41,6 +50,82 @@ describe('resolveEntityAclRequirement', () => {
 
   test('returns null for an unmapped entity id', () => {
     expect(resolveEntityAclRequirement('unknown:thing')).toBeNull()
+  })
+})
+
+describe('canReadEntityMetadata', () => {
+  test('allows Data Designer readers to inspect every non-platform entity', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'some_module:unmapped',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: false, features: ['entities.definitions.view'] },
+    })).toBe(true)
+  })
+
+  test('allows owning-module readers without granting tenant-wide schema access', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'customers:customer_person_profile',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: false, features: ['customers.people.view'] },
+    })).toBe(true)
+    expect(canReadEntityMetadata({
+      entityId: 'sales:sales_order',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: false, features: ['customers.people.view'] },
+    })).toBe(false)
+  })
+
+  test('requires records view for custom entity metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'custom:thing',
+      isCustomEntity: true,
+      acl: { isSuperAdmin: false, features: ['entities.records.view'] },
+    })).toBe(true)
+    expect(canReadEntityMetadata({
+      entityId: 'custom:thing',
+      isCustomEntity: true,
+      acl: { isSuperAdmin: false, features: [] },
+    })).toBe(false)
+  })
+
+  test('requires the per-entity view feature for restricted custom entity metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'hr:salaries',
+      isCustomEntity: true,
+      isRestricted: true,
+      acl: { isSuperAdmin: false, features: ['entities.records.view'] },
+    })).toBe(false)
+    expect(canReadEntityMetadata({
+      entityId: 'hr:salaries',
+      isCustomEntity: true,
+      isRestricted: true,
+      acl: {
+        isSuperAdmin: false,
+        features: ['entities.records.view', 'entities.records.hr:salaries.view'],
+      },
+    })).toBe(true)
+  })
+
+  test('fails closed for platform-only and unmapped system metadata', () => {
+    const acl = { isSuperAdmin: false, features: ['directory.*'] }
+    expect(canReadEntityMetadata({ entityId: 'directory:tenant', isCustomEntity: false, acl })).toBe(false)
+    expect(canReadEntityMetadata({ entityId: 'some_module:unmapped', isCustomEntity: false, acl })).toBe(false)
+  })
+
+  test('preserves superadmin access to platform-only metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'directory:tenant',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: true, features: ['*'] },
+    })).toBe(true)
+  })
+
+  test('preserves superadmin access to unmapped system metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'some_module:unmapped',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: true, features: ['*'] },
+    })).toBe(true)
   })
 })
 
@@ -158,7 +243,7 @@ describe('assertEntityAclForRequest', () => {
     ).resolves.toBeUndefined()
   })
 
-  test('always passes for a custom entity without consulting the ACL', async () => {
+  test('an unrestricted custom entity passes without consulting the ACL', async () => {
     const rbac = makeRbac({ isSuperAdmin: false, features: [], organizations: null })
 
     await expect(
@@ -167,9 +252,86 @@ describe('assertEntityAclForRequest', () => {
         entityId: 'custom:thing',
         action: 'manage',
         isCustomEntity: true,
+        isRestricted: false,
         rbac: rbac as never,
       }),
     ).resolves.toBeUndefined()
     expect(rbac.loadAcl).not.toHaveBeenCalled()
+    expect(rbac.userHasAllFeatures).not.toHaveBeenCalled()
+  })
+
+  test('a restricted custom entity is denied when the per-entity feature is missing', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.view', 'entities.records.manage'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'view',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
+  test('a restricted custom entity is allowed with the exact per-entity feature', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.manage', 'entities.records.hr:salaries.manage'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'manage',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  test('a restricted custom entity is satisfied by the entities.records.* wildcard', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.*'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'view',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  test('a restricted custom entity is allowed for a superadmin', async () => {
+    const rbac = makeRbac({ isSuperAdmin: true, features: ['*'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'manage',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  test('granting one restricted entity does not grant another', async () => {
+    const rbac = makeRbac({ isSuperAdmin: false, features: ['entities.records.view', 'entities.records.user:vendors.view'], organizations: null })
+
+    await expect(
+      assertEntityAclForRequest({
+        auth: baseAuth,
+        entityId: 'hr:salaries',
+        action: 'view',
+        isCustomEntity: true,
+        isRestricted: true,
+        rbac: rbac as never,
+      }),
+    ).rejects.toMatchObject({ status: 403 })
   })
 })

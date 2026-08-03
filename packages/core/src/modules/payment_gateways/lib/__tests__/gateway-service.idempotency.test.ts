@@ -11,9 +11,22 @@ import {
 import { createPaymentGatewayService } from '../gateway-service'
 import { buildPaymentSessionOperationKey } from '../session-idempotency'
 
+const mockLoggerWarn = jest.fn()
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({
+    child: () => ({
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: (...args: unknown[]) => mockLoggerWarn(...args),
+      error: jest.fn(),
+    }),
+  }),
 }))
 
 type AnyRecord = Record<string, any>
@@ -143,7 +156,7 @@ function buildService() {
     em,
     integrationCredentialsService: { resolve: jest.fn(async () => ({})) } as never,
     sessionClaimOptions: {
-      staleAfterMs: 40,
+      staleAfterMs: 400,
       heartbeatIntervalMs: 10,
       pollIntervalMs: 2,
     },
@@ -159,10 +172,23 @@ describe('payment gateway service session idempotency (#4035)', () => {
   beforeEach(() => {
     clearGatewayAdapters()
     ;(findOneWithDecryption as jest.Mock).mockReset()
+    mockLoggerWarn.mockReset()
   })
 
   afterEach(() => {
     clearGatewayAdapters()
+  })
+
+  it('maps a missing gateway adapter to a typed 422 error', async () => {
+    const service = createPaymentGatewayService({
+      em: makeMockEm(),
+      integrationCredentialsService: { resolve: jest.fn(async () => ({})) } as never,
+    })
+
+    await expect(service.createPaymentSession(buildInput('checkout-submit-key-0000'))).rejects.toMatchObject({
+      status: 422,
+      body: { error: `No gateway adapter registered for provider: ${PROVIDER_KEY}` },
+    })
   })
 
   it('single-flights concurrent keyed calls and reuses the completed provider session', async () => {
@@ -217,6 +243,54 @@ describe('payment gateway service session idempotency (#4035)', () => {
     expect(createSession.mock.calls[0]?.[0].idempotencyKey).toBe(operationKey)
     expect(recoveryResult.session.sessionId).toBe('provider-session-1')
     expect(em._transactions.size).toBe(1)
+  })
+
+  it('warns when claim release fails and rethrows the original provider error', async () => {
+    const { service, em, createSession } = buildService()
+    const providerError = new Error('provider unavailable')
+    const releaseError = new Error('claim release failed')
+    const originalNativeUpdate = em.nativeUpdate.bind(em)
+    createSession.mockRejectedValueOnce(providerError)
+    em.nativeUpdate = async (cls: unknown, where: AnyRecord, data: AnyRecord) => {
+      const isClaimRelease = data.claimToken === null && data.claimedAt === null
+      if (isClaimRelease) throw releaseError
+      return originalNativeUpdate(cls, where, data)
+    }
+
+    await expect(service.createPaymentSession(buildInput('checkout-submit-key-0006'))).rejects.toBe(providerError)
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'Failed to release payment session initialization claim',
+      expect.objectContaining({
+        claimId: expect.any(String),
+        providerKey: PROVIDER_KEY,
+        err: releaseError,
+      }),
+    )
+  })
+
+  it('marks the missing completed-session transaction invariant as internal', async () => {
+    const { service, em } = buildService()
+    const input = buildInput('checkout-submit-key-0007')
+    const operationKey = buildPaymentSessionOperationKey({
+      idempotencyKey: input.idempotencyKey,
+      paymentId: input.paymentId,
+      providerKey: input.providerKey,
+      scope: { organizationId: input.organizationId, tenantId: input.tenantId },
+    })
+    const completedClaim = {
+      id: randomUUID(),
+      operationKey,
+      providerKey: input.providerKey,
+      organizationId: input.organizationId,
+      tenantId: input.tenantId,
+      gatewayTransactionId: randomUUID(),
+      claimToken: null,
+    }
+    em._claims.set(claimKey(completedClaim), completedClaim)
+
+    await expect(service.createPaymentSession(input)).rejects.toThrow(
+      '[internal] Completed payment session is missing its gateway transaction',
+    )
   })
 
   it('survives a heartbeat refresh failure during the provider call without rejecting', async () => {

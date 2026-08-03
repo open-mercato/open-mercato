@@ -49,6 +49,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { SearchResult, SearchResultLink, SearchStrategyId } from '@open-mercato/shared/modules/search'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveEntityTypeLabel } from '../lib/entityTypeLabel'
 import {
   getCurrentOrganizationScope,
   subscribeOrganizationScopeChanged,
@@ -85,14 +86,6 @@ function hasActiveOrganizationSelection(): boolean {
   const cookieValue = parseSelectedOrganizationCookie(cookieHeader)
   if (!cookieValue) return false
   return !isAllOrganizationsSelection(cookieValue);
-}
-
-function humanizeSegment(segment: string): string {
-  return segment
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -138,12 +131,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
 function resolveIcon(name?: string): LucideIcon | null {
   if (!name) return null
   return ICON_MAP[name.toLowerCase()] ?? null
-}
-
-function formatEntityId(entityId: string): string {
-  if (!entityId.includes(':')) return humanizeSegment(entityId)
-  const [module, entity] = entityId.split(':')
-  return `${humanizeSegment(module)} · ${humanizeSegment(entity)}`
 }
 
 export type GlobalSearchDialogProps = {
@@ -423,7 +410,7 @@ export function GlobalSearchDialog({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className={cn('font-medium text-base whitespace-normal break-all', !hasLink && 'text-muted-foreground')}>{presenter?.title ?? result.recordId}</span>
                             <span className="rounded-full border border-muted-foreground/30 px-2 py-0.5 text-xs text-muted-foreground">
-                              {formatEntityId(result.entityId)}
+                              {resolveEntityTypeLabel(t, result.entityId)}
                             </span>
                             {!hasLink && (
                               <span className="rounded-full border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs text-status-warning-text">

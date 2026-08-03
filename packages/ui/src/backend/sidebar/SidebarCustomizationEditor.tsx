@@ -14,6 +14,7 @@ import { Switch } from '../../primitives/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '../../primitives/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../primitives/dialog'
 import { Tag } from '../../primitives/tag'
+import { Badge } from '../../primitives/badge'
 import {
   Select,
   SelectContent,
@@ -31,12 +32,14 @@ import { useConfirmDialog } from '../confirm-dialog'
 import { useGuardedMutation } from '../injection/useGuardedMutation'
 import {
   applyCustomizationDraft,
+  applyGroupHidden,
   applyItemOrder,
   cloneSidebarGroups,
   collectSidebarDefaults,
   filterMainSidebarGroups,
   mergeGroupOrder,
   resolveGroupKey,
+  resolveGroupVisibility,
   resolveItemKey,
   type SidebarCustomizationDraft,
   type SidebarGroup,
@@ -545,6 +548,19 @@ export function SidebarCustomizationEditor({
         }
       }
       return { ...draft, hiddenItemIds: next }
+    })
+  }, [updateDraft])
+
+  /**
+   * Hiding a whole group previously meant toggling every item in it one at a time — a dozen-plus
+   * clicks for what reads as a single decision. Writes the same `hiddenItemIds` keys the per-item
+   * switches do, so the persisted settings are indistinguishable from reaching this state by hand.
+   */
+  const setGroupHidden = React.useCallback((groupKey: string, hidden: boolean) => {
+    updateDraft((draft) => {
+      const group = baseSnapshotRef.current?.find((candidate) => resolveGroupKey(candidate) === groupKey)
+      if (!group) return draft
+      return { ...draft, hiddenItemIds: applyGroupHidden(draft.hiddenItemIds, group, hidden) }
     })
   }, [updateDraft])
 
@@ -1222,7 +1238,30 @@ export function SidebarCustomizationEditor({
                             </p>
                           ) : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1 mt-[26px]">
+                        <div className="flex shrink-0 items-center gap-2 mt-6">
+                          {(() => {
+                            const visibility = resolveGroupVisibility(baseGroup, draft.hiddenItemIds)
+                            const groupName = trimmedValue.length > 0 ? trimmedValue : placeholder
+                            const label = visibility === 'partial'
+                              ? t('appShell.sidebarCustomizationHideGroupPartial', 'Some items in {group} are hidden — turn off to hide the whole group', { group: groupName })
+                              : t('appShell.sidebarCustomizationShowGroup', 'Show {group}', { group: groupName })
+                            return (
+                              <>
+                                {visibility === 'hidden' ? (
+                                  <Badge variant="muted" size="sm" className="uppercase tracking-wide">
+                                    {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
+                                  </Badge>
+                                ) : null}
+                                <Switch
+                                  checked={visibility !== 'hidden'}
+                                  onCheckedChange={(next) => setGroupHidden(groupId, next !== true)}
+                                  disabled={isBusy}
+                                  aria-label={label}
+                                  title={label}
+                                />
+                              </>
+                            )
+                          })()}
                           <IconButton
                             type="button"
                             variant="outline"
@@ -1349,9 +1388,9 @@ function ItemRow({ item, draft, saving, onLabelChange, onHiddenChange, t, depth,
       </div>
       <div className="flex shrink-0 items-center gap-2 pt-1.5">
         {hidden ? (
-          <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Badge variant="muted" size="sm" className="uppercase tracking-wide">
             {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
-          </span>
+          </Badge>
         ) : null}
         <Switch
           checked={!hidden}

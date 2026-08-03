@@ -36,6 +36,7 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'formEditable',
   'listVisible',
   'indexed',
+  'priority',
   'editor',
   'input',
   'relatedEntityId',

@@ -159,6 +159,11 @@ ST=$(count_matches 'status-error-|status-success-|status-warning-|status-info-|s
 report "  Semantic token usages: $ST"
 
 report ""
+report "--- Token Snapshot Drift ---"
+TD=$(node scripts/ds-tokens-export.mjs --check --count 2>/dev/null || echo "unavailable")
+report "  Drifted tokens: $TD (target: 0)"
+
+report ""
 report "=== END REPORT ==="
 
 # --- Per-module breakdown (appended after END REPORT; rows use table syntax

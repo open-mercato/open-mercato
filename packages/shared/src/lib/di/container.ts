@@ -17,11 +17,15 @@ type DynamicCradle = Record<string, any>
 
 export type AppContainer = AwilixContainer<DynamicCradle>
 export type DiRegistrar = (container: AppContainer) => void
+export type AppDiRegistrar = (container: AppContainer) => void | Promise<void>
 
 // Registration pattern for publishable packages
 // Use globalThis to survive tsx/esbuild module duplication issue where the same
 // file can be loaded as multiple module instances when mixing dynamic and static imports
 const GLOBAL_KEY = '__openMercatoDiRegistrars__'
+const APP_DI_REGISTRAR_KEY = '__openMercatoAppDiRegistrar__'
+const APP_DI_LOAD_WARNING_KEY = '__openMercatoAppDiLoadWarningEmitted__'
+const APP_DI_REGISTER_WARNING_KEY = '__openMercatoAppDiRegisterWarningEmitted__'
 // Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
 // services bootstrap() creates are inherently process-scoped (they hold
 // state across requests). Caching them on globalThis after the first
@@ -126,10 +130,44 @@ export function getDiRegistrars(): DiRegistrar[] {
   return registrars
 }
 
-/** Test-only helper to drop the process-scoped bootstrap cache. */
+function getAppDiRegistrar(): AppDiRegistrar | null {
+  const registrar = (globalThis as Record<string, unknown>)[APP_DI_REGISTRAR_KEY]
+  return typeof registrar === 'function' ? registrar as AppDiRegistrar : null
+}
+
+export function registerAppDiRegistrar(registrar: AppDiRegistrar | null): void {
+  ;(globalThis as Record<string, unknown>)[APP_DI_REGISTRAR_KEY] = registrar
+}
+
+/** Test-only helper to drop process-scoped request-container state. */
 export function resetBootstrapCache(): void {
   (globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
+  ;(globalThis as Record<string, unknown>)[APP_DI_LOAD_WARNING_KEY] = undefined
+  ;(globalThis as Record<string, unknown>)[APP_DI_REGISTER_WARNING_KEY] = undefined
+}
+
+function isAppDiModuleNotFound(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message } = error as { code?: unknown; message?: unknown }
+  const text = typeof message === 'string' ? message : ''
+  const moduleNotFound =
+    code === 'MODULE_NOT_FOUND'
+    || code === 'ERR_MODULE_NOT_FOUND'
+    || text.startsWith('Cannot find module')
+    || text.startsWith('Cannot find package')
+  return moduleNotFound && /(?:module|package) ['"]@\/di['"]/.test(text)
+}
+
+function warnAppDiFailureOnce(
+  key: typeof APP_DI_LOAD_WARNING_KEY | typeof APP_DI_REGISTER_WARNING_KEY,
+  message: string,
+  error: unknown,
+): void {
+  const globalScope = globalThis as Record<string, unknown>
+  if (globalScope[key] === true) return
+  globalScope[key] = true
+  logger.warn(message, { err: error })
 }
 
 function isAwilixResolver(value: unknown): value is Resolver<unknown> {
@@ -169,9 +207,9 @@ export async function createRequestContainer(): Promise<AppContainer> {
     // registrations override this default via Awilix replace semantics —
     // see the enterprise `record_locks` module for the canonical override.
     // Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
-    crudMutationGuardService: asFunction(({ em: scopedEm }: { em: EntityManager }) =>
+    crudMutationGuardService: asFunction((em: EntityManager) =>
       createOptimisticLockGuardService({
-        getEm: () => scopedEm,
+        getEm: () => em,
         readers: getAllOptimisticLockReaders(),
       }),
     ).scoped(),
@@ -186,9 +224,14 @@ export async function createRequestContainer(): Promise<AppContainer> {
       createCommandOptimisticLockGuardService(),
     ).scoped(),
   })
-  // Allow modules to override/extend
-  for (const reg of diRegistrars) {
-    try { reg?.(container) } catch {}
+  // Allow modules to override/extend. Fail-open by design (one broken module's
+  // di.ts must not take down every request container), but never silently: the
+  // module's services would otherwise vanish with no trace until an unrelated
+  // Awilix resolution error surfaces much later.
+  for (const [registrarIndex, reg] of diRegistrars.entries()) {
+    try { reg?.(container) } catch (error) {
+      logger.error('Module DI registrar failed', { registrarIndex, err: error })
+    }
   }
   // Core bootstrap (cache, event bus, encryption subscriber/KMS, module subscribers)
   // Phase 5 — process-scoped once-guard. The first request runs the full
@@ -215,18 +258,44 @@ export async function createRequestContainer(): Promise<AppContainer> {
       } catch { /* optional */ }
     }
   }
-  // App-level DI override (last chance)
-  // This import path resolves only in the app context, not in packages
-  try {
-    // @ts-ignore - @/di only exists in app context, not in packages
-    const appDi = await import('@/di') as any
-    if (appDi?.register) {
-      try {
-        const maybe = appDi.register(container)
-        if (maybe && typeof maybe.then === 'function') await maybe
-      } catch {}
+  // App-level DI override. Scaffolded apps register this callback explicitly
+  // from their own bootstrap module so app aliases resolve in app context.
+  const appDiRegistrar = getAppDiRegistrar()
+  if (appDiRegistrar) {
+    try {
+      await appDiRegistrar(container)
+    } catch (error) {
+      logger.error('App-level DI registrar failed', { err: error })
     }
-  } catch {}
+  } else {
+    // Backward-compatible fallback for apps that have not adopted explicit wiring.
+    try {
+      // @ts-ignore - @/di only exists in app context, not in packages
+      const appDi = await import('@/di') as any
+      if (appDi?.register) {
+        try {
+          const maybe = appDi.register(container)
+          if (maybe && typeof maybe.then === 'function') await maybe
+        } catch (err) {
+          warnAppDiFailureOnce(
+            APP_DI_REGISTER_WARNING_KEY,
+            'App-level DI override (src/di.ts register()) threw; its registrations are skipped',
+            err,
+          )
+        }
+      }
+    } catch (err) {
+      if (isAppDiModuleNotFound(err)) {
+        logger.debug('App-level DI override module (@/di) not resolvable; skipping', { err })
+      } else {
+        warnAppDiFailureOnce(
+          APP_DI_LOAD_WARNING_KEY,
+          'App-level DI override module (@/di) failed to load; its registrations are skipped',
+          err,
+        )
+      }
+    }
+  }
   applyDiOverridesToContainer({
     register: (registrations) => container.register(toAwilixRegistrations(registrations)),
     unregister: (key) => container.register({ [key]: asValue(undefined) }),

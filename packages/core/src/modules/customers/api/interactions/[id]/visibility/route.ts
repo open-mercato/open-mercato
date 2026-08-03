@@ -52,9 +52,40 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null
-  const dscope = { tenantId: auth.tenantId as string, organizationId }
   const userId = resolveAuthActorId(auth)
+
+  // Load the interaction by its tenant-unique id (not a hand-rolled selected
+  // org) so this keeps working under the "All organizations" scope. The record's
+  // own organization then becomes the concrete org the guard, command, and audit
+  // event are attributed to.
+  const interaction = (await findOneWithDecryption(
+    em,
+    CustomerInteraction,
+    {
+      id,
+      tenantId: auth.tenantId,
+      deletedAt: null,
+      interactionType: 'email',
+    } as any,
+    undefined,
+    { tenantId: auth.tenantId as string, organizationId: scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null },
+  )) as { id: string; organizationId?: string | null; authorUserId?: string | null; visibility?: string | null } | null
+
+  if (!interaction) {
+    return NextResponse.json({ error: 'Email not found' }, { status: 404 })
+  }
+
+  // Personal mailbox privacy (v1: strict owner-only): ONLY the author may flip
+  // their own email's visibility — no admin bypass. Return 404 (not 403) for
+  // everyone else so we don't leak the row's existence — this also covers
+  // non-authors who cannot see a private email in the first place. This owner
+  // check is stricter than any org gate, so no separate org read guard is needed.
+  const isAuthor = !!interaction.authorUserId && interaction.authorUserId === auth.sub
+  if (!isAuthor) {
+    return NextResponse.json({ error: 'Email not found' }, { status: 404 })
+  }
+
+  const organizationId = interaction.organizationId ?? null
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -68,33 +99,6 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
   })
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
-  }
-
-  const interaction = (await findOneWithDecryption(
-    em,
-    CustomerInteraction,
-    {
-      id,
-      tenantId: auth.tenantId,
-      organizationId,
-      deletedAt: null,
-      interactionType: 'email',
-    } as any,
-    undefined,
-    dscope,
-  )) as { id: string; authorUserId?: string | null; visibility?: string | null } | null
-
-  if (!interaction) {
-    return NextResponse.json({ error: 'Email not found' }, { status: 404 })
-  }
-
-  // Personal mailbox privacy (v1: strict owner-only): ONLY the author may flip
-  // their own email's visibility — no admin bypass. Return 404 (not 403) for
-  // everyone else so we don't leak the row's existence — this also covers
-  // non-authors who cannot see a private email in the first place.
-  const isAuthor = !!interaction.authorUserId && interaction.authorUserId === auth.sub
-  if (!isAuthor) {
-    return NextResponse.json({ error: 'Email not found' }, { status: 404 })
   }
 
   // No-op: visibility is already at the requested value.

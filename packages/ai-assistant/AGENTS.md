@@ -880,6 +880,16 @@ yarn mcp:serve
 
 Typed pending-action lifecycle events live in `src/modules/ai_assistant/events.ts` and are emitted via the shared `emitAiAssistantEvent` helper (`createModuleEvents`). The three ids are FROZEN per `BACKWARD_COMPATIBILITY.md` §5 and MUST NOT be renamed; payload fields are additive-only. `ai.action.confirmed` fires from `executePendingActionConfirm` with `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` fires from `executePendingActionCancel` with the same shape plus an optional `reason`; `ai.action.expired` fires from the cancel helper's TTL short-circuit (and the Step 5.12 cleanup worker) with `resolvedByUserId: null` and additional `expiresAt` / `expiredAt` timestamps. All three use `category: 'system'` and `entity: 'ai_pending_action'`.
 
+`ai_assistant.moderation_flag.created` (`entity: 'ai_moderation_flag'`) fires best-effort from the input-moderation gate; payload carries flagged category names only, never prompt content.
+
+## Input moderation & safety identifiers
+
+Guide: [`moderation.mdx`](../../apps/docs/docs/framework/ai-assistant/moderation.mdx) + spec `.ai/specs/2026-06-04-ai-input-moderation-and-safety-identifiers.md`. Envs: `OM_AI_INPUT_MODERATION`, `OM_AI_MODERATION_MODEL`.
+
+- Enforced surfaces (`untrustedInput`) fail **closed**; opt-in surfaces fail **open**.
+- Flagged categories are audit-only — never send them to the client.
+- The audit write is best-effort and MUST NOT block the rejection.
+
 ## Rules for the OpenCode Client
 
 Located in `lib/opencode-client.ts`. Use these methods when interacting with OpenCode:
@@ -1620,12 +1630,6 @@ Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, whi
 - `src/modules/ai_assistant/lib/opencode-handlers.ts` - Fixed Promise.race completion bug
 - `src/frontend/hooks/useCommandPalette.ts` - Added ref pattern for sessionId
 
-**Diagnostic logging added** (can be removed after verification):
-- `[handleSubmit] DIAGNOSTIC` - Session check before routing
-- `[sendAgenticMessage] DIAGNOSTIC` - Request payload before fetch
-- `[startAgenticChat] DIAGNOSTIC` - Done event handling
-- `[AI Chat] DIAGNOSTIC` - Backend request received
-
 ### 2026-01 - OpenCode Integration
 
 **Lesson learned:** When replacing an AI backend, preserve the session management contract — the frontend depends on `sessionId` in `done` events regardless of the underlying AI engine.
@@ -1645,30 +1649,9 @@ Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, whi
 - `src/frontend/components/CommandPalette/ToolChatPage.tsx` - Added thinking UI
 - `src/frontend/types.ts` - Added ChatSSEEvent, isThinking
 
-### 2026-01 - API Discovery Tools
+### 2026-01 - API Discovery Tools / Hybrid Tool Discovery (superseded)
 
-**Lesson learned:** Exposing hundreds of individual tools overwhelms the AI context. Use meta-tools (discover, schema, execute) to let the agent dynamically find what it needs.
-
-**Major change**: Replaced 600+ individual tools with 3 meta-tools.
-
-**What changed**:
-- Added `api_discover`, `api_execute`, `api_schema` tools
-- Created `ApiEndpointIndex` for OpenAPI introspection
-- Hybrid discovery: search + OpenAPI
-- 405 endpoints available via discovery
-
-**Files created**:
-- `lib/api-discovery-tools.ts`
-- `lib/api-endpoint-index.ts`
-
-### 2026-01 - Hybrid Tool Discovery
-
-**Lesson learned:** Neither search-based nor OpenAPI-based discovery alone covers all tools — combine both for comprehensive results.
-
-**What changed**:
-- Combined semantic search with OpenAPI introspection
-- Tools indexed for fulltext search
-- API endpoints indexed from OpenAPI spec
+**Lesson learned:** Exposing hundreds of individual tools overwhelms the AI context — use meta-tools the agent can search. Superseded by Code Mode (2026-02-22); the tools and files these entries described (`api_discover`, `api_schema`, `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`) were deleted in #1876. See git history for the detail.
 
 ### Previous Changes
 
