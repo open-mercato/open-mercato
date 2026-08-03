@@ -194,7 +194,7 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     writeFixture(
       moduleRoot,
       'ai-agents.ts',
-      "type AiAgentDefinition = { id: string }\nconst agent: AiAgentDefinition = { id: 'facts.assistant' }\nexport const aiAgents = [agent]\nexport const aiAgentExtensions = [defineAiAgentExtension({ targetAgentId: 'catalog.catalog_assistant', appendAllowedTools: ['facts.stats'] })]\nexport const aiToolOverrides = { 'legacy_tool': null }\nexport default aiAgents\n",
+      "type AiAgentDefinition = { id: string }\nconst agent: AiAgentDefinition = { id: 'facts.assistant' }\nexport const aiAgents = [agent]\nexport const aiAgentExtensions = [defineAiAgentExtension({ targetAgentId: 'catalog.catalog_assistant', appendAllowedTools: ['facts.stats'] })]\nexport const aiAgentOverrides = { 'catalog.merchandising_assistant': replacementAgent, 'catalog.catalog_assistant': null }\nexport const aiToolOverrides = { 'legacy_tool': null }\nexport default aiAgents\n",
     )
 
     facts = extractModuleFacts({
@@ -285,9 +285,35 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     expect((facts.ownedContracts?.['custom-entity'] ?? []).map((fact) => fact.id)).toEqual(['facts:facts_widget'])
   })
 
-  it('extracts AI file-override extensions (agent + tool)', () => {
-    const ids = (facts.ownedContracts?.['ai-extension'] ?? []).map((fact) => fact.id).sort()
-    expect(ids).toEqual(['catalog.catalog_assistant', 'legacy_tool'])
+  it('separates additive agent extensions from keyed agent and tool overrides', () => {
+    const aiFacts = facts.ownedContracts?.['ai-extension'] ?? []
+    expect(aiFacts.map((fact) => fact.id).sort()).toEqual([
+      'agent-extension:catalog.catalog_assistant',
+      'agent-override:catalog.catalog_assistant',
+      'agent-override:catalog.merchandising_assistant',
+      'tool-override:legacy_tool',
+    ])
+    const byId = new Map(aiFacts.map((fact) => [fact.id, fact.metadata]))
+    expect(byId.get('agent-extension:catalog.catalog_assistant')).toEqual({
+      target: 'agent',
+      mode: 'extension',
+      targetAgentId: 'catalog.catalog_assistant',
+    })
+    expect(byId.get('agent-override:catalog.merchandising_assistant')).toEqual({
+      target: 'agent',
+      mode: 'override',
+      overrideKey: 'catalog.merchandising_assistant',
+    })
+    expect(byId.get('tool-override:legacy_tool')).toEqual({
+      target: 'tool',
+      mode: 'override',
+      overrideKey: 'legacy_tool',
+    })
+
+    // Override values (replacement definitions and `null` disables) are never serialized.
+    const serialized = JSON.stringify(aiFacts)
+    expect(serialized).not.toContain('replacementAgent')
+    expect(serialized).not.toContain('appendAllowedTools')
   })
 
   it('extracts generator plugin ownership with safe metadata', () => {

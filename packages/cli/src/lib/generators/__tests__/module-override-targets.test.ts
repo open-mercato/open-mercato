@@ -43,7 +43,11 @@ function baseFacts(overrides: Partial<ModuleFactsJsonEntry> = {}): ModuleFactsJs
       setup: [{ kind: 'setup', id: 'demo:setup', source: { sourcePath: `${SOURCE_ROOT}/setup.ts`, line: 1 }, metadata: { hooks: ['seedDefaults', 'seedExamples', 'onTenantCreated', 'installStuff'], roles: ['admin'] } }],
       'di-registration': [{ kind: 'di-registration', id: 'demoService', source: { sourcePath: `${SOURCE_ROOT}/di.ts`, line: 5 }, metadata: { registrationKind: 'class', lifetime: 'scoped' } }],
       encryption: [{ kind: 'encryption', id: 'demo:secret', source: { sourcePath: `${SOURCE_ROOT}/encryption.ts`, line: 2 }, metadata: { fields: ['token'] } }],
-      'ai-extension': [{ kind: 'ai-extension', id: 'other.agent', source: { sourcePath: `${SOURCE_ROOT}/ai-agents.extensions.ts`, line: 1 }, metadata: { target: 'agent' } }],
+      'ai-extension': [
+        { kind: 'ai-extension', id: 'agent-extension:other.agent', source: { sourcePath: `${SOURCE_ROOT}/ai-agents.extensions.ts`, line: 1 }, metadata: { target: 'agent', mode: 'extension', targetAgentId: 'other.agent' } },
+        { kind: 'ai-extension', id: 'agent-override:other.assistant', source: { sourcePath: `${SOURCE_ROOT}/ai-agents.ts`, line: 7 }, metadata: { target: 'agent', mode: 'override', overrideKey: 'other.assistant' } },
+        { kind: 'ai-extension', id: 'tool-override:other.tool', source: { sourcePath: `${SOURCE_ROOT}/ai-tools.ts`, line: 9 }, metadata: { target: 'tool', mode: 'override', overrideKey: 'other.tool' } },
+      ],
     },
     extensionSurfaces: {
       hosts: [],
@@ -59,6 +63,8 @@ function baseFacts(overrides: Partial<ModuleFactsJsonEntry> = {}): ModuleFactsJs
         { id: 'demo.override.0:section:demo.login', kind: 'component-override', targets: [], scopeContract: '', source: { path: `${SOURCE_ROOT}/widgets/components.ts`, symbol: 'componentOverrides' }, details: { handle: 'section:demo.login', mode: 'replace', propsContract: 'x' } },
         { id: 'demo.mutation-guard', kind: 'mutation-guard', targets: [], scopeContract: '', source: { path: `${SOURCE_ROOT}/data/guards.ts`, symbol: 'demo.mutation-guard' }, details: { entityId: 'demo.entity', operations: ['create'], capabilities: ['block'], optimisticLock: 'preserved' } },
         { id: 'notification:demo.alert', kind: 'specialized-registry', targets: [], scopeContract: '', source: { path: `${SOURCE_ROOT}/notifications.ts`, symbol: 'demo.alert' }, details: { registry: 'notification', registryId: 'demo.alert', specialistRoute: 'notifications' } },
+        { id: 'demo.alert-handler', kind: 'browser-reaction', targets: [], scopeContract: '', source: { path: `${SOURCE_ROOT}/notifications.handlers.ts`, symbol: 'notificationHandlers' }, details: { transports: ['notification-effect'], hooks: ['useNotificationEffect'], audienceScopeContract: 'tenant', overrideKey: 'demo.alert-handler' } },
+        { id: 'demo.notification-handler.1', kind: 'browser-reaction', targets: [], scopeContract: '', source: { path: `${SOURCE_ROOT}/notifications.handlers.ts`, symbol: 'notificationHandlers' }, details: { transports: ['notification-effect'], hooks: ['useNotificationEffect'], audienceScopeContract: 'tenant' } },
       ],
     },
     ...overrides,
@@ -216,5 +222,78 @@ describe('module override targets — deterministic diagnostics (never a guessed
     const { overrideTargets, overrideTargetDiagnostics } = collectModuleOverrideTargets(facts)
     expect(overrideTargets.some((t) => t.domain === 'acl')).toBe(false)
     expect(overrideTargetDiagnostics.some((d) => d.domain === 'acl' && d.code === 'missing-source')).toBe(true)
+  })
+})
+
+describe('module override targets — keyed AI, notification handlers, setup profiles', () => {
+  it('emits exact ai.agents/ai.tools targets for keyed overrides and keeps extensions additive', () => {
+    const { overrideTargets } = collectModuleOverrideTargets(baseFacts())
+    const aiPaths = overrideTargets
+      .filter((target) => target.domain === 'ai')
+      .map((target) => target.path.join('.'))
+      .sort()
+    expect(aiPaths).toEqual([
+      'ai.agents.demo.agent',
+      'ai.agents.other.assistant',
+      'ai.extensions',
+      'ai.tools.demo.tool',
+      'ai.tools.other.tool',
+    ])
+
+    const agentOverride = overrideTargets.find(
+      (target) => target.domain === 'ai' && target.key === 'other.assistant',
+    )
+    expect(agentOverride?.factRef).toEqual({
+      factSection: 'ownedContracts.ai-extension',
+      factKey: 'agent-override:other.assistant',
+    })
+    expect(agentOverride?.source.sourcePath).toBe(`${SOURCE_ROOT}/ai-agents.ts`)
+
+    const extensions = overrideTargets.find(
+      (target) => target.domain === 'ai' && target.path.join('.') === 'ai.extensions',
+    )
+    expect(extensions?.key).toBeUndefined()
+    expect(extensions?.factRef.factKey).toBe('agent-extension:other.agent')
+    expect(JSON.stringify(overrideTargets)).not.toContain('replacement')
+  })
+
+  it('emits notifications.handlers targets keyed by the declared handler id', () => {
+    const { overrideTargets, overrideTargetDiagnostics } = collectModuleOverrideTargets(baseFacts())
+    const handler = overrideTargets.find(
+      (target) => target.domain === 'notifications' && target.path[1] === 'handlers',
+    )
+    expect(handler?.path).toEqual(['notifications', 'handlers', 'demo.alert-handler'])
+    expect(handler?.key).toBe('demo.alert-handler')
+    expect(handler?.factRef).toEqual({
+      factSection: 'extensionSurfaces.contributions',
+      factKey: 'demo.alert-handler',
+    })
+
+    // A handler that declares no id cannot be addressed by runtime.
+    expect(overrideTargets.some((target) => target.path[2] === 'demo.notification-handler.1')).toBe(false)
+    expect(overrideTargetDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'unsupported-dynamic-key',
+        domain: 'notifications',
+        candidatePath: ['notifications', 'handlers'],
+      }),
+    ]))
+  })
+
+  it('emits setup.defaultCustomerRoleFeatures when customer-role profiles are declared', () => {
+    const withoutProfiles = collectModuleOverrideTargets(baseFacts()).overrideTargets
+    expect(withoutProfiles.some((target) => target.path.join('.') === 'setup.defaultCustomerRoleFeatures')).toBe(false)
+
+    const facts = baseFacts()
+    const setupFact = (facts.ownedContracts?.setup ?? [])[0]
+    const withProfiles = collectModuleOverrideTargets(baseFacts({
+      ownedContracts: {
+        ...facts.ownedContracts,
+        setup: [{ ...setupFact, metadata: { ...setupFact.metadata, customerRoles: ['portal-admin'] } }],
+      },
+    })).overrideTargets
+    const target = withProfiles.find((entry) => entry.path.join('.') === 'setup.defaultCustomerRoleFeatures')
+    expect(target).toBeDefined()
+    expect(target?.factRef).toEqual({ factSection: 'ownedContracts.setup', factKey: 'demo:setup' })
   })
 })

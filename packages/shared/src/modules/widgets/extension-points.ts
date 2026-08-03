@@ -482,6 +482,12 @@ export type ModuleExtensionContributionFact = ModuleExtensionContributionBase & 
         audienceScopeContract: string
         maxPayloadBytes?: number
         dedupWindowMs?: number
+        /**
+         * Statically declared handler id. Runtime keys `notifications.handlers`
+         * overrides by it, so it is absent when the module declares no id (such a
+         * handler cannot be overridden).
+         */
+        overrideKey?: string
       }
     }
   | {

@@ -1575,6 +1575,11 @@ function extractSetupContract(
     const roles = readObjectKeyNames(roleFeatures)
     if (roles.length > 0) metadata.roles = roles
   }
+  const customerRoleFeatures = getObjectPropertyInitializer(setupObject, 'defaultCustomerRoleFeatures')
+  if (customerRoleFeatures && ts.isObjectLiteralExpression(customerRoleFeatures)) {
+    const customerRoles = readObjectKeyNames(customerRoleFeatures)
+    if (customerRoles.length > 0) metadata.customerRoles = customerRoles
+  }
   return {
     kind: 'setup',
     id: `${moduleId}:setup`,
@@ -1634,6 +1639,16 @@ function extractCustomEntityContracts(
   }))
 }
 
+/**
+ * Keyed AI override exports. Agent *extensions* (`aiAgentExtensions`) patch an agent
+ * additively and belong to the `ai.extensions` array; these two replace or disable an
+ * entry by key and map to exact `ai.agents.<id>` / `ai.tools.<id>` override targets.
+ */
+const AI_OVERRIDE_EXPORTS = [
+  { exportName: 'aiAgentOverrides', target: 'agent' },
+  { exportName: 'aiToolOverrides', target: 'tool' },
+] as const
+
 function extractAiExtensionContracts(
   moduleRoot: string,
   sourceRoot: string,
@@ -1664,22 +1679,26 @@ function extractAiExtensionContracts(
         if (!targetAgentId) continue
         facts.push({
           kind: 'ai-extension',
-          id: targetAgentId,
+          id: `agent-extension:${targetAgentId}`,
           source: { sourcePath, exportName: 'aiAgentExtensions', line: nodeLine(sourceFile, objectLiteral) },
-          metadata: { target: 'agent' },
+          metadata: { target: 'agent', mode: 'extension', targetAgentId },
         })
       }
     }
-    const overridesObject = findObjectLiteralDeclaration(sourceFile, 'aiToolOverrides')
-    if (overridesObject) {
+    // `aiAgentOverrides` / `aiToolOverrides` are keyed replace-or-disable maps; only
+    // their keys are contract facts. Values (agent/tool definitions, `null` disables)
+    // are never read or serialized.
+    for (const { exportName, target } of AI_OVERRIDE_EXPORTS) {
+      const overridesObject = findObjectLiteralDeclaration(sourceFile, exportName)
+      if (!overridesObject) continue
       for (const property of overridesObject.properties) {
         const overrideId = getPropertyName(property)
         if (!overrideId) continue
         facts.push({
           kind: 'ai-extension',
-          id: overrideId,
-          source: { sourcePath, exportName: 'aiToolOverrides', line: nodeLine(sourceFile, property) },
-          metadata: { target: 'tool' },
+          id: `${target}-override:${overrideId}`,
+          source: { sourcePath, exportName, line: nodeLine(sourceFile, property) },
+          metadata: { target, mode: 'override', overrideKey: overrideId },
         })
       }
     }

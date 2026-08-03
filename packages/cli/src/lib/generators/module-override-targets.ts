@@ -84,9 +84,15 @@ type InternalAdapter = {
 
 const OVERRIDE_MODES = getFrameworkOverrideModes()
 
-function modesFor(dottedHost: string): ModuleOverrideMode[] {
+/**
+ * Supported modes come from the framework catalog only. A host the catalog does not
+ * describe is never guessed: the caller emits an `unknown-framework-domain`
+ * diagnostic and no target, so a downstream app is not told a key is overridable in
+ * a mode the runtime may not support.
+ */
+function modesFor(dottedHost: string): ModuleOverrideMode[] | null {
   const mode = OVERRIDE_MODES[dottedHost]
-  return mode ? [mode] : ['disable-replace']
+  return mode ? [mode] : null
 }
 
 /**
@@ -140,18 +146,43 @@ type MakeTargetInput = {
   notes?: ModuleOverrideTargetNote[]
 }
 
-function makeTarget(input: MakeTargetInput): ModuleOverrideTarget {
+function makeTarget(input: MakeTargetInput): ModuleOverrideTarget | null {
+  const modes = modesFor(input.dottedHost)
+  if (!modes) return null
   const target: ModuleOverrideTarget = {
     id: computeOverrideTargetId(input.moduleId, input.domain, input.path),
     domain: input.domain,
     ...(input.key !== undefined ? { key: input.key } : {}),
     path: input.path,
-    modes: modesFor(input.dottedHost),
+    modes,
     factRef: input.factRef,
     source: input.source,
     ...(input.notes && input.notes.length > 0 ? { notes: input.notes } : {}),
   }
   return target
+}
+
+/**
+ * Emits the target, or an `unknown-framework-domain` diagnostic when the framework
+ * catalog does not describe the target's dotted host.
+ */
+function pushTarget(
+  targets: ModuleOverrideTarget[],
+  diagnostics: ModuleOverrideTargetDiagnostic[],
+  input: MakeTargetInput,
+): void {
+  const target = makeTarget(input)
+  if (target) {
+    targets.push(target)
+    return
+  }
+  diagnostics.push({
+    code: 'unknown-framework-domain',
+    moduleId: input.moduleId,
+    domain: input.domain,
+    candidatePath: input.path,
+    source: input.source,
+  })
 }
 
 /** Portable contribution source ref → override target source ref. */
@@ -245,11 +276,11 @@ const aiAdapter: InternalAdapter = {
         continue
       }
       const path = ['ai', 'agents', agent.id]
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'ai', path, key: agent.id, dottedHost: 'ai.agents',
         factRef: { factSection: 'aiAgents', factKey: agent.id },
         source: { sourcePath: agent.sourcePath },
-      }))
+      })
     }
     for (const tool of facts.aiTools) {
       if (!tool.sourcePath) {
@@ -257,22 +288,49 @@ const aiAdapter: InternalAdapter = {
         continue
       }
       const path = ['ai', 'tools', tool.name]
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'ai', path, key: tool.name, dottedHost: 'ai.tools',
         factRef: { factSection: 'aiTools', factKey: tool.name },
         source: { sourcePath: tool.sourcePath },
-      }))
+      })
     }
-    // `ai.extensions` is an additive array (no runtime lookup key): a single
-    // structured target for the module's AI extension bundle.
-    const aiExtensions = facts.ownedContracts?.['ai-extension'] ?? []
-    if (aiExtensions.length > 0) {
-      const anchor = [...aiExtensions].sort((left, right) => left.id.localeCompare(right.id))[0]
-      targets.push(makeTarget({
+    // AI file contracts split by mode: keyed `aiAgentOverrides` / `aiToolOverrides`
+    // entries are exact `ai.agents.<id>` / `ai.tools.<id>` targets, while additive
+    // `aiAgentExtensions` patches belong to the keyless `ai.extensions` array.
+    const aiFileContracts = facts.ownedContracts?.['ai-extension'] ?? []
+    const additiveExtensions: ModuleOwnedContractFact[] = []
+    for (const fact of aiFileContracts) {
+      const metadata = fact.metadata ?? {}
+      if (metadata.mode !== 'override') {
+        additiveExtensions.push(fact)
+        continue
+      }
+      const overrideKey = typeof metadata.overrideKey === 'string' ? metadata.overrideKey : null
+      const target = metadata.target === 'agent' ? 'agents' : metadata.target === 'tool' ? 'tools' : null
+      if (!overrideKey || !target) {
+        diagnostics.push({
+          code: 'unsupported-dynamic-key',
+          moduleId,
+          domain: 'ai',
+          candidatePath: ['ai', target ?? 'extensions'],
+          source: ownedSource(fact),
+        })
+        continue
+      }
+      const path = ['ai', target, overrideKey]
+      pushTarget(targets, diagnostics, {
+        moduleId, domain: 'ai', path, key: overrideKey, dottedHost: `ai.${target}`,
+        factRef: { factSection: 'ownedContracts.ai-extension', factKey: fact.id },
+        source: ownedSource(fact),
+      })
+    }
+    if (additiveExtensions.length > 0) {
+      const anchor = [...additiveExtensions].sort((left, right) => left.id.localeCompare(right.id))[0]
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'ai', path: ['ai', 'extensions'], dottedHost: 'ai.extensions',
         factRef: { factSection: 'ownedContracts.ai-extension', factKey: anchor.id },
         source: ownedSource(anchor),
-      }))
+      })
     }
     return { targets, diagnostics }
   },
@@ -297,11 +355,11 @@ const routesAdapter: InternalAdapter = {
           continue
         }
         const path = ['routes', 'api', key]
-        targets.push(makeTarget({
+        pushTarget(targets, diagnostics, {
           moduleId, domain: 'routes', path, key, dottedHost: 'routes.api',
           factRef: { factSection: 'apiRoutes', factKey: route.path },
           source: { sourcePath: route.sourcePath },
-        }))
+        })
       }
     }
 
@@ -316,11 +374,11 @@ const routesAdapter: InternalAdapter = {
         return
       }
       const path = ['routes', 'pages', key]
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'routes', path, key, dottedHost: 'routes.pages',
         factRef: { factSection: section, factKey: page.path },
         source: { sourcePath: page.sourcePath },
-      }))
+      })
     }
     for (const page of facts.backendPages) emitPage(page, 'backendPages')
     for (const page of facts.frontendPages) emitPage(page, 'frontendPages')
@@ -342,11 +400,11 @@ const eventsAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'events', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'events', path, key: subscriberId, dottedHost: 'events.subscribers',
         factRef: { factSection: 'extensionSurfaces.contributions', factKey: contribution.id },
         source: contributionSource(contribution),
-      }))
+      })
     }
     return { targets, diagnostics }
   },
@@ -364,11 +422,11 @@ const workersAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'workers', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'workers', path, key: fact.id, dottedHost: 'workers',
         factRef: { factSection: 'ownedContracts.worker', factKey: fact.id },
         source: ownedSource(fact),
-      }))
+      })
     }
     return { targets, diagnostics }
   },
@@ -383,11 +441,11 @@ const widgetsAdapter: InternalAdapter = {
 
     const emitInjection = (registryKey: string, contribution: ModuleExtensionContributionFact): void => {
       const path = ['widgets', 'injection', registryKey]
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'widgets', path, key: registryKey, dottedHost: 'widgets.injection',
         factRef: { factSection: 'extensionSurfaces.contributions', factKey: contribution.id },
         source: contributionSource(contribution),
-      }))
+      })
     }
 
     for (const contribution of contributionsOfKind(facts, 'widget')) {
@@ -398,11 +456,11 @@ const widgetsAdapter: InternalAdapter = {
       }
       if (contribution.details.payload === 'dashboard') {
         const path = ['widgets', 'dashboard', registryKey]
-        targets.push(makeTarget({
+        pushTarget(targets, diagnostics, {
           moduleId, domain: 'widgets', path, key: registryKey, dottedHost: 'widgets.dashboard',
           factRef: { factSection: 'extensionSurfaces.contributions', factKey: contribution.id },
           source: contributionSource(contribution),
-        }))
+        })
       } else {
         emitInjection(registryKey, contribution)
       }
@@ -425,11 +483,11 @@ const widgetsAdapter: InternalAdapter = {
     for (const contribution of contributionsOfKind(facts, 'component-override')) {
       const componentId = contribution.details.handle
       const path = ['widgets', 'components', componentId]
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'widgets', path, key: componentId, dottedHost: 'widgets.components',
         factRef: { factSection: 'extensionSurfaces.contributions', factKey: contribution.id },
         source: contributionSource(contribution),
-      }))
+      })
     }
 
     return { targets, diagnostics }
@@ -456,11 +514,37 @@ const notificationsAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'notifications', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'notifications', path, key: type, dottedHost: 'notifications.types',
         factRef: { factSection: 'notifications', factKey: type },
         source,
-      }))
+      })
+    }
+
+    // Reactive handlers (`notifications.handlers.ts`) are keyed by their declared
+    // handler id; a handler that declares none cannot be addressed by runtime.
+    for (const contribution of contributionsOfKind(facts, 'browser-reaction')) {
+      if (!contribution.details.transports.includes('notification-effect')) continue
+      const overrideKey = contribution.details.overrideKey
+      if (!overrideKey) {
+        diagnostics.push({
+          code: 'unsupported-dynamic-key',
+          moduleId,
+          domain: 'notifications',
+          candidatePath: ['notifications', 'handlers'],
+          source: contributionSource(contribution),
+        })
+        continue
+      }
+      pushTarget(targets, diagnostics, {
+        moduleId,
+        domain: 'notifications',
+        path: ['notifications', 'handlers', overrideKey],
+        key: overrideKey,
+        dottedHost: 'notifications.handlers',
+        factRef: { factSection: 'extensionSurfaces.contributions', factKey: contribution.id },
+        source: contributionSource(contribution),
+      })
     }
     return { targets, diagnostics }
   },
@@ -483,11 +567,11 @@ function contributionIdAdapter(
           diagnostics.push({ code: 'missing-source', moduleId, domain, candidatePath: path })
           continue
         }
-        targets.push(makeTarget({
+        pushTarget(targets, diagnostics, {
           moduleId, domain, path, key: contribution.id, dottedHost,
           factRef: { factSection: 'extensionSurfaces.contributions', factKey: contribution.id },
           source: contributionSource(contribution),
-        }))
+        })
       }
       return { targets, diagnostics }
     },
@@ -517,12 +601,12 @@ const guardsAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'guards', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'guards', path, key: fact.id, dottedHost: 'guards',
         factRef: { factSection: 'ownedContracts.page-middleware', factKey: fact.id },
         source: ownedSource(fact),
         notes: ['page-middleware-not-mutation-guard'],
-      }))
+      })
     }
     return { targets, diagnostics }
   },
@@ -540,11 +624,11 @@ const cliAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'cli', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'cli', path, key: command.command, dottedHost: 'cli',
         factRef: { factSection: 'cli', factKey: command.command },
         source: { sourcePath: command.sourcePath },
-      }))
+      })
     }
     return { targets, diagnostics }
   },
@@ -576,13 +660,15 @@ const setupAdapter: InternalAdapter = {
       }
       const roles = fact.metadata?.roles
       if (Array.isArray(roles) && roles.length > 0) properties.push('defaultRoleFeatures')
+      const customerRoles = fact.metadata?.customerRoles
+      if (Array.isArray(customerRoles) && customerRoles.length > 0) properties.push('defaultCustomerRoleFeatures')
       for (const property of properties) {
         const path = ['setup', property]
-        targets.push(makeTarget({
+        pushTarget(targets, diagnostics, {
           moduleId, domain: 'setup', path, dottedHost: 'setup',
           factRef: { factSection: 'ownedContracts.setup', factKey: fact.id },
           source,
-        }))
+        })
       }
     }
     return { targets, diagnostics }
@@ -602,11 +688,11 @@ const aclAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'acl', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'acl', path, key: feature, dottedHost: 'acl.features',
         factRef: { factSection: 'aclFeatures', factKey: feature },
         source: { sourcePath },
-      }))
+      })
     }
     return { targets, diagnostics }
   },
@@ -630,12 +716,12 @@ const diAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'di', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'di', path, key: fact.id, dottedHost: 'di',
         factRef: { factSection: 'ownedContracts.di-registration', factKey: fact.id },
         source: ownedSource(fact),
         notes: ['safe-metadata-only'],
-      }))
+      })
     }
     return { targets, diagnostics }
   },
@@ -653,11 +739,11 @@ const encryptionAdapter: InternalAdapter = {
         diagnostics.push({ code: 'missing-source', moduleId, domain: 'encryption', candidatePath: path })
         continue
       }
-      targets.push(makeTarget({
+      pushTarget(targets, diagnostics, {
         moduleId, domain: 'encryption', path, key: fact.id, dottedHost: 'encryption.maps',
         factRef: { factSection: 'ownedContracts.encryption', factKey: fact.id },
         source: ownedSource(fact),
-      }))
+      })
     }
     return { targets, diagnostics }
   },

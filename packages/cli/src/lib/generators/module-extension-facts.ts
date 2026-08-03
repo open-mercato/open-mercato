@@ -1217,7 +1217,8 @@ function extractNotificationReactions(options: ExtractModuleExtensionFactsOption
     build(entry, sourcePath, index) {
       const notificationType = stringValue(entry.notificationType)
       if (!notificationType) return null
-      const id = stringValue(entry.id) ?? `${options.moduleId}.notification-handler.${index}`
+      const declaredId = stringValue(entry.id)
+      const id = declaredId ?? `${options.moduleId}.notification-handler.${index}`
       const contribution = contributionBase(id, sourcePath, 'notificationHandlers')
       return {
         ...contribution,
@@ -1229,6 +1230,7 @@ function extractNotificationReactions(options: ExtractModuleExtensionFactsOption
           transports: ['notification-effect'],
           hooks: ['useNotificationEffect'],
           audienceScopeContract: 'tenant-organization-user-role-and-customer',
+          ...(declaredId ? { overrideKey: declaredId } : {}),
         },
       }
     },
