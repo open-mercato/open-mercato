@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 120 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 119 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -28,7 +28,6 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### architecture
 
-- [Untyped and native deps belong in the app](lessons/untyped-and-native-package-deps-must-be-declared-in.md) — area:architecture,integration; module:documents,app; topic:build-output,package-runtime,template-sync
 - [Feature-gated runtime helpers must use wildcard-aware permission matching](lessons/feature-gated-runtime-helpers-must-use-wildcard-aware.md) — area:architecture,backend-ui,module-data; module:customer_accounts,customers,events; topic:access-control,command-pattern,events
 - [Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry](lessons/fresh-standalone-yarn-scaffolds-must-ship-a-runnable.md) — area:architecture,testing,module-data; module:create_app; topic:command-pattern,package-runtime,template-sync
 - [Generated standalone app installs in CI must opt out of immutable lockfiles](lessons/generated-standalone-app-installs-in-ci-must-opt-out-of.md) — area:architecture,integration,testing; module:create_app; topic:generated-files,database-migrations,package-runtime
@@ -51,7 +50,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### module-data
 
-- [API routes live under api/<resource>, not api/<module>](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,architecture,testing; module:documents,cli; topic:auto-discovery,generated-files,testing
+- [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
 - [Global search has no per-record ACL hook](lessons/global-search-has-no-per-record-acl-hook.md) — area:module-data,integration; module:documents,search; topic:access-control,data-scoping,query-index
 - [db:generate re-emits unrelated migrations from stale snapshots](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,debugging; module:ai_assistant,cli; topic:database-migrations,generated-files,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli; topic:generated-files,database-migrations,runtime-startup
@@ -94,7 +93,6 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### backend-ui
 
-- [Backend detail pages read the id from the params prop](lessons/backend-detail-pages-must-read-the-record-id-from-the.md) — area:backend-ui,debugging; module:documents,ui; topic:auto-discovery,ui-components,error-states
 - [Realtime editing must handle share changes and reconnects](lessons/realtime-editing-must-treat-share-changes-and.md) — area:backend-ui,module-data; module:documents; topic:realtime,events,access-control
 - [Resolve principal names server-side, never raw UUIDs](lessons/resolve-principal-names-server-side-never-surface-raw.md) — area:backend-ui,module-data; module:documents,auth; topic:encryption,ui-components,data-scoping
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
@@ -141,6 +139,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
 - [Validate persisted-definition consumers before retiring legacy workflow rows](lessons/validate-persisted-definition-consumers-before-retiring.md) — area:integration,architecture,debugging; module:checkout,webhooks; topic:generated-files,database-migrations,webhooks
 - [Variant hero media should be written after importer flush-heavy work](lessons/variant-hero-media-should-be-written-after-importer.md) — area:integration,module-data; module:catalog,data_sync; topic:data-integrity,data-import,generated-files
+- [Webhook body-limit sweeps must include source-specific receivers](lessons/webhook-body-limit-sweeps-must-include-source-specific-receivers.md) — area:integration,testing,architecture; module:webhooks,payment_gateways,shipping_carriers,communication_channels,inbox_ops; topic:webhooks,network-security,testing
 - [Workspace packages with backend pages must build and export deep TSX entrypoints](lessons/workspace-packages-with-backend-pages-must-build-and.md) — area:integration,architecture; module:platform; topic:build-output,generated-files,module-boundaries
 
 ### ai-workflow

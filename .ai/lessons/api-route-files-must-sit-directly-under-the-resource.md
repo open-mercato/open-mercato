@@ -1,16 +1,28 @@
 ---
-title: "API routes live under api/<resource>, not api/<module>"
-modules: ["documents","cli"]
-areas: ["module-data","architecture","testing"]
-topics: ["auto-discovery","generated-files","testing"]
+title: "Auto-discovery routing surprises only a running app catches"
+modules: ["documents","cli","ui"]
+areas: ["module-data","backend-ui","testing"]
+topics: ["auto-discovery","generated-files","error-states"]
 ---
 
-# API routes live under api/<resource>, not api/<module>
+# Auto-discovery routing surprises only a running app catches
 
-**Context**: Documents shipped its routes as `api/documents/*`, mirroring the module folder name.
+Both failures below compile, typecheck and pass jest, because the wrong value is a
+plain string. Only driving a booted app surfaces them.
 
-**Problem**: OM **auto-prefixes the module id** into API URLs, so a route file must sit DIRECTLY under `api/<resource>/route.ts` (like `customers`: `api/activities/route.ts` → `/api/customers/activities`) — NOT under an `api/<module-name>/` subdir. The generator doubled the segment to `/api/documents/documents/*`, so EVERY documents route 404'd at the intended `/api/documents/*`.
+**API routes.** OM **auto-prefixes the module id** into API URLs, so a route file must sit
+DIRECTLY under `api/<resource>/route.ts` (like `customers`: `api/activities/route.ts` →
+`/api/customers/activities`) — NOT under an `api/<module-name>/` subdir. Documents shipped
+`api/documents/*`, which the generator doubled to `/api/documents/documents/*`, so EVERY
+documents route 404'd at the intended `/api/documents/*`. Fix: move `api/<module>/*` → `api/*`
+(module-root imports lose one `../`; `_shared`/sibling imports move together, unchanged).
+The generated `api-routes.generated.ts` shows the real `path`. Backend pages are NOT affected —
+`backend/<module>/page.tsx` maps directly to `/backend/<module>`.
 
-**Rule**: Move `api/<module>/*` → `api/*` (module-root imports lose one `../`; `_shared`/sibling imports move together, unchanged). Backend pages are NOT affected — `backend/<module>/page.tsx` maps directly to `/backend/<module>`.
-
-**Applies to**: every module's API tree. Build, typecheck and jest all pass (URLs are strings); the generated `api-routes.generated.ts` shows the real `path`. Only **running the integration tests against a booted app** catches it — compiled and discovered is not the same as executed.
+**Backend detail pages.** They render through the **catch-all
+`apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx`**, so Next's `useParams()` only
+exposes `slug` (an array) — NEVER the `[id]` segment. A page reading `useParams().id` gets
+`undefined` and shows "not found" WITHOUT ever calling the API. Read the id from the **`params`
+prop** the manifest wrapper passes (`export default function Page({ params }: { params?: { id?:
+string } })` → `params?.id`, the convention used by `customers/companies-v2/[id]`), with a
+`usePathname()` last-segment fallback.
