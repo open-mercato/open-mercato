@@ -1029,6 +1029,85 @@ describe('CRUD Factory', () => {
     const body = await res.json()
     expect(body._interceptor).toEqual({ ok: true, count: 1 })
   })
+
+  // The command DELETE path used to hand before-interceptors the body only, so a
+  // guard reading `?id=` saw nothing to object to and the delete went through
+  // with a 200 (issue #4842).
+  it('DELETE command route passes the query id to interceptor before hooks', async () => {
+    const lockedId = '123e4567-e89b-12d3-a456-426614174010'
+    const seenQueries: Array<Record<string, unknown> | undefined> = []
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.block-locked-delete',
+            targetRoute: 'example/todos/command',
+            methods: ['DELETE'],
+            async before(request) {
+              seenQueries.push(request.query)
+              const queryId = request.query?.id
+              if (typeof queryId === 'string' && queryId === lockedId) {
+                return { ok: false, statusCode: 409, message: 'Record is locked' }
+              }
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+    const commandRoute = makeCrudRoute({
+      metadata: { DELETE: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        delete: {
+          commandId: 'example.todo.delete',
+          schema: z.any(),
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const res = await commandRoute.DELETE(new Request(`http://x/api/example/todos/command?id=${lockedId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({}),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ error: 'Record is locked' })
+    expect(seenQueries).toEqual([{ id: lockedId }])
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('DELETE route passes the whole query string to interceptor before hooks', async () => {
+    const created = em.create(Todo, { title: 'Z', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    created.id = '123e4567-e89b-12d3-a456-426614174011'
+    await em.persist(created).flush()
+    let seenQuery: Record<string, unknown> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.capture-delete-query',
+            targetRoute: 'example/todos',
+            methods: ['DELETE'],
+            async before(request) {
+              seenQuery = request.query
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}&reason=cleanup`, { method: 'DELETE' }))
+
+    expect(res.status).toBe(200)
+    expect(seenQuery).toEqual({ id: created.id, reason: 'cleanup' })
+  })
 })
 
 describe('CRUD Factory — optimistic-lock auto-registration', () => {
