@@ -7,12 +7,12 @@ description: Accelerate list queries by projecting entities and custom fields in
 
 Goal: make querying base entities together with custom fields fast and simple by maintaining a flat, query-friendly JSONB index per entity record, without breaking module isomorphism or schema agility. See the [Hybrid query engine](./hybrid-query-engine) for runtime usage.
 
-What you get
+## What you get
 - Hybrid engine: uses a JSONB-backed index when available; falls back to the join-based engine otherwise.
 - Event-driven updates: created/updated/deleted events keep the index synced. Custom-field updates also trigger reindex via the DataEngine write layer.
 - Zero-churn evolution: new fields (base or custom) are available immediately in the JSON document; promote hot fields later if needed.
 
-Storage
+## Storage
 - Table: `entity_indexes`
   - `id uuid` (PK)
   - `entity_type text` e.g., `example:todo`
@@ -21,41 +21,47 @@ Storage
   - `doc jsonb` flattened document of base fields + `cf:<key>` values
   - `index_version int` (default 1), `created_at`, `updated_at`, `deleted_at`
   - `organization_id_coalesced uuid generated always as (coalesce(organization_id, '00000000-0000-0000-0000-000000000000')) stored`
-- Indexes
-  - `gin(doc jsonb_path_ops)` for JSONB containment/path queries
-  - Unique: `unique(entity_type, entity_id, organization_id_coalesced)`
+- Indexes shipped on `entity_indexes` (see `data/entities.ts`)
+  - Unique: `unique(entity_type, entity_id, organization_id_coalesced)` — note that `tenant_id` is **not** part of the uniqueness key
+  - Btree: `(entity_type)`, `(entity_id)`, `(organization_id)`, `(entity_type, tenant_id)`
+  - Six hand-written partial covering indexes for `customers:customer_entity`, `customers:customer_person_profile`, and `customers:customer_company_profile` — one org-scoped and one tenant-scoped variant each:
+    - org-scoped: `(entity_id, organization_id, tenant_id) include (doc) where deleted_at is null and entity_type = '<id>' and organization_id is not null and tenant_id is not null`
+    - tenant-scoped: `(tenant_id, entity_id) include (doc) where deleted_at is null and entity_type = '<id>' and organization_id is null and tenant_id is not null`
 
-Document shape
+    They are not generated. Any other entity type gets only the generic btrees above.
+  - There is **no GIN index on `doc`**. Adding one is a tuning decision you make per deployment — see [Performance tips](#performance-tips).
+
+## Document shape
 - Base fields are stored under their snake_case DB names.
 - Custom fields are stored as `cf:<key>` values.
 - Arrays are preserved as arrays; singletons are scalars.
 
-Encryption
+## Encryption
 - `entity_indexes.doc` is treated as “at rest” storage: it should contain the same encrypted values as the source tables / `custom_field_values`.
 - Decryption happens on read:
   - `HybridQueryEngine` decrypts entity payload fields via the tenant encryption service and also decrypts `cf:*` values before returning results.
 - Search token generation (for `like/ilike` token search) may decrypt values transiently to hash the plaintext tokens, but plaintext is never persisted into `entity_indexes.doc`.
   - Implementation helper: `packages/shared/src/lib/encryption/indexDoc.ts` (shared by Query Engine, indexers, and vector search).
 
-Indexer
+## Indexer
 - Build: merges base row with custom field values into a single plain object.
-- Upsert: inserts or updates the JSONB row keyed by `(entity_type, entity_id, organization_id_coalesced)`.
-- Delete: sets `deleted_at` on logical delete.
+- Upsert: inserts or updates the JSONB row keyed by `(entity_type, entity_id, organization_id_coalesced)`, always writing `deleted_at = null`.
+- Delete: `markDeleted()` **hard-deletes** the index row and its `search_tokens`. The `deleted_at` column exists and readers still filter on it, but the current writers never populate it — a removed base record leaves no index row behind.
 
-Events and consistency
+## Events and consistency
 - Subscribers are registered for all entities that have custom field definitions:
   - `<module>.<entity>.created|updated` → upsert index row.
-  - `<module>.<entity>.deleted` → mark index row deleted.
+  - `<module>.<entity>.deleted` → remove the index row.
 - Custom-field writes done via the DataEngine emit `<module>.<entity>.updated` as well, reusing the same subscriber path.
 
-Query routing
-- The `HybridQueryEngine` prefers the JSONB index when rows exist for the target entity; otherwise it falls back to the basic engine.
+## Query routing
+- The `HybridQueryEngine` prefers the JSONB index and falls back to the basic engine under four specific conditions — see [Routing decisions](./hybrid-query-engine#routing-decisions) for the full table. "No index rows exist" is only one of them, and it is evaluated only when the query actually asks for `cf:*`/`l10n:*` data.
 - Supported in index path:
   - Filters: base fields and `cf:*` via JSON path extraction and casting for common types.
   - Sorting: base fields and `cf:*` using casted expressions when possible.
   - Paging and multi-tenant scoping (`organization_id`, `tenant_id`) and soft-delete exclusion by default.
 
-Backfill
+## Backfill
 - CLI: `mercato query_index rebuild --entity <module:entity>` reindexes existing rows with a live progress bar.
   - All orgs/tenants: `mercato query_index rebuild --entity example:todo --global`
   - Scoped: `mercato query_index rebuild --entity example:todo --org <orgId> --tenant <tenantId>`
@@ -70,21 +76,24 @@ Backfill
 - Scheduling via events remains available: `mercato query_index reindex [...]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes. API callers can pass `partitionCount`, `partitionIndex`, and `batchSize` to mirror the CLI behaviour; omitting `partitionIndex` emits one event per partition automatically.
 - Bulk imports: build and insert index payloads alongside your ETL transaction with the `buildIndexDocument` helper (`packages/core/src/modules/query_index/lib/document.ts`) so large seeders can skip the post-import reindex sweep. The CRM stress-test seeder now follows this pattern.
 
-Performance tips
-- Start with `gin(doc jsonb_path_ops)`.
+## Performance tips
+- `gin(doc jsonb_path_ops)` is a reasonable starting point for containment/path queries, but no migration creates it — you have to add it yourself and measure. It does not help `->>` extraction used by `cf:*` equality, range, and sort predicates.
 - Add expression indexes for hot JSON paths (filters/sorts) before promoting to typed columns:
   - Example: `create index on entity_indexes (((doc->>'cf:priority')::int));`
 - Consider typed columns only for extreme hotspots.
 
-Limitations and notes
+## Limitations and notes
 - The index row appears after create/update events or backfill. Queries still work via fallback when the index is missing.
 - Cross-module relations remain by foreign key id only; no cross-module joins.
 - When the hybrid engine falls back because of partial index coverage it emits a warning and, by default, schedules an asynchronous reindex for the affected entity/tenant scope. Toggle this with `SCHEDULE_AUTO_REINDEX` (defaults to `true`) if you prefer to manage reindex jobs manually. For smaller datasets (≤10k customers) keep this flag enabled together with `OPTIMIZE_INDEX_COVERAGE_STATS=false` so coverage updates remain instant.
-- `OPTIMIZE_INDEX_COVERAGE_STATS=true` enables cached coverage snapshots. Leave it `false` to recalculate counts on every read, which is ideal for fast feedback during development or on small installations.
-- Keep the indexed path even when gaps are detected by setting `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` (enabled by default). When active, list responses include an `x-om-partial-index` response header (with `entity`, `baseCount`, `indexedCount`, and `scope`) so the admin UI can surface a banner prompting the user to reindex via `/backend/query-indexes`.
+- Repeated auto-reindex requests for the same entity, tenant, and organization are collapsed into one scheduling attempt per `OM_QUERY_INDEX_AUTO_REINDEX_DEBOUNCE_MS` window (30 seconds by default). This debounce is process-global within each application process; the reindexer's existing active-job guard remains the cross-process safety net.
+- Token generation is bounded before prefix expansion and again per indexed record. Defaults are 20,000 input characters per field value, 5,000 distinct token rows across all values of a field, and 20,000 token rows per record; tune them with `OM_SEARCH_MAX_FIELD_CHARS`, `OM_SEARCH_MAX_TOKENS_PER_FIELD`, and `OM_SEARCH_MAX_TOKENS_PER_RECORD`. Set an individual limit to `0` to disable it.
+- `OPTIMIZE_INDEX_COVERAGE_STATS` (code default `false`) controls what happens when a coverage snapshot is stale or missing. With `false` the snapshot is recomputed **inline on the request thread**, which keeps counts instant on small installations but means concurrent list queries can herd on the recompute when the TTL expires. With `true` the engine schedules an asynchronous `query_index.coverage.refresh` and serves the stale snapshot (or none, if there is no row yet). Snapshot freshness is governed by `QUERY_INDEX_COVERAGE_CACHE_MS` (default 5 minutes).
+- `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES` keeps the indexed path even when a coverage gap is detected. **Its code default is `false`** — the shipped `.env.example` files set it to `true`, so a deployment that does not copy that file gets the fallback behaviour instead. Either way, list responses carry an `x-om-partial-index` response header (with `entity`, `baseCount`, `indexedCount`, and `scope`) so the admin UI can surface a banner prompting the user to reindex via `/backend/query-indexes`.
+  - Before turning it on, be sure the gap is small: forcing the index means rows that are not indexed are absent from filtered results and from the total count, with no error. Reindex first, force second.
 - Coverage statistics are tracked per tenant to avoid cross-organization leakage. Admin views surface the tenant snapshot directly and never blend organization-level scopes.
 
-Coverage refresh triggers
+## Coverage refresh triggers
 - Every login fires `query_index.coverage.warmup`, which sweeps stale entity types and schedules a `coverage.refresh` for each. It is a proactive nice-to-have on top of the query engine's own lazy, on-demand refresh (triggered on read when a coverage snapshot is missing or past its TTL) — coverage self-heals even with the warmup disabled.
 - The warmup sweep only re-checks entity types whose persisted coverage snapshot (`entity_index_coverage.refreshed_at`) is actually stale, so a process restart does not repeat the full sweep for scopes a prior warmup, a lazy refresh, or an incremental CRUD delta already kept fresh. Before dispatching any refresh it also batch-primes the shared `information_schema.columns` cache for every table involved, avoiding a query-per-table cache stampede when many refreshes are dispatched concurrently.
 - Tune the sweep with `QUERY_INDEX_WARMUP_ENABLED`, `QUERY_INDEX_WARMUP_THROTTLE_MS`, `QUERY_INDEX_WARMUP_CONCURRENCY`, and `QUERY_INDEX_WARMUP_STAGGER_MS` — see [System status variables](https://docs.openmercato.com/docs/framework/operations/system-status#query_index_warmup_enabled). All default to the prior always-on, unstaggered behaviour when unset.
@@ -92,14 +101,15 @@ Coverage refresh triggers
 
 ## Debugging SQL output
 
-- Standard debug logs honour `LOG_VERBOSITY=debug` (or a development `NODE_ENV`) and describe which path the hybrid engine picks.
-- To additionally print the SQL emitted for the count and data queries, set `QUERY_ENGINE_DEBUG_SQL=true`. The flag is disabled by default to keep development logs readable.
+- The hybrid engine's debug lines — including the ones describing which path it picked — require **both** debug verbosity (`OM_QUERY_INDEX_DEBUG=true`, or `LOG_VERBOSITY`/`LOG_LEVEL` set to `debug`/`trace`/`silly`) **and** `QUERY_ENGINE_DEBUG_SQL=true`. Verbosity alone prints nothing from this engine.
+- `QUERY_ENGINE_DEBUG_SQL=true` also prints the SQL emitted for the count and data queries. It is disabled by default to keep development logs readable.
+- For path selection without SQL noise, set `OM_PROFILE` instead: the `[qe:profile]` node reports `result: ok | fallback | custom_entity | error` plus the fallback `reason`.
 - To inspect the tokens generated for search, set `OM_SEARCH_DEBUG=true`. It logs field names, token **hashes**, and per-record counts during indexing — never the raw token text, document values, or decrypted PII — so the index shape can be debugged without disclosing data. Query behaviour is unchanged.
 
-Related files
+## Related files
 - `packages/core/src/modules/query_index/data/entities.ts`
 - `packages/core/src/modules/query_index/lib/indexer.ts`
 - `packages/core/src/modules/query_index/lib/engine.ts`
 - `packages/core/src/modules/query_index/di.ts`
-- `packages/core/src/modules/query_index/migrations/Migration20251001120000.ts`
-- `packages/core/src/modules/query_index/migrations/Migration20251001123000.ts`
+- `packages/core/src/modules/query_index/lib/coverage.ts`
+- `packages/core/src/modules/query_index/migrations/` — `Migration20251030150038.ts` creates `entity_indexes`; `Migration20260518162054_query_index.ts` adds `organization_id_coalesced` and the uniqueness key

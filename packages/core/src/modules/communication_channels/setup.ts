@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { CommunicationChannel } from './data/entities'
@@ -91,14 +92,20 @@ export const setup: ModuleSetupConfig = {
   async seedDefaults({ container, organizationId, tenantId }) {
     if (isTestChannelSeedingEnabled() && process.env.SYSTEM_EMAIL_PROVIDER === TEST_SEED_PROVIDER_KEY) {
       const em = (container.resolve('em') as EntityManager).fork()
-      const existing = await em.findOne(CommunicationChannel, {
-        providerKey: TEST_SEED_PROVIDER_KEY,
-        channelType: 'email',
-        tenantId,
-        organizationId,
-        userId: null,
-        deletedAt: null,
-      })
+      const existing = await findOneWithDecryption(
+        em,
+        CommunicationChannel,
+        {
+          providerKey: TEST_SEED_PROVIDER_KEY,
+          channelType: 'email',
+          tenantId,
+          organizationId,
+          userId: null,
+          deletedAt: null,
+        },
+        undefined,
+        { tenantId, organizationId },
+      )
       if (!existing) {
         em.persist(em.create(CommunicationChannel, {
           providerKey: TEST_SEED_PROVIDER_KEY,

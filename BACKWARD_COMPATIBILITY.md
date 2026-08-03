@@ -87,6 +87,8 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 - `BackendChromePayload`: `groups`, `settingsSections`, `settingsPathPrefixes`, `profileSections`, `profilePathPrefixes`, `grantedFeatures`, `roles` — MUST NOT remove. `currentOrganization?` (`BackendChromeCurrentOrganization | null`) was added 2026-07-30 as an additive optional field (see [spec](.ai/specs/2026-07-30-backend-chrome-current-organization.md)); it is `null` under an all-organizations selection, when no organization is in scope, and when the lookup fails, so consumers MUST treat `null` as "unknown" rather than "no organization". `brand?` is **unchanged** and remains the branding channel — it populates only when the organization has a `logoUrl`, and `currentOrganization` does not supersede it.
 
+**STABLE field shape, changed value semantics in 0.6.8:** each entry in `BackendChromePayload.settingsSections` keeps its `id`, `label`, `labelKey`, `order`, and `items` fields, but `id` is now the section's **untranslated group id** (the page's `pageGroupKey`, e.g. `settings.sections.moduleConfigs`) instead of a slug of the rendered group label. The old value was locale-dependent, so it could not be targeted reliably (see [#4843](https://github.com/open-mercato/open-mercato/issues/4843)). Consumers matching a settings section — notably injected `menuItems[].groupId` — MUST use the group id, which is the form the widget-injection documentation already prescribes. `buildSettingsSections`' `sectionOrder` parameter keeps a deprecated fallback lookup on the old label slug for at least one minor release.
+
 ### 3. Function Signatures (STABLE)
 
 These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
@@ -195,6 +197,9 @@ Feature IDs are stored in database role configurations. Renaming a feature ID or
 - MUST NOT rename an existing feature ID
 - MUST NOT remove an existing feature ID without a data migration that updates all stored role configs
 - MAY add new feature IDs freely
+- App-level `entry.overrides.acl.features[id] = null` is the supported reversible exception: stored grants are preserved but runtime-inert while the override is effective.
+
+**STABLE capability-field shape, changed value semantics in 0.6.6:** `BackendChromePayload.grantedFeatures` and customer portal `resolvedFeatures` remain `string[]`, but now contain concrete effective feature IDs. They no longer expose `*` or namespace wildcard strings. Consumers MUST check concrete IDs and MUST NOT infer staff/portal admin status from a wildcard; use the explicit admin boolean where exposed.
 
 ### 11. Notification Type IDs (FROZEN)
 

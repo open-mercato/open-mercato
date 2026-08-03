@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
   ChannelAdapter,
   ChannelCapabilities,
@@ -79,6 +80,43 @@ type TestSeedCaptureScope = {
 export type TestSeedCaptureOptions = {
   systemRecipient?: string
   captureCorrelationToken?: string
+}
+
+export async function createTestSeedPlatformMessage(
+  em: EntityManager,
+  input: {
+    providerKey: string
+    threadId?: string
+    senderUserId: string
+    subject?: string
+    bodyText?: string
+    channelId: string
+    tenantId: string
+    organizationId: string | null
+  },
+): Promise<string | null> {
+  const rows = (await em.getConnection().execute(
+    `INSERT INTO messages
+       (type, thread_id, sender_user_id, subject, body, body_format, priority, status,
+        is_draft, sent_at, visibility, source_entity_type, source_entity_id,
+        tenant_id, organization_id, created_at, updated_at)
+     VALUES
+       (?, ?, ?, ?, ?, 'text', 'normal', 'sent',
+        false, now(), 'public', 'communication_channels.test_seed_inbound', ?,
+        ?, ?, now(), now())
+     RETURNING id`,
+    [
+      `channel.${input.providerKey}`,
+      input.threadId ?? null,
+      input.senderUserId,
+      input.subject ?? '(no subject)',
+      input.bodyText ?? '',
+      input.channelId,
+      input.tenantId,
+      input.organizationId,
+    ],
+  )) as Array<{ id: string }>
+  return rows[0]?.id ?? null
 }
 
 function normalizeToken(value: string | null | undefined): string | null {

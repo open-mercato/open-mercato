@@ -22,6 +22,7 @@ import { emitCommunicationChannelsEvent } from '../../../events'
 import {
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
+  createTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestEmailCaptureAccessAuthorized,
   isTestChannelSeedingEnabled,
@@ -206,14 +207,20 @@ export async function POST(req: Request): Promise<Response> {
       { testSeed: true },
       { tenantId, organizationId: organizationId ?? tenantId, userId: null },
     )
-    let channel = await em.findOne(CommunicationChannel, {
-      providerKey: TEST_SEED_PROVIDER_KEY,
-      channelType: 'email',
-      tenantId,
-      organizationId,
-      userId: null,
-      deletedAt: null,
-    })
+    let channel = await findOneWithDecryption(
+      em,
+      CommunicationChannel,
+      {
+        providerKey: TEST_SEED_PROVIDER_KEY,
+        channelType: 'email',
+        tenantId,
+        organizationId,
+        userId: null,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId, organizationId },
+    )
     if (!channel) {
       const stamp = Date.now()
       channel = em.create(CommunicationChannel, {
@@ -345,32 +352,16 @@ export async function POST(req: Request): Promise<Response> {
   em.persist(conversation)
   await em.flush()
 
-  // Insert the platform `messages.message` row via raw SQL rather than importing
-  // the messages module's entity class (cross-module ORM coupling rule). Only
-  // `thread_id` matters for the hub-thread inheritance join (TC-CRM-EMAIL-005);
-  // the rest satisfy NOT NULL constraints.
-  const messageRows = (await em.getConnection().execute(
-    `INSERT INTO messages
-       (type, thread_id, sender_user_id, subject, body, body_format, priority, status,
-        is_draft, sent_at, visibility, source_entity_type, source_entity_id,
-        tenant_id, organization_id, created_at, updated_at)
-     VALUES
-       (?, ?, ?, ?, ?, 'text', 'normal', 'sent',
-        false, now(), 'public', 'communication_channels.test_seed_inbound', ?,
-        ?, ?, now(), now())
-     RETURNING id`,
-    [
-      `channel.${providerKey}`,
-      body.messageThreadId ?? null,
-      userId,
-      body.subject ?? '(no subject)',
-      body.bodyText ?? '',
-      body.channelId,
-      tenantId,
-      organizationId,
-    ],
-  )) as Array<{ id: string }>
-  const messageId = messageRows[0]?.id
+  const messageId = await createTestSeedPlatformMessage(em, {
+    providerKey,
+    threadId: body.messageThreadId,
+    senderUserId: userId,
+    subject: body.subject,
+    bodyText: body.bodyText,
+    channelId: body.channelId,
+    tenantId,
+    organizationId,
+  })
   if (!messageId) {
     return NextResponse.json({ error: '[internal] failed to seed message row' }, { status: 500 })
   }

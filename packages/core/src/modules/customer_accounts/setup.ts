@@ -137,6 +137,10 @@ const DEFAULT_ROLES = [
   },
 ]
 
+const DEFAULT_CUSTOMER_ROLE_FEATURES = Object.fromEntries(
+  DEFAULT_ROLES.map((role) => [role.slug, [...role.acl.features]]),
+)
+
 /**
  * Collect defaultCustomerRoleFeatures from all enabled modules and merge
  * them into the corresponding CustomerRoleAcl records.
@@ -220,6 +224,9 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['customer_accounts.*'],
     admin: ['customer_accounts.*'],
   },
+  // Keep the portal feature catalog declarative so the shared feature policy
+  // can project portal.* into concrete capabilities without importing core.
+  defaultCustomerRoleFeatures: DEFAULT_CUSTOMER_ROLE_FEATURES,
 
   async onTenantCreated({ em, tenantId, organizationId }) {
     await seedDefaultRoles(em, { tenantId, organizationId })

@@ -200,17 +200,19 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 202-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 203-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
+    evaluationKind: string
     context: { required: string[]; allowedExtra?: string[] }
     requiredDecisions: string[]
     requiredSkills: string[]
     expectedRouter: { required: string[] }
+    frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
-  assert.equal(cases.length, 202)
+  assert.equal(cases.length, 203)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -338,6 +340,27 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/modules/wms.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
+    'OMH-203': {
+      contexts: [
+        '.ai/guides/extensions.md',
+        '.ai/guides/backend-ui.md',
+        '.ai/guides/modules/customers.md',
+        '.ai/skills/om-system-extension/SKILL.md',
+        '.ai/skills/om-backend-ui-design/SKILL.md',
+        '.ai/skills/om-framework-context/SKILL.md',
+      ],
+      decisions: [
+        'extension-mechanism',
+        'additive-before-replacement',
+        'extension-entity',
+        'eject-last',
+        'widget-injection-files',
+        'person-detail-tab-spot',
+        'company-detail-tab-spot',
+        'guidance-before-framework-context',
+        'installed-packages-read-only',
+      ],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -391,6 +414,14 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
     assert.ok(record?.context.required.includes(factSheet), `${caseId}: the installed module fact-sheet must be observed, not merely allowed`)
     assert.ok(record?.requiredDecisions.includes('facts-first'), `${caseId}: reuse-installed routing must decide facts-first`)
   }
+  assert.deepEqual(byId.get('OMH-203')?.expectedRouter.required, ['umes', 'backend-ui', 'framework-context'])
+  assert.equal(byId.get('OMH-203')?.evaluationKind, 'routing')
+  assert.deepEqual(byId.get('OMH-203')?.frameworkContext, [
+    { module: 'customers', query: 'detail:customers.' },
+  ])
+  const systemExtensionSkill = read('shared/ai/skills/om-system-extension/SKILL.md')
+  assert.match(systemExtensionSkill, /widgets\/injection\/\*\*/)
+  assert.match(systemExtensionSkill, /widgets\/injection-table\.ts/)
 })
 
 test('the business-language cohort includes the OMH-185 parity case without leaked framework contracts', () => {
@@ -480,7 +511,7 @@ test('every published case count states the shipped catalog or the portability s
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
   const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
   // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
-  // "46 writable implementation/regression cases" and "202 live-routing cases" are checked too; a
+  // "46 writable implementation/regression cases" and "203 live-routing cases" are checked too; a
   // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
   const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)[ -][a-z/ -]{0,120}cases?\b/g
   const allowed = new Map([

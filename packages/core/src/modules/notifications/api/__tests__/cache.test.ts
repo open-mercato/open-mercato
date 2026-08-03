@@ -93,8 +93,7 @@ describe('GET /api/notifications caching', () => {
     expect(cache.get).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
     const [key, value, options] = cache.set.mock.calls[0]
-    expect(key).toContain(`notifications:list:v1:u=${firstUserId}:scope=`)
-    expect(key).toContain(`"organizationIds":["${orgId}"]`)
+    expect(key).toContain(`notifications:list:v2:u=${firstUserId}:org=${orgId}:scope=`)
     expect(value).toEqual({
       items: [],
       total: 7,
@@ -150,21 +149,7 @@ describe('GET /api/notifications caching', () => {
     expect(keys[0]).not.toBe(keys[1])
   })
 
-  it('uses distinct cache keys for different filter signatures', async () => {
-    process.env.ENABLE_CRUD_API_CACHE = 'true'
-    const { GET } = await loadRoute()
-    cache.get.mockResolvedValue(null)
-
-    await GET(new Request('http://localhost/api/notifications?status=unread&pageSize=50'))
-    await GET(new Request('http://localhost/api/notifications?status=read&pageSize=50'))
-
-    const keys = cache.get.mock.calls.map(([key]) => key)
-    expect(keys[0]).not.toBe(keys[1])
-    expect(keys[0]).toContain('"status":"unread"')
-    expect(keys[1]).toContain('"status":"read"')
-  })
-
-  it('uses distinct cache keys for different organization scopes', async () => {
+  it('uses distinct cache keys for different selected organizations', async () => {
     process.env.ENABLE_CRUD_API_CACHE = 'true'
     const { GET } = await loadRoute()
     cache.get.mockResolvedValue(null)
@@ -182,24 +167,85 @@ describe('GET /api/notifications caching', () => {
     await GET(new Request('http://localhost/api/notifications?pageSize=50'))
 
     const keys = cache.get.mock.calls.map(([key]) => key)
-    expect(keys[0]).toContain(`"organizationIds":["${orgId}"]`)
-    expect(keys[1]).toContain(`"organizationIds":["${siblingOrgId}"]`)
+    expect(keys[0]).toContain(`org=${orgId}:scope=`)
+    expect(keys[1]).toContain(`org=${siblingOrgId}:scope=`)
     expect(keys[0]).not.toBe(keys[1])
   })
 
-  it('does not cache unrestricted organization reads', async () => {
+  it('separates the same selected organization across different accessible scopes', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockResolvedValue(null)
+
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+    resolveNotificationContextMock.mockResolvedValueOnce({
+      ctx: { container },
+      scope: {
+        userId: firstUserId,
+        tenantId,
+        organizationId: orgId,
+        organizationIds: [orgId, siblingOrgId],
+      },
+    })
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+
+    const keys = cache.get.mock.calls.map(([key]) => key)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('tags the cached page with every organization the scope can read', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockResolvedValue(null)
+    resolveNotificationContextMock.mockResolvedValue({
+      ctx: { container },
+      scope: {
+        userId: firstUserId,
+        tenantId,
+        organizationId: orgId,
+        organizationIds: [orgId, siblingOrgId],
+      },
+    })
+
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+
+    const [, , options] = cache.set.mock.calls[0]
+    expect(options.tags).toEqual([
+      `crud:notifications.notification:tenant:${tenantId}:org:${orgId}:collection`,
+      `crud:notifications.notification:tenant:${tenantId}:org:${siblingOrgId}:collection`,
+      `crud:notifications.notification:tenant:${tenantId}:org:null:collection`,
+    ])
+  })
+
+  it('does not cache an unrestricted organization scope that cannot be tagged', async () => {
     process.env.ENABLE_CRUD_API_CACHE = 'true'
     const { GET } = await loadRoute()
     resolveNotificationContextMock.mockResolvedValue({
       ctx: { container },
-      scope: { userId: firstUserId, tenantId, organizationId: null, organizationIds: null },
+      scope: { userId: firstUserId, tenantId, organizationId: orgId, organizationIds: null },
     })
+    count.mockResolvedValue(5)
 
     const response = await GET(new Request('http://localhost/api/notifications'))
 
     expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ total: 5 })
     expect(cache.get).not.toHaveBeenCalled()
     expect(cache.set).not.toHaveBeenCalled()
+  })
+
+  it('uses distinct cache keys for different filter signatures', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockResolvedValue(null)
+
+    await GET(new Request('http://localhost/api/notifications?status=unread&pageSize=50'))
+    await GET(new Request('http://localhost/api/notifications?status=read&pageSize=50'))
+
+    const keys = cache.get.mock.calls.map(([key]) => key)
+    expect(keys[0]).not.toBe(keys[1])
+    expect(keys[0]).toContain('"status":"unread"')
+    expect(keys[1]).toContain('"status":"read"')
   })
 
   it('falls back to the database when cache access fails', async () => {

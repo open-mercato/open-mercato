@@ -269,6 +269,40 @@ describe('notification service', () => {
     expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
+  it('invalidates cached reads after creating notifications for a feature', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const container = { resolve: jest.fn() }
+
+    ;(getRecipientUserIdsForFeature as jest.Mock).mockResolvedValue([baseCtx.userId])
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: 'note-feature-cache',
+      ...data,
+    }))
+
+    const service = createNotificationService({ em, eventBus, container })
+    await service.createForFeature(
+      {
+        type: 'system',
+        title: 'Hello',
+        requiredFeature: 'notifications.view',
+      },
+      baseCtx,
+    )
+
+    expect(invalidateCrudCache).toHaveBeenCalledWith(
+      container,
+      'notifications.notification',
+      {
+        id: undefined,
+        tenantId: baseCtx.tenantId,
+        organizationId: null,
+      },
+      baseCtx.tenantId,
+      'created',
+    )
+  })
+
   it('marks a notification as read and emits event', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }

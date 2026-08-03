@@ -9,6 +9,7 @@ const mockLoadAcl = jest.fn()
 const mockClearCapturedMessages = jest.fn()
 const mockListCapturedMessages = jest.fn()
 const mockIsCaptureAccessAuthorized = jest.fn()
+const mockCreateTestSeedPlatformMessage = jest.fn()
 
 const mockEm = {
   fork: jest.fn(),
@@ -45,6 +46,7 @@ jest.mock('../../../../events', () => ({
 jest.mock('../../../../lib/test-seed', () => ({
   TEST_SEED_PROVIDER_KEY: '__test_seed__',
   clearTestSeedCapturedMessages: (...args: unknown[]) => mockClearCapturedMessages(...args),
+  createTestSeedPlatformMessage: (...args: unknown[]) => mockCreateTestSeedPlatformMessage(...args),
   ensureTestSeedAdapterRegistered: jest.fn(),
   isTestEmailCaptureAccessAuthorized: (...args: unknown[]) => mockIsCaptureAccessAuthorized(...args),
   isTestChannelSeedingEnabled: () => true,
@@ -70,6 +72,7 @@ function expectNothingSeeded(): void {
   expect(mockEm.create).not.toHaveBeenCalled()
   expect(mockEm.persist).not.toHaveBeenCalled()
   expect(mockExecute).not.toHaveBeenCalled()
+  expect(mockCreateTestSeedPlatformMessage).not.toHaveBeenCalled()
   expect(mockEmitEvent).not.toHaveBeenCalled()
 }
 
@@ -84,6 +87,7 @@ describe('POST /api/communication_channels/test-seed — emit-inbound channel au
     mockEm.flush.mockResolvedValue(undefined)
     mockEm.getConnection.mockReturnValue({ execute: mockExecute })
     mockExecute.mockResolvedValue([{ id: 'seeded-message-id' }])
+    mockCreateTestSeedPlatformMessage.mockResolvedValue('seeded-message-id')
     mockEmitEvent.mockResolvedValue(undefined)
     mockCreateRequestContainer.mockResolvedValue(mockContainer)
     mockLoadAcl.mockResolvedValue({

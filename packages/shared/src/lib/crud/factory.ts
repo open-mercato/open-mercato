@@ -2333,6 +2333,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               organizationId: targetOrgId,
               tenantId: writeTenantId,
               values,
+              notify: false,
             })
           }
         }
@@ -2670,6 +2671,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               organizationId: targetOrgId,
               tenantId: writeTenantId,
               values,
+              notify: false,
             })
           }
         }
@@ -2773,6 +2775,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           request,
           method: 'DELETE',
           body: interceptorInput,
+          query: raw.query,
         })
         if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
         interceptorRequestPayload = beforeInterceptors.requestPayload
@@ -2897,7 +2900,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         request,
         method: 'DELETE',
         body: idFrom === 'query' ? undefined : ({ id } as Record<string, unknown>),
-        query: idFrom === 'query' ? ({ id } as Record<string, unknown>) : undefined,
+        query: idFrom === 'query' ? Object.fromEntries(url.searchParams.entries()) : undefined,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload
