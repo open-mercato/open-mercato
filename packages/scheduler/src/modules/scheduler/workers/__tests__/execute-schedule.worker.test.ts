@@ -2,6 +2,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { createQueue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities'
+import { registerSchedulerSafeCommands } from '../../lib/scheduler-safe-commands'
 import executeScheduleWorker from '../execute-schedule.worker'
 
 const mockCommandExecute = jest.fn()
@@ -41,6 +42,7 @@ function buildCommandSchedule(overrides: Partial<ScheduledJob> = {}): ScheduledJ
   schedule.scheduleValue = '* * * * *'
   schedule.timezone = 'UTC'
   schedule.sourceType = 'user'
+  schedule.createdByUserId = 'user-a'
   schedule.createdAt = new Date('2026-01-01T00:00:00.000Z')
   schedule.updatedAt = new Date('2026-01-01T00:00:00.000Z')
   Object.assign(schedule, overrides)
@@ -54,6 +56,7 @@ function buildWorkerContext(schedule: ScheduledJob) {
   }
   const rbacService = {
     tenantHasFeature: jest.fn(async () => true),
+    userHasAllFeatures: jest.fn(async () => true),
   }
   return {
     context: {
@@ -71,6 +74,15 @@ function buildWorkerContext(schedule: ScheduledJob) {
 }
 
 describe('executeScheduleWorker command scope', () => {
+  beforeAll(() => {
+    registerSchedulerSafeCommands([
+      {
+        commandId: 'scheduler.test.assert-tenant-scope',
+        requiredFeatures: ['scheduler.jobs.manage'],
+      },
+    ])
+  })
+
   afterEach(() => {
     mockCommandExecute.mockReset()
   })

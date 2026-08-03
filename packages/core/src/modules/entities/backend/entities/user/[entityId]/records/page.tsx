@@ -1,5 +1,7 @@
 "use client"
 import * as React from 'react'
+import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widgets/extension-points'
+import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { filterCustomFieldDefs, useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
@@ -383,7 +385,9 @@ export RECORD_ID="<record uuid>"`}</code></pre>
           actions={actions}
           columns={columns}
           data={data}
-          perspective={{ tableId: `entities.user.records.${entityId}` }}
+          perspective={{
+            tableId: resolveExtensionPointPattern(extensionPoints.hosts.userRecordsTable.pattern, { entityId }),
+          }}
           exporter={exportConfig}
           filters={baseFilters}
           filterValues={filterValues}

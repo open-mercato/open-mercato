@@ -9,8 +9,11 @@ import {
   type CustomFieldDefinitionRow,
 } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { type Kysely, type Transaction, sql } from 'kysely'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField } from './document'
+
+const logger = createLogger('query_index').child({ component: 'indexer' })
 
 type QueryIndexExecutor = Kysely<any> | Transaction<any>
 
@@ -194,8 +197,12 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     }
   } catch {}
 
+  // Kept outside the guard below: a failure while building the aggregate search field is a
+  // bug in the aggregation or its configuration, and must surface instead of being mistaken
+  // for an encryption failure and silently skipping encryption.
+  doc = attachAggregateSearchField(doc, { entityType: params.entityType })
+
   try {
-    doc = attachAggregateSearchField(doc)
     const encryption = resolveTenantEncryptionService(em as any)
     doc = await encryptIndexDocForStorage(
       params.entityType,
@@ -203,7 +210,23 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
       { tenantId: params.tenantId ?? null, organizationId: params.organizationId ?? null },
       encryption,
     )
-  } catch {}
+  } catch (error) {
+    // `encryptIndexDocForStorage` already returns the document untouched when encryption is
+    // absent or disabled, so a throw here is always a genuine encryption failure. Returning
+    // `doc` would hand the caller the plaintext document to write into `entity_indexes`,
+    // which must stay encrypted at rest; returning `null` would mean "record gone" and make
+    // `upsertIndexRow` delete a healthy index row. Fail loudly instead: the projection keeps
+    // its previous, correctly encrypted contents and the `query_index.upsert_one` subscriber
+    // persists the error via `recordIndexerError`.
+    logger.error('Index document encryption failed; refusing to return an unencrypted document', {
+      entityType: params.entityType,
+      recordId: params.recordId,
+      tenantId: params.tenantId ?? null,
+      organizationId: params.organizationId ?? null,
+      err: error,
+    })
+    throw error
+  }
 
   return doc
 }

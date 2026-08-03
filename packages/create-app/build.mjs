@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild'
+import { createHash } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join, basename, resolve } from 'path'
 
@@ -28,12 +29,30 @@ if (existsSync('src/lib/templates')) {
 
 // Copy agentic source content to dist/ so generators can read it at runtime
 if (existsSync('agentic')) {
+  rmSync('dist/agentic', { recursive: true, force: true })
   cpSync('agentic', 'dist/agentic', { recursive: true })
   console.log('Copied agentic/ → dist/agentic/')
 }
 
-// Auto-discover standalone guides from sibling packages
-// Each package can provide packages/<name>/agentic/standalone-guide.md
+// Bundle the release-matched upstream instruction boundary used by standalone
+// apps when installed package/module context is not enough. Both files remain
+// read-only reference material in the generated app.
+const repositoryRoot = resolve('..', '..')
+const upstreamDir = join('dist', 'agentic', 'guides', 'upstream')
+mkdirSync(upstreamDir, { recursive: true })
+const createAppVersion = JSON.parse(readFileSync('package.json', 'utf8')).version ?? null
+const upstreamManifest = { version: 1, generator: `create-mercato-app@${createAppVersion ?? 'unknown'}`, files: {} }
+for (const file of ['AGENTS.md', 'BACKWARD_COMPATIBILITY.md']) {
+  const source = join(repositoryRoot, file)
+  const destination = join(upstreamDir, file)
+  cpSync(source, destination)
+  upstreamManifest.files[file] = createHash('sha256').update(readFileSync(source)).digest('hex')
+}
+writeFileSync(join(upstreamDir, 'manifest.json'), `${JSON.stringify(upstreamManifest, null, 2)}\n`)
+
+// Auto-discover module-specific standalone guides from sibling packages.
+// Package-level guides are intentionally not shipped: the routed conceptual guides and
+// generated module fact-sheets are the standalone sources of truth.
 const packagesDir = join('..') // packages/create-app/.. = packages/
 const guidesDestDir = join('dist', 'agentic', 'guides')
 mkdirSync(guidesDestDir, { recursive: true })
@@ -41,9 +60,8 @@ mkdirSync(guidesDestDir, { recursive: true })
 // Clean stale per-module artifacts before regenerating so an incremental dist never
 // retains a removed module's full guide or fact-sheet. The legacy `core.<module>.md`
 // redirect stubs are no longer emitted (#3754); this purge also deletes any that linger
-// in an incremental `dist/` from an older build. The conceptual `module-system.md` and the
-// single-dot package guides (`core.md`, …) are re-emitted below (or copied from `agentic/`),
-// so they are intentionally left alone here.
+// in an incremental `dist/` from an older build. The conceptual `module-system.md` remains;
+// stale single-dot package guides (`core.md`, …) are removed below.
 rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
 for (const entry of readdirSync(guidesDestDir)) {
   if (/^core\..+\.md$/.test(entry)) {
@@ -53,11 +71,11 @@ for (const entry of readdirSync(guidesDestDir)) {
 
 let guidesFound = 0
 for (const pkg of readdirSync(packagesDir)) {
-  // Package-level guide: packages/<pkg>/agentic/standalone-guide.md → <pkg>.md
+  // Package-level source guides remain for monorepo context, but standalone apps route
+  // through conceptual and module-level guides, so remove their stale emitted copies.
   const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
   if (existsSync(guideSource)) {
-    cpSync(guideSource, join(guidesDestDir, `${pkg}.md`))
-    guidesFound++
+    rmSync(join(guidesDestDir, `${pkg}.md`), { force: true })
   }
 
   // Module-level guides: packages/<pkg>/src/modules/<mod>/agentic/standalone-guide.md → <pkg>.<mod>.md
@@ -100,7 +118,7 @@ if (sources.length > 0) {
     coreVersion = null
   }
 
-  const { factsByModule, markdownByModule, warnings } = extractAllModuleFacts({
+  const { factsByModule, markdownByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
     sources,
     registryPath: existsSync(registryPath) ? registryPath : null,
     coreVersion,
@@ -112,6 +130,7 @@ if (sources.length > 0) {
     writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
   }
   writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+  writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
   for (const warning of warnings) console.warn(warning)
   console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)

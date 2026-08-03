@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -245,7 +246,7 @@ export function AuditLogsActions({
         data={actionItems}
         columns={columns}
         actions={combinedActions}
-        perspective={{ tableId: 'audit_logs.actions.list' }}
+        perspective={{ tableId: extensionPoints.hosts.actionsTable.tableId }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
         onRowClick={(item) => setSelected(item)}
         pagination={pagination}

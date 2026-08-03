@@ -4,7 +4,7 @@ jest.mock('@open-mercato/queue', () => ({
     clear: jest.fn(),
     close: jest.fn(),
   })),
-}), { virtual: true })
+}))
 
 const { createEventBus } = require('../bus')
 
