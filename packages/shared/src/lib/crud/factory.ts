@@ -2333,6 +2333,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               organizationId: targetOrgId,
               tenantId: writeTenantId,
               values,
+              notify: false,
             })
           }
         }
@@ -2670,6 +2671,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               organizationId: targetOrgId,
               tenantId: writeTenantId,
               values,
+              notify: false,
             })
           }
         }

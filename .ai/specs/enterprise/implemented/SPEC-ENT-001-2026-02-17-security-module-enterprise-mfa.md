@@ -791,7 +791,7 @@ export const removeMfaMethodSchema = z.object({
 
 ## 7. API endpoints
 
-All endpoints use the existing `makeCrudRoute` factory and OpenAPI specification pattern. Feature-based access control gates every endpoint. Public endpoints (MFA verify during login, recovery codes during login) require a valid `challenge_id` instead of JWT auth.
+All endpoints use the existing `makeCrudRoute` factory and OpenAPI specification pattern. Feature-based access control gates every privileged endpoint. Public endpoints (MFA verify during login, recovery codes during login) require a valid `challenge_id` instead of JWT auth. Provider enrollment applies a conditional server-side guard: `security.mfa.manage` is required during ordinary self-service use, while a tenant user who is actively non-compliant under MFA enforcement may start and confirm enrollment so the middleware's compelled redirect cannot become a lockout. When enforcement verification itself is unavailable and navigation fails closed to enrollment, the same provider-enrollment recovery path remains open. Recovery-code regeneration and method removal always require `security.mfa.manage`.
 
 ### 7.0 CRUD factory + command/undo policy
 
@@ -836,8 +836,8 @@ Read-only endpoints (`GET ...`) remain direct query/service reads. Login/sudo ve
 | `POST` | `/api/security/mfa/passkey/register-options` | `security.mfa.manage` | Get WebAuthn credential creation options |
 | `POST` | `/api/security/mfa/passkey/register` | `security.mfa.manage` | Complete passkey registration |
 | `POST` | `/api/security/mfa/otp-email/setup` | `security.mfa.manage` | Enable OTP email method |
-| `POST` | `/api/security/mfa/provider/:type/setup` | `security.mfa.manage` | Begin enrollment for any registered custom MFA provider |
-| `POST` | `/api/security/mfa/provider/:type/confirm` | `security.mfa.manage` | Confirm enrollment for any registered custom MFA provider |
+| `POST` | `/api/security/mfa/provider/:type` | `security.mfa.manage` or compelled-enrollment exemption | Begin enrollment for any registered MFA provider |
+| `PUT` | `/api/security/mfa/provider/:type` | `security.mfa.manage` or compelled-enrollment exemption | Confirm enrollment for any registered MFA provider |
 | `GET` | `/api/security/mfa/providers` | `security.mfa.view` | List all available MFA provider types (built-in + custom) |
 | `DELETE` | `/api/security/mfa/methods/:id` | `security.mfa.manage` | Remove an MFA method (soft delete) |
 | `POST` | `/api/security/mfa/verify` | (public — requires `challenge_id`) | Verify MFA during login flow |
@@ -2085,3 +2085,7 @@ security/
 - `sudoChallengeInitSchema` / `sudoChallengeVerifySchema`: `targetType` field removed
 - `dedupeSudoTargets`: dedup key changed from `${type}:${identifier}` to `identifier`
 - DB migration: `Migration20260317080124` — drops composite index, makes `target_type` nullable
+
+### 2026-08-02 — Preserve enrollment under MFA enforcement
+
+Ordinary self-service MFA management now requires `security.mfa.manage`, and the default employee role receives that feature. Provider setup and confirmation use an enforcement-aware server-side authorization guard: users without the feature remain denied during voluntary enrollment, but active non-compliant tenant users may enroll when middleware compels them to do so. Enforcement-resolution failures also keep this enrollment-only recovery path available because backend navigation fails closed to the same page. Recovery-code regeneration and method deletion remain statically feature-gated. Unit and integration coverage exercise feature grants, ordinary denial, active enforcement, enforcement-service failure, tenant-less contexts, and empty tenant IDs.

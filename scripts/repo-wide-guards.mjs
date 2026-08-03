@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
+        scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
+      },
+      {
         path: 'src/__tests__/license-metadata-consistency.test.ts',
         scans: 'git-tracked files repo-wide — enterprise license headers',
       },
@@ -147,6 +151,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/primitives/__tests__/zindex-overlay.test.tsx',
         scans: 'apps/mercato and packages/create-app/template globals.css — z-index scale',
+      },
+      {
+        path: 'src/backend/icons/__tests__/lucideRegistryGenerator.test.ts',
+        scans: 'git-tracked files repo-wide — importers of the deep lucideRegistry.generated path',
       },
     ],
   },

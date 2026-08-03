@@ -207,6 +207,7 @@ export function ScheduleActivityDialog({
   const initialSnapshotRef = React.useRef<string | null>(null)
   const snapshotOpenKeyRef = React.useRef<string | null>(null)
   const snapshotSettleCountRef = React.useRef(0)
+  const closeConfirmPendingRef = React.useRef(false)
   const openKey = open ? `${editData?.id ?? 'new'}` : null
   React.useEffect(() => {
     if (!open) {
@@ -232,21 +233,27 @@ export function ScheduleActivityDialog({
   }, [formSnapshot])
 
   const guardedClose = React.useCallback(async () => {
+    if (closeConfirmPendingRef.current) return
     if (!isDirty()) {
       onClose()
       return
     }
-    const ok = await confirm({
-      title: t('customers.schedule.discardConfirm.title', 'Discard unsaved changes?'),
-      description: t(
-        'customers.schedule.discardConfirm.description',
-        'You have unsaved edits in this activity. Save them first or continue to discard them.',
-      ),
-      confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
-      cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
-      variant: 'destructive',
-    })
-    if (ok) onClose()
+    closeConfirmPendingRef.current = true
+    try {
+      const ok = await confirm({
+        title: t('customers.schedule.discardConfirm.title', 'Discard unsaved changes?'),
+        description: t(
+          'customers.schedule.discardConfirm.description',
+          'You have unsaved edits in this activity. Save them first or continue to discard them.',
+        ),
+        confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
+        cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
+        variant: 'destructive',
+      })
+      if (ok) onClose()
+    } finally {
+      closeConfirmPendingRef.current = false
+    }
   }, [confirm, isDirty, onClose, t])
 
   const mutationContextId = React.useMemo(
@@ -468,8 +475,12 @@ export function ScheduleActivityDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
-      {ConfirmDialogElement}
-      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
+      <DialogContent
+        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
+        onKeyDown={handleKeyDown}
+        aria-describedby={undefined}
+      >
+        {ConfirmDialogElement}
         <VisuallyHidden>
           <DialogTitle>{isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}</DialogTitle>
         </VisuallyHidden>
