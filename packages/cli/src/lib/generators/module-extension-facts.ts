@@ -1097,14 +1097,13 @@ function extractSubscribers(options: ExtractModuleExtensionFactsOptions): Module
   const directory = path.join(options.moduleRoot, 'subscribers')
   if (!fs.existsSync(directory)) return []
   const facts: ModuleExtensionContributionFact[] = []
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isFile() || !/\.(?:ts|tsx)$/.test(entry.name) || /\.(?:test|spec)\./.test(entry.name)) continue
-    const filePath = path.join(directory, entry.name)
+  for (const filePath of sourceFilesBelow(directory)) {
     const metadata = readRootObject(filePath, 'metadata')
     if (!metadata) continue
     const event = stringValue(metadata.event)
     if (!event) continue
-    const subscriberId = stringValue(metadata.id) ?? `${options.moduleId}:${entry.name.replace(/\.tsx?$/, '')}`
+    const relativeStem = path.relative(directory, filePath).replace(/\.tsx?$/, '').split(path.sep).join('/')
+    const subscriberId = stringValue(metadata.id) ?? `${options.moduleId}:${relativeStem}`
     const persistent = booleanValue(metadata.persistent) ?? false
     const sync = booleanValue(metadata.sync) ?? !persistent
     const contribution = contributionBase(subscriberId, portablePath(options.moduleRoot, options.sourceRoot, filePath), 'metadata')
@@ -1238,21 +1237,37 @@ function extractSpecializedRegistries(options: ExtractModuleExtensionFactsOption
 
   const integrationPath = conventionPath(options.moduleRoot, 'integration.ts')
   if (integrationPath) {
-    const integration = readRootObject(integrationPath, 'integration')
     const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, integrationPath)
-    const integrationId = integration ? stringValue(integration.id) : undefined
-    if (integrationId) add(integrationId, 'integration', sourcePath, 'integrations', 'integration')
-    const providerKey = integration ? stringValue(integration.providerKey) : undefined
-    const category = integration ? stringValue(integration.category) : undefined
-    const categoryRegistry = category === 'payment' ? 'payment'
-      : category === 'shipping' ? 'shipping'
-        : category === 'currency' ? 'currency'
-          : null
-    if (providerKey && categoryRegistry) {
-      const specialistRoute = categoryRegistry === 'payment' ? 'paymentGateways'
-        : categoryRegistry === 'shipping' ? 'shippingCarriers'
-          : 'currencies'
-      add(providerKey, categoryRegistry, sourcePath, specialistRoute, 'integration.providerKey')
+    const addIntegration = (integration: StaticObject, symbol: string, bundleId?: string): void => {
+      const integrationId = stringValue(integration.id)
+      if (integrationId) {
+        add(integrationId, 'integration', sourcePath, 'integrations', bundleId ? `${symbol}[${bundleId}]` : symbol)
+      }
+      const providerKey = stringValue(integration.providerKey)
+      const category = stringValue(integration.category)
+      const categoryRegistry = category === 'payment' ? 'payment'
+        : category === 'shipping' ? 'shipping'
+          : category === 'currency' ? 'currency'
+            : null
+      if (providerKey && categoryRegistry) {
+        const specialistRoute = categoryRegistry === 'payment' ? 'paymentGateways'
+          : categoryRegistry === 'shipping' ? 'shippingCarriers'
+            : 'currencies'
+        add(providerKey, categoryRegistry, sourcePath, specialistRoute, `${symbol}.providerKey`)
+      }
+    }
+    const singular = readRootObject(integrationPath, 'integration')
+    if (singular) addIntegration(singular, 'integration')
+    for (const integration of readConventionObjectArray(integrationPath, 'integrations')) {
+      addIntegration(integration, 'integrations')
+    }
+    const bundle = readRootObject(integrationPath, 'integrationBundle') ?? readRootObject(integrationPath, 'bundle')
+    if (bundle) {
+      const bundleId = stringValue(bundle.id) ?? 'bundle'
+      const members = Array.isArray(bundle.integrations) ? bundle.integrations : []
+      for (const member of members) {
+        if (isStaticObject(member)) addIntegration(member, 'integrationBundle', bundleId)
+      }
     }
   }
 
