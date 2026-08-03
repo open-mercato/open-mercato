@@ -40,8 +40,8 @@
 
 ### Phase 1: Accessible mirrored fallback
 
-- [ ] 1.1 Replace the null fallback with the shared accessible `Spinner` centered in the login viewport
-- [ ] 1.2 Mirror the route and route-level unit coverage into the create-app template
+- [x] 1.1 Replace the null fallback with the shared accessible `Spinner` centered in the login viewport — 34edecb96
+- [x] 1.2 Mirror the route and route-level unit coverage into the create-app template — 34edecb96
 
 ### Phase 2: Regression and delivery verification
 
