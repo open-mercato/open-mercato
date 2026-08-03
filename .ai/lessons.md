@@ -4,6 +4,26 @@
 
 Recurring patterns and mistakes to avoid. Review at session start.
 
+## Query-index custom-field cardinality comes from definitions, not row count
+
+**Context**: A `multi: true` todo label containing one value was searchable, but reopening the edit form showed no tag. The query-index builder collapsed every one-row custom-field group to a scalar, while the controlled tags input correctly accepted only an array.
+
+**Problem**: Inferring cardinality from the current number of stored rows makes the same field change wire shape between one and two values. Read forms then cannot reliably hydrate multi controls, even though token search still sees the scalar value.
+
+**Rule**: When building query-index documents, resolve the scoped custom-field definition and preserve arrays for `multi: true` fields even when exactly one value is stored. Use the shared definition-selection helpers so tenant/organization overrides match CRUD response decoration.
+
+**Applies to**: `packages/core/src/modules/query_index/lib/indexer.ts`, custom-field projection builders, CRUD list responses backed by `entity_indexes.doc`, and edit forms for tags/listbox/multi-select fields.
+
+## CRUD-owned custom-field writes should not emit a second entity event
+
+**Context**: Generic CRUD routes save scalar entity data and custom fields, then emit the canonical CRUD side effect with events and query-index configuration. Letting the intermediate `setCustomFields()` call also emit `<module>.<entity>.updated` creates a second event path through the query-index DI bridge.
+
+**Problem**: The duplicate path can run inside the write transaction, swallow query-index failures as best-effort event work, and obscure the single request-owned side-effect path that is supposed to surface always-consistent index failures.
+
+**Rule**: When a CRUD route owns both the custom-field write and the subsequent `markOrmEntityChange()` / `flushOrmEntityChanges()` call, pass `notify: false` to `setCustomFields()`. The canonical created/updated/deleted side effect should be emitted exactly once after the entity/custom-field write succeeds. That is only half of the dedupe contract: when `DataEngine` also owns an explicit `indexer`, mark its domain-event payload as query-index-managed and have the legacy DI domain bridge skip it (including `skipReindex`). Keep internal ownership markers non-enumerable so client-broadcast and persisted event payloads preserve their public shape. Otherwise the canonical domain event and the inline `query_index.upsert_one` still index the same record twice and duplicate failure logs.
+
+**Applies to**: `packages/shared/src/lib/crud/factory.ts`, command helpers that compose custom fields with CRUD side effects, and module routes that manually combine `setCustomFields()` with query-index side effects.
+
 ## We've got centralized helpers for extracting `UndoPayload`
 
 Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.
@@ -970,6 +990,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
 
+- Notification read scopes must distinguish selected, unrestricted, no-access, and omitted legacy semantics in filters, cache behavior, and isolated integration fixtures.
 - 2026-07-11 · shared data engine: tenant-scope tests covered explicit null but not omitted scope → parameterize non-null, null, and omitted tenantId for every predicate path.
 
 ## Shared security-default changes require a complete consumer audit
@@ -989,6 +1010,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+## Classify entity metadata by ORM ownership before custom declarations
+
+**Context**: Entity metadata ACL filtering must distinguish module-owned ORM entities from genuinely custom entities, but `ce.ts` declarations can describe both kinds.
+
+**Problem**: Treating every declared entity as custom made ORM-backed entities require `entities.records.view`, bypassing their owning module's mapped view permission.
+
+**Rule**: Check `isOrmBackedSystemEntityId` first; only classify non-ORM declarations or registrations as custom for metadata authorization.
+
+**Applies to**: entity definitions, entity catalogues, schema discovery, and other target-aware entity metadata ACL checks.
 
 ## Security caches must outlive request-scoped providers and cover reserved IPv6 space
 
@@ -1048,6 +1079,34 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `create-mercato-app`, `agentic:init`, package publication contracts, generated module facts, and any standalone harness escape hatch for framework implementation details.
 
+## Integration routing tests must establish the route they claim to cover
+
+**Context**: A search-token fallback test created a record and immediately searched for it before deleting its tokens.
+
+**Problem**: Token indexing is asynchronous, so the first search could already use the plain-column fallback. The test could pass without ever exercising the token-backed route, while also decoding the create response from the wrong envelope.
+
+**Rule**: Decode fixture responses through the shared API helpers, then poll the authoritative persistence condition before asserting behavior that depends on an asynchronous route. Prove both the precondition and the fallback transition.
+
+**Applies to**: search indexing, background projections, cache-backed routing, async event handlers, and integration tests that claim to cover a specific execution path.
+
+## Concurrent index migrations must recover from invalid build stubs
+
+**Context**: `CREATE INDEX CONCURRENTLY IF NOT EXISTS` was used for a large online index build.
+
+**Problem**: PostgreSQL can leave an invalid index relation after an interrupted concurrent build. A retry with `IF NOT EXISTS` sees the relation and skips rebuilding it, allowing the migration to finish without a usable index.
+
+**Rule**: For a new concurrently built index, make the migration retry-safe by dropping the named index concurrently before creating it, and keep the migration non-transactional.
+
+**Applies to**: PostgreSQL online index migrations and deployment retries after interrupted schema changes.
+
+## Cross-module query precedent is not permission to copy storage coupling
+
+**Context**: Dashboard and customer analytics independently queried the currencies module's table to resolve base currency, so disabling or changing that optional module broke consumers outside its ownership boundary.
+
+**Rule**: Put peer-module table access behind a DI service owned by the source module. Optional consumers should resolve a narrow local interface fail-soft, distinguish missing and ambiguous data, and include disabled-module coverage. Treat an existing cross-module raw SQL query as coupling to retire, not a pattern to repeat.
+
+**Applies to**: optional module integrations, analytics enrichments, and any consumer that reads another module's tables or persistence details.
+
 ## Keep fallible document preparation outside encryption guards
 
 **Context**: Query-index aggregation and encryption shared an empty catch, so a configuration failure could skip encryption and let a plaintext document continue to persistence.
@@ -1055,3 +1114,14 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
 
 **Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
+
+## Portaled confirmations must stay inside their parent dialog's React tree
+
+**Context**: A native confirmation dialog was portaled to `document.body` from beside a Radix dialog's content, so real pointer events were classified as outside interactions and Escape was intercepted before the native cancel event.
+
+**Rule**: Render portaled confirmations as React children of the owning `DialogContent`, and handle Escape before the parent overlay's document-capture dismissal when the confirmation owns the active modal interaction.
+
+**Applies to**: nested native dialogs, Radix `DismissableLayer`, and any portaled confirmation shown from an open modal.
+
+- 2026-08-02 · UI preview: an ephemeral environment started before package edits can retain stale package and Next.js artifacts → restart it with `test:integration:ephemeral:start --force-rebuild` before Playwright verification.
+- 2026-08-02 · verification: sandboxed macOS rejected Homebrew Node dylibs and a fresh docs search index was absent → use the bundled Node runtime and build docs before retrying the full gate.

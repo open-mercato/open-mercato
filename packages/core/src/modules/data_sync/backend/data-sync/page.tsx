@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/data_sync/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -984,7 +985,7 @@ export default function SyncRunsDashboardPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('data_sync.dashboard.searchPlaceholder')}
-          perspective={{ tableId: 'data_sync.runs' }}
+          perspective={{ tableId: extensionPoints.hosts.runsTable.tableId }}
           onRowClick={(row) => {
             router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`)
           }}

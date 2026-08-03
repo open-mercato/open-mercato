@@ -7,7 +7,7 @@ Extend this app. Route first; never probe unmatched context.
 - Route all axes; missing context: `yarn mercato agentic:init --update-harness`.
 - App code: `src/modules/<id>/`; framework context only for a named version gap.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
-- Use commands, `makeCrudRoute`, `CrudForm`/`DataTable`, DI, events, and UMES on canonical paths.
+- Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
@@ -53,7 +53,7 @@ Existing installed form/table fields, filters, row/bulk actions without app pers
 |---|---|---|
 | `architecture` | Capability/ownership/field-vs-history choice, boundary, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
-| `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + target facts |
+| `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + named facts |
 | `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
 | `integration` | Provider, spreadsheet/CSV/file I/O, sync/webhook/storage | `.ai/guides/integrations.md`; imports = `integration`; AI consuming files = `ai-workflow`, NEVER `integration` unless transport/storage changes |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
@@ -85,7 +85,7 @@ Match every work-unit row; OPEN its skill before selection.
 | `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-`framework-context`: skip for “installed contracts” alone; require for exact contract/response/error identity or current behavior, authorization, dependents, and safest customization seam. Otherwise resolve one named unknown from facts.
+`framework-context`: resolve one named module/framework fact first. Use bounded source only for an unresolved exact contract, current behavior, authorization, dependents, or safest customization seam; never for “installed contracts” alone.
 
 ### Axis 3 — SDLC and Delivery
 

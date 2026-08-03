@@ -264,6 +264,9 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
           )
         } catch (error) {
           logger.error('Handler error', { event, pattern, err: error })
+          if (options?.rethrowHandlerErrors) {
+            throw error
+          }
         }
       }
     }

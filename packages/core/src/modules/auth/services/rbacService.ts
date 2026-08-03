@@ -6,8 +6,11 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { matchFeature as sharedMatchFeature, hasAllFeatures as sharedHasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
-import { filterGrantsByEnabledModules, getOwningModuleId, getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
+import {
+  authorizeFeatures,
+  resolveEffectiveFeatures,
+} from '@open-mercato/shared/security/featurePolicy'
+import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
 
 interface AclData {
@@ -55,32 +58,9 @@ export class RbacService {
     this.cacheTtlMs = ttlMs
   }
 
-  /**
-   * Checks if a required feature is satisfied by a granted feature permission.
-   * 
-   * Wildcard patterns:
-   * - `*` (global wildcard): Grants access to all features
-   * - `prefix.*` (module wildcard): Grants access to all features starting with `prefix.`
-   *   and also the exact prefix itself (e.g., `entities.*` matches both `entities` and `entities.records.view`)
-   * - Exact match: Feature must match exactly (e.g., `users.view` only matches `users.view`)
-   * 
-   * @param required - The feature being requested (e.g., 'entities.records.view')
-   * @param granted - The feature permission granted (e.g., 'entities.*' or '*')
-   * @returns true if the granted permission satisfies the required feature
-   * 
-   * @example
-   * matchFeature('users.view', '*') // true - global wildcard
-   * matchFeature('entities.records.view', 'entities.*') // true - module wildcard
-   * matchFeature('entities', 'entities.*') // true - exact prefix match
-   * matchFeature('users.view', 'entities.*') // false - different module
-   * matchFeature('users.view', 'users.view') // true - exact match
-   */
-  private matchFeature(required: string, granted: string): boolean {
-    return sharedMatchFeature(required, granted)
-  }
-
+  /** Compatibility wrapper for callers that already have both feature lists. */
   public hasAllFeatures(required: string[], granted: string[]): boolean {
-    return sharedHasAllFeatures(required, granted)
+    return authorizeFeatures(required, { grantedFeatures: granted })
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {
@@ -462,9 +442,6 @@ export class RbacService {
   ): Promise<boolean> {
     if (!tenantId || !feature) return false
 
-    const enabledIds = getEnabledModuleIds()
-    if (enabledIds.length && !enabledIds.includes(getOwningModuleId(feature))) return false
-
     const em = this.em.fork()
     const roleOrganizationScope = await resolveRoleOrganizationScope(
       this.organizationHierarchyService,
@@ -476,9 +453,13 @@ export class RbacService {
 
     for (const acl of list) {
       if (!roleAclAllowsOrganization(acl, roleOrganizationScope)) continue
-      if (acl.isSuperAdmin) return true
       const grants = Array.isArray(acl.featuresJson) ? acl.featuresJson : []
-      if (this.hasAllFeatures([feature], filterGrantsByEnabledModules(grants))) return true
+      if (authorizeFeatures([feature], {
+        grantedFeatures: grants,
+        unrestricted: acl.isSuperAdmin,
+      })) {
+        return true
+      }
     }
 
     return false
@@ -522,23 +503,22 @@ export class RbacService {
   async userHasAllFeatures(userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
-    if (acl.isSuperAdmin) {
-      const enabledIds = getEnabledModuleIds()
-      if (!enabledIds.length) return true
-      const enabledSet = new Set(enabledIds)
-      return required.every((feature) => enabledSet.has(getOwningModuleId(feature)))
-    }
-    if (acl.organizations && scope.organizationId && !acl.organizations.includes(scope.organizationId) && !acl.organizations.includes('__all__')) return false
-    return this.hasAllFeatures(required, filterGrantsByEnabledModules(acl.features))
+    const organizationAllowed = acl.isSuperAdmin
+      || !acl.organizations
+      || !scope.organizationId
+      || acl.organizations.includes(scope.organizationId)
+      || acl.organizations.includes('__all__')
+    return authorizeFeatures(required, {
+      grantedFeatures: acl.features,
+      unrestricted: acl.isSuperAdmin,
+      scopeAllowed: organizationAllowed,
+    })
   }
 
   /**
-   * Returns the effective feature grant list for a user within a scope,
-   * filtered to enabled modules only. Super admins receive `['*']` expanded
-   * to per-module wildcards via `filterGrantsByEnabledModules` — consistent
-   * with `userHasAllFeatures` which also enforces disabled-module boundaries
-   * for super admins. Returns `[]` when the requested organization is outside
-   * the user's visibility list, or when the user does not exist.
+   * Returns the user's infrastructure grant list, filtered to enabled modules.
+   * The result may contain wildcards; authoritative checks must still go through
+   * `authorizeFeatures` or `userHasAllFeatures` so null overrides are enforced.
    */
   async getGrantedFeatures(
     userId: string,
@@ -555,5 +535,20 @@ export class RbacService {
       return []
     }
     return filterGrantsByEnabledModules(acl.features)
+  }
+
+  /** Returns concrete active feature IDs for browser capability payloads. */
+  async getEffectiveFeatures(
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<string[]> {
+    const acl = await this.loadAcl(userId, scope)
+    const organizationAllowed = acl.isSuperAdmin
+      || !acl.organizations
+      || !scope.organizationId
+      || acl.organizations.includes(scope.organizationId)
+      || acl.organizations.includes('__all__')
+    if (!organizationAllowed) return []
+    return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
   }
 }

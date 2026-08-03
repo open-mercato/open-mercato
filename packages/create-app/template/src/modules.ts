@@ -87,6 +87,9 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' },
   { id: 'api_docs', from: '@open-mercato/core' },
+  // Live DS component gallery at /backend/design-system (feature-gated by
+  // design_system.view). Disable by removing this line.
+  { id: 'design_system', from: '@open-mercato/core' },
   { id: 'business_rules', from: '@open-mercato/core' },
   { id: 'feature_toggles', from: '@open-mercato/core' },
   { id: 'workflows', from: '@open-mercato/core' },
@@ -128,11 +131,14 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
-      // Applied (not just catalogued) so integration coverage can prove a real nav override survives
-      // bootstrap, mirroring how the override-probe route below is proven by TC-UMES-022.
-      nav: {
-        groupOrder: ['example.nav.group'],
+      acl: {
+        features: { 'example.manage': null },
       },
+      // Keep the real-bootstrap nav override probe isolated from normal app behavior. The integration
+      // runner sets OM_INTEGRATION_TEST, while development and production keep Example at the tail.
+      nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
+        ? { groupOrder: ['example.nav.group'] }
+        : undefined,
       routes: {
         api: {
           'GET /api/example/override-probe': {

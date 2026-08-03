@@ -6,6 +6,7 @@ import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { asValue, createContainer, InjectionMode } from 'awilix'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
@@ -16,6 +17,10 @@ jest.mock('../lib/notificationRecipients', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  invalidateCrudCache: jest.fn().mockResolvedValue(undefined),
 }))
 
 const baseNotificationInput = {
@@ -267,6 +272,40 @@ describe('notification service', () => {
     expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
+  it('invalidates cached reads after creating notifications for a feature', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const container = { resolve: jest.fn() }
+
+    ;(getRecipientUserIdsForFeature as jest.Mock).mockResolvedValue([baseCtx.userId])
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: 'note-feature-cache',
+      ...data,
+    }))
+
+    const service = createNotificationService({ em, eventBus, container })
+    await service.createForFeature(
+      {
+        type: 'system',
+        title: 'Hello',
+        requiredFeature: 'notifications.view',
+      },
+      baseCtx,
+    )
+
+    expect(invalidateCrudCache).toHaveBeenCalledWith(
+      container,
+      'notifications.notification',
+      {
+        id: undefined,
+        tenantId: baseCtx.tenantId,
+        organizationId: null,
+      },
+      baseCtx.tenantId,
+      'created',
+    )
+  })
+
   it('marks a notification as read and emits event', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
@@ -408,6 +447,111 @@ describe('notification service', () => {
         })
       )
     }
+  })
+
+  it('counts unread notifications in the selected organization plus tenant-wide scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.count.mockResolvedValue(2)
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.getUnreadCount({
+      ...baseCtx,
+      organizationId: 'org-1',
+      organizationIds: ['org-1', 'org-1-child'],
+    })).resolves.toBe(2)
+
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      $or: [
+        { organizationId: { $in: ['org-1', 'org-1-child'] } },
+        { organizationId: null },
+      ],
+    })
+  })
+
+  it('polls only tenant-wide notifications when no organization is accessible', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.find.mockResolvedValue([])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    await service.getPollData({
+      ...baseCtx,
+      organizationId: null,
+      organizationIds: [],
+    })
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      organizationId: null,
+    }, {
+      orderBy: { createdAt: 'desc' },
+      limit: 50,
+    })
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      organizationId: null,
+      status: 'unread',
+    })
+  })
+
+  it('polls all tenant notifications for unrestricted all-organizations scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.find.mockResolvedValue([])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    await service.getPollData({
+      ...baseCtx,
+      organizationId: null,
+      organizationIds: null,
+    })
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+    }, {
+      orderBy: { createdAt: 'desc' },
+      limit: 50,
+    })
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+    })
+  })
+
+  it('preserves tenant-wide reads for legacy callers that omit organizationIds', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.find.mockResolvedValue([])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    await service.getPollData({
+      ...baseCtx,
+      organizationId: 'legacy-org-id-that-was-not-a-read-filter',
+    })
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+    }, {
+      orderBy: { createdAt: 'desc' },
+      limit: 50,
+    })
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+    })
   })
 
   it('executes notification action via command bus', async () => {

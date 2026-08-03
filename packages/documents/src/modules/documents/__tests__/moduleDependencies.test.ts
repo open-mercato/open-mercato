@@ -40,7 +40,7 @@ describe('documents module dependencies', () => {
       default: './dist/server/documents-collab-server.js',
     }))
     expect(packageJson.dependencies?.['@open-mercato/events']).toBe('workspace:*')
-    expect(packageJson.dependencies?.['@mikro-orm/core']).toBe('^7.1.5')
+    expect(packageJson.dependencies?.['@mikro-orm/core']).toBe('^7.1.8')
     expect(buildSource).toContain("join(packageDir, 'server', 'documents-collab-server.ts')")
     expect(buildSource).toContain("outbase: '.'")
   })

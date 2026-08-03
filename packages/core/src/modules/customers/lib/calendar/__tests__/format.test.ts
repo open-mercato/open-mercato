@@ -3,8 +3,12 @@ import { formatDateLabel, formatDateRangeLabel, formatTimeRangeLabel } from '../
 const JUN_15 = new Date(2026, 5, 15)
 const JUN_21 = new Date(2026, 5, 21)
 const JUN_28 = new Date(2026, 5, 28)
+const JUL_27 = new Date(2026, 6, 27)
+const AUG_2 = new Date(2026, 7, 2)
 const AT_14 = new Date(2026, 5, 28, 14, 0)
 const AT_15 = new Date(2026, 5, 28, 15, 0)
+
+const HYDRATION_UNSTABLE_SPACING = /[\u00a0\u2007\u2009\u202f]/
 
 describe('formatDateRangeLabel', () => {
   it('localizes the month name for Polish instead of falling back to English', () => {
@@ -22,6 +26,13 @@ describe('formatDateRangeLabel', () => {
     expect(formatDateRangeLabel('pl', JUN_15, JUN_21)).not.toBe(
       formatDateRangeLabel('en', JUN_15, JUN_21),
     )
+  })
+
+  it('uses hydration-stable spacing around the localized range', () => {
+    const label = formatDateRangeLabel('en', JUL_27, AUG_2)
+
+    expect(label).toBe('Jul 27 – Aug 2, 2026')
+    expect(label).not.toMatch(HYDRATION_UNSTABLE_SPACING)
   })
 })
 
@@ -55,5 +66,12 @@ describe('formatTimeRangeLabel', () => {
     expect(formatTimeRangeLabel('pl', AT_14, AT_15)).not.toBe(
       formatTimeRangeLabel('en', AT_14, AT_15),
     )
+  })
+
+  it('uses hydration-stable spacing around the localized range', () => {
+    const label = formatTimeRangeLabel('en', AT_14, AT_15)
+
+    expect(label).toBe('2:00 – 3:00 PM')
+    expect(label).not.toMatch(HYDRATION_UNSTABLE_SPACING)
   })
 })

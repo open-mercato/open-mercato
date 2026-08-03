@@ -444,7 +444,7 @@ describe('Activity Executor (Unit Tests)', () => {
         }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([
@@ -480,10 +480,11 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.executed).toBe(true)
       expect(result.output.commandId).toBe('sales.orders.update')
-      expect(mockRbacService.getGrantedFeatures).toHaveBeenCalledWith('user-123', {
-        tenantId: testTenantId,
-        organizationId: testOrgId,
-      })
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-123',
+        ['sales.orders.manage'],
+        { tenantId: testTenantId, organizationId: testOrgId },
+      )
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
         'sales.orders.update',
         expect.objectContaining({
@@ -567,7 +568,7 @@ describe('Activity Executor (Unit Tests)', () => {
         execute: jest.fn().mockResolvedValue({ result: {} }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.view']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(false),
       }
 
       registerWorkflowSafeCommands([
@@ -603,7 +604,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([
@@ -2031,7 +2032,7 @@ describe('Activity Executor (Unit Tests)', () => {
         }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([

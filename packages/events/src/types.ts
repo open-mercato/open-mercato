@@ -86,6 +86,8 @@ export type EmitOptions = {
    * @internal
    */
   emitterModuleId?: string
+  /** Opt-in path for callers that need inline subscriber failures to reject the emit. */
+  rethrowHandlerErrors?: boolean
 }
 
 /** Options for creating an event bus */

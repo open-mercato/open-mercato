@@ -130,6 +130,18 @@ function makeTempDir(): string {
   return dir
 }
 
+function extractExampleModuleEntry(content: string): string {
+  const startMarker = "  {\n    id: 'example',"
+  const endMarker = "\n  { id: 'ratelimit_probe'"
+  const start = content.indexOf(startMarker)
+  const end = content.indexOf(endMarker, start)
+
+  assert.notEqual(start, -1, 'expected the Example module entry')
+  assert.notEqual(end, -1, 'expected the module entry after Example')
+
+  return content.slice(start, end)
+}
+
 test('applyStarterPreset: classic is a no-op', () => {
   const dir = makeTempDir()
   try {
@@ -296,5 +308,22 @@ test('production image rejects non-browser collaboration endpoints', () => {
   ]) {
     const result = validate(invalid)
     assert.notEqual(result.status, 0, `expected production validator to reject ${invalid}`)
+  }
+})
+
+test('template and monorepo keep the applied Example nav override integration-only', () => {
+  const templateContent = readFileSync(join(__dirname, '..', '..', 'template', 'src', 'modules.ts'), 'utf-8')
+  const monorepoContent = readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'mercato', 'src', 'modules.ts'), 'utf-8')
+  const templateEntry = extractExampleModuleEntry(templateContent)
+  const monorepoEntry = extractExampleModuleEntry(monorepoContent)
+
+  assert.equal(templateEntry, monorepoEntry)
+
+  for (const entry of [templateEntry, monorepoEntry]) {
+    assert.match(
+      entry,
+      /nav:\s*parseBooleanWithDefault\(process\.env\.OM_INTEGRATION_TEST, false\)\s*\?\s*\{ groupOrder: \['example\.nav\.group'\] \}\s*:\s*undefined/,
+    )
+    assert.doesNotMatch(entry, /nav:\s*\{\s*groupOrder:/)
   }
 })
