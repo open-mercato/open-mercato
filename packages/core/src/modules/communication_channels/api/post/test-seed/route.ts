@@ -5,7 +5,14 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { ChannelThreadMapping, ExternalConversation, MessageChannelLink } from '../../../data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  ChannelThreadMapping,
+  CommunicationChannel,
+  ExternalConversation,
+  MessageChannelLink,
+} from '../../../data/entities'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../lib/access-control'
 import {
   COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID,
   type ConnectCredentialChannelInput,
@@ -35,6 +42,13 @@ import {
  *     customers link-channel-message subscriber runs against real Postgres. Enables
  *     the inbound auto-link tests (TC-CRM-EMAIL-002..005).
  */
+type RbacServiceLike = {
+  loadAcl: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations: string[] | null }>
+}
+
 export const metadata = {
   path: '/communication_channels/test-seed',
   POST: {
@@ -164,6 +178,55 @@ export async function POST(req: Request): Promise<Response> {
   const em = (container.resolve('em') as EntityManager).fork()
   const providerKey = body.providerKey ?? TEST_SEED_PROVIDER_KEY
 
+  // `channelId` is caller-supplied, so confirm it names a channel this tenant/org
+  // actually owns before seeding rows that reference it. Mirrors the ownership
+  // lookup every other per-channel route performs (see channels/[id]/test-send).
+  const ownedChannel = await findOneWithDecryption(
+    em,
+    CommunicationChannel,
+    {
+      id: body.channelId,
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId, organizationId },
+  )
+  if (!ownedChannel) {
+    return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
+  }
+
+  // Tenant/org scope alone does not authorize: `connect_user_channel` is granted
+  // broadly, so a same-tenant caller could otherwise seed against a colleague's
+  // personal mailbox. Enforce the module's owner-only contract — personal
+  // channels are owner-restricted, shared channels need `manage`.
+  let userFeatures: string[] = []
+  try {
+    const rbac = container.resolve('rbacService') as RbacServiceLike
+    const acl = await rbac.loadAcl(userId, { tenantId, organizationId })
+    userFeatures = acl?.isSuperAdmin ? ['*'] : Array.isArray(acl?.features) ? acl.features : []
+  } catch {
+    userFeatures = []
+  }
+  try {
+    assertCanManageChannel(
+      { userId: ownedChannel.userId },
+      userId,
+      userFeatures,
+      'communication_channels.manage',
+    )
+  } catch (err) {
+    if (err instanceof ChannelAccessDeniedError) {
+      return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
+    }
+    const status = (err as { statusCode?: number }).statusCode ?? 403
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Access denied' },
+      { status },
+    )
+  }
+
   // A MessageChannelLink requires a non-null external_conversation_id (FK) and
   // message_id. Create a synthetic conversation + (optionally threaded) message
   // so the link is shaped like a real inbound row the subscriber can consume.
@@ -283,7 +346,11 @@ export const openApi = {
       responses: [
         { status: 201, description: 'Channel seeded / inbound message emitted' },
         { status: 401, description: 'Unauthorized' },
-        { status: 404, description: 'Test channel seeding disabled (production default)' },
+        {
+          status: 404,
+          description:
+            'Test channel seeding disabled (production default), or the requested channel does not belong to the caller',
+        },
         { status: 422, description: 'Invalid request body' },
         { status: 500, description: 'Seed failed' },
       ],

@@ -20,6 +20,7 @@ const STRING_TYPED_CUSTOM_FIELD_KINDS = new Set([
   'select',
   'currency',
   'dictionary',
+  'phone',
   'email',
   'url',
   'string',

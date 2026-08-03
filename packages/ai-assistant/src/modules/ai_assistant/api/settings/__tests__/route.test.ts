@@ -8,7 +8,7 @@
  */
 
 const authMock = jest.fn()
-const loadAclMock = jest.fn()
+const userHasAllFeaturesMock = jest.fn()
 const createRequestContainerMock = jest.fn()
 const upsertDefaultMock = jest.fn()
 const clearDefaultMock = jest.fn()
@@ -96,10 +96,10 @@ describe('PUT /api/ai_assistant/settings', () => {
     jest.clearAllMocks()
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-    loadAclMock.mockResolvedValue({ features: ['ai_assistant.settings.manage'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValue(true)
     createRequestContainerMock.mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rbacService') return { loadAcl: loadAclMock }
+        if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
         if (name === 'em') return {}
         return null
       },
@@ -131,7 +131,7 @@ describe('PUT /api/ai_assistant/settings', () => {
   })
 
   it('returns 403 when caller lacks ai_assistant.settings.manage', async () => {
-    loadAclMock.mockResolvedValueOnce({ features: ['ai_assistant.view'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValueOnce(false)
 
     const response = await PUT(buildRequest('PUT', { providerId: 'openai' }) as any)
 
@@ -268,7 +268,7 @@ describe('PUT /api/ai_assistant/settings', () => {
   })
 
   it('allows superAdmin even without the manage feature', async () => {
-    loadAclMock.mockResolvedValueOnce({ features: [], isSuperAdmin: true })
+    userHasAllFeaturesMock.mockResolvedValueOnce(true)
 
     const response = await PUT(buildRequest('PUT', { providerId: 'openai' }) as any)
 
@@ -337,10 +337,10 @@ describe('DELETE /api/ai_assistant/settings', () => {
     jest.clearAllMocks()
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-    loadAclMock.mockResolvedValue({ features: ['ai_assistant.settings.manage'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValue(true)
     createRequestContainerMock.mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rbacService') return { loadAcl: loadAclMock }
+        if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
         if (name === 'em') return {}
         return null
       },
@@ -361,7 +361,7 @@ describe('DELETE /api/ai_assistant/settings', () => {
   })
 
   it('returns 403 when caller lacks ai_assistant.settings.manage', async () => {
-    loadAclMock.mockResolvedValueOnce({ features: ['ai_assistant.view'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValueOnce(false)
 
     const response = await DELETE(buildRequest('DELETE', {}) as any)
 

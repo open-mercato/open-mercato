@@ -1,5 +1,5 @@
 import type { ApiInterceptor, InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 
 type RbacServiceLike = {
@@ -21,7 +21,6 @@ type RbacServiceLike = {
  * from `rbacService.userHasAllFeatures`, which is cached and wildcard-aware.
  */
 async function hasManageAllFeature(context: InterceptorContext): Promise<boolean> {
-  if (hasFeature(context.userFeatures, 'staff.timesheets.manage_all')) return true
   try {
     const rbac = context.container.resolve('rbacService') as RbacServiceLike | undefined
     if (rbac?.userHasAllFeatures) {
@@ -32,9 +31,12 @@ async function hasManageAllFeature(context: InterceptorContext): Promise<boolean
       )
     }
   } catch {
-    // rbacService not available — fall through to deny
+    // Fall back to the already-loaded snapshot below.
   }
-  return false
+  return authorizeFeatures(
+    ['staff.timesheets.manage_all'],
+    { grantedFeatures: context.userFeatures ?? [] },
+  )
 }
 
 export const interceptors: ApiInterceptor[] = [

@@ -86,7 +86,17 @@ Use stable, grep-friendly ids:
 
 | Variable | Effect | Default |
 |----------|--------|---------|
-| `OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS` | Coalesces intermediate `progress.job.updated` flush+broadcasts per job: the service flushes and emits only when this many ms elapsed since the last broadcast **or** `progressPercent` advanced by ≥1; sub-threshold updates buffer in memory. Keeps bulk workers from firing one serialized `pg_notify` roundtrip + tenant-wide SSE fan-out per record. Terminal events (`created`/`started`/`completed`/`failed`/`cancelled`) are never throttled, so `ProgressTopBar` still converges and the 60s `STALE_JOB_TIMEOUT_SECONDS` heartbeat window is never exceeded. Set to `0` to restore per-record emission (tests/debugging). | `250` |
+| `OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS` | Coalesces intermediate `progress.job.updated` broadcasts per job: the service emits only when this many ms elapsed since the last broadcast **or** `progressPercent` advanced by ≥1; sub-threshold updates buffer in memory. Keeps bulk workers from firing one serialized `pg_notify` roundtrip + tenant-wide SSE fan-out per record. Persistence is throttled independently: heartbeats reach the database at least every `HEARTBEAT_INTERVAL_MS` (5s) regardless of this knob, so no value can starve the 60s `STALE_JOB_TIMEOUT_SECONDS` sweep. Terminal events (`created`/`started`/`completed`/`failed`/`cancelled`) are never throttled. Set to `0` to restore per-record emission (tests/debugging). | `250` |
+
+## Concurrency Semantics (multi-instance safe)
+
+`progressService` is safe to run across many app/worker instances. Do not reintroduce read-modify-write transitions:
+
+- **Every status transition is a status-guarded `nativeUpdate` (CAS).** An update that matches zero rows lost the race — it MUST NOT emit events or overwrite the row. Allowed transitions: start from `pending|failed` (an already-running start is an idempotent no-op; `failed` allows queue retries and recovery from a wrong stale sweep), complete from `pending|running|failed`, fail from `pending|running`, cancel from `pending|running|failed`.
+- **Progress writes are guarded on `status IN ('pending','running')`** — once another process finishes/cancels a job, buffered updaters stop writing to it.
+- **`incrementProgress` deltas persist as atomic SQL increments** (`processed_count + n`), and the service reloads the database winner before returning or emitting, so concurrent writers never lose or report stale counts.
+- **Update-path reads use `disableIdentityMap: true`** — `isCancellationRequested` and lifecycle reads must always see fresh cross-process state, never a stale managed entity.
+- **The stale sweep (`markStaleJobsFailed`) re-checks staleness per row inside the CAS**, so concurrent sweepers emit exactly one `JOB_FAILED` per job, and it also fails `pending` jobs that never started within `STALE_PENDING_TIMEOUT_SECONDS` (a late queue delivery recovers them via `startJob`'s `failed → running` transition).
 
 ## Cross-References
 

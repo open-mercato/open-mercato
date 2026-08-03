@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { refreshCoverageSnapshot } from '../lib/coverage'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -70,6 +71,9 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
           payload,
         },
       )
+      if (isReadProjectionAlwaysConsistent()) {
+        throw err
+      }
     }
   }
 

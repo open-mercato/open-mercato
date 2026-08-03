@@ -754,6 +754,12 @@ const reindexHelpCli: ModuleCli = {
   command: 'reindex-help',
   async run() {
     console.log('Usage: yarn mercato search reindex [options]')
+    console.log('')
+    console.log('  Rebuilds the query_index projection (entity_indexes) + the Postgres search_tokens')
+    console.log('  index, and enqueues vector embedding jobs. It does NOT populate the fulltext')
+    console.log('  (Meilisearch) index — to rebuild fulltext use POST /api/search/reindex (feature')
+    console.log('  search.reindex) with a running `yarn mercato search worker fulltext-indexing`.')
+    console.log('')
     console.log('  --tenant <id>           Optional tenant scope (required for purge & coverage).')
     console.log('  --org <id>              Optional organization scope (requires tenant).')
     console.log('  --entity <module:entity> Reindex a single entity (defaults to all enabled entities).')
@@ -850,7 +856,8 @@ const helpCli: ModuleCli = {
     console.log('  status              Show search module status and available strategies')
     console.log('  query               Execute a search query')
     console.log('  index               Index a specific record')
-    console.log('  reindex             Reindex vector embeddings for entities')
+    console.log('  reindex             Rebuild query_index projections + search_tokens and enqueue vector embeddings')
+    console.log('                      (does NOT populate the fulltext/Meilisearch index — use POST /api/search/reindex)')
     console.log('  reindex-help        Show reindex command options')
     console.log('  test-meilisearch    Test Meilisearch connection')
     console.log('  worker              Start a queue worker for search indexing')

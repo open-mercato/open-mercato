@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets, DashboardUserWidgets } from '../data/entities'
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { hasAllFeatures as userHasAllFeatures } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type LoadedWidget = {
@@ -97,8 +97,10 @@ export async function resolveAllowedWidgetIds(
 
   const filtered = widgets.filter((widget) => {
     if (!baseSet.has(widget.metadata.id)) return false
-    if (ctx.isSuperAdmin) return true
-    return userHasAllFeatures(ctx.features, widget.metadata.features ?? [])
+    return authorizeFeatures(widget.metadata.features ?? [], {
+      grantedFeatures: ctx.features,
+      unrestricted: ctx.isSuperAdmin,
+    })
   })
 
   return filtered.map((widget) => widget.metadata.id)

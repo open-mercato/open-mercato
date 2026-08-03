@@ -7,13 +7,16 @@ import { LocalLockStrategy } from '../lib/localLockStrategy'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
 import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('scheduler').child({ component: 'local' })
 
 export interface RbacServiceLike {
   tenantHasFeature(tenantId: string | null | undefined, feature: string, opts?: { organizationId?: string | null }): Promise<boolean>
+  userHasAllFeatures(userId: string, required: readonly string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean>
 }
 
 export interface LocalSchedulerConfig {
@@ -251,16 +254,17 @@ export class LocalSchedulerService {
     }
 
     const queue = this.queueFactory(schedule.targetQueue)
-    
-    await queue.enqueue({
-      scheduleId: schedule.id,
-      scheduleName: schedule.name,
-      scopeType: schedule.scopeType,
+
+    // Deliver the same flat contract as the asynchronous execute-schedule
+    // worker: targetPayload fields on the root, scheduler-owned scope and
+    // idempotency fields applied last. Local mode runs each firing exactly
+    // once, so the firing timestamp is a valid logical execution key.
+    await queue.enqueue(buildQueueTargetPayload({
+      targetPayload: schedule.targetPayload,
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
-      payload: schedule.targetPayload || {},
-      triggeredAt: new Date(),
-    })
+      idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
+    }))
 
     logger.info('Enqueued job to target queue', { scheduleId: schedule.id, targetQueue: schedule.targetQueue })
   }
@@ -274,6 +278,14 @@ export class LocalSchedulerService {
     }
 
     const commandBus = new CommandBus()
+    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    await assertSchedulerSafeCommandAuthorized({
+      commandId: schedule.targetCommand,
+      actorUserId,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      rbacService: this.rbacService,
+    })
     
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
@@ -281,6 +293,7 @@ export class LocalSchedulerService {
       organizationId: schedule.organizationId,
     }
     
+    // Build the schedule-scoped command context after the allowlist/RBAC gate.
     const commandCtx = buildScheduledCommandContext(
       schedule,
       {
