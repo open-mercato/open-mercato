@@ -185,7 +185,7 @@ test('`yarn test` succeeds on a scaffold that ships no test files', () => {
   )
 })
 
-test('install-skills is a successful no-op before agentic setup', { skip: process.platform === 'win32' }, () => {
+test('install-skills is a successful no-op before agentic setup', () => {
   const result = spawnSync('sh', ['scripts/install-skills.sh'], {
     cwd: fileURLToPath(TEMPLATE_DIR),
     encoding: 'utf8',

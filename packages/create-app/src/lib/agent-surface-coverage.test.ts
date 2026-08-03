@@ -200,14 +200,16 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 202-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 203-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
+    evaluationKind: string
     context: { required: string[]; allowedExtra?: string[] }
     requiredDecisions: string[]
     requiredSkills: string[]
     expectedRouter: { required: string[] }
+    frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
   assert.equal(cases.length, 203)
@@ -352,6 +354,11 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
         'additive-before-replacement',
         'extension-entity',
         'eject-last',
+        'widget-injection-files',
+        'person-detail-tab-spot',
+        'company-detail-tab-spot',
+        'guidance-before-framework-context',
+        'installed-packages-read-only',
       ],
     },
   }
@@ -408,6 +415,13 @@ test('the 202-case catalog routes audited installed-module, runtime, and AI/prov
     assert.ok(record?.requiredDecisions.includes('facts-first'), `${caseId}: reuse-installed routing must decide facts-first`)
   }
   assert.deepEqual(byId.get('OMH-203')?.expectedRouter.required, ['umes', 'backend-ui', 'framework-context'])
+  assert.equal(byId.get('OMH-203')?.evaluationKind, 'routing')
+  assert.deepEqual(byId.get('OMH-203')?.frameworkContext, [
+    { module: 'customers', query: 'detail:customers.' },
+  ])
+  const systemExtensionSkill = read('shared/ai/skills/om-system-extension/SKILL.md')
+  assert.match(systemExtensionSkill, /widgets\/injection\/\*\*/)
+  assert.match(systemExtensionSkill, /widgets\/injection-table\.ts/)
 })
 
 test('the business-language cohort includes the OMH-185 parity case without leaked framework contracts', () => {

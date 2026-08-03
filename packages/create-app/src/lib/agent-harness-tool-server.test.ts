@@ -29,7 +29,7 @@ function call(
   return result.stdout.trim().split('\n').map((line) => JSON.parse(line))
 }
 
-test('the real harness MCP tool exposes no process, environment, discovery, or network capability', { skip: process.platform === 'win32' }, () => {
+test('the real harness MCP tool exposes no process, environment, discovery, or network capability', () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-root-')))
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-secret-')))
   const credential = path.join(outside, 'auth.json')

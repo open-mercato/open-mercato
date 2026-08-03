@@ -205,7 +205,7 @@ test('standalone template dev reset clears configured Next dev distDir cache', (
     assert.equal(result.status, 0, result.stderr)
     assert.equal(fs.existsSync(distDevDir), false)
     assert.equal(fs.existsSync(legacyTurboDir), false)
-    assert.match(result.stdout, /\.mercato[/\\]next[/\\]dev/)
+    assert.match(result.stdout, /\.mercato\/next\/dev/)
   } finally {
     rmTempDir(tempDir)
   }

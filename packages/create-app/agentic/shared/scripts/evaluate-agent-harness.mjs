@@ -1420,7 +1420,16 @@ function prepareCaseFrameworkContext(caseRecord, controllerRoot, runRoot) {
       throw new Error(`framework context queries resolved to the same output root for ${caseRecord.id}: ${outputRoot}`)
     }
     patterns.add(outputPattern)
-    entries.push({ manifest, searchResult, sourceRoot, query: request.query })
+    const sourceFiles = [...new Set(fs.readFileSync(searchPath, 'utf8')
+      .split(/\r?\n/)
+      .flatMap((line) => {
+        const match = /^(.+?):\d+:/.exec(line)
+        return match && isSafeRelative(match[1]) && match[1].startsWith(`${sourceRoot}/`) ? [match[1]] : []
+      }))].sort()
+    if (sourceFiles.length === 0) {
+      throw new Error(`framework context query returned no exact source matches for ${caseRecord.id}: ${request.query}`)
+    }
+    entries.push({ manifest, searchResult, sourceRoot, sourceFiles, query: request.query })
   }
   return { patterns: [...patterns].sort(), entries }
 }
@@ -1515,6 +1524,7 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
   for (const event of events) collectRefusedToolCallIds(event, state.refusedCallIds)
   for (const event of events) recursivelyFindTraceCandidates(event, state)
   const paths = new Set()
+  const readOrder = []
   const refusedReads = new Set()
   const metadataPaths = new Set()
   let metadataEntries = 0
@@ -1595,7 +1605,10 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
       // Keep it out of instruction/fact budgets and selectedContext accounting while
       // still failing closed above for every non-allowlisted read.
       else if (isAllowedObservedPath(file, caseRecord, writable)) {
-        if (!writable || reviewExpectedReads || permittedContextPath(file, caseRecord)) paths.add(file)
+        if (!writable || reviewExpectedReads || permittedContextPath(file, caseRecord)) {
+          paths.add(file)
+          if (!readOrder.includes(file)) readOrder.push(file)
+        }
       }
       else violations.add(`unsafe arbitrary app-root read ${file}`)
     }
@@ -1610,6 +1623,7 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
   return {
     available: state.available,
     paths: [...paths].sort(),
+    readOrder,
     refusedPaths: [...refusedReads].sort(),
     metadataPaths: [...metadataPaths].sort(),
     metadataEntries,
@@ -1666,7 +1680,7 @@ function contextStats(root, paths, metadata = {}) {
   }
 }
 
-function evaluateRouting(caseRecord, response, stats) {
+function evaluateRouting(caseRecord, response, stats, readOrder = []) {
   const failures = []
   const selectedRoutes = new Set(response.selectedRouter)
   for (const required of caseRecord.expectedRouter.required) if (!selectedRoutes.has(required)) failures.push(`missing route ${required}`)
@@ -1709,6 +1723,19 @@ function evaluateRouting(caseRecord, response, stats) {
       failures.push(`observed context not declared ${observed}`)
     }
   }
+  if (caseRecord.materializedFrameworkContextPatterns?.length) {
+    const frameworkReads = readOrder.filter((observed) =>
+      caseRecord.materializedFrameworkContextPatterns.some((pattern) => globToRegExp(pattern).test(observed)))
+    const sourceReads = frameworkReads.filter((observed) => observed.includes('/source/'))
+    if (sourceReads.length === 0) failures.push('framework context source not observed')
+    const firstFrameworkRead = frameworkReads.length ? readOrder.indexOf(frameworkReads[0]) : -1
+    if (firstFrameworkRead >= 0) {
+      for (const required of caseRecord.context.required.filter((reference) => !reference.startsWith('.ai/framework-context/'))) {
+        const guidanceRead = readOrder.findIndex((observed) => globToRegExp(required).test(observed))
+        if (guidanceRead > firstFrameworkRead) failures.push(`framework context read before required guidance ${required}`)
+      }
+    }
+  }
   const standardGuides = new Map()
   for (const [route, standard] of Object.entries(ROUTE_STANDARD_CONTEXT)) {
     for (const guide of standard.guides) {
@@ -1738,7 +1765,7 @@ function evaluateRouting(caseRecord, response, stats) {
 }
 
 function isCorrectableRoutingFailure(violation) {
-  return /^(?:missing (?:route|skill|context|decision)|unexpected (?:route|skill|context|decision)|unmandated decision|selected skill context (?:missing|not observed)|optional skill .+ requires route|standard (?:skill|context) .+ requires route|required context not observed|selected context not observed|observed context not declared|initial context (?:file|byte) budget exceeded|context byte budget exceeded)/.test(violation)
+  return /^(?:missing (?:route|skill|context|decision)|unexpected (?:route|skill|context|decision)|unmandated decision|selected skill context (?:missing|not observed)|optional skill .+ requires route|standard (?:skill|context) .+ requires route|required context not observed|selected context not observed|observed context not declared|framework context (?:source not observed|read before required guidance)|initial context (?:file|byte) budget exceeded|context byte budget exceeded)/.test(violation)
 }
 
 function isCorrectableTraceStartupFailure(violation) {
@@ -1800,7 +1827,7 @@ function buildPrompt(caseRecord, root, writable, frameworkContextEntries = []) {
     ? 'This is an explicitly disposable writable evaluation. You must implement the complete request with repeated use of the allowlisted harness write tool before returning the routing object, then re-read the completed implementation. A manifest of intended files, metadata-only stub, TODO, placeholder, or response that only plans/routes fails: create every requested source, API, command, UI, registration, locale, migration snapshot, and focused test surface inside the write allowlist. You may read allowlisted target source files as implementation inputs, but selectedContext records only instruction/fact paths and must never include those target source paths. Write only inside the allowlist provided after the task; do not use network access or inspect environment values.'
     : 'Work read-only: do not edit files, run mutations, use network access, or inspect environment values. Do not implement the request. Accept the task premise for routing; fixture and implementation-target paths may be absent in this controller, so do not inspect them or report their absence as a blocker.'
   const frameworkContextInstruction = frameworkContextEntries.length
-    ? ` The controller has already materialized bounded read-only installed-package evidence for this case. Read each exact manifest and search result first, then read only exact source paths named by those search results beneath the supplied source root: ${frameworkContextEntries.map((entry) => `manifest=${entry.manifest}; search=${entry.searchResult}; source=${entry.sourceRoot}; query=${JSON.stringify(entry.query)}`).join(' | ')}. You may also follow an exact installed-source link from a generated module fact when it is useful; never enumerate node_modules or read outside @open-mercato package src trees. These successful reads belong in selectedContext.`
+    ? ` The controller has already materialized bounded read-only installed-package evidence for this case. Read every required routed guide and skill before this evidence, then read each exact manifest and search result and every exact source path named by those search results beneath the supplied source root: ${frameworkContextEntries.map((entry) => `manifest=${entry.manifest}; search=${entry.searchResult}; source=${entry.sourceRoot}; query=${JSON.stringify(entry.query)}`).join(' | ')}. You may also follow an exact installed-source link from a generated module fact when it is useful; never enumerate node_modules or read outside @open-mercato package src trees. These successful reads belong in selectedContext.`
     : ''
   const toolInstruction = `The only MCP server is harness. Its exact-path tool is named read and takes JSON arguments {"path":"<exact app-relative path>"}${writable ? '; its allowlisted replacement tool is named write and takes {"path":"<exact app-relative path>","content":"<complete file>"}' : ''}. Call harness.read${writable ? ' or harness.write' : ''}; never call read_mcp_resource or any resource API.`
   return `You are evaluating routing for a standalone Open Mercato application. ${modeInstruction}${frameworkContextInstruction} ${toolInstruction} No shell, process, environment, discovery, or network tool exists. Your first tool action must call harness.read with {"path":"AGENTS.md"}, even when the runner auto-injected it, then load only the smallest task-matching context. Do not execute framework-context, generation, test, package, release, installer, or skill workflow commands during routing; select the instructions that would govern that later execution. Do not emit a provisional structured response. Do not inspect .ai/harness/**; those are evaluator internals, and decision labels never name readable paths. Never enumerate, glob, recursively search, or bulk-read .ai/guides, .ai/skills, .agents/skills, or module fact directories; an all-guides/all-skills/all-facts read is an automatic failure. The emitted AGENTS.md and the context it routes are the only task-routing authority. Before the final response, open every instruction or fact path you will put in selectedContext with direct harness read calls. Never rely only on skill descriptions, filenames, discovery, metadata, or prior knowledge: an unobserved selected path automatically fails this evaluation.
@@ -2705,9 +2732,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         const targetErrors = verifyWritableTarget(runRoot, root, caseRecord, fixtures)
         if (targetErrors.length) throw new Error(`${caseRecord.id}: ${targetErrors.join('; ')}`)
       }
-      const preparedFrameworkContext = writable
-        ? prepareCaseFrameworkContext(caseRecord, root, runRoot)
-        : { patterns: [], entries: [] }
+      const preparedFrameworkContext = prepareCaseFrameworkContext(caseRecord, root, runRoot)
       const evaluationCase = preparedFrameworkContext.patterns.length
         ? {
             ...caseRecord,
@@ -2715,7 +2740,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
               ...caseRecord.context,
               required: [
                 ...caseRecord.context.required,
-                ...preparedFrameworkContext.entries.flatMap(({ manifest, searchResult }) => [manifest, searchResult]),
+                ...preparedFrameworkContext.entries.flatMap(({ manifest, searchResult, sourceFiles }) => [manifest, searchResult, ...sourceFiles]),
               ],
             },
             materializedFrameworkContextPatterns: preparedFrameworkContext.patterns,
@@ -2771,7 +2796,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           const declared = response.selectedContext
             .filter((entry) => isSafeRelative(entry) && isPathInside(runRoot, path.resolve(runRoot, entry)) && fs.existsSync(path.resolve(runRoot, entry)))
           declaredStats = contextStats(runRoot, [...new Set(declared)].sort())
-          violations.push(...evaluateRouting(evaluationCase, response, stats))
+          violations.push(...evaluateRouting(evaluationCase, response, stats, trace.readOrder))
         } else violations.push(`${attempt.kind}: ${sanitize(attempt.error, runRoot)}`)
         return { response, trace, stats, declaredStats, violations }
       }

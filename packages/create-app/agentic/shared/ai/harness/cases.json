@@ -13592,7 +13592,7 @@
     "title": "Evaluate CRM detail-tab UMES routing",
     "family": "umes",
     "mode": "analysis",
-    "evaluationKind": "static",
+    "evaluationKind": "routing",
     "risk": "medium",
     "prompt": "How can I add a tab to the customer page?",
     "tags": [
@@ -13643,14 +13643,16 @@
       "extension-mechanism",
       "additive-before-replacement",
       "extension-entity",
-      "eject-last"
+      "eject-last",
+      "widget-injection-files",
+      "person-detail-tab-spot",
+      "company-detail-tab-spot",
+      "guidance-before-framework-context",
+      "installed-packages-read-only"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
-      "(?:detail:customers\\.person:tabs|detail:customers\\.company:tabs).*om-framework-context",
-      "harness\\.read.*om-framework-context.*AGENTS\\.md",
-      "framework-context.*(?:extensions\\.md|backend-ui\\.md)"
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
       "catalog.schema",
@@ -13664,11 +13666,7 @@
     "frameworkContext": [
       {
         "module": "customers",
-        "query": "detail:customers.person:tabs"
-      },
-      {
-        "module": "customers",
-        "query": "detail:customers.company:tabs"
+        "query": "detail:customers."
       }
     ],
     "maxContextFiles": 10,
