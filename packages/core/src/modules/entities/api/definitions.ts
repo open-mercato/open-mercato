@@ -441,6 +441,9 @@ export async function GET(req: Request) {
         label: d.configJson?.label || d.key,
         description: d.configJson?.description || undefined,
         multi: Boolean(d.configJson?.multi),
+        relatedEntityId: d.kind === 'relation' && typeof d.configJson?.relatedEntityId === 'string'
+          ? d.configJson.relatedEntityId.trim() || undefined
+          : undefined,
         options: (() => {
           if (d.kind === 'currency') return undefined
           const normalizedOptions = normalizeCustomFieldOptions(d.configJson?.options)

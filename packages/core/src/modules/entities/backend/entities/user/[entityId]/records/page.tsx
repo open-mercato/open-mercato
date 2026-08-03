@@ -4,7 +4,7 @@ import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widge
 import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { filterCustomFieldDefs, useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { filterCustomFieldDefs, useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -23,6 +23,12 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useRecordsEntityGuard } from '@open-mercato/core/modules/entities/components/useRecordsEntityGuard'
+import {
+  getRecordListRelationDisplays,
+  resolveRecordListRelationDisplays,
+  type RelationDisplaysByField,
+} from '@open-mercato/core/modules/entities/components/recordListRelationDisplays'
+import type { ResolvedValueDisplay } from '@open-mercato/ui/backend/utils/customFieldRelationDisplay'
 
 type RecordsResponse = {
   items: any[]
@@ -47,6 +53,40 @@ function normalizeCell(v: any): string {
   if (v == null) return ''
   if (v instanceof Date) return v.toISOString()
   return String(v)
+}
+
+function RelationCell({
+  value,
+  displays,
+}: {
+  value: unknown
+  displays?: Record<string, ResolvedValueDisplay>
+}) {
+  const resolvedDisplays = getRecordListRelationDisplays(value, displays)
+  const rawValue = resolvedDisplays.map((display) => display.id).join(', ') || normalizeCell(value)
+  if (!resolvedDisplays.length) {
+    return <span className="inline-block max-w-60 truncate align-top" title={rawValue}>{rawValue}</span>
+  }
+
+  return (
+    <span className="inline-block max-w-60 truncate align-top" title={rawValue}>
+      {resolvedDisplays.map((display, index) => (
+        <React.Fragment key={`${display.id}-${index}`}>
+          {index > 0 ? ', ' : null}
+          {display.href ? (
+            <Link
+              href={display.href}
+              className="font-medium text-primary underline-offset-2 hover:underline focus-visible:underline"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              {display.label}
+            </Link>
+          ) : display.label}
+        </React.Fragment>
+      ))}
+    </span>
+  )
 }
 
 export default function RecordsPage({ params }: { params: { entityId?: string } }) {
@@ -98,6 +138,13 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     enabled: Boolean(entityId),
     keyExtras: [scopeVersion],
   })
+  const relationDefinitions = React.useMemo(
+    () => filterCustomFieldDefs(cfDefs, 'list').filter(
+      (definition): definition is CustomFieldDefDto => definition.kind === 'relation',
+    ),
+    [cfDefs],
+  )
+  const [relationDisplaysByField, setRelationDisplaysByField] = React.useState<RelationDisplaysByField>({})
 
   // Fields searched server-side: every visible column plus the base `id`.
   const searchableFields = React.useMemo(() => {
@@ -172,6 +219,22 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     return () => { cancelled = true }
   }, [entityId, page, pageSize, sorting, filterValues, scopeVersion, search, searchableFields])
 
+  React.useEffect(() => {
+    const abortController = new AbortController()
+    setRelationDisplaysByField((current) => Object.keys(current).length ? {} : current)
+    if (!relationDefinitions.length || !rawData.length) {
+      return () => abortController.abort()
+    }
+
+    void resolveRecordListRelationDisplays(relationDefinitions, rawData, abortController.signal)
+      .then((resolvedDisplays) => {
+        if (!abortController.signal.aborted) setRelationDisplaysByField(resolvedDisplays)
+      })
+      .catch(() => {})
+
+    return () => abortController.abort()
+  }, [rawData, relationDefinitions])
+
   // Build columns from custom field definitions only (no data round-trip)
   React.useEffect(() => {
     const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
@@ -182,14 +245,17 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
       meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
       cell: ({ getValue }: { getValue: () => unknown }) => {
         const v = getValue() as any
-        return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
+        if (d.kind === 'relation') {
+          return <RelationCell value={v} displays={relationDisplaysByField[d.key]} />
+        }
+        return <span className="inline-block max-w-60 truncate align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
       },
     }))
     // Ensure hidden 'id' column exists for sorting/state
     const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
     if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
     setColumns(cols)
-  }, [cfDefs])
+  }, [cfDefs, relationDisplaysByField])
 
   // Search is server-side (see fetch effect); render the fetched page as-is so
   // pagination totals and exports stay consistent with the active search (#3229).
