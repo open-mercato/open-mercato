@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 109 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 111 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -54,6 +54,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
+- [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
@@ -148,6 +149,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 ### testing
 
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
+- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,query-index,route-coverage
 - [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
