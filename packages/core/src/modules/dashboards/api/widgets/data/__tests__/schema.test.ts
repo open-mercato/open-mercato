@@ -31,8 +31,6 @@ describe('widget data set filter bounds (#4852)', () => {
     )
 
     expect(parsed.success).toBe(false)
-    // The caller has to be able to tell which filter was refused, so the issue must carry the
-    // filter's index and the `value` key rather than pointing at `filters` as a whole.
     const issue = parsed.success ? undefined : parsed.error.issues[0]
     expect(issue?.path).toEqual(['filters', 0, 'value'])
     expect(issue?.code).toBe('too_big')
@@ -53,11 +51,11 @@ describe('widget data set filter bounds (#4852)', () => {
     ])
   })
 
-  test('rejects an empty member list, which would render as an invalid `IN ()` predicate', () => {
-    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator: 'in', value: [] }]))
+  test.each(['in', 'not_in'] as const)('preserves the defined empty-set semantics for %s', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator, value: [] }]))
 
-    expect(parsed.success).toBe(false)
-    expect(parsed.success ? undefined : parsed.error.issues[0]?.code).toBe('too_small')
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.filters?.[0]?.value).toEqual([])
   })
 
   test('rejects a set filter whose value is not an array at all', () => {
@@ -124,11 +122,18 @@ describe('widget data scalar filters are unaffected by the set bound', () => {
 })
 
 describe('filterOperatorSchema', () => {
-  // The exported enum is derived from the scalar and set groups now; this pins the full set so
-  // splitting the groups cannot quietly drop or rename an operator third parties already send.
-  test('still accepts every supported operator', () => {
-    expect(filterOperatorSchema.options.slice().sort()).toEqual(
-      ['eq', 'gt', 'gte', 'in', 'is_not_null', 'is_null', 'lt', 'lte', 'neq', 'not_in'].sort(),
-    )
+  test('preserves every supported operator and its published order', () => {
+    expect(filterOperatorSchema.options).toEqual([
+      'eq',
+      'neq',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'in',
+      'not_in',
+      'is_null',
+      'is_not_null',
+    ])
   })
 })

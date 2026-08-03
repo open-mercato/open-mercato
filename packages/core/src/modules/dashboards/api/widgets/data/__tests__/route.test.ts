@@ -54,6 +54,22 @@ import { MAX_SET_FILTER_VALUES } from '../schema'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { Module } from '@open-mercato/shared/modules/registry'
 
+type OpenApiSchemaNode = {
+  type?: string
+  enum?: string[]
+  maxItems?: number
+  minItems?: number
+  properties?: Record<string, OpenApiSchemaNode>
+  items?: OpenApiSchemaNode
+  oneOf?: OpenApiSchemaNode[]
+}
+
+type OpenApiOperationNode = {
+  requestBody?: {
+    content?: Record<string, { schema?: OpenApiSchemaNode }>
+  }
+}
+
 function buildRequest(body?: Record<string, unknown>): Request {
   return new Request('http://localhost/api/dashboards/widgets/data', {
     method: 'POST',
@@ -157,8 +173,6 @@ describe('widget data set filter bound (#4852)', () => {
     const body = await response.json()
     expect(body.error).toBe('Invalid request payload')
     expect(body.issues[0].path).toEqual(['filters', 0, 'value'])
-    // The request must never reach the aggregation layer: the point of the bound is that an
-    // oversized set is refused before it becomes a proportionally large query.
     expect(fetchWidgetData).not.toHaveBeenCalled()
   })
 
@@ -171,7 +185,7 @@ describe('widget data set filter bound (#4852)', () => {
   })
 
   test('publishes the bound in the generated OpenAPI schema so integrators can discover it', () => {
-    const modules = [
+    const modules: Module[] = [
       {
         id: 'dashboards',
         apis: [
@@ -182,19 +196,19 @@ describe('widget data set filter bound (#4852)', () => {
             docs: openApi,
           },
         ],
-      } as unknown as Module,
+      },
     ]
 
     const doc = buildOpenApiDocument(modules)
-    const post = doc.paths['/dashboards/widgets/data']?.post as Record<string, any>
+    const post = doc.paths['/dashboards/widgets/data']?.post as unknown as OpenApiOperationNode
     const bodySchema = post.requestBody?.content?.['application/json']?.schema
     const filterSchema = bodySchema?.properties?.filters?.items
     const setFilterBranch = (filterSchema?.oneOf ?? []).find(
-      (branch: Record<string, any>) => branch?.properties?.value?.type === 'array',
+      (branch) => branch.properties?.value?.type === 'array',
     )
 
     expect(setFilterBranch?.properties?.operator?.enum).toEqual(['in', 'not_in'])
     expect(setFilterBranch?.properties?.value?.maxItems).toBe(MAX_SET_FILTER_VALUES)
-    expect(setFilterBranch?.properties?.value?.minItems).toBe(1)
+    expect(setFilterBranch?.properties?.value?.minItems).toBeUndefined()
   })
 })

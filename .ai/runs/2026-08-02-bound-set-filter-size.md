@@ -20,6 +20,8 @@ as a Minor finding in the review of [#4821](https://github.com/open-mercato/open
 - Add unit coverage for both edges (at the limit, one over the limit) plus the surrounding
   shapes: non-array values, non-primitive members, unaffected scalar operators, and the
   400 the route actually returns.
+- Add executable API integration coverage proving both the single and batch routes reject an
+  over-limit filter with the indexed validation path.
 - Assert that the limit reaches the generated OpenAPI schema as `maxItems`, so third-party
   dashboard widgets can discover it without reading the source.
 
@@ -53,6 +55,7 @@ as a Minor finding in the review of [#4821](https://github.com/open-mercato/open
 2. Unit-test that the route answers an over-limit request with 400 and the issue list, not a 500
    and not a truncated result set.
 3. Unit-test that the generated OpenAPI document carries `maxItems` for the set-filter branch.
+4. Integration-test the over-limit 400 at both widget-data API boundaries.
 
 ### Phase 3: Verification and delivery
 
@@ -67,16 +70,11 @@ as a Minor finding in the review of [#4821](https://github.com/open-mercato/open
   malfunction into an explicit error rather than breaking working callers. No in-repository
   caller uses `in` / `not_in`; the only shipped widget that came close (`pipeline-summary`)
   deliberately uses `is_null` instead.
-- **Rejecting an empty member list.** The minimum of one member is a deliberate addition beyond
-  the letter of the acceptance criteria and is called out separately in the PR body so a
-  reviewer can strike it. Once #4821 lands, an empty array renders `col IN ()`, which is a
-  PostgreSQL syntax error and therefore a 500; refusing it at the schema is the same argument
-  the issue makes for the upper bound.
 - **Choice of the number.** 200 is a judgement call the issue explicitly delegates ("pick a
   number and justify it in the PR"). It is deliberately generous relative to the neighbouring
   limits in the same surface and is a constant, so raising it later is a one-line change.
-- **Overlap with #4821.** That PR is still open and touches only `aggregations.ts` and its
-  tests; this branch touches only the schema and its tests, so the two do not conflict and can
+- **Overlap with #4821.** That PR is still open and defines explicit empty-set semantics. This
+  change preserves those semantics by applying only the requested maximum, so the branches can
   merge in either order.
 
 ## Progress
