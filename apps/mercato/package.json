@@ -84,7 +84,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
     "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.2.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.1.2",
@@ -101,8 +101,8 @@
     "typescript-native": "npm:typescript@7.0.2"
   },
   "optionalDependencies": {
-    "better-sqlite3": "^12.11.1",
-    "bullmq": "^5.81.2",
+    "better-sqlite3": "^13.0.2",
+    "bullmq": "^6.0.2",
     "ioredis": "^5.11.1"
   }
 }
