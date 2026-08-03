@@ -15,6 +15,7 @@ import type {
 import { getEnrichersForEntity } from './enricher-registry'
 import { logEnricherTiming } from '../umes/enricher-timing'
 import { createLogger } from '../logger'
+import { authorizeFeatures } from '../../security/featurePolicy'
 
 const logger = createLogger('shared').child({ component: 'umes' })
 
@@ -35,17 +36,7 @@ function hasRequiredFeatures(
 ): boolean {
   if (!enricher.features || enricher.features.length === 0) return true
   if (!userFeatures) return false
-  const hasFeature = (required: string): boolean => {
-    for (const granted of userFeatures) {
-      if (granted === '*' || granted === required) return true
-      if (granted.endsWith('.*')) {
-        const prefix = granted.slice(0, -1)
-        if (required.startsWith(prefix)) return true
-      }
-    }
-    return false
-  }
-  return enricher.features.every((feature) => hasFeature(feature))
+  return authorizeFeatures(enricher.features, { grantedFeatures: userFeatures })
 }
 
 function filterByACLAndTenant(

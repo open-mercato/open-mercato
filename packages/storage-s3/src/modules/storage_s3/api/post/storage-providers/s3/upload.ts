@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   detectAttachmentMimeType,
   hasDangerousExecutableExtension,
@@ -70,18 +71,19 @@ async function readTenantStorageUsageBytes(
 }
 
 export async function POST(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('storage_s3.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
   }
 
   const contentType = req.headers.get('content-type') ?? ''
   if (!contentType.includes('multipart/form-data')) {
-    return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.multipartRequired', 'Expected multipart/form-data') }, { status: 400 })
   }
 
   let form: FormData
@@ -89,48 +91,48 @@ export async function POST(req: Request) {
     form = await parseMultipartFormDataWithinUploadLimit(req)
   } catch (error) {
     if (isMultipartUploadLimitError(error)) {
-      return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+      return NextResponse.json({ error: t('storage_s3.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
     }
     throw error
   }
   const file = form.get('file') as File | null
   if (!file) {
-    return NextResponse.json({ error: 'file field is required' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.fileRequired', 'file field is required') }, { status: 400 })
   }
 
   const keyOverride = form.get('key') ? String(form.get('key')) : null
 
   if (keyOverride !== null && !isS3KeyScopedToTenant(keyOverride, auth.orgId, auth.tenantId)) {
     return NextResponse.json(
-      { error: 'Access denied: key override is not scoped to this tenant.' },
+      { error: t('storage_s3.errors.keyOverrideAccessDenied', 'Access denied: key override is not scoped to this tenant.') },
       { status: 403 },
     )
   }
 
   if (hasDangerousExecutableExtension(file.name)) {
-    return NextResponse.json({ error: 'Executable file types are not allowed as attachments.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.') }, { status: 400 })
   }
 
   const effectiveMaxBytes = resolveAttachmentMaxBytes()
   if (file.size > effectiveMaxBytes) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
   }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
-    return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
   const safeName = sanitizeFileName(file.name)
   const trustedMimeType = detectAttachmentMimeType(buffer, safeName, file.type || null)
   if (isActiveContentAttachment(buffer, safeName, trustedMimeType)) {
-    return NextResponse.json({ error: 'Active content uploads are not allowed.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
   }
 
   const tenantUsageBytes = await readTenantStorageUsageBytes(driver, auth.tenantId, auth.orgId)
   if (willExceedAttachmentTenantQuota(tenantUsageBytes, buffer.length)) {
-    return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.') }, { status: 413 })
   }
 
   const key =
