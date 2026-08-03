@@ -4,11 +4,14 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  isWebhookTimestampWithinTolerance,
   readBoundedRequestBody,
+  WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
   WebhookBodyTooLargeError,
   type InboundWebhookRequest,
 } from '@open-mercato/shared/lib/webhooks'
@@ -50,6 +53,8 @@ const inboundResponseSchema = z.object({
 })
 
 const errorSchema = z.object({ error: z.string() })
+const INBOUND_TIMESTAMP_TOLERANCE_ENV = 'OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS'
+const STALE_TIMESTAMP_ERROR = 'Webhook timestamp is outside the allowed replay window'
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   const params = await context.params
@@ -86,6 +91,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     throw error
   }
   const headers = Object.fromEntries(request.headers.entries())
+  if (!isInboundWebhookTimestampFresh(headers)) {
+    return json({ error: STALE_TIMESTAMP_ERROR }, { status: 400 })
+  }
 
   if (source) {
     let parsedBody: Record<string, unknown> = {}
@@ -274,7 +282,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 413, description: 'Webhook payload too large', schema: errorSchema },
       ],
       errors: [
-        { status: 400, description: 'Verification failed', schema: errorSchema },
+        { status: 400, description: 'Verification failed or stale webhook timestamp', schema: errorSchema },
         { status: 401, description: 'Signature verification failed (source flow)', schema: errorSchema },
         { status: 404, description: 'Endpoint not found', schema: errorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
@@ -298,6 +306,24 @@ function isUniqueViolation(error: unknown): boolean {
   if (maybeError.code === '23505') return true
   if (!maybeError.cause || typeof maybeError.cause !== 'object') return false
   return (maybeError.cause as { code?: string }).code === '23505'
+}
+
+function isInboundWebhookTimestampFresh(headers: Record<string, string>): boolean {
+  const timestamps = [
+    headers['webhook-timestamp'],
+    headers['svix-timestamp'],
+  ].filter((timestamp): timestamp is string => typeof timestamp === 'string')
+
+  if (timestamps.length === 0) {
+    return true
+  }
+
+  const toleranceSeconds = parseNumberWithDefault(
+    process.env[INBOUND_TIMESTAMP_TOLERANCE_ENV],
+    WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
+    { integer: true, min: 0 },
+  )
+  return timestamps.every((timestamp) => isWebhookTimestampWithinTolerance(timestamp.trim(), toleranceSeconds))
 }
 
 type ResolveInboundReceiptMessageIdInput = {
