@@ -157,16 +157,16 @@
     {
       "capabilityId": "api.crud-query-engine-custom-fields",
       "title": "CRUD list through the Query Engine with dynamic custom fields and CSV export",
-      "description": "Todo list route: query-engine field selectors, `cf:*` custom-field projection and filtering, per-request custom-field definition discovery in `beforeList`, command-backed create/update/delete actions, and CSV export configuration.",
+      "description": "Todo list route: query-engine field selectors, `cf:*` custom-field projection and filtering, per-request custom-field definition discovery published on the request context in `beforeList`, command-backed create/update/delete actions, and CSV export configuration.",
       "coverageKind": "example",
-      "referenceStatus": "qa-only",
-      "readStatus": "qa-only",
-      "qaOnlyReason": "Gate 4 (any shortcut): file-scope `/* eslint-disable @typescript-eslint/no-explicit-any */` with ~25 `any` uses, including `(ctx.container.resolve('em') as any)` and `(em as any).getKysely()` reaching the ORM and raw SQL builder. Gate 1 (scoping): `beforeList` mutates the module-scoped `dynamicCfKeys` and `sortFieldMapRef` from tenant/organization-scoped `CustomFieldDef` rows, and `transformItem`/`sortFieldMap` read them back on later requests, so one tenant's custom-field key set bleeds into another tenant's projection and sort map. `listFields` is also reassigned after `makeCrudRoute` captured it, so that reassignment is dead code.",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
       "sourcePaths": ["src/modules/example/api/todos/route.ts"],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
-        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts",
+        "src/modules/example/api/__tests__/todos.request-scope.test.ts"
       ],
       "dependencyModules": ["entities", "query_index"],
       "ruleOwner": "om-module-scaffold"

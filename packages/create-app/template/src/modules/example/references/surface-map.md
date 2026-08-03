@@ -46,13 +46,13 @@ Rule owner: `om-data-model-design`.
 | Capability | Demonstrates | Source | Status |
 |---|---|---|---|
 | `api.crud-factory` | The smallest complete `makeCrudRoute`: per-method ACL, ORM/scope/soft-delete binding, list schema + sort map, `mapToEntity`/`applyToEntity`, scoped cross-module cache invalidation hooks | [`../api/customer-priorities/route.ts`](../api/customer-priorities/route.ts) | readable |
-| `api.crud-query-engine-custom-fields` | Query-engine list fields, `cf:*` projection and filtering, per-request custom-field discovery, command-backed actions, CSV export config | [`../api/todos/route.ts`](../api/todos/route.ts) | **qa-only** |
+| `api.crud-query-engine-custom-fields` | Query-engine list fields, `cf:*` projection and filtering, per-request custom-field discovery published on the request context, command-backed actions, CSV export config | [`../api/todos/route.ts`](../api/todos/route.ts) | readable |
 | `api.openapi` | Module OpenAPI factory over the shared CRUD OpenAPI helpers | [`../api/openapi.ts`](../api/openapi.ts) | readable |
 | `api.custom-route` | Hand-written route: own request container, cookie auth, query-engine read | [`../api/organizations/route.ts`](../api/organizations/route.ts) | **qa-only** |
 | `api.option-source-routes` | Backends for `optionsUrl` on tags/listbox custom fields | [`../api/tags/route.ts`](../api/tags/route.ts), [`../api/assignees/route.ts`](../api/assignees/route.ts), [`../api/notifications/route.ts`](../api/notifications/route.ts) | **qa-only** |
 | `api.interceptors` | Exact-route and wildcard interceptors: rejection, timeout, thrown error, query rewrite, cross-module `?ids=` narrowing, `after` response merge via metadata | [`../api/interceptors.ts`](../api/interceptors.ts) | readable |
 
-Evidence: `__integration__/TC-UMES-004.spec.ts`, `__integration__/TC-UMES-021.spec.ts`, `api/__tests__/tags.tenant-scope.test.ts`.
+Evidence: `__integration__/TC-UMES-004.spec.ts`, `__integration__/TC-UMES-021.spec.ts`, `api/__tests__/tags.tenant-scope.test.ts`, `api/__tests__/todos.request-scope.test.ts`.
 
 Rule owners: `om-module-scaffold`, `om-system-extension` (interceptors).
 
@@ -136,7 +136,6 @@ These files stay in the tree because the module is also the platform's QA surfac
 
 | Source | Gate | Exact defect |
 |---|---|---|
-| [`../api/todos/route.ts`](../api/todos/route.ts) | 4, 1 | File-scope `/* eslint-disable @typescript-eslint/no-explicit-any */` with ~25 `any` uses, including `(ctx.container.resolve('em') as any)` and `(em as any).getKysely()` reaching the ORM and raw SQL builder. Separately, `beforeList` mutates module-scoped `dynamicCfKeys` and `sortFieldMapRef` from tenant/organization-scoped `CustomFieldDef` rows, and `transformItem`/`sortFieldMap` read them back on subsequent requests — one tenant's custom-field key set bleeds into another tenant's projection and sort map. `listFields` is reassigned after `makeCrudRoute` already captured it, so that reassignment is dead code. |
 | [`../data/enrichers.ts`](../data/enrichers.ts) | 4 | `enrichOne` and `enrichMany` both open their ORM handle with `(context.em as any).fork()`. `EnricherContext.em` is typed `unknown` so consumers narrow it; `as EntityManager` works and `as any` additionally erases the types of every following `em.find` call. |
 | [`../widgets/components.ts`](../widgets/components.ts) | 3 | Wrapper class names use raw Tailwind palette shades — `border-amber-300 bg-amber-50/40`, `border-blue-300 bg-blue-50/40` — instead of semantic/status tokens. Also demonstrates only the `wrapper` mode and exports a conditionally spread array, so static fact extraction cannot read its entries. |
 | [`../cli.ts`](../cli.ts) | 4 | `installCustomEntitiesFromModules(em as any, cache, ...)` erases the `EntityManager` type on an ORM handle used to mutate data; `EntityManager` is already imported in the same file. |
@@ -156,6 +155,7 @@ Recorded so the gate stays honest; none of these demote the row.
 
 - `commands/todos.ts`, `api/interceptors.ts`, `lib/mock-*-adapter.ts` — several internal `throw new Error('...')` assertions are missing the `[internal]` prefix required by the i18n hardcoded-string convention.
 - `commands/interceptors.ts`, `subscribers/audit-delete.ts` — raw `console.log` behind an eslint disable instead of the `createLogger` facade (advisory `yarn logger:check-console`).
+- `api/todos/route.ts` — imports `todoCrudEvents` / `todoCrudIndexer` from `commands/todos.ts` but configures `events` / `indexer` inline; the imports are unused. Left in place because the two shapes are not equivalent (the command-side configs carry `buildPayload` builders) and reconciling them changes emitted payloads.
 - `components/TodosTable.tsx` — two localized `(col as any)` property probes on the TanStack `ColumnDef` union; both are immediately runtime-checked, so they are notes rather than gate-4 failures.
 - `backend/todos/create/page.tsx`, `backend/todos/[id]/edit/page.tsx` — the page roots themselves carry `"use client"`; the target architecture extracts the interactive form into a focused client leaf.
 - `backend/todos/[id]/edit/page.tsx` — `initialValues` does not yet carry `updatedAt`, so `CrudForm` cannot auto-derive the optimistic-lock header for update/delete.

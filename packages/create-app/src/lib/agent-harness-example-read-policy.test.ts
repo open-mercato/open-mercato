@@ -93,6 +93,25 @@ function stageExampleApp(): string {
   return root
 }
 
+/**
+ * Force one capability row to `qa-only` in a STAGED inventory copy. The evaluator's qa-only
+ * refusal must stay provable even when every shipped row has been remediated to `readable`,
+ * so this fixture owns its own defect instead of borrowing a real one from the module.
+ */
+function stageExampleAppWithQaOnlyCapability(capabilityId: string): { root: string; qaOnly: Capability } {
+  const root = stageExampleApp()
+  const inventoryPath = path.join(root, EXAMPLE_ROOT, 'references', 'surface-inventory.json')
+  const parsed = JSON.parse(fs.readFileSync(inventoryPath, 'utf8')) as { capabilities: Capability[] }
+  const target = parsed.capabilities.find((entry) => entry.capabilityId === capabilityId)
+  assert.ok(target, `the shipped surface inventory must still declare ${capabilityId}`)
+  assert.ok(target.sourcePaths.length > 0, `${capabilityId} must map at least one source path`)
+  target.referenceStatus = 'qa-only'
+  target.readStatus = 'qa-only'
+  target.qaOnlyReason = 'Staged by the read-policy fixture to exercise the qa-only refusal path.'
+  fs.writeFileSync(inventoryPath, `${JSON.stringify(parsed, null, 2)}\n`)
+  return { root, qaOnly: target }
+}
+
 function declaredCase(overrides: {
   allowedCapabilityIds?: string[]
   entrypoints?: string[]
@@ -645,7 +664,7 @@ test('family 7: the published schema rejects every malformed declaration it must
 
 test('family 7: a legacy root, a stale capability mapping, and a qa-only source fail evaluator validation', async () => {
   const evaluator = await loadEvaluator()
-  const root = stageExampleApp()
+  const { root, qaOnly } = stageExampleAppWithQaOnlyCapability('api.crud-query-engine-custom-fields')
   try {
     assert.ok(evaluator.validateExampleReadPolicyDeclaration(declaredCase({ root: 'src/modules/example-legacy' }), root)
       .some((message) => /must be the canonical src\/modules\/example/.test(message)))
@@ -657,7 +676,6 @@ test('family 7: a legacy root, a stale capability mapping, and a qa-only source 
     assert.ok(evaluator.validateExampleReadPolicyDeclaration(declaredCase({ allowedCapabilityIds: ['overrides.unified-registry'] }), root)
       .some((message) => /maps no source under the declared root/.test(message)))
     // The evaluator-facing derivation is readStatus, not referenceStatus.
-    const qaOnly = capability('api.crud-query-engine-custom-fields')
     assert.equal(qaOnly.readStatus, 'qa-only')
     assert.ok(evaluator.validateExampleReadPolicyDeclaration(declaredCase({ allowedCapabilityIds: [qaOnly.capabilityId] }), root)
       .some((message) => /qa-only and cannot be read/.test(message)))
