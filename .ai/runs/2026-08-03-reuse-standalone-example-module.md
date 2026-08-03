@@ -18,6 +18,9 @@ Source docs:
 - Inventory existing example coverage and describe additive extensions only for genuinely missing surfaces.
 - Reconcile `apps/mercato/src/modules/example/**` as the authoring source and require a byte-identical create-app template mirror with deterministic drift enforcement.
 - Point standalone skills and harness cases at exact files under `src/modules/example` through the bounded example-read policy.
+- Preserve the implementation-topic coverage formerly carried by embedded harness snippets with visible, exact links from every emitted knowledge owner to local example or installed package source.
+- Make the canonical Todo DataTable demonstrate a long-running bulk action that reports platform operation progress in the top bar.
+- Require self-contained integration coverage for every new example extension surface.
 - Keep the four related specs consistent, implementation-ready, and explicit about validation and compatibility.
 
 ## Non-goals
@@ -39,6 +42,12 @@ Source docs:
 
 1. Align governance, example-read, and spec-first routing specs with the canonical `src/modules/example` contract.
 2. Run link/terminology checks, adversarial spec review, final compliance review, and the docs-only validation gate.
+
+### Phase 3: Whole-harness source-link parity
+
+1. Inventory the complete emitted harness and map every implementation-bearing example from the `main` baseline to one retained normative snippet or one visible exact source link.
+2. Define deterministic local-example and installed-package link resolution, ownership, drift, and fresh-scaffold validation contracts.
+3. Require the canonical Todo DataTable bulk action to create a real progress job and drive the platform top progress bar, with integration coverage for every newly added extension surface.
 
 ## Risks
 
@@ -64,6 +73,13 @@ PR: #4878
 - [x] 2.1 Align the three companion specs with canonical example reuse — 4ba460af1
 - [x] 2.2 Complete consistency, compliance, and docs-only validation review — 4ba460af1
 - [x] Post-review fix: separate inventory coverage kind from QA-only reference status — e91e24e3e
+
+### Phase 3: Whole-harness source-link parity
+
+- [ ] 3.1 Inventory prior-main snippets and all emitted harness knowledge owners
+- [ ] 3.2 Define visible direct-link and installed-source resolution contracts
+- [ ] 3.3 Specify DataTable bulk-operation progress and extension integration coverage
+- [ ] 3.4 Complete independent review and docs-only validation
 
 ## Validation Evidence
 
