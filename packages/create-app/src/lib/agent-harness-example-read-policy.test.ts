@@ -969,6 +969,177 @@ test('compatibility: the deterministic catalog still validates end to end with t
   assert.deepEqual(jsonSchemaErrors(cases, schema), [], 'the published catalog must still satisfy its own schema')
 })
 
+// ---------------------------------------------------------------------------------------------
+// Oracle family 9 — redaction. The trace is the evaluator's private working record; the result
+// record carries only `exampleReadPolicySummary(trace)` passed through `recursivelySanitize`.
+// These fixtures pin the two halves of that guarantee: the published contract admits no field
+// that could carry content, and every value the summary is built from is drawn from the case
+// declaration or the shipped inventory rather than from a path the agent chose.
+// ---------------------------------------------------------------------------------------------
+
+const REASON_CODES = ['SPECIALIST_ROUTE_NOT_DECLARED', 'INSTALLED_VERSION_CONTRACT_MISMATCH']
+const REDACTION_SECRET = 'om-fixture-credential-must-not-appear'
+
+type SummarySchema = {
+  additionalProperties: boolean
+  required: string[]
+  properties: {
+    roots: { items: { additionalProperties: boolean; required: string[] } }
+    fallback: { additionalProperties: boolean; required: string[]; properties: { reason: { enum: Array<string | null> } } }
+  }
+}
+
+function summarySchema(): SummarySchema {
+  const schema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'result.schema.json'), 'utf8')) as {
+    properties: { exampleReadPolicy: SummarySchema }
+  }
+  return schema.properties.exampleReadPolicy
+}
+
+function evaluatorSource(): string {
+  return fs.readFileSync(sourceEvaluator, 'utf8')
+}
+
+test('family 9: the published result contract admits no summary field that could carry content', () => {
+  const schema = summarySchema()
+  assert.equal(schema.additionalProperties, false)
+  assert.deepEqual([...schema.required].sort(), ['fallback', 'roots'])
+  assert.equal(schema.properties.roots.items.additionalProperties, false)
+  assert.deepEqual([...schema.properties.roots.items.required].sort(), ['bytes', 'capabilities', 'entrypoints', 'files', 'root'])
+  assert.equal(schema.properties.fallback.additionalProperties, false)
+  assert.deepEqual([...schema.properties.fallback.required].sort(), ['bytes', 'files', 'reason'])
+  assert.deepEqual(schema.properties.fallback.properties.reason.enum, [...REASON_CODES, null])
+
+  const lawful = {
+    roots: [{ root: EXAMPLE_ROOT, entrypoints: [...ENTRYPOINTS], capabilities: ['api.crud-factory'], files: 3, bytes: 4096 }],
+    fallback: { reason: null, files: 0, bytes: 0 },
+  }
+  // `fallback.reason` is nullable, so the local mirror must share the evaluator's null-type rule.
+  assert.ok(evaluatorSource().includes("if (expected === 'null') return value === null"))
+  assert.deepEqual(jsonSchemaErrors(null, { type: ['string', 'null'] }), [])
+  assert.deepEqual(jsonSchemaErrors(lawful, schema as unknown as Record<string, any>), [])
+  assert.deepEqual(jsonSchemaErrors({ ...lawful, fallback: { reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH', files: 1, bytes: 64 } }, schema as unknown as Record<string, any>), [])
+  // The two trace fields that carry an agent-chosen string — the ordered reads and the first
+  // violation — are inadmissible in the published record, as is any smuggled content field.
+  for (const leak of [
+    { ...lawful, reads: [{ path: '/etc/shadow' }] },
+    { ...lawful, firstViolation: `example-root read targets a credential or secret file: ${EXAMPLE_ROOT}/.env.local` },
+    { ...lawful, roots: [{ ...lawful.roots[0], content: 'export const marker' }] },
+    { ...lawful, fallback: { ...lawful.fallback, reason: 'BECAUSE_I_SAID_SO' } },
+    { ...lawful, fallback: { ...lawful.fallback, sanitizedError: REDACTION_SECRET } },
+  ]) assert.ok(jsonSchemaErrors(leak, schema as unknown as Record<string, any>).length > 0, JSON.stringify(leak))
+})
+
+test('family 9: the evaluator projects only the contract keys into the result and sanitizes them first', () => {
+  const source = evaluatorSource()
+  assert.ok(
+    source.includes('recursivelySanitize(exampleReadPolicySummary(trace.exampleReadPolicy), runRoot)'),
+    'the summary must reach the result record only through recursivelySanitize',
+  )
+  const start = source.indexOf('function exampleReadPolicySummary(trace) {')
+  assert.ok(start > 0, 'the summary projection must exist')
+  const body = source.slice(start, source.indexOf('\n}\n', start))
+  for (const key of ['roots', 'root', 'entrypoints', 'capabilities', 'files', 'bytes', 'fallback', 'reason']) {
+    assert.match(body, new RegExp(`\\b${key}\\b`), key)
+  }
+  assert.doesNotMatch(body, /trace\.reads|firstViolation/, 'the projection must drop the agent-chosen fields entirely')
+  assert.ok(
+    source.includes("function recursivelySanitize(value, root) {\n  if (typeof value === 'string') return sanitize(value, root)"),
+    'recursivelySanitize must apply sanitize to every string it reaches',
+  )
+})
+
+test('family 9: only declaration-derived values reach the summary, so an adversarial read cannot smuggle a path, a home directory, or a credential into it', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    fs.writeFileSync(path.join(root, EXAMPLE_ROOT, '.env.local'), `OM_TOKEN=${REDACTION_SECRET}\n`)
+    const caseRecord = declaredCase({})
+    const declaration = (caseRecord.context.exampleRoots as Array<{ entrypoints: string[]; allowedCapabilityIds: string[] }>)[0]
+    const tokenShapedCapability = `sk-${'A'.repeat(32)}`
+    const adversarial: PolicyRead[] = [
+      { path: '/etc/shadow' },
+      { path: '~/.aws/credentials' },
+      { path: 'C:\\Users\\pkarw\\.npmrc' },
+      { path: `${EXAMPLE_ROOT}/.env.local` },
+      { path: `${EXAMPLE_ROOT}/../../../etc/passwd` },
+      { path: `${EXAMPLE_ROOT}/%2e%2e/secrets.json` },
+      // This one is ACCEPTED by the policy: the version-mismatch branch never inspects the
+      // supplied capability id, so an unbounded agent string does survive into `trace.reads`.
+      // It must still be absent from everything the summary is built from.
+      { path: INSTALLED_SOURCE, fallbackReason: 'INSTALLED_VERSION_CONTRACT_MISMATCH', capabilityId: tokenShapedCapability },
+    ]
+    for (const read of adversarial) {
+      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord, appRoot: root, reads: [...entrypointReads(), read] })
+      for (const rootTrace of trace.roots) {
+        assert.equal(rootTrace.root, EXAMPLE_ROOT, JSON.stringify(read))
+        assert.ok(rootTrace.entrypoints.every((entry) => declaration.entrypoints.includes(entry)), JSON.stringify(read))
+        assert.ok(rootTrace.capabilities.every((entry) => declaration.allowedCapabilityIds.includes(entry)), JSON.stringify(read))
+        assert.ok(Number.isInteger(rootTrace.files) && Number.isInteger(rootTrace.bytes), JSON.stringify(read))
+      }
+      assert.ok(trace.fallback.reason === null || REASON_CODES.includes(trace.fallback.reason), JSON.stringify(read))
+      const summaryInputs = JSON.stringify({ roots: trace.roots, fallback: trace.fallback })
+      for (const forbidden of [os.homedir(), root, REDACTION_SECRET, tokenShapedCapability, '/etc', 'C:', '~/', '.env', 'passwd']) {
+        assert.equal(summaryInputs.includes(forbidden), false, `${forbidden} leaked for ${JSON.stringify(read)}`)
+      }
+      assert.doesNotMatch(summaryInputs, /export const marker/, JSON.stringify(read))
+    }
+
+    const accepted = evaluator.evaluateExampleReadPolicy({
+      caseRecord,
+      appRoot: root,
+      reads: [...entrypointReads(), adversarial.at(-1) as PolicyRead],
+    })
+    assert.equal(accepted.firstViolation, null)
+    assert.equal(accepted.reads.at(-1)?.capabilityId, tokenShapedCapability, 'the working record does keep the agent string')
+
+    // The live runner channel behaves identically: the reason and capability id it carries reach
+    // the working record, never the summary inputs.
+    const live = evaluator.observedContext(
+      [
+        ...ENTRYPOINTS.map((entrypoint) => readEvent(`${EXAMPLE_ROOT}/${entrypoint}`)),
+        readEvent(INSTALLED_SOURCE, { reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH', capabilityId: tokenShapedCapability }),
+      ].join('\n'),
+      root,
+      caseRecord,
+      false,
+    )
+    assert.equal(live.exampleReadPolicy.firstViolation, null)
+    assert.equal(live.exampleReadPolicy.reads.at(-1)?.capabilityId, tokenShapedCapability)
+    const liveSummaryInputs = JSON.stringify({ roots: live.exampleReadPolicy.roots, fallback: live.exampleReadPolicy.fallback })
+    assert.equal(liveSummaryInputs.includes(tokenShapedCapability), false)
+    assert.equal(liveSummaryInputs.includes(root), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 9: the sanitize path recursivelySanitize delegates to redacts the run root, its home directory, and a credential value', () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-example-policy-home-')))
+  try {
+    const scenarios: Array<{ content: string; expect: RegExp }> = [
+      { content: 'not json at all', expect: /<redacted-path>/ },
+      { content: `token=${REDACTION_SECRET}`, expect: /<redacted>/ },
+    ]
+    for (const [index, scenario] of scenarios.entries()) {
+      const appRoot = path.join(home, `app-${index}`)
+      fs.mkdirSync(path.join(appRoot, '.ai', 'harness'), { recursive: true })
+      fs.writeFileSync(path.join(appRoot, '.ai', 'harness', 'cases.json'), scenario.content)
+      const result = spawnSync(process.execPath, [sourceEvaluator, '--root', appRoot], {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: home },
+      })
+      assert.notEqual(result.status, 0, scenario.content)
+      assert.match(result.stderr, scenario.expect, scenario.content)
+      assert.equal(result.stderr.includes(appRoot), false, 'the absolute run root must never reach the output')
+      assert.equal(result.stderr.includes(home), false, 'the home directory must never reach the output')
+      assert.equal(result.stderr.includes(REDACTION_SECRET), false, 'a credential value must never reach the output')
+    }
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
+
 /**
  * A minimal draft-2020-12 subset mirroring the evaluator's own validator, so schema fixtures do
  * not depend on an external validator the harness does not ship.
@@ -982,12 +1153,13 @@ function jsonSchemaErrors(value: unknown, schema: Record<string, any>, location 
   }
   const errors: string[] = []
   const isObject = value !== null && typeof value === 'object' && !Array.isArray(value)
-  const matchesType = (type: string) => (type === 'array' ? Array.isArray(value)
-    : type === 'object' ? isObject
-      : type === 'integer' ? Number.isInteger(value)
-        : type === 'number' ? typeof value === 'number'
-          : type === 'boolean' ? typeof value === 'boolean'
-            : type === 'string' ? typeof value === 'string' : false)
+  const matchesType = (type: string) => (type === 'null' ? value === null
+    : type === 'array' ? Array.isArray(value)
+      : type === 'object' ? isObject
+        : type === 'integer' ? Number.isInteger(value)
+          : type === 'number' ? typeof value === 'number'
+            : type === 'boolean' ? typeof value === 'boolean'
+              : type === 'string' ? typeof value === 'string' : false)
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []
   if (types.length && !types.some(matchesType)) return [`${location} must be ${types.join(' or ')}`]
   if (Object.hasOwn(schema, 'const') && value !== schema.const) errors.push(`${location} must equal its constant`)
