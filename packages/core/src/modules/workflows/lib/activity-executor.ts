@@ -371,7 +371,7 @@ export async function executeActivity(
       const timeoutMs = resolveActivityTimeoutMs(activity)
       const result = timeoutMs
         ? await executeWithTimeout(
-            () => executeActivityByType(em, container, activity, context),
+            (signal) => executeActivityByType(em, container, activity, context, signal),
             timeoutMs
           )
         : await executeActivityByType(em, container, activity, context)
@@ -511,7 +511,8 @@ async function executeActivityByType(
   em: EntityManager,
   container: AwilixContainer,
   activity: ActivityDefinition,
-  context: ActivityContext
+  context: ActivityContext,
+  signal?: AbortSignal
 ): Promise<any> {
   // Interpolate config variables from context (including workflow metadata)
   const interpolatedConfig = interpolateVariables(activity.config, context.workflowContext, context.workflowInstance)
@@ -521,7 +522,7 @@ async function executeActivityByType(
       return await executeSendEmail(interpolatedConfig, context, container)
 
     case 'CALL_API':
-      return await executeCallApi(em, interpolatedConfig, context, container)
+      return await executeCallApi(em, interpolatedConfig, context, container, signal)
 
     case 'EMIT_EVENT':
       return await executeEmitEvent(interpolatedConfig, context, container)
@@ -530,7 +531,7 @@ async function executeActivityByType(
       return await executeUpdateEntity(em, interpolatedConfig, context, container)
 
     case 'CALL_WEBHOOK':
-      return await executeCallWebhook(interpolatedConfig, context)
+      return await executeCallWebhook(interpolatedConfig, context, { signal })
 
     case 'EXECUTE_FUNCTION':
       return await executeFunction(interpolatedConfig, context, container)
@@ -1456,19 +1457,21 @@ function sleep(ms: number): Promise<void> {
  * Execute a promise with timeout
  */
 async function executeWithTimeout<T>(
-  executor: () => Promise<T>,
+  executor: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number
 ): Promise<T> {
   let timeoutId: NodeJS.Timeout
+  const abortController = new AbortController()
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      abortController.abort()
       reject(new Error(`Activity execution timeout after ${timeoutMs}ms`))
     }, timeoutMs)
   })
 
   try {
-    return await Promise.race([executor(), timeoutPromise])
+    return await Promise.race([executor(abortController.signal), timeoutPromise])
   } finally {
     clearTimeout(timeoutId!)
   }

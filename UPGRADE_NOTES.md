@@ -24,6 +24,16 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### Settings sections are identified by their untranslated group id (#4843)
+
+`buildSettingsSections` used to identify each settings section by slugging the **rendered** group label, so `SettingsSection.id` was locale-dependent — `module-configs` in one deployment, `konfiguracja-modu` in another. Sections now carry the untranslated group id instead: the `pageGroupKey` a settings page declares (for example `settings.sections.moduleConfigs`), falling back to its raw `pageGroup` label when it declares no key. This matches how the main sidebar already identifies its nav groups, and it is what makes the ordering in `settingsSectionOrder` locale-independent.
+
+The shape of `SettingsSection` and of `BackendChromePayload.settingsSections` is unchanged; only the **value** of the `id` field changes.
+
+**Action for module authors injecting settings menu items:** an injected `menuItems[].groupId` must equal the target section's group id, not a slug of its label. The documented convention already used this form (`groupId: 'example.nav.group'`), so widgets that followed it keep working — and in fact begin resolving reliably in non-English deployments for the first time. A widget that hard-coded a label slug such as `groupId: 'module-configs'` no longer matches its section and instead creates a section of its own; change it to `groupId: 'settings.sections.moduleConfigs'`.
+
+**Action for callers of `buildSettingsSections`:** the `sectionOrder` parameter should now be keyed by group id. Maps keyed by the old label slugs still resolve through a deprecated compatibility lookup and will keep working for at least one minor release, but they only ever matched English deployments, so rekeying is the actual fix.
+
 ### Bounded public webhook request bodies
 
 Public webhook receivers now stop reading once the applicable byte ceiling is exceeded and return `413` before signature verification or downstream work. `OM_WEBHOOK_MAX_BODY_BYTES` configures the globally bounded generic, shipping, and communication-channel receivers and defaults to 1 MiB. InboxOps inherits that setting when present, supports `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` as a source-specific override, and otherwise keeps its historical 2 MiB limit. Payment gateway handlers preserve their existing body reads unless their `registerWebhookHandler(...)` options opt into `maxBodyBytes`; the value must be a positive safe integer no greater than 1 MiB.
