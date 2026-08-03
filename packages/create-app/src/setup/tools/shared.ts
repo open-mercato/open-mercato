@@ -228,7 +228,11 @@ export function finalizeHarnessManifest(config: AgenticConfig, selectedTools: st
         path: relativePath,
         sha256: hashFile(path),
         source: skillName ? (externalSkills.has(skillName) ? 'external-override' : 'local-skill') : 'generated',
-        userEditable: relativePath === 'AGENTS.md' || relativePath === '.ai/agentic.config.json' || relativePath === '.ai/lessons.md',
+        userEditable:
+          relativePath === 'AGENTS.md'
+          || relativePath === '.ai/agentic.config.json'
+          || relativePath === '.ai/lessons.md'
+          || relativePath.startsWith('.ai/lessons/'),
       }
     })
   ensureDir(manifestPath)
