@@ -112,6 +112,32 @@ export type PaymentGatewayClientSession =
   | EmbeddedPaymentGatewayClientSession
   | RedirectPaymentGatewayClientSession
 
+// ── Order Amount Reconciliation ─────────────────────────────────────────────
+
+export interface PaymentGatewayScope {
+  organizationId: string
+  tenantId: string
+}
+
+export interface PaymentOrderTotal {
+  orderId: string
+  currencyCode: string
+  amountDue: number
+}
+
+/**
+ * Contract a module that owns orders implements so `payment_gateways` can
+ * reconcile a caller-supplied session amount against the authoritative amount
+ * due, without depending on that module. Implementations MUST scope the lookup
+ * by tenant and organization and MUST return `null` for anything outside the
+ * caller's scope, so an out-of-scope order is indistinguishable from a missing
+ * one. The `sales` module registers the default implementation under the
+ * `paymentOrderTotalResolver` DI name.
+ */
+export interface PaymentOrderTotalResolver {
+  resolveOrderTotal(orderId: string, scope: PaymentGatewayScope): Promise<PaymentOrderTotal | null>
+}
+
 // ── Input / Output Types ────────────────────────────────────────────────────
 
 export interface CreateSessionInput {
@@ -155,6 +181,7 @@ export interface CaptureInput {
   amount?: number
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface CaptureResult {
@@ -169,6 +196,7 @@ export interface RefundInput {
   reason?: string
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface RefundResult {
@@ -182,6 +210,7 @@ export interface CancelInput {
   sessionId: string
   reason?: string
   credentials: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface CancelResult {

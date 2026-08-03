@@ -1,5 +1,8 @@
 export type CrudEventAction = 'created' | 'updated' | 'deleted'
 
+/** Internal payload marker: the data engine owns this CRUD event's query-index decision. */
+export const CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY = '__omQueryIndexManaged' as const
+
 export type CrudEntityIdentifiers = {
   id: string
   organizationId: string | null
@@ -11,6 +14,7 @@ export type CrudEmitContext<TEntity = unknown> = {
   entity: TEntity
   identifiers: CrudEntityIdentifiers
   syncOrigin?: string | null
+  actorUserId?: string | null
 }
 
 export type CrudEventsConfig<TEntity = unknown> = {

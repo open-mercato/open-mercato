@@ -23,6 +23,7 @@ import {
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { resolveNotificationService } from "../../notifications/lib/notificationService";
 import { buildFeatureNotificationFromType } from "../../notifications/lib/notificationBuilder";
+import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
 import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
@@ -75,6 +76,8 @@ import {
   quoteLineCreateSchema,
   quoteAdjustmentCreateSchema,
   orderCreateSchema,
+  ORDER_PAYMENT_LEDGER_WARNING_CODE,
+  resolveSuppliedOrderPaymentLedgerFields,
   orderLineCreateSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
@@ -86,6 +89,7 @@ import {
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
   type OrderCreateInput,
+  type OrderPaymentLedgerWarning,
   type OrderLineCreateInput,
   type OrderAdjustmentCreateInput,
   type InvoiceCreateInput,
@@ -126,7 +130,8 @@ import {
   type SalesDocumentCalculationResult,
 } from "../lib/types";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
-import { resolveDictionaryEntryValue } from "../lib/dictionaries";
+import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
+import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
 import { loadSalesSettings } from "./settings";
@@ -141,6 +146,7 @@ import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/tran
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+let warnedDeprecatedOrderPaymentLedgerInput = false
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -151,6 +157,7 @@ const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    userId: ctx.actorUserId ?? null,
   }),
 };
 
@@ -162,6 +169,7 @@ const quoteCrudEvents: CrudEventsConfig<SalesQuote> = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    userId: ctx.actorUserId ?? null,
   }),
 };
 
@@ -853,6 +861,70 @@ function normalizeStatusValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function isConfirmedOrderStatus(status: string | null): boolean {
+  return status === "confirmed";
+}
+
+function isCancelledOrderStatus(status: string | null): boolean {
+  return status === "canceled" || status === "cancelled";
+}
+
+async function emitOrderLifecycleEvent(input: {
+  eventId: "sales.order.confirmed" | "sales.order.cancelled";
+  order: SalesOrder;
+  previousStatus: string | null;
+}): Promise<void> {
+  await emitSalesEvent(input.eventId, {
+    id: input.order.id,
+    orderId: input.order.id,
+    orderNumber: input.order.orderNumber,
+    previousStatus: input.previousStatus,
+    status: normalizeStatusValue(input.order.status),
+    tenantId: input.order.tenantId,
+    organizationId: input.order.organizationId,
+  });
+}
+
+function emitOrderLifecycleEventsForTransition(input: {
+  order: SalesOrder;
+  previousStatus: string | null;
+}): void {
+  const nextStatus = normalizeStatusValue(input.order.status);
+  if (input.previousStatus === nextStatus) return;
+
+  if (isConfirmedOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.confirmed",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      // Surface as warning so downstream automations (e.g. WMS reservation
+      // subscriber) failing to register/persist their own follow-up state is
+      // observable in logs instead of being silently dropped. The order
+      // status transition itself is already committed at this point.
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.confirmed",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
+
+  if (isCancelledOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.cancelled",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.cancelled",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
 }
 
 function resolveNoteAuthorFromAuth(auth: AuthContext | null): string | null {
@@ -4766,6 +4838,7 @@ const createQuoteCommand: CommandHandler<
       },
       events: quoteCrudEvents,
       indexer: { entityType: E.sales.sales_quote },
+      actorUserId: ctx.auth?.sub ?? null,
     });
 
     // Invalidate cache
@@ -5355,6 +5428,7 @@ const updateOrderCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    emitOrderLifecycleEventsForTransition({ order, previousStatus });
     if (statusChangeNote) {
       const dataEngine = ctx.container.resolve("dataEngine");
       await emitCrudSideEffects({
@@ -5435,14 +5509,22 @@ const updateOrderCommand: CommandHandler<
 
 const createOrderCommand: CommandHandler<
   OrderCreateInput,
-  { orderId: string }
+  { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
+    const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
+    if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
+      warnedDeprecatedOrderPaymentLedgerInput = true
+      logger.warn("sales.orders.create ignored deprecated payment ledger input", {
+        code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+        fields: deprecatedPaymentLedgerFields,
+      })
+    }
     const orderNumber =
       typeof initial.orderNumber === "string" &&
       initial.orderNumber.trim().length
@@ -5461,10 +5543,15 @@ const createOrderCommand: CommandHandler<
     }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    // Soft-resolve the cache so the per-order status/fulfillment/payment dictionary lookups are
+    // memoized across a bulk import; degrades to a straight EM read when no cache is registered.
+    const dictionaryCache = ctx.container.resolve("cache", { allowUnregistered: true }) as
+      | CacheStrategy
+      | undefined;
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
-      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
+      resolveCachedDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
     ]);
     const {
       customerSnapshot: resolvedCustomerSnapshot,
@@ -5773,6 +5860,7 @@ const createOrderCommand: CommandHandler<
       },
       events: orderCrudEvents,
       indexer: { entityType: E.sales.sales_order },
+      actorUserId: ctx.auth?.sub ?? null,
     });
 
     // Invalidate cache
@@ -5790,7 +5878,24 @@ const createOrderCommand: CommandHandler<
       "created",
     );
 
-    return { orderId: order.id };
+    emitOrderLifecycleEventsForTransition({
+      order,
+      previousStatus: null,
+    });
+
+    return {
+      orderId: order.id,
+      ...(deprecatedPaymentLedgerFields.length
+        ? {
+            warnings: [
+              {
+                code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+                fields: deprecatedPaymentLedgerFields,
+              },
+            ],
+          }
+        : {}),
+    };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -6581,6 +6686,32 @@ async function assertShippedOrderLineEditable(
   }
 }
 
+const FULFILLED_ORDER_STATUS = "fulfilled";
+
+const isFulfilledOrder = (order: SalesOrder): boolean => {
+  const normalize = (value: string | null | undefined): string =>
+    (value ?? "").trim().toLowerCase();
+  return (
+    normalize(order.status) === FULFILLED_ORDER_STATUS ||
+    normalize(order.fulfillmentStatus) === FULFILLED_ORDER_STATUS
+  );
+};
+
+async function assertOrderAcceptsNewLine(
+  order: SalesOrder,
+  existingSnapshot: SalesLineSnapshot | null,
+): Promise<void> {
+  if (existingSnapshot) return;
+  if (!isFulfilledOrder(order)) return;
+  const { translate } = await resolveTranslations();
+  throw new CrudHttpError(409, {
+    error: translate(
+      "sales.documents.items.errorAddToFulfilled",
+      "You cannot add a new item to a fulfilled order. Change the order status first.",
+    ),
+  });
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -6625,6 +6756,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    await assertOrderAcceptsNewLine(order, existingSnapshot);
     await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"
@@ -6960,6 +7092,14 @@ const orderLineDeleteCommand: CommandHandler<
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
         ));
+    }
+    if (filtered.length === 0) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          "sales.documents.items.errorDeleteLast",
+          "An order must contain at least one line item.",
+        ),
+      });
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapOrderLineEntityToSnapshot(line),

@@ -200,9 +200,13 @@ export function SalesDocumentAddressesSection({
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
-  const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(!!shippingAddressSnapshot)
+  const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(
+    !!shippingAddressSnapshot && !shippingAddressId
+  )
   const [useCustomBilling, setUseCustomBilling] = React.useState<boolean>(
-    billingAddressSnapshot ? true : !!shippingAddressSnapshot
+    billingAddressSnapshot && !billingAddressId
+      ? true
+      : !!shippingAddressSnapshot && !shippingAddressId
   )
   const [sameAsShipping, setSameAsShipping] = React.useState<boolean>(() => {
     if (shippingAddressSnapshot || billingAddressSnapshot) {
@@ -366,8 +370,8 @@ export function SalesDocumentAddressesSection({
   }, [documentId, kind, resolveAddressSummary, t])
 
   React.useEffect(() => {
-    const shippingCustom = !!shippingAddressSnapshot
-    const billingCustom = !!billingAddressSnapshot
+    const shippingCustom = !!shippingAddressSnapshot && !shippingAddressId
+    const billingCustom = !!billingAddressSnapshot && !billingAddressId
     const nextSame = shippingAddressSnapshot || billingAddressSnapshot
       ? deepEqual(shippingAddressSnapshot, billingAddressSnapshot)
       : !billingAddressId || billingAddressId === shippingAddressId

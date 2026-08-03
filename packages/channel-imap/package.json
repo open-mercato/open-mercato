@@ -67,9 +67,9 @@
     "@open-mercato/ui": "workspace:*",
     "@types/mailparser": "^3.4.5",
     "@types/nodemailer": "^8.0.1",
-    "imapflow": "^1.4.3",
-    "mailparser": "^3.9.12",
-    "nodemailer": "^9.0.1"
+    "imapflow": "^1.4.7",
+    "mailparser": "^3.9.14",
+    "nodemailer": "^9.0.3"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -85,9 +85,9 @@
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },
   "publishConfig": {

@@ -5,7 +5,7 @@ import { createNotificationService } from './lib/notificationService'
 export function register(container: AppContainer): void {
   container.register({
     notificationService: asFunction(({ em, eventBus, commandBus }) =>
-      createNotificationService({ em, eventBus, commandBus })
-    ).scoped(),
+      createNotificationService({ em, eventBus, commandBus, container })
+    ).scoped().proxy(),
   })
 }

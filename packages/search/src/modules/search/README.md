@@ -456,6 +456,11 @@ yarn mercato search worker fulltext-indexing --concurrency=5
 | `OPENAI_API_KEY` | OpenAI API key for embeddings | - |
 | `OM_SEARCH_ENABLED` | Enable/disable search module | `true` |
 | `OM_SEARCH_DEBUG` | Enable debug logging for search module | `false` |
+| `OM_SEARCH_MIN_LEN` | Minimum token length for the Postgres `search_tokens` index; also the floor of prefix expansion (token strategy only) | `3` |
+| `OM_SEARCH_ENABLE_PARTIAL` | Prefix/partial expansion for `search_tokens` (indexing "john" stores hashes for `joh`,`john`). Token/Postgres only — Meilisearch unaffected. Increases `search_tokens` size ~5–6× | `true` |
+| `OM_SEARCH_HASH_ALGO` | Hash algorithm for `search_tokens` tokens (`sha256`/`sha1`/`md5`); token strategy only | `sha256` |
+| `OM_SEARCH_STORE_RAW_TOKENS` | Store plaintext token alongside the hash in `search_tokens` — **security-sensitive** (retains plaintext of otherwise-hashed values); token strategy only | `false` |
+| `OM_SEARCH_FIELD_BLOCKLIST` | Comma-separated field-name substrings excluded from per-field tokens and aggregate `search_text` (merged with built-in `password,token,secret,hash`); prefix an entry with `entityType@` to scope it to one entity and reindex affected entities after changes; token strategy only | - |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | Exclude encrypted fields from Meilisearch indexing | `false` |
 | `QUEUE_STRATEGY` | Queue strategy (`local` or `async`) | `local` |
 | `REDIS_URL` | Redis connection URL for async queues | - |
