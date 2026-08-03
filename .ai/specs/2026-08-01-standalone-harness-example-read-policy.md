@@ -1,21 +1,22 @@
-# Standalone Harness Example-Read Policy
+# Standalone Harness Example and Linked-Source Read Policy
 
 - **Status:** Draft
 - **Date:** 2026-08-01
-- **Scope:** OSS standalone harness context/evaluator semantics for capability-scoped example reads
-- **Related:** [Standalone Canonical Example Module](./2026-07-31-standalone-canonical-example-module.md), [Standalone Harness Knowledge Governance](./2026-08-01-standalone-harness-knowledge-governance.md), [Standalone AI Development Harness](./2026-07-24-standalone-ai-development-harness.md)
+- **Revised:** 2026-08-03
+- **Scope:** OSS standalone harness context/evaluator semantics for capability-scoped canonical-example and declared installed-source reads
+- **Related:** [Standalone Canonical Example Module](./2026-07-31-standalone-canonical-example-module.md), [Standalone Harness Knowledge Governance](./2026-08-01-standalone-harness-knowledge-governance.md), [Standalone AI Development Harness](./2026-07-24-standalone-ai-development-harness.md), design-foundation [PR #4277](https://github.com/open-mercato/open-mercato/pull/4277), design-system gallery [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301)
 
 ## TLDR
 
-Relevant harness cases must be able to read enough exact example files to solve a task, while unrelated traversal, secrets, and context dumping remain forbidden. Add a machine-readable per-case `exampleRoots` contract with progressive entrypoints, file/byte budgets, and an explicit installed-version fallback. This spec exclusively owns generic read semantics; capability specs only register their roots and cases.
+Relevant harness cases must be able to read enough exact source files to solve a task, while unrelated traversal, mutation of canonical or installed sources, secrets, and context dumping remain forbidden. Add a machine-readable per-case `exampleRoots` contract plus exact `sourceReferenceIds` that bind visible links in emitted guides/skills/facts to the whole-harness source-link inventory. Canonical-module reads use the emitted `src/modules/example` tree; specialist and exact-host reads may follow declared files under the selected installed package's `node_modules/@open-mercato/*/src/**`. The sole non-`src` exception is an exact packed `@open-mercato/ui/figma/*.figma.tsx` file with the Code Connect role for an applicable Figma-facing case. Undeclared fallback remains only for an inventory-classified specialist route or an installed-version contract mismatch, each with its own reason code. Evaluator allowances without visible owner links do not satisfy this policy.
 
 ## Problem Statement
 
-The current evaluator's tight context allowlists can treat legitimate multi-file example reading as a violation. Loosening all reads would hide inefficient exploration and weaken safety. The harness needs a generic, bounded policy that distinguishes a routed example from arbitrary source traversal. This policy is independently deployable from both a particular reference module and the generic knowledge-change synchronization workflow.
+The current evaluator's tight context allowlists can treat legitimate multi-file example reading as a violation, while its broad `node_modules/@open-mercato/*/src/**` warning glob is promoted into a read allowance for all 202 cases at the audit baseline. Neither extreme supplies a safe source-navigation contract. Current instructions contain no exact example link; generated facts render a directory-level source root and omit available exact provenance for several surfaces; and the tool accepts exact source files rather than those directory hints. The harness needs bounded reads that start from visible exact links and distinguish declared local/installed references from arbitrary source traversal. This policy is independently deployable from both the canonical example-module capability and the generic knowledge-change synchronization workflow.
 
 ## User-Directed Decision
 
-The 2026-08-01 brief explicitly requires example reading to be allowed widely enough for agents to use precise reference implementations. “Widely” means capability-complete within declared roots, not unrestricted repository access.
+The 2026-08-01 brief explicitly requires example reading to be allowed widely enough for agents to use precise reference implementations, and the 2026-08-03 clarifications require the harness itself to contain direct links to local examples, other installed modules, the living design-system work in [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301), and honest PR #4277 applicability on every design-system item. “Widely” means capability-complete within declared roots and exact declared installed files, not unrestricted repository access. PR/gallery/Figma URLs are provenance and visual navigation; only exact packed/emitted source records grant file reads.
 
 ## Context Schema
 
@@ -24,8 +25,12 @@ Extend the case schema with:
 ```json
 {
   "context": {
+    "sourceReferenceIds": [
+      "example.api.crud-factory",
+      "ui.datatable.implementation"
+    ],
     "exampleRoots": [{
-      "root": "src/modules/reference_module",
+      "root": "src/modules/example",
       "entrypoints": ["README.md", "references/surface-map.md"],
       "allowedCapabilityIds": ["api.crud-factory"],
       "maxFiles": 12,
@@ -33,7 +38,10 @@ Extend the case schema with:
     }],
     "installedVersionFallback": {
       "allowed": true,
-      "reasonCodes": ["LOCAL_EXAMPLE_MISSING_VERSIONED_CONTRACT"],
+      "reasonCodes": [
+        "SPECIALIST_ROUTE_NOT_DECLARED",
+        "INSTALLED_VERSION_CONTRACT_MISMATCH"
+      ],
       "maxFiles": 4,
       "maxBytes": 65536
     }
@@ -41,27 +49,46 @@ Extend the case schema with:
 }
 ```
 
-Paths are case-root relative, normalized through realpath, and reject absolute paths, `..`, symlink escapes, generated caches, credentials, secrets, local ops files, and writable-target reads outside the existing case contract. The evaluator permits multiple exact files under a root up to both budgets. Reading starts from an entrypoint; subsequent reads must map to an `allowedCapabilityId` referenced by the prompt/plan. Directory-wide reads, glob dumps, and unrelated capability files fail even below the byte budget.
+`sourceReferenceIds` resolve against emitted `.ai/harness/source-link-inventory.json`. Each ID identifies one visible link in an emitted owner, one exact regular target file, and `readStatus: "readable"`. Repository-only integration evidence and canonical-example rows derived as `readStatus: "qa-only"` remain validation evidence but are forbidden in case `sourceReferenceIds`. A canonical-example reference additionally names its capability ID and must agree with `surface-inventory.json`; PR #4883 topology references also name the generated `example` fact/contribution/activation/override-target ID that led to the source. An installed-package reference names the selected package, package-relative `src/**` file, package version/hash, and preset/tier applicability. A PR #4301 UI case uses separate explicit IDs for the emitted rule owner, exact example source, one direct gallery entry or checked constituent entries, the exact installed `@open-mercato/ui` implementation, and optional local `src/app/globals.css` tokens; `gallery/registry.ts` and `gallery/types.ts` are separate discovery references only. Each gallery record uses `referenceRole: "design-system-gallery"` and a closed `visualReference` containing coverage kind, family/entry/public import/after-opt-in route/availability/feature/provenance head/merged-package SHA. The derived inventory includes every final PR #4301 gallery entry, not only entries selected by canonical example rows, and every one carries the canonical spec's closed PR #4277 `designFoundation` fields, including token applicability, independent snapshot availability, Code Connect mapping/artifact/export/node/coverage/publication status, design-skill availability, PR URL/audited head/final package SHA, and package hash. An exact `node_modules/@open-mercato/ui/figma/<name>.figma.tsx` target is permitted outside `src/**` only with `referenceRole: "figma-code-connect"`, `codeConnectArtifactAvailability: "installed-packed-auxiliary"`, verified packed presence, and an applicable Figma-facing prompt; readable auxiliary source does not imply a package export or runtime use and grants no directory/glob/sibling/transitive access. Snapshot and design-skill IDs exist only when those artifacts are emitted locally and their tier is selected. The evaluator verifies that the case required/read the origin owner containing each link before following it, and charges every target against normal file/byte budgets. Source-reference IDs do not grant a directory, glob, sibling file, transitive import, or QA evidence read; an `importPath`, PR URL, Figma link, node ID, or live route grants no filesystem or network access.
 
-An installed-package fallback is allowed only after the ordered trace records an allowed reason code naming the missing local/versioned contract. It starts after local entrypoint inspection, uses its own smaller budgets, and retains the harness's package/version and sensitive-path restrictions. Cases without `exampleRoots` retain current behavior.
+Paths are case-root relative, normalized through realpath, and reject absolute paths, `..`, symlink escapes, generated caches, credentials, secrets, local ops files, and writable-target reads outside the existing case contract. The evaluator permits multiple exact files under a root up to both budgets. Reading starts from an entrypoint; subsequent reads must map to an `allowedCapabilityId` referenced by the prompt/plan. For the canonical root, IDs and exact files are validated against `src/modules/example/references/surface-inventory.json`; missing IDs, stale paths, entries with `referenceStatus: "qa-only"`, and files outside the mapped capability fail. Directory-wide reads, glob dumps, and unrelated capability files fail even below the byte budget.
+
+An example root is read-only context. A case may not write, rename, delete, chmod, or replace anything under a declared root, even when a broader writable pattern such as `src/modules/**` would otherwise match. Root immutability is resolved before writable-pattern matching and cannot be overridden by case configuration.
+
+A declared installed-package reference is first-class context and may be followed directly when the routed owner visibly links it; it is not fallback. Resolution follows `src/modules.ts`, the app lockfile, and Node resolution from the fresh scaffold, then requires the target to be a regular read-only file inside that selected package's published `src/**`, except for the single exact role-gated Code Connect path above. An optional-package link is valid only in presets/tiers that install it. Workspace symlinks, directory links, broad `figma/` permission, wrong-version duplicates, unpublished paths, and a path present only in the monorepo fail.
+
+An undeclared installed-package fallback is allowed only after local entrypoint/declared-link inspection and only when the inventory classifies the requested capability as `specialist-route` and records `SPECIALIST_ROUTE_NOT_DECLARED`, or the trace records `INSTALLED_VERSION_CONTRACT_MISMATCH` for an exact mapped contract. A missing ordinary module surface is not a fallback reason: the canonical example spec must extend `example` and update its inventory. Fallback uses its own smaller budgets and retains the harness's package/version and sensitive-path restrictions. Cases without `exampleRoots` or `sourceReferenceIds` retain current non-installed behavior, but every existing case that used the universal installed-source glob must be audited and migrated to visible exact declared references or one of these two reason-gated fallback branches before the glob is removed.
+
+The schema accepts only `src/modules/example` for canonical-module cases and rejects shadow or alias roots, duplicate roots, entries whose inventory path or hash does not match the emitted fixture, unknown/orphan source-reference IDs, and references whose visible owner link or packed target differs from the manifest.
+
+The emitted `.ai/guides/reference-modules/example.md` is the visible reference-fact owner while the module is disabled. `.ai/guides/reference-module-facts.json` is machine-readable routing data, not a substitute for a rendered link; cases address its compact row through the defined JSON Pointer `/example/facts`, then must read the Markdown owner before following source. Both artifacts carry `projectionKind: "activated-reference"`, `sourceKind: "local-reference"`, and `runtimeSelected: false` semantics plus portable `src/modules/example/**` provenance produced from an explicitly activated disposable selection context, not a claim about the current runtime or a package/workspace path. Every Markdown href resolves from `.ai/guides/reference-modules/` to the exact app-local file. Normal `.ai/guides/module-facts.json` remains the combined package-module sidecar and `.ai/guides/modules/**` remains enabled-filtered package Markdown; neither contains app-local modules. Missing reference facts, accidental app-local inclusion in normal outputs, package-only omission of the reference bundle, non-clickable roots, stale fingerprints, unresolved reference diagnostics, activated-extractor parity failure, or topology IDs that do not correlate to the linked source fail before fallback.
 
 ## Ownership Boundary
 
-- This spec owns the schema, path normalization, trace evaluator, budgets, fallback semantics, and generic fixtures.
-- A capability spec such as the canonical reference owns only its case entries: exact root, entrypoints, capability IDs, and case-specific budgets/oracles.
+- This spec owns the schema, exact-file path normalization, trace evaluator, budgets, declared-installed semantics, fallback semantics, broad-glob removal, and generic fixtures.
+- A capability spec such as the canonical example owns only its case entries: exact root, entrypoints, capability/source-reference IDs, inventory mappings, visible owner links, and case-specific budgets/oracles.
 - The knowledge-governance spec owns classification and synchronization when this schema/policy later changes; it does not define read semantics.
 
 These are one-way relationships: capability cases consume this policy, and future policy changes are validated by governance. Neither companion is required to define the other's behavior.
+
+The canonical capability acceptance must keep DataTable bulk actions and operation progress separately discoverable even when one end-to-end Todo flow connects them: each has its own visible source reference, case/source-selection assertion, structured oracle assertion, and self-contained integration-test assertion. A combined prompt without both reference IDs and both behavioral assertions is incomplete.
 
 ## Evaluator Oracles
 
 Focused fixtures cover:
 
-1. A relevant module case reads README/map plus several exact CRUD/data/UI files and passes.
+1. A relevant module case reads `src/modules/example/README.md`, its map, and several exact CRUD/data/UI files and passes.
 2. The same case reads an unrelated capability under the allowed root and fails.
 3. A case without the root attempts the same read and fails.
-4. A named installed-version gap is recorded after local inspection and a bounded fallback passes.
-5. Fallback before local inspection, an unknown reason, broad traversal, budget overflow, symlink escape, generated cache, or sensitive path fails.
+4. A routed owner contains a visible declared installed-source link, the case follows that exact packed-package file directly, and the trace records the reference ID/package/version/hash.
+5. After local/declared inspection, one fixture records `SPECIALIST_ROUTE_NOT_DECLARED` for an inventory-classified specialist route and another records `INSTALLED_VERSION_CONTRACT_MISMATCH` for an exact mapped contract; each bounded fallback passes, while cross-use of the reasons fails.
+6. An absent/dead/directory/wildcard/orphan declared link, fallback before local inspection, an unknown reason, broad traversal, budget overflow, symlink escape, generated cache, or sensitive path fails.
+7. A writable case attempts to mutate the canonical example or installed package through a broad `src/modules/**` grant and fails before the write.
+8. A legacy root, stale capability mapping, source with `referenceStatus: "qa-only"` or `readStatus: "qa-only"`, ordinary-surface fallback, wrong preset/tier, wrong installed version, unpublished path, or workspace-only target fails schema/evaluator validation.
+9. Two capability assertions independently select the canonical DataTable bulk-action source and operation-progress source, then one writable/oracle lane proves their connected `progressJobId` lifecycle.
+10. A topology case starts from the generated local reference-only `example` sheet, observes that its activations/targets apply after opt-in, selects representative contribution/activation/override-target rows, follows their exact local or framework links, and proves all enum-ledger classifications; normal package outputs containing any app-local module, a package-only reference sheet, a statically invisible runtime registry, fabricated unbound surface, an activated `negative-fixture` row, or unresolved fact fails.
+11. A UI case reads the emitted design rule owner, one exact example integration file, one direct PR #4301 gallery entry or checked constituent entries for `composite-not-direct`, and the separately declared exact UI implementation, plus local `src/app/globals.css` only for token/foundation work. It verifies the merged/package SHA `bf25803d7a8c85c8552db9e76c7cc4398d1768be`, the example's mapped public import, default `source-only` availability in every built-in preset, and explicit-activation-only live route. It rejects broad/sibling gallery traversal, a false direct composite claim, gallery-only evidence, invented props/imports, copied gallery snippets/rules, stale family/entry/import/SHA, QA-only gallery tests, missing packed source, wrong core/UI version or preset availability, workspace-only CSS, or an import edge in either direction between `example` and `design_system`.
+12. A distinct Figma/token/design-foundation case verifies every entry in the derived PR #4301 gallery inventory has a PR #4277 applicability record, then reads only the prompt-applicable emitted owner, local `src/app/globals.css` and, when emitted/applicable, its locally generated snapshot, exact packed Code Connect auxiliary file, PR #4301 gallery source, and exact UI implementation. It independently verifies gallery-node and Code-Connect-node status/IDs plus their derived comparison and the canonical valid cross-facet tuples. It rejects an unavailable or dependency-broken design skill when the case requires it, a monorepo-only snapshot/exporter, broad `figma/` traversal, auxiliary source presented as exported/runtime, gallery metadata used to promote an unmapped/placeholder Code Connect record, placeholder node presented as live, parse success presented as published, unmapped coverage not marked `none`, incomplete mapping presented as complete, an impossible mapping/artifact/export/node/source-ID tuple, stale/missing final package SHA/hash, credentials, operations reports, network access, and push/publish execution. Ordinary UI cases do not read this sidecar merely because its provenance is present, and `designSkillAvailability: "unavailable"` is valid when no owner/source ID or case depends on the skill.
 
 The result records ordered reads, matched root/capability, cumulative files/bytes, fallback reason, and the first violation. It never records file contents or secret values.
 
@@ -69,44 +96,53 @@ The result records ordered reads, matched root/capability, cumulative files/byte
 
 ### In scope
 
-- Case schema, evaluator implementation, trace result, and focused fixtures.
-- Progressive multi-file reads and bounded installed-version fallback.
-- Backward-compatible behavior for cases without the new field.
+- Case schema, evaluator implementation, trace result, canonical-root/source-link inventory validation, immutability precedence, and focused fixtures.
+- Progressive multi-file example reads, direct exact declared installed-source reads, and bounded undeclared specialist-route/version-mismatch fallback.
+- Generated local-example reference-fact/topology owners, explicit local-reference semantics, activated-extractor parity, and fact-to-source correlation inside the same immutable budgets.
+- PR #4301 design-system-gallery source bundles, example-to-gallery-to-UI public-import correlation, optional local-token references, and preset-aware live-route/source-only behavior.
+- PR #4277 per-design-item applicability, exact role-gated packed Code Connect reads, conditional locally emitted snapshot/design-tier reads, and Figma-facing negative boundaries.
+- Backward-compatible non-installed behavior for cases without the new field, plus explicit migration of prior broad installed-source reliance.
 
 ### Out of scope
 
-- Registering a particular reference module/case.
+- Registering a particular canonical-example case.
 - Updating harness-evolution workflow governance.
 - Weakening writable roots, network controls, secrets, credential, or local-ops restrictions.
 
 ## Testing and Validation
 
-- Schema tests reject malformed roots, missing entrypoints, unknown capability IDs, zero/negative budgets, unsafe paths, and fallback reasons outside the enum.
-- Evaluator tests cover the five oracle families above on POSIX and path-normalization fixtures for Windows syntax.
+- Schema tests reject malformed or legacy roots, missing entrypoints, unknown/stale/QA-only capability IDs, unknown/orphan or QA-only source-reference IDs, zero/negative budgets, unsafe paths, and fallback reasons outside the exact two-value enum.
+- Evaluator tests cover the twelve oracle families above on POSIX and path-normalization fixtures for Windows syntax, including the exact non-`src` Code Connect exception.
 - Security tests cover symlink escapes, encoded traversal, newline paths, generated caches, credentials, and output redaction.
-- Compatibility tests prove existing cases without `exampleRoots` evaluate identically.
+- A generated `empty` fixture and each applicable preset/tier prove the emitted inventory resolves every visible local or installed link to an exact regular file from actual packed packages, not workspace symlinks, and that broad writable roots cannot mutate them.
+- A whole-harness scanner compares rendered links with the inventory and rejects missing, undeclared, directory-only, wildcard, line-anchored, dead, unpublished, stale-hash, wrong-version, wrong-preset, and orphan records. It also proves generated facts render exact-file provenance for entities, events, ACL, DI, search, notifications, hosts, and contributions rather than clickable source roots.
+- PR #4883 fixtures prove the disabled local reference sheet covers every permitted enum-ledger row, follows exact source links, distinguishes emitted/framework/catalog/unbound/negative-fixture classifications, does not count module-override configuration or unbound UI spots as emitted contributions, stays absent from normal package outputs, and matches a fresh app-local extraction after explicit activation.
+- PR #4301 fixtures pin the merged/package SHA (with the PR head retained only as provenance), derive rather than hard-code the family set and coverage exceptions, distinguish direct from composite-constituent mappings, validate exact entry/public-import/UI-source mappings from packed core/UI packages, prove each canonical example UI source imports the mapped component, and require every built-in generated preset to be `source-only` with no route/nav/runtime registration. A separate activated fixture may open the deep link. AST/import-graph fixtures reject `example -> design_system` and `design_system -> example`. Gallery coverage/integrity/render-smoke and integration tests remain QA-only evidence and cannot be read as implementation context.
+- PR #4277 fixtures require a final merged/package SHA before certification, prove every derived PR #4301 gallery item has one envelope, verify exact `figma/*.figma.tsx` pack contents, derive mapping/prop-variant coverage from AST, normalize and retain gallery/Code Connect node authorities independently, derive their comparison, preserve placeholder/unmapped/not-applicable/partial/none/not-evidenced states, and reject invalid cross-facet tuples or a reference on every unrelated case. If a snapshot is emitted, tests prove deterministic local-CSS parity and source rewriting. Default tiers prove the design skill is absent; an opt-in tier must pass emission/installer/hash/reference-closure tests before its ID is readable. No fixture executes Figma network, token, operations, push, or publish actions.
+- A checked migration audit enumerates every existing case whose prior warning/read allowlist included `node_modules/@open-mercato/*/src/**`, records whether the case actually relied on it, and replaces every reliance with an exact visible declared reference or an allowed reason-gated fallback before removal. Compatibility tests prove non-installed reads remain identical and migrated installed reads use only their new exact contract; unmigrated broad reads fail rather than warn/permit.
 - Run focused create-app tests, affected harness lane, and configured validation gate.
 
 ## Implementation Plan
 
-### Phase 1 — Add schema and safe path accounting
+### Phase 1 — Add schema, source inventory, and safe path accounting
 
-1. Add failing schema/path fixtures, then implement the fields, normalization, root/capability matching, and cumulative budgets.
-2. Make each fixture green before adding fallback behavior; preserve identical results for existing cases.
+1. Add failing schema/path fixtures, then implement the fields, normalization, canonical/source-link inventory matching, `readStatus`, visible-owner ordering, source immutability precedence, and cumulative budgets.
+2. Audit every existing case carrying the universal installed-source glob, replace actual reliance with exact case source references or an enumerated fallback reason, remove the glob, and make generated facts render exact-file source links only.
+3. Make each fixture green before adding fallback behavior; preserve identical results for existing cases except removal of the accidental broad installed-source permission.
 
-Exit criterion: declared multi-file roots work, unsafe/unrelated reads fail, and all existing evaluator tests remain green.
+Exit criterion: declared multi-file roots work, unsafe/unrelated reads fail, every old glob-dependent case has a checked migration disposition, and existing non-installed evaluator behavior remains green.
 
 ### Phase 2 — Add ordered fallback and certify
 
-1. Add failing ordered-trace fixtures for valid/invalid installed-version fallback and output redaction.
+1. Add failing ordered-trace fixtures for valid/invalid specialist-route and installed-version fallback, reason cross-use, and output redaction.
 2. Implement reason-gated fallback and make every fixture green.
 3. Run an affected certified lane with a synthetic example root and capture sanitized evidence.
 
-Exit criterion: all five oracle families, compatibility tests, security tests, and the affected lane are green.
+Exit criterion: all twelve oracle families, compatibility tests, security tests, packed fresh-scaffold proofs, and the affected lane are green.
 
 ## Backward Compatibility and Risks
 
-The schema is additive and cases without it keep current semantics. Main risks are over-broad roots and platform path differences; capability IDs, dual budgets, realpath containment, negative fixtures, and Windows path tests bound them.
+The schema is additive, but installed-source permissions are intentionally tightened. Cases without new fields keep current non-installed semantics; cases that relied on the accidental universal installed-source permission must be explicitly migrated before that permission is removed. This policy never enables `example` or `design_system`; built-in fresh presets expose their sources only, and live gallery navigation belongs to the explicit activation fixture. Main risks are over-broad roots, accidental mutation of shipped examples/packages, stale or workspace-only links, optional-package mismatch, inventory drift, incomplete legacy-case migration, and platform path differences; capability/reference IDs, dual budgets, visible-owner ordering, read-only precedence, packed-artifact resolution, the checked migration audit, realpath containment, negative fixtures, and Windows path tests bound them.
 
 ## Final Compliance Report
 
@@ -115,7 +151,29 @@ The schema is additive and cases without it keep current semantics. Main risks a
 | Scope cohesion | One independent capability: safe, capability-scoped multi-file example reads. |
 | User decision | Explicitly required by the 2026-08-01 brief. |
 | Security | Realpath containment, sensitive-path denial, redacted results, and negative fixtures. |
-| Finite oracle | One schema and five enumerated evaluator fixture families. |
-| Compatibility | Existing cases retain byte-for-byte evaluator semantics. |
+| Canonical source | `src/modules/example` and declared installed files are inventory-backed, bounded, exact, and immutable; legacy shadow roots and broad installed globs are rejected. |
+| Finite oracle | One schema and twelve enumerated evaluator fixture families plus whole-harness packed-link/local-fact/design-gallery/foundation validation. |
+| Compatibility | Non-installed behavior stays identical; every prior broad installed-source reliance receives an explicit migration disposition and an exact declared reference or reason-gated fallback before permission removal. |
 
 **Verdict: Fully specified and ready for implementation after design review.**
+
+## Changelog
+
+- 2026-08-01: Initial draft established bounded multi-file example reads and installed-version fallback.
+- 2026-08-03: Pointed the policy at the shipped `src/modules/example` tree, added inventory validation and read-only precedence, restricted fallback to specialist/versioned gaps, rejected legacy shadow roots, added generated-empty fixtures, and made `referenceStatus: "qa-only"` a deterministic read denial.
+- 2026-08-03: Added visible owner-bound source references, first-class exact installed-package links, packed-artifact resolution, generated-fact exact links, broad-glob removal, and whole-harness dead/orphan link enforcement.
+- 2026-08-03: Added separate specialist/version-mismatch reason codes, readable-versus-QA evidence status, a complete legacy-glob migration audit, and distinct DataTable bulk-action/progress capability assertions.
+- 2026-08-03: Added separate local disabled-example reference-fact owners, explicit normal-package-output-versus-local-reference semantics, activated-extractor parity, PR #4883 fact-to-source/topology correlation, enum-ledger classifications including negative fixtures, and a tenth evaluator family for exhaustive mechanism navigation.
+- 2026-08-03: Added PR #4301 design-system source bundles, exact example/gallery/UI source correlation, local-token handling, provenance and live-route metadata, preset-aware availability, and an eleventh evaluator family.
+- 2026-08-03: Added PR #4277 per-item foundation applicability, the narrow packed Code Connect read role, conditional local snapshot/design-tier reads, and a twelfth evaluator family rejecting placeholder, completeness, publication, credential, and network overclaims.
+
+### Review — 2026-08-03
+
+- **Reviewer:** Agent, with independent cross-spec consistency audit.
+- **Scope cohesion:** Passed by the independent fresh-context review; fallback is a subordinate branch of the same bounded-read evaluator policy.
+- **Security:** Passed; canonical sources are immutable and unsafe traversal, QA-only files, and sensitive paths fail closed.
+- **Performance:** Passed; per-case file and byte budgets remain mandatory.
+- **Cache:** N/A; this spec changes harness context evaluation only.
+- **Commands:** N/A; no application mutation contract changes.
+- **Risks:** Passed; stale inventory, over-broad roots, mutation attempts, fallback abuse, and platform paths have negative fixtures.
+- **Verdict:** Approved for design review.
