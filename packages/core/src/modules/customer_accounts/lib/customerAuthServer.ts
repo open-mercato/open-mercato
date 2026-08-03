@@ -88,6 +88,7 @@ export async function getCustomerAuthFromCookies(
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
       personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
       resolvedFeatures: userState.resolvedFeatures,
+      isPortalAdmin: userState.isPortalAdmin,
     }
   } catch {
     // Invalid or expired JWT — treat as unauthenticated

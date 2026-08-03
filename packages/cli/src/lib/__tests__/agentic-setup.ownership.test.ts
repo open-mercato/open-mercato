@@ -262,6 +262,12 @@ describe('runAgenticSetup ownership modes', () => {
       '# Private\n',
     )
     expect(existsSync(join(appDir, '.ai', 'harness', 'manifest.json'))).toBe(true)
+    const manifest = JSON.parse(
+      readFileSync(join(appDir, '.ai', 'harness', 'manifest.json'), 'utf8'),
+    ) as { files: ManifestEntry[] }
+    expect(manifest.files.find((item) => item.path === '.ai/lessons.md')?.userEditable).toBe(true)
+    expect(manifest.files.find((item) => item.path === '.ai/lessons/_template.md')?.userEditable).toBe(true)
+    expect(existsSync(join(appDir, 'scripts', 'check-lessons.mjs'))).toBe(true)
     if (process.platform !== 'win32') {
       expect(statSync(join(appDir, 'scripts', 'install-skills.sh')).mode & 0o111).not.toBe(0)
     }

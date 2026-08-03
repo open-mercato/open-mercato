@@ -213,6 +213,8 @@
   "messages.replyBody": "Reply",
   "messages.saveDraft": "Save draft",
   "messages.savingDraft": "Saving draft...",
+  "messages.search.badge.message": "Message",
+  "messages.search.fallback.title": "Message",
   "messages.searchPlaceholder": "Search messages",
   "messages.send": "Send",
   "messages.sendViaEmail": "Also send via email",

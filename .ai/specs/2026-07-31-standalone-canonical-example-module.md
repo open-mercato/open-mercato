@@ -2,692 +2,604 @@
 
 - **Status:** Draft
 - **Date:** 2026-08-01
+- **Revised:** 2026-08-03
 - **Scope:** OSS, standalone applications emitted by `create-mercato-app`
-- **Related:** [Standalone AI Development Harness](./2026-07-24-standalone-ai-development-harness.md), [Standalone Agent Spec-First Routing](./2026-08-01-standalone-agent-spec-first-routing.md), [Standalone Harness Example-Read Policy](./2026-08-01-standalone-harness-example-read-policy.md), [Standalone Harness Knowledge Governance](./2026-08-01-standalone-harness-knowledge-governance.md), [Empty App Starter Presets](./2026-04-02-empty-app-starter-presets.md), merged PR [#4529](https://github.com/open-mercato/open-mercato/pull/4529), follow-up issue [#4670](https://github.com/open-mercato/open-mercato/issues/4670)
+- **Related:** [Standalone AI Development Harness](./2026-07-24-standalone-ai-development-harness.md), [Standalone Agent Spec-First Routing](./2026-08-01-standalone-agent-spec-first-routing.md), [Standalone Harness Example and Linked-Source Read Policy](./2026-08-01-standalone-harness-example-read-policy.md), [Standalone Harness Knowledge Governance](./2026-08-01-standalone-harness-knowledge-governance.md), [Empty App Starter Presets](./2026-04-02-empty-app-starter-presets.md), merged PR [#4529](https://github.com/open-mercato/open-mercato/pull/4529), design-foundation PR [#4277](https://github.com/open-mercato/open-mercato/pull/4277), design-system gallery PR [#4301](https://github.com/open-mercato/open-mercato/pull/4301), module-facts PR [#4883](https://github.com/open-mercato/open-mercato/pull/4883), follow-up issue [#4670](https://github.com/open-mercato/open-mercato/issues/4670)
 
 ## TLDR
 
-Fresh `empty` and `crm` standalone scaffolds delete the only comprehensive local `example` module but retain the narrow `ratelimit_probe` test fixture. Coding agents therefore mistake that probe for the app's reference implementation or spend context on installed framework source. Add one layered, compilable, disabled-by-default `reference_module` to every built-in scaffold as the comprehensive local golden path for standalone module skills, then add and fully register focused harness regressions proving agents select and reuse it without treating `ratelimit_probe` as an example.
+The standalone template already contains a comprehensive `example` module, but the `empty` and `crm` preset resolver deletes it while the default `classic` scaffold enables it. Do not create a second teaching module that copies the same entities, routes, commands, forms, UMES branches, and tests. Make the existing `example` tree the one canonical module reference: ship it in every built-in scaffold, keep it absent from every generated `src/modules.ts`, add progressive-disclosure source maps, and extend the existing Todo-centered vertical slice only for capability gaps that the current tree does not cover.
 
-The reference demonstrates a production-shaped vertical slice and a navigable source map for the complete standalone module surface: scoped data, custom fields and cross-module links, migrations and snapshots, defaults/example seeding, encryption, Data/Query Engine access, CRUD factory routes, commands, mutation guards and optimistic locking, events, search, response enrichers, imports/exports, cache, queues/workers/progress, notifications, DOM-event refresh, perspectives/filters, shared create/edit form definitions, and concrete injections into customers, catalog, and sales. It remains smaller and more intentional than the existing 134-file, 1.3 MiB classic demo/QA module, but no supported module layer may disappear from standalone agent guidance merely because its executable example is optional.
+`apps/mercato/src/modules/example/**` is the authoring source. `packages/create-app/template/src/modules/example/**` is a byte-identical mirror maintained by the existing `yarn template:sync:fix` workflow and enforced by `yarn template:sync`. Standalone guides, skills, references, generated module facts, and harness cases contain visible Markdown links to exact files under the emitted `src/modules/example/**` root or, for specialist implementation depth beyond the representative example, exact source shipped by the installed package under `node_modules/@open-mercato/**`. UI rows additionally point to the PR #4301 living design-system gallery entry and live gallery route that demonstrate the actual shipped component used by `example`; the example imports the public `@open-mercato/ui` component, never gallery internals. A machine-readable parity ledger supplements those visible links; evaluator permissions alone do not satisfy the contract. No shadow teaching module, template-only example fork, copied reference implementation, or reference experience that exposes only package facts while omitting the separate local-example reference bundle is allowed.
 
 ## Overview
 
-This specification adds a source-only teaching module to the standalone application template and a regression that proves coding agents use it. The change deliberately combines the reference and its harness coverage because the local example is only valuable if emitted agents can discover it reliably, and the regression has no independent product behavior.
+This specification changes generated-source delivery and agent guidance, not the framework module contract. Fresh scaffolds gain a local reference tree but no example runtime behavior: no routes, pages, navigation, migrations, seeds, ACL grants, events, widgets, workers, or search registrations load until a developer explicitly enables or copies the module.
 
-The feature is OSS developer infrastructure. It changes generated source inventory but does not enable a module, alter application runtime behavior, or require a database rollout.
+The existing example is intentionally broad because it also supports monorepo QA. Progressive disclosure makes that breadth useful to standalone agents without asking them to read or copy the whole tree. Normative rules stay in the owning skills and guides; the example README and machine-readable surface inventory point to the smallest executable slice for each capability.
 
-## Resolved decisions
+## Resolved Decisions
 
-| # | Question | Decision | Rationale | Basis |
-|---|---|---|---|---|
-| Q1 | Reuse the existing classic `example` tree or add a separate reference? | Add a layered `reference_module`; keep the classic demo/QA module unchanged and still removed from lean presets. | The generic name makes the source-only teaching role unmistakable, while the existing tree is 134 files, tightly coupled to demo modules, and optimized for QA rather than systematic copying. | Existing PR decision retained |
-| Q2 | Should the reference run by default? | Ship its source in every built-in preset but omit it from `src/modules.ts`. | Agents can inspect/copy it while runtime, migrations, navigation, seeds, and routes remain unchanged. | Existing PR decision retained |
-| Q3 | Does “all module elements” mean every discovery surface? | Present every supported module/discovery surface in a versioned inventory. Implement the ordinary module, UI, UMES, security, data, async, and integration surfaces requested here as real, tested examples; route highly specialized AI/provider/workflow/portal branches to exact installed source and their specialist skills. | Empty placeholder files teach incorrect discovery behavior. A layered map plus executable golden paths gives agents complete coverage without copying the classic QA module. | Explicit user brief, 2026-08-01 |
-| Q4 | Add a new harness case or expand an existing one? | Semantically deduplicate against all current cases first, especially OMH-185 and the existing module/UMES audits; extend them where possible and allocate the next free ID only for a genuinely new behavior. | The current catalog ends at OMH-192 and already includes broad discovery/UMES audits. Coverage quality matters more than reserving OMH-193. | Existing PR decision refined from current catalog evidence |
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| Q1 | Reuse `example` or add a second teaching module? | Reuse and extend `example`; a shadow module is forbidden. | The current tree already implements the majority of the proposed vertical slice. Copying it would create two owners and guaranteed drift. |
+| Q2 | Should the example run in new apps? | No. Ship its source in every built-in preset but omit `example` from every generated `src/modules.ts`. | Agents and developers can inspect it without changing runtime, navigation, schema, or seed behavior. |
+| Q3 | Which copy is authoritative? | `apps/mercato/src/modules/example/**` is the authoring source; the create-app template is an exact materialized mirror. | The monorepo app is the real integration environment, and the existing template-sync workflow already mirrors `apps/mercato/src/{app,components,lib,modules}` into create-app. |
+| Q4 | How are missing surfaces added? | Extend the existing Todo-centered example in focused files, tests, and migrations. | A missing capability does not justify another module, placeholder discovery file, or pasted skill snippet. |
+| Q5 | How does the harness consume the reference? | Relevant cases receive bounded `exampleRoots` entries rooted at `src/modules/example`; the first entrypoint is its README or surface map. | Exact capability links let an agent read only what the prompt needs and avoid the test-only `ratelimit_probe`. |
+| Q6 | Add a new harness case or extend an existing one? | Semantically deduplicate first, especially against OMH-185 and existing discovery/UMES cases. | Coverage behavior matters; case-number allocation is not a design goal. |
+| Q7 | Split delivery, gap closure, and reference-specific harness proof? | Keep one umbrella contract but make delivery, each gap slice, harness migration, and certification independently mergeable milestones; generic read semantics, governance, and spec-first policy remain separate companion specs. | The user explicitly requires one shipped, complete, discoverable example contract, while independent milestones prevent source delivery, a single gap, or link migration from becoming one atomic high-risk implementation. |
+| Q8 | Is evaluator permission sufficient to restore the old harness examples? | No. Every implementation-bearing knowledge owner must contain visible exact-file links, and the harness must preserve the implementation-topic coverage formerly supplied by embedded snippets on `main`. | A read allowance cannot teach an agent which source to open, and prose-only replacements silently lost executable reference coverage. |
+| Q9 | How should DataTable bulk actions and progress be demonstrated? | Extend the existing Todo list into one connected selected-row bulk-operation slice that returns a real `progressJobId`, queues command-mediated work, and drives the platform top progress bar. | The current example has a customers bulk-action injection and a separate synthetic progress page, but it does not show the production DataTable bulk-action-to-progress contract end to end. |
+| Q10 | How exhaustive is PR #4883 extension/module-fact coverage? | Cover every executable source convention, discriminant kind, activation mechanism, target kind, activation policy, and currently bound DataTable/CrudForm surface once in `example`; classify framework-owned, reserved, or currently unbound catalog values explicitly and link their exact authority instead of fabricating runtime code. | “Every kind” means exhaustive mechanisms, not a Cartesian product across every business module. A generated enum-driven ledger keeps that boundary finite and detects drift. |
+| Q11 | How does the harness teach visual component choice? | For every canonical example UI capability, pair the exact example source with a direct PR #4301 gallery entry when present, or with checked constituent entries for an unrepresented composite such as `CrudForm`/`DataTable`, plus the exact UI implementation. Ship the gallery source but mark its route `source-only` in every new standalone preset until explicit opt-in. | The gallery is the visual discovery surface and `example` is the integrated module-use surface; linking both honestly avoids stale screenshots, false composite claims, copied snippets, and direct coupling between the modules while keeping fresh apps runtime-inert. |
+| Q12 | Which harness items reference PR #4277? | Every design-system item derived from the PR #4301 gallery, including entries not consumed by `example` and each direct or composite constituent entry that is consumed, carries PR #4277 token/Code Connect/design-skill provenance and an explicit availability/status record. Unrelated non-UI harness items do not receive a decorative link. | “All items” is exhaustive across the standalone design-system inventory, while explicit unmapped/placeholder/unavailable states avoid fabricating Figma or Code Connect coverage. |
 
 ## Problem Statement
 
-The starter preset resolver currently removes `src/modules/example` and `src/modules/example_customers_sync` from `empty` and `crm`, while the template's test-only `ratelimit_probe` directory remains. The attached agent trace shows the resulting behavior: the agent inspects `ratelimit_probe`, then falls back to installed package source for an example. This wastes context and exposes agents to a narrow fixture that was never designed as a reusable module blueprint.
+`packages/create-app/src/lib/starter-presets.ts` currently removes `src/modules/example` and `src/modules/example_customers_sync` for `empty`; `crm` inherits that removal. `classic` bypasses preset rewriting, so the template's current `src/modules.ts` enables `example`. This creates two bad outcomes:
+
+1. lean standalone apps retain the narrow `ratelimit_probe` fixture but lose the only comprehensive local module example; and
+2. the proposed remedy duplicates much of the already-shipped example under a new module ID, adding a second implementation and a second maintenance surface.
+
+At the 2026-08-03 design baseline, the template example contains 136 files and 746,030 file bytes. The scaffold copier intentionally omits `__tests__` and `__integration__`, leaving 104 runtime/reference files and 555,327 file bytes in a generated app. The repository tree already covers CRUD, commands and undo, custom fields, OpenAPI, list export, an `updatedAt`-bearing editable entity, backend forms and tables, typed events, subscribers, notification types/handlers, response enrichers, mutation guards, API and command interceptors, component replacement, dashboard widgets, customers/catalog/sales injections, unified overrides, migrations, ACL, setup, DI, CLI, i18n, and extensive integration coverage.
+
+The two repository copies are not currently identical: 20 paths differ, including command scope/redo behavior, a missing command test, page metadata, integration fixtures, and locale/test formatting. The existing `yarn template:sync` command already detects this drift because `modules/**` is in its sync set. This spec turns a passing exact-sync check into a release requirement and requires the baseline reconciliation to preserve the safer/correct behavior rather than copying the stale side blindly.
+
+The whole-harness audit used `main` commit `f7c941570003f3abe920b1765995cbef98dcad0b` as the finite compatibility baseline. Its emitted root-instruction template and seven implementation skills contain 136 CommonMark fenced blocks across module anatomy, backend UI, data modeling, ejection, integrations, module scaffolding, UMES, and troubleshooting. The current core implementation-owner set—one root template, nine guides, 24 skill entrypoints, and 58 skill references—contains no Markdown link to `src/modules/example`. Some routing, workflow, upgrade, tracker, harness-operation, and report examples remain self-authoritative, but the eight implementation families are prose-only. The implementation must classify every deterministic baseline fence and close its implementation-topic coverage gap rather than assuming better evaluator access restores it.
+
+The PR #4883 audit adds a second finite compatibility baseline: commit `092e56572c8dc5a22c5a53e913862fd8324cc842`, especially `packages/cli/src/lib/generators/module-extension-facts.ts`, `module-facts.ts`, `module-override-targets.ts`, and `packages/shared/src/modules/widgets/extension-points.ts`. That SHA is the review input, not permission to freeze defects found during #4883 review: implementation/certification records the final approved or merged SHA and regenerates the literal ledger when it differs. The current example has runtime examples that the static readers cannot see because `widgets/injection-table.ts` and `widgets/components.ts` export conditional/spread-shaped registries; it also lacks local declarations for several newly source-linked fact families. Package build currently extracts every package-provided module into the combined JSON and all package Markdown sheets, after which scaffold setup filters only Markdown to enabled package modules; neither stage extracts app-local modules. A standalone agent would therefore not receive a local `example` reference projection even after those source gaps were closed. This specification requires the example code, static readers, reference-fact stage, generated facts, visible links, and activated runtime tests to agree without changing those normal-output semantics.
+
+The PR #4301 audit adds the visual design-system baseline: provenance head `186af58044c7530885a889c41f53bb36a5093d82`, merged on 2026-08-03 as develop/package baseline `bf25803d7a8c85c8552db9e76c7cc4398d1768be`. `packages/core/src/modules/design_system/gallery/registry.ts` owns the family manifest and route/Figma/docs constants, `gallery/types.ts` owns the entry shape, `gallery/entries/*.tsx` owns live variants and copyable public imports, and `gallery/__tests__/gallery-coverage.test.ts` guards primitive coverage. `baselineSha` means the merged/package commit; `provenanceHeadSha` records the PR head. PR #4301 enabled `design_system` in the create-app template; this spec intentionally reverses only that fresh-standalone default so installed source remains available but generated apps are runtime-inert. Certification verifies that exact core/UI sources from the merged baseline exist in the packed standalone app even though the module registration is absent. The harness preserves [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301) as design provenance while resolving implementation reads to exact versioned installed files. It must not use the PR page, screenshots, Figma, or a live route as a substitute for source, and `example` must not import `design_system` module internals.
+
+The PR #4277 design-foundation audit is pinned only as provisional provenance at open, changes-requested, conflicting head `fb9b8ddfe4470ef11d312caa4628c46af7d48adf`; it has no merged/package baseline yet. Its authoritative proposed surfaces are `src/app/globals.css` as emitted token truth, `.ai/ds/ds-tokens.json` as the deterministic snapshot, `scripts/ds-tokens-export.mjs` as exporter/drift logic, `packages/ui/figma/*.figma.tsx` as finite Code Connect mappings, and opt-in `.ai/skills/om-figma-design-with-ds/**` guidance. The current head includes incomplete/placeholder Figma node coverage, incomplete component variant mapping, and a design skill with unresolved taxonomy/reference defects, so [PR #4277](https://github.com/open-mercato/open-mercato/pull/4277) may be rendered as provenance now but its proposed artifacts cannot become certified readable authorities until the PR merges and emitted/packed availability is verified.
 
 ## Proposed Solution
 
-1. Add a comprehensive, layered `packages/create-app/template/src/modules/reference_module/` golden-path module built to the current standalone module, data, UI, and UMES contracts.
-2. Keep it absent from every preset's `src/modules.ts`; preset application must preserve its source while continuing to remove the classic demo/QA modules from lean presets.
-3. Give the module a progressive-disclosure README and exhaustive source map whose links use repository-relative file paths without line numbers, so links survive ordinary edits and agents load only the relevant files.
-4. Make the standalone skills share that example: each skill owns its rules and links to the exact reference implementation rather than duplicating long snippets. Preserve or exceed the code-example coverage shipped on `main`.
-5. Extend the standalone harness with failure-first regressions for source selection, skill/source-link coverage, and bounded example reads, then validate them through the normal harness release gates.
-6. Deliver the user-requested global spec-first policy, generic example-read semantics, and harness/meta-skill governance through the three linked companion specs so each independently deployable capability has its own acceptance and rollout boundary.
+1. Stop removing `src/modules/example` from lean presets and remove `example` from the default classic registry so all built-in scaffolds have the same source-present/runtime-disabled contract.
+2. Keep `example_customers_sync` and `ratelimit_probe` outside the canonical reference contract; do not broaden this change into their delivery redesign.
+3. Remove or enabled-module-gate the example entries in `src/lib/homeQuickLinks.ts` (`/example`, `/backend/example`, and `/backend/todos`) so a disabled module never leaves dead navigation.
+4. Add `README.md`, `references/surface-map.md`, and `references/surface-inventory.json` inside the existing example tree.
+5. Reconcile the current monorepo/template drift, using the monorepo tree as source and reviewing each differing behavior before running the existing sync fixer.
+6. Extend `example` only for the missing surfaces identified by the finite inventory. Reuse its existing `Todo`, commands, routes, pages, widgets, and identifiers rather than adding a parallel task domain.
+7. Replace large inline examples in standalone skills with exact, line-number-free links to the example source while retaining one normative rule owner per capability.
+8. Register `src/modules/example` as a capability-scoped, read-only root in relevant harness cases and prove agents select it before `ratelimit_probe` or undeclared installed-source fallback; declared specialist/host links remain directly usable.
+9. Add a whole-harness source-reference manifest and `main`-baseline parity ledger, while also rendering each required reference as a visible direct link in its owning emitted guide, skill, or reference.
+10. Turn the Todo DataTable bulk action and platform progress support into one end-to-end canonical example, then add self-contained integration coverage for every new runtime extension introduced by this spec.
+11. Add an enum-derived PR #4883 coverage ledger and make every executable example registry statically fact-readable without weakening runtime guards or optional-module behavior.
+12. Generate a separate reference-only fact bundle at `.ai/guides/reference-module-facts.json` plus `.ai/guides/reference-modules/example.md` from `src/modules/example`, using portable local source paths and refreshing it during scaffold/`agentic:init`. Normal `.ai/guides/module-facts.json` remains the combined package-module sidecar and `.ai/guides/modules/**` remains the enabled-filtered package Markdown subset; neither normal output receives an app-local `example` entry.
+13. Add a PR #4301 design-system reference layer to the example inventory and emitted harness owners: every canonical example UI row names the gallery family/entry, exact installed entry source, public UI import, live route when enabled, preset availability, provenance URL/SHA, and interaction proof.
+14. Remove `design_system` from the create-app template registry and assert every built-in generated app marks its gallery reference `source-only`; keep the package source readable and provide a separate activated fixture using `{ id: 'design_system', from: '@open-mercato/core' }`.
+15. Give every standalone design-system inventory item a PR #4277 foundation record, retain local `src/app/globals.css` as token truth, optionally emit a deterministic local snapshot/guide only with parity proof, and classify Code Connect/design-tier availability honestly without granting Figma credentials, network access, or manual publish authority.
 
 ## Scope Boundaries
 
-### In scope
+### In Scope
 
-- A disabled, compilable, copy-and-rename reference module in all built-in standalone presets.
-- One canonical CRUD/entity/UI slice plus real examples of custom fields, entity extensions, cross-module links, encryption, default/example seeding, migrations/snapshot sync, Data/Query Engine usage, imports/exports, cache, workers/queues/progress, notifications, DOM-event refresh, and the full UMES read/write extension path.
-- Concrete widget/data contributions to customers, catalog, and sales, each degrading safely when its host module is absent.
-- Standalone `om-module-scaffold`, `om-system-extension`, `om-backend-ui-design`, `om-data-model-design`, `om-eject-and-customize`, and harness-evolution guidance linked to exact example source files without line numbers.
-- Emitted `AGENTS.md` ACL/migration operational notes. Spec-first routing is owned by the linked companion spec.
-- Generator, preset, template, context-budget, skill-parity, and harness evaluator/regression coverage.
-- Evidence and hand-off tied to merged PR #4529 and the existing harness evolution workflow.
+- Byte-identical parity between `apps/mercato/src/modules/example/**` and `packages/create-app/template/src/modules/example/**`.
+- Source-presence and registration-absence contracts for `classic`, `empty`, and `crm` scaffolds.
+- Removal or registry-gating of example-only home quick links while the module is disabled.
+- Progressive-disclosure README, surface map, finite inventory, activation/copy/rename checklist, and exact source links.
+- Reuse of the current Todo CRUD/command/UI slice and current UMES/widget/integration examples.
+- A reference-quality audit of every file exposed by the capability map; unsafe QA/demo-only files remain present but use `referenceStatus: "qa-only"` and are forbidden to harness reads until remediated.
+- Focused additions to `example` for verified gaps such as encryption, explicit data extensions/links, search registration, DI cache use and invalidation, a queued Todo DataTable bulk operation with progress, client notification rendering, translatable-field registration, and default/example seeding.
+- Standalone skill links, harness source-selection behavior, bounded example reads, preset tests, sync tests, and activated-fixture validation.
+- Whole-harness classification of all emitted knowledge owners, visible exact-file links, prior-`main` topic parity, installed-package target resolution, and dead-link/drift enforcement.
+- A Todo DataTable selected-row bulk action that creates a progress job, queues command-mediated work, returns `progressJobId`, and renders operation progress through the existing top progress bar.
+- Self-contained activated-fixture integration coverage for every added or materially changed example runtime/discovery extension surface.
+- Representative local declarations and callers for every executable PR #4883 module-fact and extension mechanism, with enum-derived classification for framework-owned/reserved/unbound values.
+- Local-example reference-fact generation, exact portable `src/modules/example/**` provenance, generated topology/source links, and zero unresolved canonical facts without weakening the existing package-sidecar and enabled-package-Markdown semantics of normal module facts.
+- PR #4301 design-system provenance, exact installed gallery-entry links, live-route metadata, and a checked mapping from canonical example UI imports to gallery-covered public `@open-mercato/ui` components.
+- Source-present/runtime-disabled `design_system` delivery for every newly generated standalone preset, with explicit activation and route/ACL/gallery QA proof.
+- PR #4277 provenance on every design-system item, local token truth plus conditional token-snapshot generation, exact Code Connect references when shipped, and explicit unmapped/placeholder/unavailable/design-tier statuses otherwise.
 
-### Out of scope
+### Out of Scope
 
-- Enabling the reference module or applying its migration in generated apps.
-- Replacing or redesigning the classic `example` and `example_customers_sync` QA/demo modules.
-- Removing or renaming `ratelimit_probe` or its API route.
-- Implementing provider-specific integrations, full workflow engines, AI agents/tool packs, or portal authentication inside the reference module. These remain specialist branches but must appear in the source map with exact installed-source and skill links.
-- Expanding issue #4670's multi-runner certification scope beyond the new affected-case lane.
+- Adding a separate teaching module, parallel task entity, or duplicate reference-only API/UI tree.
+- Enabling `example` or `design_system` by default, or applying example migrations in a newly generated app.
+- Treating the entire example tree as code to copy wholesale.
+- Removing, renaming, or repurposing `ratelimit_probe`.
+- Redesigning `example_customers_sync`; it is not an example-read root.
+- Implementing production provider packages, complete workflow engines, broad AI tool packs, model/provider execution, or portal authentication inside `example`. One minimal real Todo-centered declaration per PR #4883 registry/fact kind is in scope; specialist depth remains routed to exact installed sources and skills.
+- Expanding issue #4670 beyond the affected certified harness lane.
+- Importing from `packages/core/src/modules/design_system/**` inside `example`, importing `example` from the gallery, copying gallery render/snippet code into `example`, or making the PR URL/network availability a runtime dependency.
+- Running Figma Variables/Code Connect publish, using `FIGMA_TOKEN`, assuming Organization/Enterprise access, or presenting provisional PR #4277 mappings as merged/certified.
 
-### Harness-axis coverage boundary
+## Canonical Ownership and Synchronization
 
-This reference strengthens the `module-data`, `backend-ui`, `umes`, and cross-cutting runtime axes with a local, copyable vertical slice. The source map is exhaustive, while executable depth is intentionally tiered: ordinary module and requested cross-cutting surfaces are implemented locally; provider, AI/workflow, and portal-specialist surfaces link to exact installed sources and their specialist skills. Harness reports must distinguish “implemented in `reference_module`” from “routed to an authoritative installed example” and must never report either category as silently uncovered.
+### Delivery Milestones and Merge Boundaries
 
-## Research and Existing-System Findings
+This specification is an umbrella contract, not a requirement for one implementation PR. The following milestones are independently reviewable and mergeable while preserving the final invariant:
 
-### Repository findings
+1. **Canonical delivery:** reconcile the existing tree, add its map/inventory, enforce byte parity, ship it in every preset, and keep it disabled.
+2. **Capability gaps:** implement each verified-gap row as a separate vertical slice, including its runtime caller, inventory/source-map entry, exact integration test, dependency metadata, and synchronized mirror. Closely coupled rows may share a PR only when each row remains independently traceable and green.
+3. **Harness source-link migration:** classify the whole emitted owner set and prior-`main` ledger, then migrate owner families or coherent topics in independently green batches. This milestone may link existing example/package sources before every capability gap lands; a gap's new links land with that gap or in a later independently green batch.
+4. **Certification:** certify each merged milestone with its focused gates, then run the final aggregate packed-scaffold and harness lane once all required milestones are present.
 
-- `packages/create-app/src/lib/starter-presets.ts` removes `src/modules/example` and `src/modules/example_customers_sync` from the `empty` preset; `crm` inherits that removal.
-- `packages/create-app/template/src/modules/ratelimit_probe/api/ping/route.ts` describes itself as a test-only rate-limit probe, yet it is the most visible surviving local module in lean scaffolds.
-- The classic `example` module currently spans 134 files and approximately 1.3 MiB. It includes demo data, QA pages, and optional cross-module integrations, so restoring it to lean presets would work against their purpose.
-- The installed `om-module-scaffold` workflow already owns the current rules for module composition and warns against speculative discovery surfaces. The missing piece is a small local implementation that those rules can point to.
-- The standalone harness merged in PR #4529 now gives this regression a stable place to live. OMH-185 checks whether an agent can build a complete module; it does not check which local source the agent chooses as its reference.
-- The current harness catalog contains 192 cases through OMH-192, including broad module-discovery and UMES audits. New work must extend those cases when semantics overlap instead of assuming OMH-193 is available or desirable.
-- The standalone skills on `main` contain substantially more inline code examples than the compact layered skills on this branch. The new reference module can become their shared executable example, but only if a parity matrix proves that each former topic now has an exact, durable source link and a retained rule owner.
-- `om-eject-and-customize` already belongs to the emitted core skill tier. It needs contract coverage and reference links, not a second implementation or a pasted copy of its legacy examples.
-- No active OSS or enterprise spec, open issue, or open PR covers a compact disabled reference module. Historical issue #853 and superseded issue #1651 concern broader standalone agent guidance, while issue #4670 tracks runner breadth rather than this source-selection failure.
+No milestone may temporarily enable `example`, create a shadow reference module, weaken exact-link/read safety, or leave a new runtime/discovery extension without its self-contained integration proof.
 
-### External patterns
+### One Authoring Source
 
-The proposed split follows two established developer-platform patterns:
-
-- [Medusa modules](https://docs.medusajs.com/learn/fundamentals/modules) pair a constrained module structure with a small service and data-model boundary; its [directory guidance](https://docs.medusajs.com/learn/fundamentals/modules/modules-directory-structure) makes the expected local layout explicit.
-- [Backstage Software Templates](https://backstage.io/docs/features/software-templates/) keep repeatable scaffolding knowledge in versioned templates, while its [template authoring guide](https://backstage.io/docs/features/software-templates/writing-templates/) separates reusable structure from application activation.
-
-For Open Mercato, that means keeping authoritative rules in the scaffold skill, keeping one inspectable implementation in the emitted app, and making activation an explicit choice.
-
-## Goals and Success Criteria
-
-### Goals
-
-1. Give coding agents in every built-in standalone preset an unmistakable, current local reference for ordinary module work.
-2. Reduce repository exploration and prompt context without making generated applications heavier at runtime.
-3. Demonstrate a coherent end-to-end CRUD, data, runtime, UI, and extension slice, including all requested cross-cutting mechanisms and integrations.
-4. Keep module guidance maintainable by assigning each rule one knowledge owner.
-5. Prevent recurrence with failure-first standalone harness coverage for source selection, reference-root registration, and skill/example parity.
-
-### Measurable success criteria
-
-- A generated `empty`, `crm`, or `classic` app contains `src/modules/reference_module/`, while no built-in preset registers `reference_module` in `src/modules.ts`.
-- The reference tree is at most 80 source files and 512 KiB, its progressive-disclosure README is at most 12 KiB, its detailed surface map is at most 24 KiB, and no individual client component exceeds 300 lines.
-- The module compiles and passes its focused tests when copied into an isolated fixture and explicitly enabled.
-- The reference contains no `any`, raw `fetch`, hard-coded user-facing copy, direct cross-module ORM relationship, or unscoped tenant query.
-- A module-scaffold harness run selects `reference_module` before `ratelimit_probe` or installed package source and produces a passing module from the reference.
-- Existing preset snapshots and the existing ratelimit-probe test contract remain green.
-- Every `capabilityId` in `surface-inventory.json` is represented in the source map by an exact repository-relative file link without a line anchor, an owning skill/guide, and one of `reference`, `authoritative-source`, or `specialist-route`; parity tests reject missing IDs, duplicate owners, dead links, and unreviewed removals.
-- Relevant harness cases may read `src/modules/reference_module/**` through an explicit bounded policy; unrelated cases remain unable to traverse arbitrary application or framework source.
-
-## Architecture
-
-### Ownership and discovery
-
-Normative rules remain in the relevant standalone skill references. The executable implementation and cross-skill index live in:
-
-- `packages/create-app/template/src/modules/reference_module/README.md`
-- `packages/create-app/template/src/modules/reference_module/references/surface-map.md`
-
-`om-module-scaffold/references/module-surfaces.md` remains the entry owner and will:
-
-- identify `src/modules/reference_module/README.md` as the emitted-app implementation map;
-- explicitly state that `ratelimit_probe` is a test fixture, not a module blueprint;
-- tell agents to copy only the surfaces required by the requested feature;
-- route data design, backend UI, UMES, ejection/customization, cache/queue, and specialist branches to their owning skill;
-- retain architecture, naming, generation, and validation rules so the emitted README and source map do not duplicate normative prose.
-
-The base agentic bundle must continue to emit every named skill into its configured tier, including `om-eject-and-customize`. Preset contract tests verify the tier manifest, installed files, source links, and generated copies. The README remains useful without the agentic bundle: it contains purpose, enable/copy procedure, a short capability router, rename checklist, and activation commands. The larger surface map records the complete coverage matrix and links; neither file duplicates the rules from skills or package guides.
-
-### Proposed module tree
+The canonical authoring root is:
 
 ```text
-packages/create-app/template/src/modules/reference_module/
-├── README.md
-├── references/surface-map.md
-├── references/surface-inventory.json
-├── acl.ts
-├── ce.ts
-├── cli.ts
-├── di.ts
-├── encryption.ts
-├── index.ts
-├── notifications.ts
-├── notifications.client.ts
-├── notifications.handlers.ts
-├── setup.ts
-├── translations.ts
-├── commands/
-│   ├── tasks.ts
-│   ├── interceptors.ts
-│   └── __tests__/
-│       └── tasks.test.ts
-├── events.ts
-├── search.ts
-├── api/
-│   ├── interceptors.ts
-│   ├── imports/route.ts
-│   └── tasks/
-│       ├── route.ts
-│       ├── [id]/route.ts
-│       ├── [id]/restore/route.ts
-│       └── [id]/links/
-│           ├── route.ts
-│           └── [linkId]/route.ts
-├── data/
-│   ├── entities.ts
-│   ├── entity-id.ts
-│   ├── validators.ts
-│   ├── enrichers.ts
-│   ├── extensions.ts
-│   └── guards.ts
-├── lib/
-│   ├── task-cache.ts
-│   └── task-import.ts
-├── workers/
-│   └── reference-task-import.ts
-├── subscribers/
-│   ├── reference-task-notifications.ts
-│   └── reference-task-cache.ts
-├── migrations/
-│   ├── Migration<timestamp>.ts
-│   └── .snapshot-open-mercato.json
-├── backend/
-│   ├── tasks/page.meta.ts
-│   ├── tasks/page.tsx
-│   ├── tasks/create/page.meta.ts
-│   ├── tasks/create/page.tsx
-│   ├── tasks/[id]/page.meta.ts
-│   ├── tasks/[id]/page.tsx
-│   └── components/
-│       ├── ReferenceTasksTable.tsx
-│       ├── ReferenceTaskForm.tsx
-│       └── taskFormConfig.tsx
-├── widgets/
-│   ├── injection-table.ts
-│   ├── components.ts
-│   ├── notification-renderers.tsx
-│   └── injection/
-│       ├── customers-task-summary/
-│       ├── catalog-task-health/
-│       └── sales-task-actions/
-├── i18n/
-│   ├── en.json
-│   ├── de.json
-│   ├── es.json
-│   └── pl.json
-└── __tests__/
-    ├── api.test.ts
-    ├── async-runtime.test.ts
-    ├── enrichers.test.ts
-    └── extensions.test.ts
+apps/mercato/src/modules/example/
 ```
 
-The tree is a contract inventory, not permission to create empty discovery files. Every listed file must have a real registration and caller. During implementation, compatible concerns may share a file when that is clearer and the surface-map/test contract is updated; discovery filenames required by the framework may not be renamed for tidiness.
-
-### Canonical source-link inventory
-
-Implementation begins with a parity inventory, not fresh invention. `references/surface-inventory.json` is the versioned finite oracle: each entry has a stable `capabilityId`, owner skill/guide, coverage kind (`reference`, `authoritative-source`, or `specialist-route`), and one or more exact paths. The complete implementation inventory is frozen to the IDs below. If the Phase 1 parity audit finds a genuinely missing discovery contract, implementation stops and amends this design spec before adding an ID; code review rejects implementation-time additions, removals, or collapsed IDs. `references/surface-map.md` renders that inventory for humans, links to completed `reference_module` files, and retains the following current repository examples where they show a deeper variant. Links are repository-relative and must not contain `#L...` line anchors.
-
-The initial ID set is explicit and additive:
+The emitted template mirror is:
 
 ```text
-module.metadata, module.registration, module.di, module.cli,
-data.entity.task, data.entity.link, data.entity.undo-snapshot,
-data.validators, data.custom-fields,
-data.extension-links, data.encryption, data.migration, data.snapshot,
-setup.acl, setup.role-sync, setup.defaults, setup.examples,
-api.crud-factory, api.openapi, api.query-engine, api.import, api.export,
-api.interceptors, commands.write, commands.undo, commands.interceptors,
-commands.optimistic-lock, guards.mutation, enrichers.response,
-query.enrichment, events.typed, events.subscriber, events.dom-bridge, search.index,
-cache.read, cache.invalidation, queue.worker, progress.job,
-notifications.type, notifications.renderer, notifications.handler,
-ui.page-metadata, ui.list, ui.perspectives, ui.filters, ui.search,
-ui.export, ui.form-shared, ui.conflicts,
-widgets.hosts, widgets.headless-field, widgets.headless-column,
-widgets.headless-filter, widgets.headless-row-action,
-widgets.headless-bulk-action, widgets.headless-tab, widgets.headless-menu,
-widgets.customers, widgets.catalog, widgets.sales,
-widgets.component-replacement, overrides.unified,
-overrides.ai-agents, overrides.ai-tools, overrides.ai-extensions,
-overrides.routes-api, overrides.routes-pages, overrides.event-subscribers,
-overrides.workers, overrides.widgets-injection, overrides.widgets-components,
-overrides.widgets-dashboard, overrides.notification-types,
-overrides.notification-handlers, overrides.api-interceptors,
-overrides.command-interceptors, overrides.enrichers, overrides.guards,
-overrides.cli, overrides.setup, overrides.acl-features, overrides.di,
-overrides.encryption-maps,
-i18n.locales, i18n.translatable-fields,
-tests.unit, tests.integration,
-frontend.page, portal.page, guards.page-middleware, widgets.dashboard,
-search.vector, analytics.contribution, messages.contribution,
-inbox.contribution, security.contribution, security.mfa-provider,
-security.sudo-target, integrations.metadata,
-integrations.domain-registry, integrations.ui-registry,
-generators.extension-plugin,
-specialist.ai, specialist.provider, specialist.workflow
+packages/create-app/template/src/modules/example/
 ```
 
-IDs from `module.*` through `tests.*` in the list above require compiling executable reference code and a focused caller/test. The following `frontend.page` through `generators.extension-plugin` IDs use `authoritative-source`, and every `specialist.*` ID uses `specialist-route`; both require an installed owner plus an exact source file and may not claim local implementation. Additions use new IDs, while removals require an explicit compatibility review and spec amendment.
+All relative paths, file bytes, and file presence under those roots must match. No template content transform or template-only allowlist entry may target `modules/example/**`. If a difference is necessary for standalone compilation, change the shared source to work in both environments; do not create an exception.
 
-| Capability | Current authoritative examples to study | Result required in the reference |
+The implementation workflow is:
+
+1. edit and validate the monorepo source;
+2. run `yarn template:sync:fix` to materialize the template mirror;
+3. review the resulting template diff;
+4. run `yarn template:sync` and a focused example-tree parity test; and
+5. run monorepo and standalone activated fixtures.
+
+The focused parity test compares sorted relative file lists and SHA-256 content hashes. It also rejects future `TEMPLATE_ONLY_RELATIVE_FILES` or `TEMPLATE_CONTENT_TRANSFORMS` entries under `modules/example/**`. Adding, changing, renaming, or deleting any example file without the exact mirrored change fails the gate.
+
+### Baseline Reconciliation
+
+The implementation must classify each existing differing path before synchronization. Correctness and security changes in the monorepo copy, including tenant/organization scope in Todo command preparation, redo support, and their regression tests, must not be lost. Page-metadata and standalone-compile differences must be resolved into one implementation that works in both trees. The current template-only recovery hint `git checkout -- apps/mercato/src/modules/example/backend/page.tsx` is invalid in a generated app and must become an app-root-relative instruction (or be removed) before the file can be canonical. After reconciliation, the full example subtree is identical; the spec permits no permanent baseline exceptions.
+
+## Reuse Inventory
+
+Implementation starts by recording every row in `references/surface-inventory.json`. Each row has a stable `capabilityId`, one rule owner, a `coverageKind` (`example`, `authoritative-source`, or `specialist-route`), a `referenceStatus` (`canonical` or `qa-only`), a derived `readStatus` (`readable` or `qa-only`), exact source paths, `integrationTestPaths`, and `dependencyModules`. Canonical UI rows also carry `designSystemReferences[]`; each record has `ruleOwnerSourceReferenceId`, `exampleSourceReferenceId`, `galleryCoverage` (`direct` or `composite-not-direct`), one or more `galleryEntries` with `familyId`, `entryId`, public `importPath`, optional `exportName`, exact installed `entrySource`, `gallerySourceReferenceId`, and a non-null `designFoundation`, plus exact installed `implementationSource` and `implementationSourceReferenceId`, optional emitted `localTokenSource` and `localTokenSourceReferenceId`, `availabilityByPreset`, `featureId: "design_system.view"`, `baselinePrUrl`, `provenanceHeadSha`, and merged/package `baselineSha`. A separate derived `designSystemGalleryItems[]` inventory covers every entry in the final packed PR #4301 registry, including entries no canonical example row consumes, and gives each the same non-null PR #4277 envelope. Each `designFoundation` records PR #4277 URL/audited head/final baseline, selected package version/hash, `tokenApplicability` (`local-css` or `not-applicable`), `snapshotAvailability` (`emitted` or `unavailable`), `codeConnectStatus` (`mapped`, `unmapped`, or `not-applicable`), `codeConnectArtifactAvailability` (`installed-packed-auxiliary` or `not-emitted`), `codeConnectExportStatus` (`not-exported` or `exported`), derived `mappingCoverage` (`complete`, `partial`, `none`, `not-applicable`, or `unverified`), `galleryNodeStatus` (`known` or `absent`), `codeConnectNodeStatus` (`known`, `placeholder`, or `absent`), derived `nodeComparison` (`match`, `mismatch`, or `not-comparable`), `publicationStatus: "not-evidenced"`, and `designSkillAvailability` (`emitted-opt-in` or `unavailable`). It carries an exact `snapshotSourceReferenceId` only when the locally generated snapshot was emitted and applicable, an exact `codeConnectSourceReferenceId` only for a verified packed auxiliary mapping file, a normalized `galleryNodeId` only when the gallery node is known, a normalized `codeConnectNodeId` only when the mapping node is known, and a `designSkillSourceReferenceId` only when the portable opt-in skill was actually emitted and selected. `readStatus: "readable"` on a Code Connect record means only that the exact auxiliary source may be read; it never implies a package export, runtime import, live node, or publication. Each gallery entry derives its live route from family/entry; all built-in fresh presets record `source-only`, while only an explicitly activated fixture records `live`. `coverageKind` says where the capability is implemented or routed; `referenceStatus` records reference quality; `readStatus` is the evaluator-facing derivation and is `readable` only for canonical exact files. Repository-only integration tests may be evidence paths but never become readable source references. Every added or materially changed runtime/discovery extension surface with `coverageKind: "example"` requires a non-empty integration-test list even when it is added to an existing capability row. A public UI component taught by a canonical example source maps directly when the merged gallery contains it; an absent composite maps honestly to its exact UI implementation plus checked constituent gallery entries. Missing required visual or implementation coverage blocks canonical status instead of creating a guessed direct reference. `references/surface-map.md` renders the same inventory for humans. Paths have no line anchors.
+
+### Existing Example Surfaces to Reuse
+
+| Capability | Existing source | Required treatment |
 |---|---|---|
-| CRUD factory, Query Engine, commands | [`customers/api/people/route.ts`](../../packages/core/src/modules/customers/api/people/route.ts), [`customers/commands/people.ts`](../../packages/core/src/modules/customers/commands/people.ts), [`sales/commands/payments.ts`](../../packages/core/src/modules/sales/commands/payments.ts) | `makeCrudRoute`/CRUD factory reads, Data/Query Engine writes and reads, commands, guards, locking, undo, and safe side effects. |
-| Perspectives, search, filters, export | [`customers/backend/customers/people/page.tsx`](../../packages/core/src/modules/customers/backend/customers/people/page.tsx), [`customers/components/formConfig.tsx`](../../packages/core/src/modules/customers/components/formConfig.tsx) | Customer-style controlled list view and shared create/edit form schema/field/group definitions. |
-| Custom fields, links, enrichers, guards | [`customers/ce.ts`](../../packages/core/src/modules/customers/ce.ts), [`customers/data/extensions.ts`](../../packages/core/src/modules/customers/data/extensions.ts), [`customers/data/enrichers.ts`](../../packages/core/src/modules/customers/data/enrichers.ts), [`customers/data/guards.ts`](../../packages/core/src/modules/customers/data/guards.ts) | A persisted custom field, one ID-based cross-module extension/link, batched enrichers, and guarded writes with no cross-module ORM relation. |
-| Encryption | [`customers/encryption.ts`](../../packages/core/src/modules/customers/encryption.ts) | Module encryption map, decrypting reads, and explicit exclusion from search/events/logs. |
-| Setup, ACL sync, CLI, migration | [`customers/setup.ts`](../../packages/core/src/modules/customers/setup.ts), [`customers/cli.ts`](../../packages/core/src/modules/customers/cli.ts), [`customers migration`](../../packages/core/src/modules/customers/migrations/Migration20260602202147_customers.ts), [`customers snapshot`](../../packages/core/src/modules/customers/migrations/.snapshot-open-mercato.json) | Defaults/examples, feature grants and existing-role sync instruction, CLI registration, intended migration, JSON snapshot, and clean regeneration. |
-| Import and export | [`sync_excel import route`](../../packages/core/src/modules/sync_excel/api/import/route.ts), [`example TodosTable`](../../packages/create-app/template/src/modules/example/components/TodosTable.tsx) | Bounded queued CSV import through commands/progress and filter-matched DataTable CSV export. |
-| Cache, queue, worker, progress | [`catalog/lib/bulkDelete.ts`](../../packages/core/src/modules/catalog/lib/bulkDelete.ts), [`catalog/workers/catalog-product-bulk-delete.ts`](../../packages/core/src/modules/catalog/workers/catalog-product-bulk-delete.ts) | Tenant-tagged DI cache plus idempotent queued import with progress and post-commit invalidation. |
-| Notifications and DOM-event bridge | [`sales/notifications.ts`](../../packages/core/src/modules/sales/notifications.ts), [`catalog/events.ts`](../../packages/core/src/modules/catalog/events.ts), [`catalog/components/products/ProductsDataTable.tsx`](../../packages/core/src/modules/catalog/components/products/ProductsDataTable.tsx) | Persistent notification/renderer/reactive handler and an audience-scoped `clientBroadcast` event consumed by `useAppEvent`. |
-| Full UMES branches | [`example/api/interceptors.ts`](../../packages/create-app/template/src/modules/example/api/interceptors.ts), [`example/commands/interceptors.ts`](../../packages/create-app/template/src/modules/example/commands/interceptors.ts), [`example/data/guards.ts`](../../packages/create-app/template/src/modules/example/data/guards.ts), [`example/data/enrichers.ts`](../../packages/create-app/template/src/modules/example/data/enrichers.ts), [`example/widgets/components.ts`](../../packages/create-app/template/src/modules/example/widgets/components.ts) | API and command interceptors, mutation guards, enrichers, widget/data injections, and component replacement, all with concrete callers. |
-| Unified overrides | [`template/src/modules.ts`](../../packages/create-app/template/src/modules.ts), [`unified-overrides.md`](../../packages/create-app/agentic/shared/ai/skills/om-system-extension/references/unified-overrides.md), [`TC-UMES-022`](../../packages/create-app/template/src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts) | Typed activated-fixture override plus one inventory ID for every supported override domain/key family. |
-| Cross-module widget injection | [`customer priority field`](../../packages/create-app/template/src/modules/example/widgets/injection/customer-priority-field/widget.ts), [`catalog SEO report`](../../packages/create-app/template/src/modules/example/widgets/injection/catalog-seo-report/widget.ts), [`sales todos`](../../packages/create-app/template/src/modules/example/widgets/injection/sales-todos/widget.ts), [`injection-table.ts`](../../packages/create-app/template/src/modules/example/widgets/injection-table.ts) | Three small, useful contributions targeting customers, catalog, and sales, plus absent-host behavior and stable IDs. |
-| Notification/reactive examples | [`example/notifications.ts`](../../packages/create-app/template/src/modules/example/notifications.ts), [`example/notifications.handlers.ts`](../../packages/create-app/template/src/modules/example/notifications.handlers.ts) | Registered notification type, renderer, subscriber, and reactive client handler. |
-| Frontend, portal, middleware, dashboard | [`example frontend page`](../../packages/create-app/template/src/modules/example/frontend/blog/[id]/page.tsx), [`portal page`](../../packages/core/src/modules/portal/frontend/[orgSlug]/portal/page.tsx), [`page-middleware generator`](../../packages/cli/src/lib/generators/extensions/page-middleware.ts), [`dashboard widget`](../../packages/create-app/template/src/modules/example/widgets/dashboard/todos/widget.ts) | Authoritative-source routes for public/portal pages, page middleware, portal guards/event bridge, and dashboard widgets; the backend reference does not claim to implement them. |
-| Vector, analytics, messages, inbox | [`vector strategy`](../../packages/search/src/strategies/vector.strategy.ts), [`analytics generator`](../../packages/cli/src/lib/generators/extensions/analytics.ts), [`messages generator`](../../packages/cli/src/lib/generators/extensions/messages.ts), [`inbox-actions generator`](../../packages/cli/src/lib/generators/extensions/inbox-actions.ts) | Exact specialist/authoritative examples and owners for vector search, analytics, message renderers, and inbox actions. |
-| Subscribers, query enrichment, translatable fields | [`events generator`](../../packages/cli/src/lib/generators/extensions/events.ts), [`enricher generator`](../../packages/cli/src/lib/generators/extensions/enrichers.ts), [`translatable-fields generator`](../../packages/cli/src/lib/generators/extensions/translatable-fields.ts) | Distinct inventory entries for subscribers, query/response enrichment, and translatable-field discovery. |
-| Security, integration metadata/registries, generator plugins | [`auth ACL`](../../packages/core/src/modules/auth/acl.ts), [`generator plugin types`](../../packages/shared/src/modules/generators/types.ts), [`security generator fixture`](../../packages/cli/src/lib/generators/__tests__/module-subset.test.ts), [`integrations metadata`](../../packages/core/src/modules/integrations/index.ts), [`integration domain registry`](../../packages/core/src/modules/integrations/lib/registry-service.ts), [`integration UI registry`](../../packages/core/src/modules/integrations/backend/integrations/detail-page-widgets.ts), [`extension generator`](../../packages/cli/src/lib/generators/extension.ts) | Separate security ACL/MFA/sudo, integration metadata/domain/UI registry, and generator-extension/plugin routes. |
+| Module metadata, ACL, setup, DI, CLI | `index.ts`, `acl.ts`, `setup.ts`, `di.ts`, `cli.ts` | Link to the existing implementation; add one consumed scoped Awilix Todo/cache service because current registry-helper calls do not emit a rich DI registration fact. |
+| Entities, validators, custom fields, migration/snapshot | `data/entities.ts`, `data/validators.ts`, `ce.ts`, `migrations/**` | Keep `Todo` as the canonical editable entity and extend its schema/migration rather than introducing a parallel task entity. |
+| CRUD factory, Query Engine, OpenAPI, CSV export | `api/todos/route.ts`, `api/openapi.ts`, `components/TodosTable.tsx` | Reuse the live Todo API/list path and close compliance gaps in place. |
+| Commands, undo/redo, events/indexer | `commands/todos.ts`, `commands/__tests__/**`, `events.ts`, `subscribers/**` | Preserve scoped command preparation, undo/redo, safe side effects, and typed events; complete optimistic-lock coverage through the gap below. |
+| CrudForm/DataTable/perspectives/filters | `backend/todos/**`, `components/TodosTable.tsx` | Extract shared create/edit form definitions only where current pages duplicate them; keep the existing user path. Map these absent composites to their exact UI implementations and checked PR #4301 constituent entries; expose gallery routes only after explicit activation. |
+| API/command interceptors, guards, enrichers | `api/interceptors.ts`, `commands/interceptors.ts`, `data/guards.ts`, `data/enrichers.ts` | Retain the real callers/tests, add an exact Todo command target plus explicit custom-route guard and Todo CRUD/query-enricher call sites, and assert every corresponding activation fact. |
+| Headless and rendered injection | `widgets/injection/**`, `widgets/injection-table.ts` | Preserve the existing field, column, filter, row/bulk action, menu, customers, catalog, sales, and portal behavior, but normalize the export to a statically readable object whose slots are arrays; optionality moves into entry metadata/feature/module guards. |
+| Component replacement and dashboard widgets | `widgets/components.ts`, `widgets/dashboard/**` | Make the component export statically readable, demonstrate `replace`, `wrapper`, and `props` once, and retain dashboard callers/tests. |
+| Notification type and reactive handler | `notifications.ts`, `notifications.handlers.ts` | Reuse these owners; add a client renderer only because that discovery surface is absent. |
+| Unified overrides | `src/modules.ts`, `__integration__/TC-UMES-022-overrides.spec.ts` | Keep the typed inactive override inventory and its exact test. The source map may link outside the module for the registry entry. |
+| Integration coverage | `__integration__/**`, `__tests__/**`, `widgets/__tests__/**`, `lib/__tests__/**` | Preserve and extend focused tests instead of creating a second reference test suite. |
 
-The final parity matrix also enumerates every topic formerly demonstrated by the `main` versions of `om-module-scaffold`, `om-system-extension`, `om-backend-ui-design`, `om-data-model-design`, and `om-eject-and-customize`. Each row maps to a `capabilityId`, names its rule owner, and has at least one working source link. “Equal or better” is deterministic: a `develop` row passes only when it preserves the `main` topic's decision rule and links to compiling/tested source for the same mechanism, or explicitly routes a specialist mechanism to its installed skill plus exact source. A topic cannot be deleted, generalized into “see the framework,” or linked only to a directory.
+### Verified Gaps to Extend in `example`
 
-Exact discovery filenames must be reconciled with the generated app's installed package version during implementation. Generated registries are updated only through `yarn generate`; generated files are never edited by hand.
+The current tree does not have executable owners for the following required reference capabilities. They are additive extensions to `example`, not grounds for a new module:
 
-### Disabled-by-default boundary
+| Gap | Extension of the current example | Minimum proof |
+|---|---|---|
+| Progressive source routing | Add `README.md`, `references/surface-map.md`, and `references/surface-inventory.json`. | Link/inventory tests resolve every path in monorepo, template, and emitted layouts. |
+| Encryption | Add `encryption.ts`; add one optional sensitive Todo field or module-owned link snapshot and read it through decryption helpers. | Ciphertext-at-rest and no-plaintext-in-search/event/log/cache tests. |
+| Explicit extension hosts and entity extensions/links | Add `extension-points.ts`, bind every declaration to a current call site, add `data/extensions.ts`, and only if needed add a module-owned ID/snapshot link entity tied to Todo. | No documentation-only host, no cross-module ORM relation, scoped reads/writes, absent-host behavior. |
+| Search registration | Add `search.ts` using the existing `example:todo` identity and non-sensitive fields. | Activated search/index lifecycle and tenant-scope test. |
+| Cache | Add a focused DI-resolved Todo read cache with tenant/org tags and post-commit invalidation. | Hit, miss, isolation, and all-write-path invalidation tests. |
+| DataTable bulk action, queue, worker, and progress | Give the Todo table `extensionTableId="example.todos.list"`; register `widgets/injection/todo-bulk-complete/widget.ts` at `data-table:example.todos.list:bulk-actions`; add `api/todos/bulk-complete/route.ts`, `lib/todoBulkComplete.ts`, `workers/todos-bulk-dispatch.ts`, and `workers/todos-bulk-complete.ts`. The injected action returns a real `progressJobId`, which is the DataTable path that already tracks the platform top progress bar. Replace the separate synthetic demonstration as the canonical progress reference, although it may remain QA-only. | `TC-EXAMPLE-003-todo-bulk-progress.spec.ts` proves selection, start feedback, visible top progress bar, SSE/poll updates, completion, crash recovery, partial failure, cancellation, retry/idempotency, scope, and record results with `example`, `progress`, `events`, and `scheduler` enabled. |
+| Client notification rendering | Add `notifications.client.ts`; reuse `notifications.ts` and `notifications.handlers.ts`. | Renderer registration, audience, dedupe, and cleanup tests. |
+| Translatable fields | Add `translations.ts` for applicable Todo text fields. | Generator registration and locale/translation tests. |
+| Defaults/example seeds | Extend `setup.ts` with idempotent defaults and opt-in example data. | New-tenant idempotency and no seed while disabled. |
+| Shared form definition | Extract a shared Todo create/edit field/group definition from the existing pages when duplication is confirmed. | Both create and edit use it; locking/conflict behavior stays green. |
+| Complete optimistic locking | Return `updatedAt` from list/detail projections, pass it through edit `initialValues`, and enforce it in command writes without narrowing legacy schema columns. | Update/delete stale writes return the standard 409 and the unified conflict UI can reload/retry. |
+| Standalone override reference | Move or mirror the typed inactive override examples from root `src/modules.ts` into a compileable file under `example/references/` so lean preset registry replacement does not erase the reference. | Every override domain remains typed, inactive, linked, and covered by TC-UMES-022 or its focused successor. |
+| Fact-readable registries and bound UI hosts | Refactor `widgets/injection-table.ts` and `widgets/components.ts` to direct statically extractable exports; add real Todo host bindings through `extension-points.ts`; cover every `bound: true` DataTable/CrudForm surface and all three component modes. | Runtime UI assertions plus generated contribution/host/activation facts; optional modules remain safely gated and no `bound: false` surface is faked. |
+| Page middleware facts | Add one real backend and one real frontend Todo-route middleware under `backend/middleware.ts` and `frontend/middleware.ts`, using stable IDs and the shared page-middleware contract. | `TC-EXAMPLE-013-page-middleware.spec.ts` proves match/non-match behavior, exact `guards` override targets, and that mutation guards never appear in that domain. |
+| AI facts and extensions | Add a small read-only, scoped Todo tool plus `aiToolOverrides` in `ai-tools.ts`; add a read-only agent plus `aiAgentOverrides` and one additive customers-agent `aiAgentExtensions` entry in `ai-agents.ts`; declare/grant the narrow view feature in `acl.ts`/`setup.ts`; do not require an external model call. | Registry discovery, ACL/scope, tool dispatch, distinct agent/tool/file-override/extension fact provenance, and exact `ai.agents`, `ai.tools`, and unkeyed `ai.extensions` override targets. |
+| Specialized registry facts | Add a Todo search/vector declaration, one local integration bundle reusing the existing mock adapters, static payment/shipping/currency provider identities, and one minimal Todo workflow triggered by an existing typed event. | Each of the nine specialized registry values is emitted once and its real registration/caller is tested; production provider and workflow-engine depth stays linked to installed sources. |
+| Generator-plugin fact | Add `generators.ts` with one deterministic, type-only-import plugin that aggregates the example reference convention into a generated reference index consumed by the local facts/surface-map validation path. | Activated disposable app runs generation twice byte-identically, rejects stale output, proves disabled absence, and resolves portable source links. |
+| Portal browser reaction | Mark one non-sensitive Todo event `portalBroadcast: true` and consume it from the existing example portal widget with the supported portal event hook. | Audience/scope/payload tests prove client, portal, and notification-effect transports without adding portal authentication. |
 
-The source directory is copied by the base template and preserved by all presets, but `reference_module` is absent from every generated `src/modules.ts`. Therefore it contributes no routes, navigation, entities, migrations, seeds, ACL grants, events, widgets, or search entries until a developer deliberately copies or registers it. TypeScript may still include the unregistered tree through generated-app globs, so every built-in preset must typecheck with the source present and all imports resolved; activation is not required for compilation.
+The capability audit must not bless existing code by location alone. Files linked as canonical examples must satisfy current rules: no unscoped lookup, no raw `.json().catch`, no hard-coded status colors, and no `any`-based shortcut where a runtime-narrowed type is possible. Current QA/demo files that do not yet meet that bar remain in the synchronized tree but receive `referenceStatus: "qa-only"` and are denied by `allowedCapabilityIds`; implementation either remediates them before linking or points to a safer exact file. The existing nullable Todo scope columns are a stable schema surface: new writes and queries must require effective tenant/organization scope, but the columns are not narrowed to non-null without a separately approved additive bridge for legacy rows.
 
-Preset tests must assert both halves of this contract: source present, registration absent. The existing classic `example` behavior and `ratelimit_probe` behavior remain unchanged.
+The example owns one small real declaration for AI agent/tool/extension, vector, integration/payment/shipping/currency, workflow, and generator-plugin discovery so every PR #4883 fact mechanism is locally inspectable. It does not become the authority for production provider internals, rich workflow orchestration, mutation-capable AI, portal authentication, security providers, analytics, or messages/inbox. Those deeper branches stay `authoritative-source` or `specialist-route`: the byte-identical example README/map records a stable `sourceReferenceId`, while the owning emitted guide/skill/fact sheet renders the visible exact installed-package link. This preserves byte parity and provides both the local minimal mechanism and the correct production-depth reference.
 
-### Stable identifiers
+Empty placeholder discovery files are forbidden. If an inventory row is marked `example`, it needs a real registration, caller, and focused test. Additions to or removals from the finite inventory require a spec amendment and compatibility review.
 
-The example uses stable, grep-friendly identifiers so agents can rename them mechanically:
+## PR #4301 Design-System Reference Contract
 
-| Surface | Identifier |
+The living gallery and canonical example have different owners. PR #4301's installed `design_system` module visually demonstrates the public component contract; `src/modules/example` demonstrates that same public component in a scoped module workflow. Example code imports only `@open-mercato/ui/...`. It never imports the gallery registry, entry modules, render functions, or snippets at runtime, and the gallery never depends on `example`.
+
+Every UI-bearing implementation topic mapped to a canonical example row renders one adjacent source bundle:
+
+1. the exact canonical example file showing the component in a real module flow;
+2. one exact installed gallery entry file under `node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/<family>.tsx` for direct coverage, or the explicitly named constituent entries for `composite-not-direct` coverage;
+3. the separately declared exact `node_modules/@open-mercato/ui/src/**` implementation resolved from the entry's public import, plus emitted `src/app/globals.css` only for foundations/tokens; and
+4. the after-opt-in path `/backend/design-system?family=<familyId>&entry=<entryId>`; every built-in fresh preset renders an explicit `source-only` marker because `design_system` is unregistered, and only the activated fixture renders it as live.
+
+The owner also renders [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301) as provenance and records the final packaged SHA, but agents do not need network access to use the reference. Generated gallery records use `referenceRole: "design-system-gallery"` and a shared `visualReference` object matching the inventory fields above. The PR URL, `importPath`, and live route do not grant source-read permission; gallery and implementation IDs each resolve one exact regular installed file through the lockfile-selected package, and the optional token ID resolves only emitted local CSS.
+
+The mapping is exhaustive for canonical example UI, not for every nonvisual helper import or every normative UI topic. A contract test resolves direct example imports to the gallery entry's `importPath` and optional `exportName`, verifies the entry exists in the derived PR #4301 family manifest, verifies its copyable snippet names the same public import, and separately resolves that import to the declared packed UI source. For `composite-not-direct`, it proves no direct merged-gallery entry exists, resolves the exact composite implementation, and validates one or more constituent entries actually used by that implementation without claiming the gallery renders the composite. `CrudForm` and `DataTable` use this composite classification at the merged baseline. A canonical UI row with an unmapped component, false direct claim, stale family/entry/import/SHA, missing packed source, unavailable live route incorrectly marked `live`, workspace-only token path, or gallery-only/internal import fails. Registry/types are discovery references only; gallery coverage/integrity/render/integration tests are QA-only evidence. Unmatched normative topics keep their owning rule guide plus exact UI/gallery sources and do not fabricate an example use. If a desired primitive lacks a gallery entry, update the gallery through its owning module and coverage guard before marking a direct mapping canonical; do not paste the gallery implementation into `example`.
+
+The minimum mapped example families are constituent inputs/forms for `CrudForm`, constituent display/table and filters for `DataTable`, feedback for loading/error/conflict/progress states, overlays for dialogs, navigation/page scaffolding for route shells and form chrome, banners for flash/next-step feedback, notifications for the renderer example, and schedule/messages only where an example surface actually consumes them. This is usage-driven coverage, not a claim that PR #4301 directly showcases `CrudForm`/`DataTable` or a mandate to force every gallery family into Todo.
+
+## PR #4277 Design-Foundation Sidecar Contract
+
+PR #4277 is an optional design/developer-tooling sidecar to the PR #4301 implementation chain, never another runtime hop. “All items” means every entry in the derived PR #4301 gallery inventory—including entries not consumed by the example, direct example entries, and every constituent entry of a composite—has a closed `designFoundation` applicability record and renders the PR URL. It does not mean every unrelated harness case reads Figma tooling or every component has Code Connect coverage. Ordinary backend implementation continues to route through the normative UI owner, exact example use, exact gallery entry/constituents, and exact UI implementation. Only a token/foundation or Figma-facing task follows applicable PR #4277 sources.
+
+Generated `src/app/globals.css` is the sole readable runtime token truth. The audited `.ai/ds/ds-tokens.json`, exporter, health checks, and maintenance README are repository-only governance evidence and cannot be standalone source-reference targets. If implementation chooses to emit a standalone snapshot and `.ai/guides/design-system-foundation.md`, it generates both deterministically from local `src/app/globals.css`, rewrites the snapshot source to that app-local path, proves byte/parity stability, and marks `snapshotAvailability: "emitted"` while retaining `tokenApplicability: "local-css"`; otherwise snapshot availability is `unavailable`. No application code imports the snapshot, exporter, Code Connect files, or design skill.
+
+Code Connect references are allowed only for an exact regular file verified in the final packed `@open-mercato/ui` artifact at `node_modules/@open-mercato/ui/figma/<name>.figma.tsx`. The record uses `referenceRole: "figma-code-connect"`, a package version/hash, immutable read semantics, and no directory, glob, sibling, or transitive permission. Mapping status and coverage are derived from actual `figma.connect` calls joined to a gallery item by exact public import plus export symbol and compared with mapped gallery variants/public component props, not copied counts. Gallery and Code Connect node authorities stay independent: normalize their colon/hyphen forms separately, then derive `nodeComparison`; a gallery node never promotes an unmapped/placeholder Code Connect record, and a Code Connect node never fabricates gallery metadata. Parse/type success does not become publication proof, so the current closed publication value is `not-evidenced`; adding a published state later requires a spec amendment that defines external evidence without granting the harness execution authority.
+
+The validator enforces closed cross-facet tuples. `mapped` requires `installed-packed-auxiliary`, one exact Code Connect source ID, a `known` or `placeholder` Code Connect node, `complete`, `partial`, or provisional `unverified` coverage, and `codeConnectExportStatus` derived as `exported` only when the final package exports that exact auxiliary path and otherwise `not-exported`. `unmapped` requires `not-emitted`, `not-exported`, no Code Connect source/node ID, `codeConnectNodeStatus: "absent"`, and `mappingCoverage: "none"`. `not-applicable` requires no Code Connect source/node ID, `not-emitted`, `not-exported`, absent Code Connect node, and `mappingCoverage: "not-applicable"`. `nodeComparison` is `match` only when both normalized known IDs are equal, `mismatch` only when both are known and unequal, and otherwise `not-comparable`. Snapshot and design-skill source IDs likewise exist only for `emitted` and `emitted-opt-in`; every impossible combination fails generation.
+
+The audited design skill remains unavailable to standalone apps because it is opt-in in the repository and not emitted by create-app. Its current missing reference and inconsistent tier/archetype documentation block promotion to `emitted-opt-in` and any Figma case that requires the skill; they do not block a certified `unavailable` record when no emitted owner/source ID or case depends on it. A record may become `emitted-opt-in` only after a portable standalone copy, local `design` tier, installer/tier/hash checks, complete reference closure, and adapted local links ship; otherwise no case may require or link that owner. `FIGMA_TOKEN`, generated Figma operations reports, REST/plugin writes, Variables application, Code Connect publication, screenshots, and manual node verification remain external QA and never enter normal harness context or execution. Certification re-audits PR #4277's final merged/package SHA and artifact availability; the current open, conflicted head is provenance only.
+
+## PR #4883 Module-Fact and Extension-Topology Contract
+
+`references/surface-inventory.json` gains a generated `factCoverage` ledger. Its finite inputs come from exported `as const` ledgers whose types derive from them, or from named AST extraction plus an exact-literal contract test when the public set is currently type-only; ordinary runtime imports must not pretend erased type aliases exist. Inputs include `ModuleFactSourceKind`, `ModuleOwnedContractKind`, all contribution and activation kinds, host families/capabilities/activation policies, extension-target kinds, all three resolution sets (host, contribution-target, and topology), specialized registries, component modes, `ModuleOverrideDomain`, `ModuleOverrideMode`, `ModuleOverrideTargetNote`, `ModuleOverrideTargetDiagnosticCode`, `ModuleFactDiagnostic['code']`, `ModuleExtensionUnresolvedFact['reason']`, `DATA_TABLE_EXTENSION_SURFACES`, `CRUD_FORM_EXTENSION_SURFACES`, `CRUD_FORM_LIFECYCLE_PHASES`, and `CRUD_FORM_OPERATIONS` at the pinned PR #4883 baseline. Each row records `status`, exact example or framework source, runtime host/caller, generated fact/activation/override-target reference, integration-test IDs, and dependency modules. Allowed statuses are:
+
+- `emitted-example`: real canonical source, runtime registration/caller, generated fact, and activated integration proof;
+- `framework-only`: a framework-owned host/catalog fact with an exact installed-package source link and an example contributor/consumer when the mechanism is executable by modules;
+- `catalog-only`: typed usage exists but the value is intentionally not an outgoing module contribution;
+- `currently-unbound`: the shared catalog explicitly declares `bound: false`, so no runtime example is fabricated; and
+- `negative-fixture`: a public resolution or diagnostic value exercised by a malformed/broken generator fixture and forbidden in activated canonical output.
+
+An enum value missing from the ledger, a changed enum without an explicit row, an `emitted-example` row without a generated fact or test, or a catalog status used to hide an executable ordinary-module mechanism fails generation.
+
+### Required Fact Families
+
+| Finite set | Required canonical coverage |
 |---|---|
-| Module | `reference_module` |
-| ORM entity class | `ReferenceTask` |
-| Generated/query/search entity ID | `reference_module:reference_task`; after activation, the generated accessor is `E.reference_module.reference_task` |
-| Response-enricher `targetEntity` | `reference_module.reference_task` |
-| Table | `reference_module_tasks` |
-| ACL features | `reference_module.view`, `reference_module.manage`, `reference_module.import` |
-| Events | `reference_module.reference_task.created`, `.updated`, `.deleted`, `.restored`; `reference_module.import.completed` |
-| Widget host | `reference_module.reference_task.detail:summary` |
-| CrudForm field host | `crud-form:reference_module.reference_task:fields` |
+| `ModuleFactSourceKind` | Every source kind is represented with exact portable provenance or a deterministic `factRef` to the rich fact that owns it. Existing module metadata, entity, event, ACL feature, API route, DI, search, notification, CLI command, backend page, frontend page, command, subscriber, setup, custom entity, extension host, and extension contribution sources are retained; worker, vector, AI tool/agent/extension, page middleware, encryption, integration, and generator-plugin gaps land in the rows above. Each `(kind, id)` resolves through exactly one direct source or fact reference, never neither or both. |
+| `ModuleOwnedContractKind` | All ten kinds (`module-metadata`, `command`, `worker`, `page-middleware`, `setup`, `encryption`, `di-registration`, `custom-entity`, `ai-extension`, `generator-plugin`) appear under `example.ownedContracts` with no unresolved diagnostics. |
+| Specialized registries | `notification`, `integration`, `search`, `vector`, `ai`, `payment`, `shipping`, `currency`, and `workflow` each have one real Todo/example-centered declaration and fact. Existing mock adapters are reused; no production provider is reimplemented. |
+| Unified override targets | Every example-owned nested override host emits `domain`, full `path`, optional `key` only for keyed records, `modes[]`, `factRef`, `source`, and applicable closed `notes`, and round-trips through the runtime resolver. Required nested hosts include `ai.agents/tools/extensions`, `routes.api/pages`, `widgets.injection/components/dashboard`, `notifications.types/handlers`, interceptors, command interceptors, enrichers, page-middleware `guards`, CLI, ACL, DI, encryption, workers/events, and all setup paths (`defaultRoleFeatures`, `defaultCustomerRoleFeatures`, `seedDefaults`, `seedExamples`, `onTenantCreated`). Framework-only `nav.groupOrder` has no fake example target. |
+| Override taxonomy | All 16 runtime domains (`ai`, `routes`, `events`, `workers`, `widgets`, `notifications`, `interceptors`, `commandInterceptors`, `enrichers`, `guards`, `cli`, `setup`, `acl`, `di`, `encryption`, `nav`) are classified; `nav` is framework-only. All three modes (`disable-replace`, `replace`, `additive`) and both closed notes (`safe-metadata-only`, `page-middleware-not-mutation-guard`) are exercised. Add `unknown-framework-mode` to the closed `ModuleOverrideTargetDiagnosticCode` set: an unknown framework mode emits that diagnostic and no guessed target. |
 
-`reference_module` is an intentional teaching-fixture exception to the normal plural module-ID convention, analogous to the existing `example` special case. It must not be cited as permission to use singular IDs for product modules. The implementation must verify the exact enricher and widget ID syntax against the installed contracts rather than introducing a new convention.
+The DI row must be a real Awilix `container.register` entry (the scoped Todo/reference cache service consumed by a route), not merely a call to an external adapter registry. Facts expose token, registration kind, lifetime, injection mode, and provider symbol only; they never expose values or function bodies.
 
-The colon and dot forms are not interchangeable. `ReferenceTask` deterministically generates the registry entry `reference_module:reference_task`; once the module is registered and generation runs, its canonical accessor is `E.reference_module.reference_task` from `@/.mercato/generated/entities.ids.generated`. Only the response enricher's `targetEntity` uses the dot-form `reference_module.reference_task` as an entity identity; event and widget strings belong to their own explicitly named namespaces.
+### Required Extension Topology
 
-The disabled source tree has one necessary bootstrap exception. The entity-ID generator intentionally omits unregistered modules, and the existing #601 regression forbids disabled app modules from accessing their absent `E.<module>.*` members. Therefore `data/entity-id.ts` defines one source-only `REFERENCE_TASK_ENTITY_ID` with `entityId('reference_module', 'reference_task')` from `@open-mercato/shared/modules/dsl`; every CRUD/query/indexer, search, custom-field, DataTable, and CrudForm call site imports that constant rather than repeating a literal. The emitted README tells agents that an enabled copied module should run `yarn generate` and use its generated app-alias `E` accessor for new code. The activated fixture must assert `REFERENCE_TASK_ENTITY_ID === E.reference_module.reference_task`, prove the generated key exists, and exercise the list route, because generation, typecheck, and lint alone do not detect a semantically wrong but well-typed ID.
+| Finite set | Required canonical coverage |
+|---|---|
+| Contribution kinds | Emit and execute `widget`, `data-table`, `crud-form`, `component-override`, `response-enricher`, `api-interceptor`, `command-interceptor`, `mutation-guard`, `entity-extension`, `subscriber`, `browser-reaction`, and `specialized-registry`. `module-override` is `catalog-only`: app-owned inactive typed usage and exact `overrideTargets` prove it without falsely attributing app configuration as an outgoing module contribution. |
+| Activation kinds | Generated activated-example facts include all eight: `crud-response-enricher`, `query-enricher`, `mutation-guard`, `api-interceptor-bridge`, `command-interceptor-bridge`, `widget-injection-consumer`, `component-extension-consumer`, and `dashboard-host-consumer`. Each points to a real caller/host. |
+| Target kinds | Cover `module`, `entity`, `api-route`, exact `command`, `widget-spot`, `component`, `event`, `notification`, and `wildcard`. The exact Todo command interceptor supplies the command target; broken targets are never added for enum coverage. |
+| Host resolution | Demonstrate `exact`, `pattern`, `framework`, and `fact-ref` host identities with their real owners and callers. |
+| Contribution-target resolution | Demonstrate `exact`, `pattern`, `framework`, `fact-ref`, and `optional-external`; classify `unresolved` as `negative-fixture` and exercise it only in a broken-target generator fixture. |
+| Topology resolution | Demonstrate `bound`, `capability-only`, `optional-target-missing`, and `wildcard`; activated canonical-example output has zero `unresolved`. Classify `unresolved` and the closed unresolved/duplicate diagnostic reasons as `negative-fixture`. Incoming rows are asserted only for cross-module bindings; self-targets remain intentionally absent. |
+| Host activation | Demonstrate `always`, `host-opt-in`, `caller-opt-in`, and `feature-gated` through real declarations and callers. |
+| Host families/capabilities | Every exported family and capability maps to either an executable example declaration/contribution/consumer or an exact framework-owned host link. `generic`/headless mutation, menus, DataTable, CrudForm, detail, portal, component, entity, API, command, event, query lifecycle, dashboard, notification, integration, specialized registry, and module override are all explicit in the ledger. |
 
-## Data Models and Security
+The example covers every discriminant explicitly enumerated here rather than every Cartesian combination. It covers widget payloads (`render`, `headless`, `menu`, `dashboard`, `notification`, `integration`), DataTable payloads (`column`, `row-action`, `bulk-action`, `filter`, `toolbar`, `render`), CrudForm payloads (`render`, `field`, `lifecycle-handler`), component modes (`replace`, `wrapper`, `props`), widget/DataTable execution guards (`host`, `contribution`, `both`), API activation modes (`crud-pipeline`, `custom-route-bridge`), response-enricher list/detail plus a real query-engine pass, API before/after, command execute/undo phases, mutation-guard block/rewrite/after-success with optimistic locking preserved, sync/async subscribers, and client/portal/notification-effect browser transports. The CrudForm lifecycle example covers all 14 exported phases, including all four delete phases, and all three operations (`create`, `update`, `delete`). Other detail-field unions are still ledgered and classified but need representative combinations only where they change runtime behavior.
 
-### `ReferenceTask`
+### Bound UI Surface Matrix
 
-| Column | Type | Requirements |
-|---|---|---|
-| `id` | UUID | Primary key |
-| `tenant_id` | UUID | Required scope |
-| `organization_id` | UUID | Required scope |
-| `title` | text | Required, explicitly non-sensitive and searchable |
-| `description` | text, nullable | Optional, encrypted through module field metadata and excluded from search |
-| `status` | enum/string | `todo`, `in_progress`, or `done` |
-| `priority` | integer | Bounded example validation |
-| `due_at` | timestamp, nullable | Used by the enricher |
-| `is_active` | boolean | Defaults true |
-| `created_at` | timestamp | Required |
-| `updated_at` | timestamp | Required optimistic-lock version |
-| `deleted_at` | timestamp, nullable | Soft deletion and undo support |
+Every currently bound host surface has a fact-readable registration and a runtime test:
 
-Indexes cover `(tenant_id, organization_id, deleted_at)`, `(tenant_id, organization_id, status)`, and due-date listing. Every query and mutation scopes by tenant and organization. Decryption uses `findWithDecryption` or `findOneWithDecryption` for `description`; decrypted text never enters events, logs, or search documents. The reference never introduces a direct ORM relationship to another module.
+- DataTable: `header`, `footer`, `toolbar`, `searchTrailing`, `columns`, `rowActions`, `bulkActions`, `filters`, and `replacement`;
+- CrudForm: `base`, `header`, `fields`, and `replacement`.
 
-`ce.ts` demonstrates one local custom field, `source`, without creating an optional-module dependency. Validators are Zod-first and exported TypeScript types use `z.infer`.
+The catalog-declared unbound surfaces remain `currently-unbound`: DataTable `emptyState`; CrudForm `beforeFields`, `afterFields`, `footer`, `sidebar`, `group`, `fieldBefore`, and `fieldAfter`. The README links their exact framework declarations and says they are unavailable; it does not present fake code or claim integration coverage.
 
-`ce.ts` owns the custom-entity/custom-field declarations. `data/extensions.ts` demonstrates an additive cross-module link by storing the target module's UUID and a safe display snapshot, then declaring the supported link metadata. It never imports another module's ORM entity. The example shows how a customer, catalog item, or sales document may be associated by ID while retaining tenant/organization scope and safe behavior when the optional host module is not installed.
+### Static Extraction and Correlation Prerequisites
 
-### `ReferenceTaskLink`
+The example and PR #4883 readers must meet before certification:
 
-One module-owned polymorphic link entity supports the three optional host examples without three schemas or cross-module ORM relations:
+1. `injectionTable` is a direct static object and every slot is an array; `componentOverrides` is a direct static array. Conditional inclusion moves to supported metadata, required-module, and feature guards.
+2. Injection extraction preserves widget/DataTable/CrudForm payload kinds, including headless/menu/notification/integration, toolbar, and lifecycle-handler, rather than collapsing all entries to render.
+3. Component facts read the runtime `propsTransform` contract and emit all three modes.
+4. Dashboard contributions bind patterned framework hosts and classify as `dashboard-host-consumer` before the generic widget activation; all eight activation kinds must be reachable.
+5. `module-override` has an exhaustive `catalog-only` extraction classification so the public contribution union cannot be mistaken for 13 emitted source conventions.
+6. The Todo CRUD route exposes literal response/query enricher call sites; the planned bulk custom route invokes the shared mutation-guard bridge; the command interceptor includes exact `example.todos.update`; declared hosts are referenced from the real Todo DataTable, CrudForm, injection spot/pattern, and replaceable component.
+7. Page facts use the runtime companion resolver for `page.meta.ts` / `meta.ts` and retain the supported metadata aliases; the existing Todo page companion is a parity fixture.
+8. Worker facts cover root and nested workers, including one id-less worker whose fallback ID and locally declared queue exactly match runtime derivation.
+9. Query-enricher activation requires `queryEngine.enabled === true`; explicit false and absent configuration remain response-only negative fixtures.
+10. API-interceptor activation derives from a real CRUD or explicit custom-route bridge and preserves HTTP method and before/after phase; no-bridge, after-only, and method-mismatch fixtures cannot report a false binding.
+11. Mutation-guard activation recognizes the canonical `runRouteMutationGuards` / `input.resourceKind` shape and verified wrappers, and correlates compatible operations rather than entity kind alone.
+12. AI facts distinguish `aiAgentOverrides`, `aiToolOverrides`, and additive `aiAgentExtensions`; notification facts and override targets include both types and handlers; setup facts include both staff and customer default-role profiles.
+13. Unknown framework override modes emit the required new `unknown-framework-mode` override-target diagnostic; missing source/fact references, duplicate IDs, and unsupported dynamic keys emit their closed fact/extension diagnostics rather than guessed targets. Every code/reason is ledgered, with malformed-only values classified `negative-fixture`.
 
-| Column | Type | Requirements |
-|---|---|---|
-| `id` | UUID | Primary key |
-| `tenant_id`, `organization_id` | UUID | Required scope copied from the task and verified on every write/read |
-| `task_id` | UUID | Intra-module relation to `ReferenceTask`; cascade behavior is explicit in the migration |
-| `target_kind` | enum/string | `customer`, `catalog_product`, or `sales_document` |
-| `target_id` | UUID | Opaque foreign record ID; no cross-module ORM relation |
-| `target_label_snapshot` | encrypted text, nullable | Server-derived display fallback; never accepted from the client and never emitted to events/logs/cache |
-| `created_at`, `updated_at`, `deleted_at` | timestamps | Audit, locking, and soft-deletion fields |
+These are fail-fast compatibility requirements, not excuses to weaken the coverage ledger. If PR #4883 changes before implementation, regenerate the enum input and amend this spec rather than pinning stale counts.
 
-The unique active-link key is `(tenant_id, organization_id, task_id, target_kind, target_id)`. A task has zero-to-many links. Host-specific widgets query by `target_kind + target_id`; they never infer target type from an ID or load another tenant's record. Creation validates host existence through a soft optional service/endpoint when that host is installed and derives the display snapshot server-side; when the host is absent it stores no snapshot. `defaultEncryptionMaps` encrypts the snapshot because customer/product/document labels may contain PII or business-sensitive text. The migration/snapshot and import format include this entity explicitly, while imports accept target IDs/kinds only and resolve snapshots server-side.
+Certification is blocked until the reviewed #4883 reader gaps above are fixed or receive an explicit non-executable classification that agrees with runtime. In particular, `notifications.handlers`, AI agent/tool file overrides, customer-role setup profiles, id-less workers, sibling page metadata, method/phase-aware interceptor bridges, operation-aware mutation guards, and configuration-aware query enrichers cannot be omitted merely because the current adapter misses them.
 
-### `ReferenceTaskUndoSnapshot`
+### Local Example Reference-Fact Generation
 
-Undo metadata never places decrypted descriptions or link labels in the action log. A module-owned snapshot entity stores `id`, tenant/organization/task IDs, command ID/type, encrypted JSON `payload`, expected post-command version, `created_at`, `expires_at`, and `consumed_at`. The action log contains only the snapshot ID and non-sensitive entity/version metadata. Snapshot creation occurs inside the same transaction as the command write; undo loads it with tenant/organization scope through decryption helpers, checks expiry/consumption and the expected current version, applies the inverse command, and marks it consumed atomically. Snapshots expire after 30 days and are pruned by an idempotent worker. Tests prove ciphertext at rest, one-time use, scope/version/expiry rejection, log redaction, and no plaintext in errors or events.
+Normal `.ai/guides/module-facts.json` remains the combined package-provided module sidecar copied as-is, while `.ai/guides/modules/**` remains the enabled-filtered subset of package Markdown sheets. App-local modules are outside both normal outputs today, whether enabled or disabled; this spec does not silently redefine either contract. A local `example` must never be late-merged into the package sidecar, receive `bound` activations there, or appear as an exact live override target. Instead, create-app and `mercato agentic:init` generate `.ai/guides/reference-module-facts.json` and `.ai/guides/reference-modules/example.md`. The JSON has an exact top-level `example` object with `moduleId: "example"`, `projectionKind: "activated-reference"`, `sourceKind: "local-reference"`, `runtimeSelected: false`, `sourceFingerprint`, `taxonomyFingerprint`, and nested `facts` produced by the normal extractor from an explicitly activated disposable selection context. The Markdown heading states that activations and override targets describe behavior only after opt-in. An activated fixture compares that nested value with a fresh activated app-local extraction result; it does not require or mutate either normal generated artifact.
 
-`encryption.ts` exports `defaultEncryptionMaps` entries for task `description`, link `target_label_snapshot`, and the encrypted undo-snapshot payload described below. Direct ORM reads use `findWithDecryption`/`findOneWithDecryption`; equality lookup, if shown, uses a supported hash sibling rather than plaintext scanning. Tests prove ciphertext at rest and prove that events, notifications, cache entries, search documents, import errors, and logs never expose plaintext.
+Add explicit `portableSourceRoot` and `sourceKind: "local-reference"` extractor/render inputs so local extraction emits `src/modules/example`, never `node_modules/@app/**` or `node_modules/@open-mercato/core/**`. Do not reinterpret `sourcePackage: null`, which remains the legacy core-package signal; the renderer uses the explicit source kind to emit `generated from local reference src/modules/example` plus the two fingerprints. The local reference source is appended before the same `extractAllModuleFacts` selection/correlation batch used for the activated disposable context; a post-correlation object merge is forbidden because it would lose incoming and optional-target resolution. Reject a duplicate module ID before assignment. Define `sourceFingerprint` as SHA-256 of canonical JSON for the array of `{ path, sha256 }` records sorted by path. Define `taxonomyFingerprint` as SHA-256 of canonical JSON for `{ setName, value }` records sorted by set name and canonicalized value; `value` contains the complete literal or structured entry (including key, suffix, capabilities, `bound`, phases, and operations), object keys are recursively sorted, and semantically set-valued arrays are sorted. Delimiter-concatenated tuples are forbidden.
 
-### Migration policy
+The template build extracts `packages/create-app/template/src/modules/example`; scaffold setup and `mercato agentic:init` recompute from the generated app's local `src/modules/example`. A stale package-only reference, missing reference Markdown/JSON, accidental app-local entry in the normal package sidecar or package Markdown subset, duplicate module key, non-portable path, source body/value leakage, wrong projection/source/selection marker, or mismatch among authoring/template/emitted reference facts fails create-app build, all preset fixtures, and `agentic:init`. Generated reference Markdown renders exact local file links relative to `.ai/guides/reference-modules/`; it never points at a workspace-only authoring path. No other disabled module receives a reference projection implicitly.
 
-The template includes the intended JSON-structured migration and current `.snapshot-open-mercato.json` so a copied-and-enabled module is internally consistent. Implementation updates the entity first, runs `yarn db:generate`, reviews the SQL/JSON structure diff, discards unrelated generated output, and verifies a second generation is clean. It never runs `yarn db:migrate` as part of the change without explicit approval.
+## Disabled-by-Default Delivery Contract
 
-`setup.ts` contains both idempotent hooks: `seedDefaults` creates only required configuration, while `seedExamples` creates clearly marked example tasks only when example seeding is requested. Neither hook performs work while the module is disabled. Default role grants are declared through the supported setup contract; the emitted README, template `AGENTS.md`, and `om-module-scaffold` all tell agents that after adding ACL features or grants to an existing app they must run `yarn mercato auth sync-role-acls`. The reference must not imply that modifying `acl.ts` alone updates existing roles.
+Every built-in `classic`, `empty`, and `crm` scaffold must satisfy all assertions:
 
-## Command and API Contracts
+1. the emittable `src/modules/example/**` runtime/reference file set is present and byte-identical to the canonical tree after the scaffold's existing `__tests__`/`__integration__` filter; and
+2. `src/modules.ts` contains no enabled entry with `id: 'example'`; and
+3. `src/modules.ts` contains no enabled entry with `id: 'design_system'`, while the installed `@open-mercato/core` artifact still contains the exact gallery source required by the harness.
 
-### Command boundary
+Consequently neither reference module contributes a runtime surface until explicitly enabled. The local example source still participates in TypeScript compilation, so it must compile with the dependencies installed by every built-in preset. One fixture opts in to `{ id: 'example', from: '@app' }`, runs `yarn generate`, verifies `E.example.todo === 'example:todo'`, and exercises the Todo list/create/edit/delete paths without applying migrations to a developer database. A separate fixture opts in to `{ id: 'design_system', from: '@open-mercato/core' }`, runs generation, grants `design_system.view`, and exercises the gallery route/ACL/search/deep-link/accessibility/copy/dark-mode contract; it must not enable `example` merely to render the gallery.
 
-Create, update, delete, restore, link, and queued import writes flow through registered commands. Command handlers use `runCrudCommandWrite`/the Data Engine and shared CRUD primitives rather than raw ORM persistence, apply tenant and organization scope, enforce custom-field persistence, emit typed lifecycle events after commit, and return undo metadata. Update, delete, restore, and link changes enforce the client-provided record version through `enforceCommandOptimisticLock` or its DI-overridable guard service.
+This intentionally changes the fresh `classic` scaffold's `example` and the PR #4301 template's `design_system` defaults from enabled to disabled. Existing applications and the monorepo development app are not rewritten. Preset and snapshot tests must make the new-app boundary explicit and prove the generated home/sidebar contains no dead example or design-system link. `ratelimit_probe` behavior stays unchanged. `example_customers_sync` remains outside this spec and must never be activated merely because the example source is present.
 
-Undo is finite and version-aware: create undo soft-deletes the just-created task; update undo applies the encrypted pre-change snapshot; delete undo restores; restore undo re-deletes; link create/delete undo reverses only that link. Every undo resolves the scoped one-time `ReferenceTaskUndoSnapshot` pointer, checks the version produced by the original command, runs through the same guards, emits the corresponding lifecycle event, and invalidates after commit. Batch import has no global rollback: each successful row records its own encrypted snapshot pointer, while failure or cancellation leaves committed rows intact and reports them in the job summary.
+## Data, API, UI, and Runtime Contracts
 
-Each interactive command uses the sanctioned `runCrudCommandWrite`/command transaction boundary with one transactional entity manager for the task/link mutation, custom-field rows, optimistic version, and undo-snapshot row. A rollback test proves none of those four persistence families commits independently. An import job uses one such transaction per row, never one unbounded transaction for the file.
+The existing `Todo` slice is the reference entity. Extensions preserve `example`, `Todo`, `example:todo`, the current table/API paths, ACL IDs, events, widget IDs, and integration-test identifiers. Renaming those surfaces for a shadow module or creating parallel IDs is forbidden.
 
-After commit, the reference uses the command bus's existing best-effort side-effect flush for event publication, search indexing, cache invalidation, notification creation, and progress increments. It does not claim a durable outbox or exactly-once delivery that the current infrastructure does not provide. Handlers are idempotent by command/event key; cache entries have bounded TTL plus explicit invalidation, search remains recoverable through reindex, notifications deduplicate, and the progress job records/retries worker failures. Tests prove no side effect runs before a successful commit and duplicate delivery is harmless, while documentation states that process loss between commit and flush can require reconciliation.
+Any added user-editable field keeps `updated_at`/`updatedAt` and the default optimistic-lock contract. Todo create/update/delete and any child/link mutation stay command-mediated, tenant/organization scoped, Zod-validated, undoable where supported, and use the child record's version when a child mutation overrides the parent header. No decrypted or cross-module display value enters events, logs, cache, search, or notification payloads.
 
-`data/guards.ts` supplies a real mutation guard, `commands/interceptors.ts` supplies a real command interceptor, and `api/interceptors.ts` supplies a narrowly scoped before/after API interceptor. Their tests prove ordering, ACL wildcard handling, tenant isolation, rewritten input validation, response namespacing, and denial behavior. The UI never bypasses commands or guards. If an action mutates a linked target, it uses that target's own version header instead of reusing the parent task's version.
+Existing pages remain the UI reference. Lists use `DataTable`; create/edit use `CrudForm`; HTTP uses the shared API helpers; non-`CrudForm` writes use `useGuardedMutation`; conflicts use the unified conflict surface. New UI uses translations, semantic design tokens, shared loading/error/empty components, keyboard behavior, and accessible labels. Extensions must not enlarge an already oversized page merely to demonstrate another surface; add a focused component and link it from the map.
 
-### HTTP API
+The Todo list's canonical long-operation path is an `InjectionBulkActionDefinition`, not the host-owned `bulkActions` prop path, because the existing injected-action result contract consumes `progressJobId`, tracks terminal events, clears selection, and refreshes on completion. `TodosTable` declares `extensionTableId="example.todos.list"`; `widgets/injection-table.ts` registers action ID `example.todos.mark-done` from `widgets/injection/todo-bulk-complete/widget.ts` at `data-table:example.todos.list:bulk-actions`.
 
-| Method | Path | Purpose | Guard |
+The action creates one UUID `idempotencyKey` per invocation and POSTs `{ ids, idempotencyKey }` to `api/todos/bulk-complete/route.ts`; `ids` is a unique array of 1–500 UUIDs. Add module-owned `TodoBulkOperation` in `data/entities.ts` with `tenant_id`, non-null `organization_id`, `user_id`, `idempotency_key`, request hash, selected IDs, `progress_job_id` as a plain UUID (no cross-module ORM relation), publish state/attempt timestamps, execution state/lease owner/lease expiry, next-item checkpoint, bounded result summary, and timestamps; its migration has a unique constraint on `(tenant_id, organization_id, user_id, idempotency_key)`. The route requires the existing Todo manage feature, derives scope from authenticated server context, verifies every selected ID in that scope before starting, and uses one transaction/unique-constraint claim helper in `lib/todoBulkComplete.ts` to create or reuse the operation and progress job. Duplicate requests return the recorded `progressJobId` and may safely nudge publication recovery; they never create a second logical operation/progress job.
+
+`TodoBulkOperation` is also the module-owned transactional outbox. After commit, the route calls the shared dispatcher for low latency. `setup.ts` registers an idempotent organization-scoped scheduler target for `example:todos-bulk-dispatch`; `workers/todos-bulk-dispatch.ts` scans scoped unpublished operations and expired execution leases, enqueues only `{ operationId, scope }` on `example-todos-bulk-complete`, and records publish attempts. Publication is explicitly at least once: a crash after queue acceptance but before marking published may create two physical queue messages, and this is safe because the leased execution claim below permits one effective executor. A crash before publication leaves the durable row pending for the next scheduler tick or same-key request. The API returns HTTP 202 `{ ok: true, progressJobId }` after the durable row/job commit; an immediate enqueue failure does not erase it. Malformed, repeated IDs, missing, foreign-scope, or unauthorized input creates neither row nor job.
+
+Worker `example:todos-bulk-complete` acquires or renews a compare-and-swap lease on the operation (the same queue job may renew; another job waits until expiry), resumes from `nextItemIndex`, calls `startJob`, checks `isCancellationRequested()` before every item, loads the current scoped Todo version, and executes existing command ID `example.todos.update` with `is_done: true` and that record's optimistic-lock version. Already-completed Todos are idempotent successes. After every attempted item it atomically advances the checkpoint, persists bounded result codes, renews the lease, and updates progress. A cancellation request stops before the next command and calls `markCancelled`; zero successful mutations with failures calls `failJob`; mixed success/failure calls `completeJob` with `{ affectedCount, failedCount, failedItems: [{ id, code }] }`; full success calls `completeJob`. Terminal CAS clears the lease and makes duplicate messages no-ops. A mid-worker crash is recovered by the queue retry with the same lease owner or by the dispatcher after lease expiry, preserving the same operation/progress job and checkpoint. The activated fixture provisions the least required example mutation features plus `progress.view` and the server-side progress create/update/cancel capabilities; the browser never receives broader progress management merely to make the bar appear. Client-side write loops, timers that simulate progress, the host-owned bulk-action prop, or a page-local progress widget do not satisfy this reference capability.
+
+Optional customers, catalog, sales, and portal hosts degrade gracefully. The example never gains a hard `requires` dependency or cross-module ORM relationship. All cross-module contributions retain stable typed context, ACL checks, tenant/organization scope, and absent-host tests.
+
+### Frontend Architecture Contract
+
+The implementation keeps route roots server-rendered by default and puts browser behavior in bounded client islands:
+
+| Route / surface | Server root | Client island | Data owner / boundary |
 |---|---|---|---|
-| `GET` | `/api/reference_module/tasks` | Scoped CRUD factory/Query Engine list, perspectives, filter tree, sort, search, and export | `reference_module.view` |
-| `POST` | `/api/reference_module/tasks` | Create through command | `reference_module.manage` |
-| `GET` | `/api/reference_module/tasks/:id` | Scoped detail | `reference_module.view` |
-| `PUT` | `/api/reference_module/tasks/:id` | Optimistically locked update | `reference_module.manage` |
-| `DELETE` | `/api/reference_module/tasks/:id` | Optimistically locked soft delete | `reference_module.manage` |
-| `POST` | `/api/reference_module/tasks/:id/restore` | Optimistically locked restore through command | `reference_module.manage` |
-| `GET` | `/api/reference_module/tasks/:id/links` | Scoped links for one task | `reference_module.view` |
-| `POST` | `/api/reference_module/tasks/:id/links` | Add a validated optional-host link using the task version | `reference_module.manage` |
-| `DELETE` | `/api/reference_module/tasks/:id/links/:linkId` | Remove a link using that link's own version | `reference_module.manage` |
-| `POST` | `/api/reference_module/imports` | Validated CSV import request queued as a progress job | `reference_module.import` |
+| `/backend/todos` | `backend/todos/page.tsx` | `components/TodosTable.tsx` | Existing scoped Todo API and React Query; the route root adds no client directive. |
+| `/backend/todos/create` | `backend/todos/create/page.tsx` after extraction | `backend/todos/create/TodoCreateForm.tsx` | `CrudForm` plus shared form definition; the page supplies server-safe shell/metadata only. |
+| `/backend/todos/[id]/edit` | `backend/todos/[id]/edit/page.tsx` after extraction | `backend/todos/[id]/edit/TodoEditForm.tsx` | Scoped detail load, `CrudForm`, optimistic-lock conflict/retry; no page-root client blob. |
+| Injected Todo bulk action | Existing DataTable host | `widgets/injection/todo-bulk-complete/widget.client.tsx` loaded by the data-only `widget.ts` registration | `apiCall` + `useGuardedMutation`; returned `progressJobId` is handed to the DataTable/top-bar contract. |
+| Portal Todo reaction | Existing portal page host | Existing focused portal widget client leaf | `useAppEvent`/supported portal event hook; no portal-wide provider or auth change. |
+| Bound host/component examples | Existing server/page hosts | Focused widget/component client leaves only where hooks or DOM behavior require them | Static registrations stay server/build readable; optional module and feature guards execute at the supported host/contribution boundary. |
 
-Routes use `makeCrudRoute`/the current CRUD factory, registered OpenAPI metadata, `parseQueryEngineFilters` or the current shared Query Engine parser, bounded page sizes, custom-field hydration, DataTable export, and the framework response/error shapes. List and detail responses return `updatedAt`. Invalid input returns the standard 400 contract, forbidden access returns 403, missing or cross-scope IDs return the same 404 shape, and stale mutations return the unified 409 optimistic-lock body. API handlers use shared request-scoping and response helpers; UI callers use `apiCall`/CRUD helpers, never raw `fetch`.
+The `"use client"` ledger is finite: existing `components/TodosTable.tsx` remains a client island for table/query state; new `TodoCreateForm.tsx` and `TodoEditForm.tsx` own interactive forms/router/conflict state; `todo-bulk-complete/widget.client.tsx` owns selected-row mutation state; and the portal/browser-reaction leaf owns its event subscription cleanup. No other new page root or shared provider receives `"use client"`. `TodosTable.tsx` is already over 300 lines; the only permitted touch is the stable host ID/prop wiring. If the slice needs additional table logic, extract a focused leaf in the same change rather than growing that file. Every new client leaf targets at most 200 lines and imports no editor/chart/calendar/graph/browser SDK.
 
-The import endpoint validates file metadata and enqueues an idempotent job; it does not parse an unbounded upload in the request. The worker validates every row with the same Zod schema, invokes commands for writes, reports progress and row-level failures, and supports safe retry through an idempotency key. The list view demonstrates the supported DataTable export URL builder. Import/export examples remain format-focused and do not preconfigure a provider.
+| Budget | Required value |
+|---|---|
+| New client page roots | 0 |
+| New/touched client leaves over 300 LOC | 0; the existing `TodosTable.tsx` exception is host-prop-only as described above |
+| Heavy browser library or global provider additions | 0 |
+| Changed-route hydration smoke | Required for todos list/create/edit and every newly executable injected UI surface |
+| Runtime/build evidence | `yarn check:client-boundaries` plus `yarn build:app`; capture a route-level Playwright hydration/interaction result for list, forms, bulk progress, and portal reaction |
 
-The import request uses `multipart/form-data` with one UTF-8 CSV file (maximum 2 MiB and 5,000 data rows) plus an `Idempotency-Key` header. Required headers are `title`; optional headers are `description`, `status`, `priority`, `dueAt`, `isActive`, `source`, `targetKind`, and `targetId`; unknown headers or invalid encoding fail before enqueue. A 202 response returns `{ jobId, status: 'pending', totalCount }`; duplicate keys return the original response, 400 covers schema/row-count errors, and 413 covers byte limits. Job detail and cancellation reuse the platform progress APIs (`GET` and `DELETE /api/progress/jobs/:id`) and their `progress.view`/`progress.cancel` permissions rather than inventing module-local status routes. Cancellation stops before the next row, preserves already committed command writes, and returns `{ totalCount, processedCount, succeededCount, failedCount, skippedCount, status }` through the progress job; retry skips rows already committed under the same import/row idempotency key.
+No global provider/bootstrap registry changes are allowed for this UI work. Static module/widget registries remain build-time or route-scoped; any discovered need for a global provider is an architecture change that requires maintainer approval and a spec amendment. Tests cover hydration, selected-row start/progress/completion, create/edit/delete/conflict keyboard flows, widget cleanup, optional-host absence, and browser-console errors.
 
-List responses use `{ items, total, page, pageSize }`; each item includes `id`, editable fields, link summaries, custom fields, enrichment, and `updatedAt`. Export streams at most 10,000 rows as `text/csv; charset=utf-8` with `Content-Disposition`, uses the same scoped filters/sort/safe-column allowlist, returns 413 when the selected result exceeds the cap, and always excludes encrypted description/link labels. Create/update accepts `title` (1–200 characters), optional `description` (at most 10,000), status enum, integer priority 0–5, nullable ISO `dueAt`, `isActive`, and custom fields through the shared Zod schema. Update/delete/restore require the standard optimistic-lock header. Restore returns the current task representation with a new `updatedAt`.
-
-Link creation accepts only `{ targetKind, targetId }` and requires the task's version in the standard optimistic-lock header; the server resolves/encrypts any display snapshot. Its 201 response returns the link plus its own `updatedAt` and the task's new version, exposing a decrypted label only to authorized scoped readers. Link deletion uses the link's `updatedAt` in that header and returns the task's refreshed link summary/version. Host widgets query a small scoped `GET /api/reference_module/tasks?linkTargetKind=...&linkTargetId=...` projection through the same Query Engine/interceptor path rather than adding an unguarded cross-module lookup route.
-
-This is additive template source, not a new enabled platform API. The route paths only exist after explicit module registration.
-
-### Response enricher
-
-The module self-enriches task list and detail responses under a namespaced `_reference_module` object:
-
-```ts
-{
-  _reference_module: {
-    isOverdue: boolean,
-    dueBucket: 'none' | 'overdue' | 'today' | 'future'
-  }
-}
-```
-
-The enricher batches by task ID, maintains tenant and organization scope, does not mutate base fields, and opts out of list-cache reuse when time-sensitive results could become stale (`cacheableOnListHit: false`). Its registration is a concrete caller, not a placeholder.
-
-## Runtime Services, Events, and Setup
-
-- `events.ts` uses `createModuleEvents` for created, updated, deleted, restored, and import completion. Events contain IDs and safe snapshots only; encrypted values and credentials are excluded. The module event `reference_module.import.completed` carries `{ jobId, status, totalCount, processedCount, succeededCount, failedCount, skippedCount }`, with status limited to `completed`, `partial`, `cancelled`, or `failed`; row values and error text are excluded. Per-row progress uses the platform progress event contract rather than a second module event. The safe task-change event sets `clientBroadcast: true` with an explicit tenant/organization/user audience and is consumed by `useAppEvent` to refresh the affected view without a polling loop.
-- `search.ts` registers the shared `REFERENCE_TASK_ENTITY_ID`; the activated fixture proves it equals `E.reference_module.reference_task` from the standalone app alias. Search indexes only explicitly non-sensitive title/status data through the supported search contract and scopes indexing and query operations. Encrypted descriptions are never indexed.
-- `acl.ts` declares immutable view/manage/import features. Runtime permission checks, notifications, guards, interceptors, menus, and widgets use wildcard-aware feature matching. Tests cover exact grants, wildcard grants, denials, and optional-host absence.
-- `setup.ts` registers features/default grants and the idempotent default/example seeds described above. A reference disabled by default stays side-effect free after generation.
-- `di.ts` registers cache and task-domain helpers behind stable module-local keys. Consumers resolve abstractions; they do not construct Redis, SQLite, queue, or event implementations directly.
-
-### Cache and background work
-
-Task list/detail reads demonstrate the configured cache abstraction with keys and invalidation tags that include tenant and organization. No decrypted description is stored in a shared cache entry. Successful create/update/delete/restore/import commands invalidate tags after commit; undo and subresource writes invalidate the same families. Cache tests prove tenant isolation, hit/miss behavior, invalidation, and safe degradation when the configured strategy is memory, SQLite, or Redis.
-
-The import worker uses the module queue contract, bounded I/O concurrency, idempotent jobs, progress reporting, retry-safe command writes, and cancellation/error summaries. It must not create a custom queue or perform CPU-heavy work in the request process. `useOperationProgress` may render durable progress in the top bar while the DOM bridge refreshes the task table on safe completion events.
-
-### Notifications
-
-A subscriber turns a meaningful task transition (entering `in_progress`, reaching `done`, or import completion) into an in-app notification through the registered notification type. The module includes a renderer, a reactive `notifications.handlers.ts` handler, and `useNotificationEffect` usage for the appropriate client refresh/action. Deduplication keys, audience, ACL checks, translated copy, links, and encrypted-field exclusion are explicit. Tests cover creation, deduplication, renderer payload, wildcard permission, reactive cleanup, and absent optional targets.
-
-## UI and Extension Contracts
-
-### Pages and component boundaries
-
-The list page follows the customers people/deals view structure rather than a simplified table. It renders the shared `DataTable` with controlled server-backed search, sort, pagination no larger than 100, URL-persisted state, `useAutoDiscoveredFields`, custom-field columns, an advanced filter tree, and a stable `perspective.tableId`. It exposes the supported export action, stable row/bulk-action IDs, loading/error states, translated empty copy, and injected columns/filters/actions. Search is debounced and represented in the URL; perspective changes rehydrate compatible columns, filters, and sort without losing tenant scope.
-
-Create and edit pages use a shared `ReferenceTaskForm` built on `CrudForm`. `taskFormConfig.tsx` is the single owner of the Zod schema, field descriptors, groups, custom-field host, and normalization shared by create/edit and any quick-create dialog. Page-specific code supplies only initial values, mode, ACL, and mutation callbacks. Duplicate create/edit form definitions fail the focused architecture test.
-
-`initialValues.updatedAt` allows `CrudForm` to derive the optimistic-lock header for update and delete. Conflicts surface through the unified record-conflict banner. CRUD helpers (`createCrud`, `updateCrud`, and `deleteCrud`) handle mutations and standard error elevation.
-
-The server/client split follows the frontend architecture contract:
-
-| File/family | Boundary | Responsibility |
-|---|---|---|
-| route and page entrypoints | Server by default | Metadata, auth/features, initial data |
-| `ReferenceTasksTable` | Client island | DataTable interaction, filters, row actions |
-| `ReferenceTaskForm` | Client island | CrudForm state and guarded CRUD actions |
-| widget renderers | Smallest viable client boundary | Injection context and interactive action only |
-
-No server component imports client hooks. Props crossing the boundary are serializable IDs, strings, booleans, numbers, dates serialized as strings, and plain option arrays. The client ledger must remain within the 300-line per-file budget; no facade component may exist solely to hide a large client subtree.
-
-The implementation records this explicit `"use client"` ledger:
-
-| File/family | Browser-only reason | Imported by | Heavy dependencies | Cleanup/hydration risk | Server alternative rejected |
-|---|---|---|---|---|---|
-| `ReferenceTasksTable.tsx` | DataTable filter, selection, and row-action state | server list page | None beyond shared DataTable | Stable initial props and no mount-only data fetch | DataTable interaction requires client state. |
-| `ReferenceTaskForm.tsx` | CrudForm field state, submission, delete, and conflict retry | server create/detail pages | None beyond shared CrudForm | Initial values are serialized; mutation handlers must not duplicate on hydration. | Editable form state and keyboard submission require a client island. |
-| interactive widget renderer, only if retained | Injection-data callbacks for the concrete source field or due/status action | server detail/form host | None | Subscriptions and callbacks clean up on unmount. | Static renderers stay server-side; only the interactive leaf opts in. |
-
-Frontend budgets are zero new page-root `"use client"` directives, zero client leaves over 300 lines, zero heavy browser libraries at a page/provider root, and zero global provider/bootstrap registrations. No provider or bootstrap registry changes are expected; widget discovery remains module-local. Implementation evidence must include `yarn check:client-boundaries`, hydration smoke tests for list/create/detail, DataTable and CrudForm interaction coverage, and one `yarn build:app` route/build signal showing no new heavy root dependency.
-
-### Widget and UMES examples
-
-The module demonstrates both sides of stable local contracts and contributions into other modules:
-
-1. Local hosts at `reference_module.reference_task.detail:summary` and `crud-form:reference_module.reference_task:fields`, with a real due/status summary and persisted `source` custom field.
-2. A customers contribution that injects a task summary or action into the customer catalog/detail surface and reads linked tasks through a scoped endpoint/enricher.
-3. A catalog contribution that injects task health into a product surface without importing the catalog ORM entity.
-4. A sales contribution that injects task actions into a document/deal surface and uses the target record's own lock/version when it triggers a target mutation.
-5. Headless DataTable column, filter, row-action, bulk-action, field, tab/detail, and menu contributions using current `InjectionPosition`/injection-data APIs.
-6. One concrete component replacement/wrapper through `widgets/components.ts`, narrow enough to demonstrate replace/wrapper/props semantics without replacing global application chrome.
-7. One typed `entry.overrides` example in the activated fixture's `src/modules.ts` that disables the reference API interceptor by stable ID and proves the base route remains active. The surface map links every other unified override domain to `om-system-extension/references/unified-overrides.md`; a module-local file does not pretend to own app registration.
-
-Every contribution has a stable ID, typed context, translated label, deterministic order, feature guard, and a documented host source link. Optional hosts are resolved softly and never make `reference_module` depend on customers, catalog, or sales at startup. Integration tests enable each host independently, verify the contribution, and verify the reference still boots when all three are absent.
-
-The UMES surface map explicitly covers widget injection, component replacement, API interceptors, command interceptors, mutation guards, response enrichers, entity extensions/cross-module links, unified module overrides, and generated/discovered registration. It labels read-only versus write-capable branches and points to the guard/command/locking path for every write-capable example.
-
-### Accessibility and design system
-
-- All controls have labels; validation and conflict states are announced through existing shared components.
-- Dialog behavior, if any remains after implementation minimization, supports Cmd/Ctrl+Enter to submit and Escape to cancel.
-- Classes use semantic design-system tokens only: no hard-coded status shades, arbitrary values, raw hex/rgb, or unnecessary `dark:` overrides.
-- No new primitive is introduced. Reuse the existing DataTable, CrudForm, page scaffolding, loading/error, badge, and banner families.
-
-## Internationalization
-
-All user-facing strings live under `reference_module.*` locale keys. The template ships English, German, Spanish, and Polish values with matching key sets. Internal-only errors use the `[internal]` prefix; visible errors route through translations. Focused validation includes both hard-coded-string and locale-value checks.
+Component selection follows the PR #4301 gallery mapping in `references/surface-inventory.json`. Each client island imports the mapped public `@open-mercato/ui` component used by its gallery entry; new example UI must use that shipped component instead of recreating a bespoke equivalent when the gallery covers the need. Focused module glue/layout is allowed, but it does not copy the entry's render function/snippet or import `design_system`. Reviewers can open the adjacent gallery deep link to inspect live variants, then inspect the exact example source for production integration.
 
 ## Standalone Skill-to-Example Contract
 
-The implementation compares the installed `develop` skills with the richer code-example topics present on `origin/main`. It records a checked parity table in the reference surface map and focused tests. At minimum:
+The standalone `om-module-scaffold`, `om-system-extension`, `om-backend-ui-design`, `om-data-model-design`, `om-eject-and-customize`, and harness-evolution guidance must route to the exact relevant files under `src/modules/example/**`.
 
-| Skill | Rules it continues to own | Exact example families it must link |
+Each rule has one owner:
+
+- skills/guides own requirements and decision rules;
+- `example` owns compiling executable examples;
+- `surface-inventory.json` owns the finite machine-readable mapping; and
+- `surface-map.md` owns the human navigation view.
+
+Skills must tell agents to copy or adapt only the necessary files and rename module/entity/route/event/widget/ACL identifiers. Large duplicated snippets move to source links. Short syntax fragments may remain when they express a rule rather than an implementation. Tests reject dead links, directory-only links, line anchors, duplicate owners, missing emitted skills, and any instruction to use `ratelimit_probe` as a blueprint.
+
+## Whole-Harness Direct Source-Link Contract
+
+The implementation inventories every emitted text knowledge owner, not just case context: root `AGENTS.md` and provider/editor wrappers or rules; all `.ai/guides/*.md`; every installed local skill entrypoint/reference; spec templates, tracker descriptors, review/QA guidance, harness README/release/case/oracle descriptions; generated module fact sheets/upstream snapshots; and any other emitted Markdown/template/rule file that can direct implementation. Operational owners such as the root safety/router, delivery workflow tables, report templates, versioned upgrade instructions, tracker commands, harness execution procedure, and enforcement hooks may be classified `self-authoritative`; generated identifiers may be classified `generated-fact`. Every other implementation-bearing topic is `source-required` and must show at least one visible Markdown link to an exact regular file in its declared current owner. A backticked path, directory link, wildcard, manifest-only record, or evaluator allowance is not a visible source link.
+
+The controller generates `packages/create-app/agentic/shared/ai/harness/source-link-inventory.json`, emitted as `.ai/harness/source-link-inventory.json`, from the complete emitted owner scan, canonical example inventory, generated module-fact provenance, PR #4301 design-system mappings, PR #4277 per-item applicability, case/oracle references, package/preset matrix, and the checked `main` parity ledger. It is a derived asset and must never be hand-edited or treated as an independent authority. Each record contains `topicId`, emitted `originAsset`, optional heading/anchor, `requirement` (`source-required`, `self-authoritative`, `generated-fact`, or `retained-normative-snippet`), `targetKind` (`canonical-example`, `installed-package`, or `local-owner`), `readStatus` (`readable` or `qa-only`), exact owner-relative rendered `href`, logical app-root `resolvedPath`, capability/module/package IDs, installed version and content hash where applicable, preset/tier applicability, integration-test evidence paths, affected case IDs, and the `main` baseline IDs it replaces. PR #4301 gallery and UI-implementation records additionally carry `referenceRole: "design-system-gallery"` and the same `visualReference` with direct/composite coverage, gallery-entry array, import, after-opt-in routes, source-only availability, feature, provenance head, and merged/package baseline. Every gallery-entry record also carries the closed PR #4277 `designFoundation` sidecar above and visible provenance URL; exact Code Connect, emitted snapshot, or design-skill IDs exist only when their packed/emitted/tier preconditions pass. The controller derives gallery and Code Connect sets, imports, variants, node status, and coverage from final packed sources; it never copies family counts, mapping counts, or coverage allowlists into the manifest. The controller computes each owner-relative `href` from `originAsset` plus logical `resolvedPath`; mirrored example files therefore keep only app-root-stable local links/reference IDs, while location-specific installed-package hrefs live in generated owners outside the synchronized tree. The manifest is a completeness/drift oracle; it never substitutes for the link rendered in `originAsset`. Cases may cite only records with `readStatus: "readable"`; QA-only test evidence cannot grant source reads, and visual/provenance metadata never grants a file or network read.
+
+Add checked `packages/create-app/agentic/shared/ai/harness/source-link-baseline.json` plus `source-link-baseline.schema.json` for the resolved `main` audit. The root object has the exact 40-hex `baselineSha`, the exact `baselineAssets` table below, and `blocks`. Each asset record contains `path`, full-file `sha256`, and `expectedFenceCount`. Every block has stable ID `main:<asset>#fence:<ordinal>`, `asset`, nearest `heading`, one-based asset `ordinal`, opening line, fence info string, content `sha256`, `topicIds` (empty only for `not-implementation`), and one disposition: `linked`, `retained-normative-snippet`, `superseded-with-current-rule-and-source`, or `not-implementation`. `linked` and `superseded-with-current-rule-and-source` require non-empty `targetTopicIds` that resolve exactly to source-link inventory topics. `retained-normative-snippet`, `superseded-with-current-rule-and-source`, and `not-implementation` require a checked non-empty `rationale`; `linked` may omit it. IDs are unique. The validator loads exactly the eight pinned files, verifies each full-file hash, parses every CommonMark backtick/tilde fence including fences indented by up to three spaces, derives IDs/positions/hashes, requires exactly the per-asset count and 136 one-to-one block records, and rejects a missing/substituted asset, missing/extra/hash-mismatched fence, unresolved target topic, or conditionally missing field. Semantically duplicate blocks may map to the same compiling file, and short invariant syntax may stay inline, but no old topic may disappear merely because new prose mentions the concept.
+
+| Exact baseline asset at pinned `main` | SHA-256 | Fences |
+|---|---|---:|
+| `packages/create-app/agentic/shared/AGENTS.md.template` | `b124b38a32f13fd4ef6202922dacfaadc1594e3af17fdd5e862510151f612b70` | 4 |
+| `packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md` | `a0820bba96eb9871e3a4ba9bfe534ddb6f458e86f85b19616a931b2d55863aac` | 13 |
+| `packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md` | `92a91dff9ad6ea997bf15ca5b44a19e9005b4b0d4f1275181ebeab3c968765b4` | 19 |
+| `packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md` | `40d6b197644e752c575460e8dcdb6ba5d152615a491c9164e490f4bd2d74f3da` | 8 |
+| `packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md` | `b3fdc1dd56314f5588db8b51945d467e47d286fee09f9de38ccedcc4623de475` | 30 |
+| `packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md` | `2a025d500c355b59db881548c7288eaa7cade3357a27fb94b0fe90f54da1f2e6` | 24 |
+| `packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md` | `1f85d73d725268b8e9e5743f523ea45975f578ac5a6502d9c8cb2dc9c0e0a4d0` | 20 |
+| `packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md` | `2b0ca22e63843e1a6e5cddbda8165013cecd230d91d4957430a16f714909d052` | 18 |
+| **Total** |  | **136** |
+
+The eight owner families and source strategy are:
+
+| Emitted owner family | Prior implementation coverage | Required visible source strategy |
 |---|---|---|
-| `om-module-scaffold` | Planning, naming, discovery, registration, generation, ACL sync, migration workflow, validation | Module metadata/index/DI, entity/validators, setup/seeds, ACL, events/search/CLI/translations, migration/snapshot, CRUD/OpenAPI, commands, cache/queue. |
-| `om-data-model-design` | Schema choices, tenant integrity, relationships, encryption, migration safety | `entities.ts`, `ce.ts`, `encryption.ts`, `data/extensions.ts`, validators, migration and snapshot, especially ID-based cross-module linking. |
-| `om-backend-ui-design` | Page/component boundaries, DataTable/CrudForm usage, accessibility, DS/i18n, mutation safety | Customer-style list/perspective/filter/search/export view, shared form config, create/edit pages, conflicts, injections, loading/error/notification UI. |
-| `om-system-extension` | Mechanism selection, read/write round trip, guards, ordering, optional hosts, unified overrides | API/command interceptors, guards, enrichers, entity links, widget/headless injections, component wrapper/replacement, customers/catalog/sales examples. |
-| `om-eject-and-customize` | Extend-vs-eject decision, preflight, copied-file boundaries, customization log, upgrade responsibilities | Links to the extension examples first, then exact safe-ejection/customization files; it must remain emitted in the core tier and be contract-tested. |
-| `om-evolve-harness` and repo-local `om-refresh-standalone-harness` | Case ownership, generation, certification, synchronization | Reference case/root registration, output oracles, release matrix, generated copies, counts, and docs; generic read semantics remain in their companion spec. |
+| Root instructions | Module anatomy, locking, common imports | Keep the root a budget-safe safety/router owner with one compact visible README/inventory entrypoint; map the old detailed topics to exact links in the selected architecture/contracts/UI owners rather than restoring them in root. |
+| `om-backend-ui-design` and backend UI guide/references | Page shell, DataTable, CrudForm, dialogs, detail/states/API/custom fields | Keep emitted UI guidance as normative owner; link the exact example integration, one PR #4301 gallery entry for visual usage, the separately declared exact installed UI implementation, and local emitted token CSS when relevant. PR #4277 remains a classified sidecar unless the task is token/Figma-facing. |
+| Optional design/Figma owner | Token foundations and Figma-facing component mapping | Use the portable `om-figma-design-with-ds` owner only when it is actually emitted and selected in a local `design` tier; link local token truth and an exact packed Code Connect file when applicable, while retaining the PR #4301 gallery/UI implementation chain. |
+| `om-data-model-design` | Entities, relations, queries, validators, migrations, locking, encryption | Link exact example data/command/migration/encryption files; use an installed module source for relation/helper patterns the example intentionally does not implement. |
+| `om-eject-and-customize` | Safe installed-module modification | Link the exact framework-context-resolved installed file plus the example migration/entity mechanics; never a package directory. |
+| `om-integration-builder` | Registration, adapters, webhooks, health, widgets, tests | Link exact installed provider/hub source shipped in the applicable preset and exact local mock-adapter files only where they are reference-quality. |
+| `om-module-scaffold` | Complete CRUD/module vertical slice | Link exact capability files in `src/modules/example`, starting from its README/map. |
+| `om-system-extension` | Enrichers, interceptors, guards, injections, row/bulk actions, subscribers, overrides | Link exact example UMES contributor/caller/test files and exact generated host-source files. |
+| `om-troubleshooter` | Discovery, database/API/extension diagnostics, page metadata repair | Link exact app scripts/config/tests/page metadata or a version-resolved installed defect call site. |
 
-Skills link to files, not line numbers and not only directories. Short snippets may remain when they define syntax or a decision rule, but large copied implementations move to `reference_module`. Tests parse every Markdown link, resolve it in both template-source and emitted-app layouts where applicable, and reject dead paths. The parity gate fails if a topic available on `main` has neither a retained rule nor an equal-or-better executable/authoritative example on `develop`.
+Generated fact sheets also stop rendering unreadable source-root directory links. Every entity, API/page route, event, ACL feature, DI key, search/notification surface, extension host, and UMES contribution that advertises source provenance renders an exact-file link when the extractor knows it. Roots and patterns may remain non-clickable explanatory text only. Existing extractor `source` fields must be rendered rather than discarded.
 
-`om-eject-and-customize` must lead with extension-first guidance: use UMES, overrides, widgets, guards, enrichers, or app-owned modules while the contract suffices; eject only when the package implementation itself must change. Its decision table, preflight, customization log, safe/danger zones, upgrade procedure, and concrete scenarios remain discoverable after the rewrite.
+### Minimum Direct Targets
+
+The emitted links use paths relative to their emitted owner. The table below pins the minimum app-root targets and links their current authoring equivalents for review:
+
+| Capability | Emitted exact target(s) | Current authoring evidence |
+|---|---|---|
+| Todo CRUD/DataTable | `src/modules/example/api/todos/route.ts`, `src/modules/example/components/TodosTable.tsx`, `src/modules/example/backend/todos/create/page.tsx`, `src/modules/example/backend/todos/[id]/edit/page.tsx` | [CRUD route](../../apps/mercato/src/modules/example/api/todos/route.ts), [Todo table](../../apps/mercato/src/modules/example/components/TodosTable.tsx), [create page](../../apps/mercato/src/modules/example/backend/todos/create/page.tsx), [edit page](../../apps/mercato/src/modules/example/backend/todos/[id]/edit/page.tsx) |
+| Design-system gallery | One direct or checked constituent `node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/<family>.tsx`, the separately declared exact `node_modules/@open-mercato/ui/src/**` implementation, and optional local `src/app/globals.css`; `.../gallery/{registry,types}.ts` are discovery-only; adjacent after-opt-in route `/backend/design-system?family=<familyId>&entry=<entryId>` | [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301), with source paths derived from merged/package commit `bf25803d7a8c85c8552db9e76c7cc4398d1768be` rather than copied snippets |
+| Design foundation | Local `src/app/globals.css` for token truth; exact role-gated `node_modules/@open-mercato/ui/figma/<name>.figma.tsx` only for a final packed mapping; emitted `.ai/ds/ds-tokens.json` / `.ai/guides/design-system-foundation.md` and opt-in design skill only when their emission/tier contracts ship | [PR #4277](https://github.com/open-mercato/open-mercato/pull/4277) at provisional audited head `fb9b8ddfe4470ef11d312caa4628c46af7d48adf`; final merged/package SHA is mandatory before certification |
+| DataTable bulk action and global progress | `src/modules/example/components/TodosTable.tsx`, `src/modules/example/widgets/injection/todo-bulk-complete/widget.ts`, `src/modules/example/api/todos/bulk-complete/route.ts`, `src/modules/example/lib/todoBulkComplete.ts`, `src/modules/example/workers/todos-bulk-dispatch.ts`, `src/modules/example/workers/todos-bulk-complete.ts`, `node_modules/@open-mercato/ui/src/backend/DataTable.tsx`, `node_modules/@open-mercato/ui/src/backend/progress/ProgressTopBar.tsx` | [existing injected bulk action](../../apps/mercato/src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts), [current separate progress demo](../../apps/mercato/src/modules/example/backend/umes-next-phases/page.tsx), [DataTable progress contract](../../packages/ui/src/backend/DataTable.tsx), [top progress bar](../../packages/ui/src/backend/progress/ProgressTopBar.tsx), [production bulk worker precedent](../../packages/core/src/modules/customers/lib/bulkDeals.ts) |
+| Data/commands/locking | `src/modules/example/data/entities.ts`, `src/modules/example/data/validators.ts`, `src/modules/example/commands/todos.ts`, an exact migration file | [entities](../../apps/mercato/src/modules/example/data/entities.ts), [validators](../../apps/mercato/src/modules/example/data/validators.ts), [commands](../../apps/mercato/src/modules/example/commands/todos.ts) |
+| UMES | Exact example `api/interceptors.ts`, `commands/interceptors.ts`, `data/{guards,enrichers,extensions}.ts`, `widgets/injection-table.ts`, individual widget files, `widgets/components.ts`, and subscriber files | [API interceptors](../../apps/mercato/src/modules/example/api/interceptors.ts), [guards](../../apps/mercato/src/modules/example/data/guards.ts), [enrichers](../../apps/mercato/src/modules/example/data/enrichers.ts), [injection table](../../apps/mercato/src/modules/example/widgets/injection-table.ts), [component replacements](../../apps/mercato/src/modules/example/widgets/components.ts) |
+| Module facts and topology | `.ai/guides/reference-module-facts.json`, `.ai/guides/reference-modules/example.md`, `src/modules/example/references/surface-inventory.json`, `src/modules/example/extension-points.ts`, `src/modules/example/widgets/injection-table.ts`, and each exact fact source named there; normal `.ai/guides/module-facts.json` and enabled-filtered package Markdown are negative compatibility assertions for app-local exclusion | [PR #4883 extension extractor](../../packages/cli/src/lib/generators/module-extension-facts.ts), [module-facts generator](../../packages/cli/src/lib/generators/module-facts.ts), [shared extension catalog](../../packages/shared/src/modules/widgets/extension-points.ts) |
+| Specialist provider | Exact files such as `node_modules/@open-mercato/gateway-stripe/src/modules/gateway_stripe/integration.ts` and `.../lib/webhook-handler.ts`; only in presets/tiers that install the package | [Stripe registration](../../packages/gateway-stripe/src/modules/gateway_stripe/integration.ts), [webhook handler](../../packages/gateway-stripe/src/modules/gateway_stripe/lib/webhook-handler.ts) |
+| AI/workflow specialist | Exact files such as `node_modules/@open-mercato/core/src/modules/customers/ai-agents.ts`, `.../ai-tools.ts`, and `.../workflows/lib/workflow-executor.ts` | [customer agent](../../packages/core/src/modules/customers/ai-agents.ts), [customer tools](../../packages/core/src/modules/customers/ai-tools.ts), [workflow executor](../../packages/core/src/modules/workflows/lib/workflow-executor.ts) |
+
+Installed-package links are first-class declared references, not `installedVersionFallback`. They are permitted only when the target is present in the actual packed artifact for every applicable preset/tier, the package is selected through the app's lockfile/module registry, and the link resolves under that selected package's `src/**` to a regular read-only file. The sole non-`src` exception is one exact packed regular `node_modules/@open-mercato/ui/figma/<name>.figma.tsx` target with `referenceRole: "figma-code-connect"`, an applicable Figma-facing prompt, package version/hash, and no directory/glob/sibling/transitive permission. If source is not published, the owner must link an exact shipped `dist`/type file only after the evaluator/tool contract explicitly supports it and labels the degraded reference; it must not publish a dead link. Optional-package links are conditional on package emission. A missing, directory-only, symlinked, unpublished, wrong-version, or workspace-only target fails the generated-app link gate.
 
 ## Harness Regression
 
-Implementation first audits and extends the canonical harness registry, currently 192 cases through OMH-192. It does not reserve OMH-193. It updates an existing case when the intent already belongs to the module-discovery or UMES audit and allocates the next free ID only for an independently runnable behavior.
+The source-selection case gives the agent a generated lean app and a small module task. `src/modules/example/**` is immutable harness context: a case may read declared files but may not write, rename, or delete them even when its writable roots otherwise include `src/modules/**`. Its ordered trace must show:
 
-The source-selection behavior gives the agent a generated lean app and asks it to add a small task-adjacent module capability with the installed workflow. Acceptance asserts that the run:
+1. the relevant skill/guide is read;
+2. `src/modules/example/README.md` is the first module-source entrypoint;
+3. only capability-linked example files are read within the case budget;
+4. no read under `ratelimit_probe` occurs; and
+5. a visible declared installed-package link may be followed directly for a specialist/exact-host topic, while undeclared installed source still requires a named local/versioned contract gap; and
+6. a UI-bearing case reads the normative emitted guide, exact example use, one exact PR #4301 gallery entry, and the separately declared exact UI implementation (plus local emitted token CSS only when relevant), never a gallery family directory, sibling entry, test, or workspace CSS path; and
+7. a distinct Figma/token-facing case, only when the prompt requires it, reads the applicable PR #4277 sidecar: local token truth and/or one exact packed Code Connect file, plus the PR #4301 gallery/UI chain. It never reads placeholder nodes as live, broad `figma/`, monorepo-only snapshot/exporter paths, an unavailable skill, credentials, operations reports, or the network.
 
-- inspects `src/modules/reference_module` before `ratelimit_probe` or installed framework source;
-- identifies `ratelimit_probe` as a test fixture, not a model;
-- reuses only relevant reference surfaces and renames all stable IDs;
-- keeps tenant scoping, optimistic locking, i18n, and generated-registry discipline intact;
-- passes the focused generated-app validation commands.
+The output oracle rejects copied `example`, `example:todo`, route, event, ACL, and widget identifiers and rejects whole-tree copies, while requiring a distinct plural snake_case module ID, scoped entities, guarded/locked writes, translations, and generated-registry discipline. Its UI branch also rejects gallery-only evidence, copied gallery snippets/rules, invented props/imports, and runtime dependency edges in either direction between `example` and `design_system`; it requires the mapped public UI component shown in the example. A classic-preset assertion proves both references are source-present but disabled; it no longer needs to choose between two example modules.
 
-“Inspects before” is evaluated from the runner's ordered file-read/tool trace: for a module-scaffold prompt, the first module-source read must be `src/modules/reference_module/README.md`; any read under `ratelimit_probe` fails; installed package source is allowed only after the trace records a specific missing-version gap not covered by the inventory. The output oracle separately rejects copied `reference_module` identifiers and requires the expected renamed files/contracts, so mentioning the README without using it does not pass.
+The linked [Standalone Harness Example and Linked-Source Read Policy](./2026-08-01-standalone-harness-example-read-policy.md) owns generic schema, path safety, budgets, declared installed-source reads, and fallback semantics. This spec registers case-specific roots such as:
 
-Additional failure-first coverage proves:
+```json
+{
+  "root": "src/modules/example",
+  "entrypoints": ["README.md", "references/surface-map.md"],
+  "allowedCapabilityIds": ["api.crud-factory", "commands.write", "ui.form-shared"],
+  "maxFiles": 12,
+  "maxBytes": 131072
+}
+```
 
-- every named standalone skill reaches all parity-matrix topics and exact example files without stale links or copied line anchors;
-- data design finds encryption, custom fields, migration/snapshot, example/default seeds, and cross-module ID/link examples;
-- backend UI finds the customer-style perspective/filter/search/export view and shared create/edit form configuration;
-- system extension finds every UMES scope and the customers/catalog/sales injection examples;
-- module scaffold finds ACL sync, JSON migration/snapshot sync, cache, worker/queue/progress, notifications, DOM bridge, import/export, Data/Query Engine, CRUD factory, commands, guards, and locking;
-- eject/customize is emitted, selects extensions before ejection, and retains its customization/upgrade procedure.
+Case IDs are allocated only after semantic deduplication. Every affected case, validator/oracle, release-matrix lane, catalog count, documentation file, and emitted/generated harness copy moves together through `om-evolve-harness` and `om-refresh-standalone-harness`.
 
-The source-selection behavior is distinct from OMH-185's generated-module completeness assertion, but may belong in an existing discovery audit. Its primary fixture is a lean `empty` app. A `classic` variant or equivalent assertion proves preference for `reference_module` over the retained demo/QA tree. Semantic deduplication is mandatory before adding any case.
-
-### Bounded example-read policy
-
-The linked [Standalone Harness Example-Read Policy](./2026-08-01-standalone-harness-example-read-policy.md) exclusively owns generic schema, evaluator, path-safety, budget, and fallback semantics. This spec consumes that policy by registering `src/modules/reference_module` for relevant `module-data`, `backend-ui`, `umes`, and architecture/ejection cases, with README/surface-map entrypoints and the exact `capabilityId` subset needed by each prompt. Reading those examples is expected, not a context violation; unrelated capabilities and cases remain denied.
-
-Case registration, fixed output oracles, and focused reference-selection tests must agree on this progressive route. Generic multi-file, unrelated-case, traversal, and fallback fixtures remain in the owning companion; this spec tests only that each reference case declares the right root/entrypoints/capability IDs/budgets and uses them in the ordered trace.
-
-### Harness registration surfaces
-
-The new or deduplicated case is not complete merely because it exists in `cases.json`. Implementation must list and synchronize it everywhere its mode, validator, and release lane require:
-
-| Harness surface | Required update |
-|---|---|
-| `packages/create-app/agentic/shared/ai/harness/cases.json` | Add the schema-valid case, semantic required/forbidden context, related cases, budgets, risk, and tags. |
-| `packages/create-app/agentic/shared/ai/harness/validators.json` | Register the trusted validator or validator group that proves reference selection and renamed output. |
-| `packages/create-app/agentic/shared/ai/harness/writable-ast-oracles.mjs` | Add the fixed writable oracle when the case produces module code; assertions must reject copied `reference_module` identifiers and unscoped/unguarded output. |
-| `packages/create-app/agentic/shared/ai/harness/release-matrix.json` | List the case in the correct writable/review lane so the primary runner, generated validation, and isolated code review are blocking. |
-| Reference case `exampleRoots`, `packages/create-app/src/lib/agent-surface-coverage.test.ts`, and focused output/trace tests | Assert exact entrypoints/capability IDs/budgets, skill links, validator registration, and reference use without redefining generic read semantics. |
-| Harness catalog counts, `packages/create-app/README.md`, harness `RELEASE.md`, and the owning harness spec | Update counts and case/range documentation together when the new ID changes the catalog totals. |
-| Emitted/copied harness assets | Refresh through `om-evolve-harness` and `om-refresh-standalone-harness`; do not hand-edit generated copies. |
-
-Before assigning an ID or editing any of these surfaces, compare current `develop` semantically and follow the catalog's existing case shape. This is a writable implementation case, so its fixed AST oracle, generated-app validation, and isolated review lane are mandatory rather than optional.
-
-Use the current owning harness workflows to make this reference-specific change; do not hand-edit derived copies. The generic requirement that future harness-knowledge changes always update evaluator/read-policy coverage belongs to the linked [Standalone Harness Knowledge Governance](./2026-08-01-standalone-harness-knowledge-governance.md) companion and is not a completion dependency for building the reference itself.
-
-The user-provided trace is PR evidence only. Do not commit the raw screenshot or local absolute paths into the repository.
+Deduplication must inspect at least OMH-027 (generic DataTable extension), OMH-181 (bulk-action implementation), and OMH-035 (progress routing). Their current assertions do not prove a canonical-example bulk action returning `progressJobId` or a visible top-bar lifecycle. Prefer strengthening the smallest existing cases and relating them over adding wording variants, but the final coverage must include one source-selection assertion for `ui.datatable.bulk-actions`, one for `runtime.operation-progress`, and one behavioral writable/oracle lane that proves the connected flow. Each records the exact `sourceReferenceIds` it followed.
 
 ## Testing and Validation
 
-### Focused automated coverage
+### Focused Coverage
 
-1. Preset unit tests for `empty`, `crm`, and `classic`: source and `om-module-scaffold` guidance exist, registration is absent, and the complete emitted source typechecks with imports resolved.
-2. Template contract test: `ratelimit_probe` is still present and unchanged.
-3. Reference-module API integration tests: create, list/filter/search/perspective/sort/export, detail, update, delete, import enqueue, 403, wildcard ACL, cross-scope 404, invalid 400, and stale 409.
-4. Command/UMES tests: Data Engine writes, custom fields, API/command interceptors, mutation guards, event ordering/payloads, optimistic lock, soft delete, undo/restore, and target-specific child lock headers.
-5. Enricher/extension tests: list/detail parity, batching, namespacing, due buckets, tenant scope, ID-based cross-module links, absent optional modules, and cache behavior.
-6. UI integration coverage: customer-style URL search/filter/perspective/export state, auto-discovered fields, create/edit shared form descriptors, delete/conflict recovery, injected field persistence, DataTable headless contributions, local and customers/catalog/sales widgets, component wrapper, keyboard behavior, and translated empty/error states.
-7. Search/encryption tests: scoped indexing after mutation, ciphertext at rest, decrypting reads, and no plaintext in search/events/notifications/cache/logs.
-8. Runtime tests: tenant-tagged cache hit/invalidation, idempotent queue retry, progress/cancellation/error summary, command-mediated import rows, notification dedupe/render/effect cleanup, and audience-scoped DOM-event refresh.
-9. Setup/migration tests: idempotent defaults, opt-in example seeds, new-tenant grants, existing-role ACL sync documentation, intended SQL/JSON snapshot, and clean second generation.
-10. Compile fixture: copy the template, explicitly register the module, run generation, and typecheck/build without applying local migrations.
-11. Generated-ID runtime contract: keep the disabled tree free of absent `E.reference_module.*` access, assert its single `REFERENCE_TASK_ENTITY_ID` equals `E.reference_module.reference_task === 'reference_module:reference_task'` after activation, use the `@/.mercato/generated/entities.ids.generated` alias rather than package-internal `#generated` imports in that activated proof, reserve `reference_module.reference_task` as an entity identity for the enricher, and load the list endpoint without an entity-resolution 500.
-12. Skill/source-link parity tests: every former `main` topic has an owner and exact live example, all links are line-number-free and resolve in source/emitted layouts, all tiered skills including eject/customize are emitted, and `AGENTS.md` stays within budget.
-13. Context-budget assertions for file count, total bytes, README/surface-map size, and client-component line count.
-14. Failure-first source-selection, skill-coverage, and reference-root registration tests described above, including fail-before evidence and affected range refresh.
+1. Exact-tree parity: sorted paths and SHA-256 hashes match between monorepo and template; template-sync has no example exception or transform.
+2. Preset matrix: `classic`, `empty`, and `crm` contain `src/modules/example/**`, pack the core design-system gallery sources, and register neither `example` nor `design_system`.
+3. Template fixture: the disabled example tree typechecks in every preset; no example or design-system route, page, migration, seed, event, widget, worker, ACL grant, navigation entry, runtime chunk, or dead quick link is generated.
+4. Activated fixtures: separately register `example` and `design_system`, run generation, assert the Todo identity for the former, and exercise existing CRUD/UI/UMES/extension tests plus the gallery route/ACL/search/deep-link/accessibility/copy/dark-mode contract without cross-enabling the modules.
+5. Regression preservation: current Todo command scope/redo, API, UI, injection, override, dashboard, notification, adapter, and integration suites remain green after reconciliation.
+6. Security: tenant/org isolation, 403, cross-scope 404, stale 409, encryption leakage, cache isolation, worker retry/idempotency, and audience scoping.
+7. Source-map parity: every capability has one owner and exact live paths in all three layouts; repository-only tests are evidence but are not claimed as emitted files; no shadow implementation path remains.
+8. Whole-harness link parity: all emitted knowledge owners are classified; every `source-required` topic has a visible exact-file link; all 136 fences across the exact eight baseline assets have a disposition; all links resolve in fresh packed-package fixtures; undeclared/orphan links, directories, wildcards, stale hashes, symlink escapes, wrong presets, and workspace-only paths fail.
+9. Harness: fail-before/pass-after source selection, bounded read-only example/declared-installed access, mutation denial, renamed output, required-link trace, and affected certified lane evidence.
+10. Instruction and source budgets: emitted `AGENTS.md`, README, surface map, and link inventory remain bounded; the compact root entrypoint replaces/moves existing prose instead of restoring old implementation blocks; new client components stay focused and do not grow existing oversized files.
+11. Module facts: enum-derived coverage is exhaustive; separate reference-only example JSON/Markdown exists in every preset with portable exact links, `sourceKind: "local-reference"`, and `runtimeSelected: false`; normal package outputs exclude app-local modules without changing their current semantics; an activated fixture produces a matching fresh app-local extraction result; all expected owned/source/override/topology facts round-trip; repeated generation is byte-identical; no fact diagnostics or sensitive bodies/values appear.
+12. Extension topology: all executable contribution/activation/target/policy/mechanism values and bound UI surfaces execute; catalog/framework/unbound/negative-fixture values have their permitted classification. Named fail-before/pass-after reader fixtures cover sibling page metadata, id-less workers, query-engine enablement, API method/phase bridges, mutation-guard shape/operation correlation, dashboard adapter reachability, AI file overrides, notification handlers, customer-role setup profiles, and the new `unknown-framework-mode` diagnostic.
+13. Design-system references: every canonical example UI row resolves direct or `composite-not-direct` PR #4301 coverage, exact gallery constituent(s), exact public UI implementation, optional emitted token source, preset `source-only` status, visible provenance link, and after-opt-in route; the example source actually imports the mapped public component and neither module imports the other. Family counts and coverage allowlists are derived, never copied.
+14. Design-foundation references: every entry in the derived PR #4301 gallery inventory has a PR #4277 applicability record, including entries not selected by the example; certification pins the final merged/package SHA, verifies final packed Code Connect files and exact non-`src` read exceptions on POSIX/Windows paths, derives calls and prop-variant coverage from AST, retains independent gallery/Code Connect node authorities plus their comparison, requires `publicationStatus: "not-evidenced"`, and rejects missing links, invalid cross-facet tuples, blanket mapping, partial-as-complete, unavailable or dependency-broken skill, default-tier leakage, workspace-only snapshot/exporter paths, credentials/network/publish actions, or runtime imports. If a local snapshot is emitted, deterministic export/source-rewrite/parity tests are mandatory.
 
-Every integration test creates its own tenant-scoped fixtures and removes them in `finally`; none relies on seeded/demo data.
+Every added or materially changed runtime/discovery extension surface in the verified-gap table must name at least one module-local self-contained integration test in `surface-inventory.json`; adding a surface to an existing row does not bypass the gate. Unit/static/generator coverage is additive and cannot replace it. Tests create their own tenant-scoped fixtures, remove them in `finally`, declare every required optional module in `__integration__/meta.ts`, never rely on seeded/demo data, and pass both alone and in order-randomized/repeated execution. The authoring and template test trees stay byte-identical even though normal app scaffolding continues to filter `__tests__`/`__integration__`; the create-app integration controller stages the declared repository test against the activated disposable app and records it as repository-only QA evidence with `readStatus: "qa-only"`, never as emitted/readable source. The minimum activated-example matrix is:
 
-### Validation sequence
+| New extension | Exact integration test | Required modules | Required integration proof |
+|---|---|---|---|
+| Encryption | `__integration__/TC-EXAMPLE-004-encryption.spec.ts` | `example` | Create/read/update the sensitive field in two scopes, inspect ciphertext at rest, and prove no plaintext enters response-excluded surfaces. |
+| Extension hosts and entity links | `__integration__/TC-EXAMPLE-005-extension-links.spec.ts` | `example`, `customers` | Exercise contributor-to-host read/write round trips, absent optional host, feature denial, and cross-scope rejection. |
+| Search | `__integration__/TC-EXAMPLE-006-search.spec.ts` | `example`, `search`, `query_index` | Create/update/delete a Todo, reindex, query within scope, and prove sensitive/cross-scope data is absent. |
+| Cache and rich DI | `__integration__/TC-EXAMPLE-007-cache.spec.ts` | `example` | Exercise the consumed scoped Awilix service, miss/hit plus create/update/delete invalidation and tenant/organization isolation through the real API; assert value-free registration kind/lifetime/source and exact safe DI override metadata. |
+| DataTable bulk operation and progress | `__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts` | `example`, `progress`, `events`, `scheduler` | Separately assert the bulk-action source/registration and progress source/lifecycle: create at least two Todos, select them, start once, observe feedback and top-bar updates, verify refresh/cleared selection, race duplicate requests with one idempotency key and assert one progress ID/logical execution, simulate crash before publish and recover from the durable outbox, simulate a mid-worker crash after one checkpoint and resume without repeating its mutation, tolerate duplicate physical messages, force mixed and total failures, cancel between items, deny cross-scope IDs, assert terminal events, and clean up. |
+| Client notification renderer | `__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts` | `example`, `notifications`, `events` | Trigger success/failure notifications, verify audience/deduped rendering, and clean them up. |
+| Translatable fields | `__integration__/TC-EXAMPLE-009-translations.spec.ts` | `example`, `translations` | Save/read the field across configured locales and verify fallback plus generated registration. |
+| Setup hooks, defaults, and example seeds | `__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts` | `example` | Create isolated tenant fixtures, run `onTenantCreated`, defaults twice, and opt-in examples twice; prove role-feature setup, idempotency, supported setup override targets, and no hook/seed while disabled. |
+| Shared form and complete locking | `__integration__/TC-EXAMPLE-011-form-locking.spec.ts` | `example` | Create/edit/delete through both forms, clear values, submit stale update/delete, and exercise unified reload/retry conflict behavior. |
+| Inactive override reference | `__integration__/TC-UMES-022-overrides.spec.ts` | `example` | Compile/generate the typed reference, round-trip every exact example-owned override domain/path/optional-key/mode/note (including distinct AI agents/tools/extensions, notification types/handlers, both default-role profiles, and page guards), keep framework-only nav separate, reject unknown-mode guessing, and run the existing override integration path without enabling the canonical example by default. |
+| Extension facts and activations | `__integration__/TC-EXAMPLE-012-extension-facts-topology.spec.ts` | `example`, `customers`, `dashboards`, `events`, `notifications`, `integrations`, `customer_accounts` | Assert the enum-derived ledger; all emitted contribution, activation, target, policy, three-resolution-set, host-family, capability, override-domain/mode/note/diagnostic, lifecycle, and operation rows; literal Todo enricher/guard/command callers; cross-module incoming indexes; portal reaction; zero unresolved diagnostics; and exact portable source links. Assert the separate disabled reference wrapper and unchanged normal-output exclusion, then activate the fixture and prove semantic parity with a fresh app-local extraction. Generator contract tests compare every ledger key to exported runtime constants or named AST-extracted type literals and exercise all `negative-fixture` values plus the exact reader-parity fixtures listed above. |
+| Backend/frontend page middleware | `__integration__/TC-EXAMPLE-013-page-middleware.spec.ts` | `example` | Exercise match/non-match behavior on both surfaces, exact stable IDs and `guards` override targets, feature/scope behavior, and the negative distinction from `data/guards.ts` mutation guards. |
+| AI tool, agent, and extension | `__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts` | `example`, `ai_assistant`, `customers` | Discover the read-only agent/tool, distinct `aiAgentOverrides`/`aiToolOverrides`, and an additive extension of an installed customers agent; enforce ACL and two-scope isolation through real tool dispatch without an external model/provider; assert agent/tool/file-override/extension facts plus keyed agent/tool and unkeyed extension targets; and clean up Todos. |
+| Specialized registries | `__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts` | `example`, `search`, `query_index`, `integrations`, `payment_gateways`, `shipping_carriers`, `currencies`, `workflows`, `events` | Assert all nine registry kinds, execute Todo search/query and deterministic test-vector indexing, resolve the example integration bundle and reused mock provider identities, trigger the Todo workflow once, prove scope/idempotency, and avoid network/provider credentials. |
+| Generator plugin | `__integration__/TC-EXAMPLE-016-generator-plugin.spec.ts` | `example` | In a disposable activated app, run generation twice, verify the reference index is consumed and byte-identical, reject stale/duplicate output and runtime imports, prove portable source facts, then disable example and prove its plugin/output is absent. |
+| Bound UI hosts and component modes | `__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts` | `example`, `customers`, `events` | Exercise every bound DataTable and CrudForm surface, all lifecycle phases including delete success/error, all widget/DataTable/CrudForm payload categories, and component `replace`/`wrapper`/`props`; assert optional/feature gates and that unbound catalog surfaces are not registered. |
 
-Choose Docker or local mode once according to `.ai/docs/agent-instructions.md`, record the runner, then run the smallest applicable sequence:
+PR #4301 mapping uses a static contract test plus the existing activated UI integration paths rather than inventing a fake data endpoint. The static test resolves each `designSystemReferences[]` row against the merged packed gallery registry/entry, exact UI implementation, optional emitted token source, and example import. It consumes the gallery coverage/integrity/render-smoke results without making those QA-only files readable. The activated list/create/edit/bulk/notification/host Playwright paths prove mapped components render and interact without hydration or console errors; the separately activated gallery integration evidence covers route/ACL/search/deep links/accessibility/copy/dark mode. Every built-in fresh-preset test requires `source-only` and a missing route/nav entry; only the explicit activation fixture may mark the route `live` and open it under a user with `design_system.view`.
+
+PR #4277 validation supplements that static test without adding a runtime endpoint. Against its final merged/package baseline, pack inspection proves each declared `figma/*.figma.tsx` target is shipped, AST correlation derives mappings and coverage, and per-item assertions retain honest placeholder/unmapped/not-applicable states. At the audited head, only known-node records may expose normalized node IDs and incomplete Button variant coverage remains `partial`; final certification recomputes these facts rather than freezing those provisional observations. Token export/parser tests and Code Connect parse checks are QA-only evidence, not readable implementation context or proof that Figma nodes exist or mappings were published. Default-tier fixtures prove the design skill is unavailable unless a separately tested local `design` tier is emitted.
+
+The source-routing README/inventory itself uses fresh-scaffold link/inventory tests rather than inventing a runtime integration test, because it adds no runtime extension. Local module-fact generation additionally has create-app/CLI generator tests and is exercised by TC-EXAMPLE-012/016; those static tests supplement rather than replace runtime integration for the surfaces represented. Any future added/materially changed runtime or discovery surface with `coverageKind: "example"` is rejected unless it declares its focused integration-test paths and dependency modules, regardless of whether its containing capability row already existed.
+
+### Validation Sequence
+
+Choose Docker or local mode once according to `.ai/docs/agent-instructions.md`, record the runner, then run:
 
 ```bash
+yarn template:sync
+yarn build:packages
 yarn generate
+yarn build:packages
 yarn workspace create-mercato-app test
+yarn test:create-app
+yarn test:create-app:integration
 yarn agents:check-budget
 yarn check:client-boundaries
 yarn typecheck
 yarn lint
 yarn test
 yarn build:app
-yarn i18n:check-hardcoded
-yarn i18n:check-values
 ```
 
-Also execute the focused harness case/range through its documented runner and include its result in the implementation PR evidence.
+Run the affected harness lane and its knowledge-change manifest through the owning workflow. Do not apply migrations locally merely to validate the fixture.
 
 ## Backward Compatibility
 
-- No frozen or stable contract is removed, renamed, or reinterpreted.
-- `ratelimit_probe`, classic `example`, existing preset names, generated registries, public imports, and current module-scaffold commands remain intact.
-- `reference_module` identifiers are new template-local examples. Because the module is not registered, generated application runtime behavior is unchanged.
-- Adding source to scaffold output is additive but observable; preset snapshot and size tests document that output contract.
-- A future removal or rename of the emitted example must follow `BACKWARD_COMPATIBILITY.md`, including a bridge/deprecation period if third-party tooling has begun relying on its path.
+- No framework API, import, event, widget, CLI, or database contract is removed or renamed.
+- Existing `example` identifiers and paths remain stable; the design eliminates the proposed, unshipped duplicate identifiers.
+- Existing repositories are not modified. The observable behavior change applies only to newly generated `classic` apps, where `example` becomes source-present but runtime-disabled.
+- Lean presets gain additive source files and stop deleting `example`; their runtime remains unchanged because registration stays absent.
+- Normal `.ai/guides/module-facts.json` retains its combined package-module meaning, and `.ai/guides/modules/**` retains its enabled-filtered package-Markdown meaning. The new reference-only JSON/Markdown artifacts are additive generated-file contracts, explicitly mark the disabled local projection, and are parity-checked against a fresh activated app-local extraction without mutating either normal output.
+- PR #4301 gallery references are additive documentation/provenance metadata. Example runtime imports remain public `@open-mercato/ui` paths, so the design-system module and example stay independently activatable.
+- PR #4277 design-foundation records are additive tooling/provenance metadata. They grant no runtime import, Figma credential/network/publish authority, or claim that provisional mappings are merged, complete, live, or published.
+- Fresh standalone registries omit `design_system`; existing applications and the monorepo app are not rewritten, and explicit downstream registration restores the unchanged PR #4301 route/ACL contract.
+- Future removal or rename of `src/modules/example` requires the documented deprecation protocol once external tools rely on it.
 
 ## Risks & Impact Review
 
-| Failure scenario | Severity | Affected area | Mitigation | Residual risk |
-|---|---|---|---|---|
-| The reference grows into another oversized demo | Medium | Scaffold size and agent context | Enforce file/byte/client-line budgets and the bounded README contract. | Low; later additions still require review discipline. |
-| Example and skill drift apart or an emitted skill disappears | High | Generated agent correctness | Keep one rule owner per domain, one executable/link index in the surface map, assert tiers and exact links in every preset, and validate the routes through the harness. | Medium; cross-version package changes can still need coordinated refreshes. |
-| Disabled source is accidentally activated | High | Generated-app runtime and migrations | Assert absence from every preset registry and verify no runtime routes, migrations, or navigation. | Low after preset contract tests. |
-| Agents copy identifiers without renaming | Medium | Consumer module collisions | Use grep-friendly stable IDs, an explicit rename checklist, and harness assertions for residue. | Low; manual users can still ignore guidance. |
-| Colon/dot identifiers or the class-derived entity key drift | High | CRUD list/search resolution and enricher matching | Centralize the disabled-source ID through `entityId('reference_module', 'reference_task')`, prove equality with `E.reference_module.reference_task` after activation, reserve the dot form for `targetEntity`, and exercise the activated list route at runtime. | Low; future generator changes still require the focused contract test to fail visibly. |
-| “All surfaces” encourages weak placeholders | High | Architecture quality | Require a real registration/caller for local files and an exact authoritative link plus owner for routed specialist surfaces; reject placeholders in tests. | Low while parity and focused runtime tests are enforced. |
-| Time-based enricher results become stale | Medium | API correctness | Namespace output and disable list-cache reuse for the enricher. | Low; clock-boundary tests remain necessary. |
-| Cache or queued work crosses tenant boundaries or repeats side effects | High | Data confidentiality and integrity | Tenant/org keys and tags, post-commit invalidation, idempotency keys, command-mediated writes, retry and isolation tests. | Low after multi-tenant runtime coverage. |
-| DOM events or notifications expose sensitive data/audiences | High | Confidentiality | Safe payload schemas, explicit audiences, ACL checks, encrypted-field exclusion, renderer/effect tests. | Low after audience and leakage assertions. |
-| Skills link to stale or shallow examples | High | Generated-agent correctness | Resolve every exact link in source and emitted layouts and maintain a `main` parity matrix. | Low; new surfaces still require harness refresh discipline. |
-| Spec-first routing blocks bounded maintenance or is bypassed implicitly | Medium | Developer velocity and architecture | Test new-feature, maintenance, explicit-override, and ambiguous-intent branches independently. | Low. |
-| Encrypted content leaks through search | High | Data confidentiality | Mark only title as non-sensitive/searchable; encrypt description and exclude it from search documents, events, and logs. | Low after search-document assertions. |
-| Harness duplicates OMH-185 or a concurrent case | Low | Test maintenance | Compare semantics first and reuse/extend an equivalent case if one lands concurrently. | Low. |
-| Template size grows unexpectedly | Medium | Package and generated-app footprint | Snapshot emitted file inventory and enforce the 512 KiB budget. | Low; dependency size is unaffected because the source is disabled. |
+| Failure scenario | Severity | Mitigation | Residual risk |
+|---|---|---|---|
+| Monorepo and template drift again | High | One authoring root, existing sync fixer/check, exact hash test, no example exceptions. | Low. |
+| Baseline sync copies stale or unsafe behavior | High | Review all 20 current differing paths before sync; preserve scoped commands, redo, and tests. | Low after reconciliation review. |
+| Broad QA module overwhelms agent context | Medium | README-first progressive disclosure, capability IDs, dual file/byte budgets, whole-tree-copy rejection. | Low. |
+| Example is accidentally enabled | High | Registration-absence tests for all presets and runtime-surface negative fixture. | Low. |
+| Classic users expect demo pages in a fresh scaffold | Medium | Explicit release note and preset regression; source remains available for one-line opt-in. | Medium. |
+| A gap grows into another mini-domain | Medium | Extend Todo or route to an authoritative specialist source; require spec amendment for inventory growth. | Low. |
+| Skill links and source drift | High | Exact link tests across authoring/template/emitted layouts and knowledge-governance gate. | Low. |
+| Sensitive/scoped data leaks through new examples | High | Encryption, scoped queries, safe payloads, cache/audience tests, no cross-module ORM. | Low after focused tests. |
+| Disabled reference facts are mistaken for current runtime bindings | High | Separate reference artifact, explicit local-reference/runtime-selected discriminators, unchanged normal package-output exclusion, activated-extractor parity, and evaluator wording that says “after opt-in.” | Low. |
+| Gallery and example references drift or become coupled | High | Pin the merged/package PR #4301 baseline, validate direct/composite/import/source/route mappings from packed artifacts, and forbid runtime imports across the two modules. | Low. |
+| Fresh standalone unexpectedly exposes the developer gallery | Medium | Omit `design_system` from every generated registry, assert no route/nav/chunk/ACL grant, and keep activation in a separate fixture. | Low. |
+| PR #4277 tooling is mistaken for complete or runtime-authoritative coverage | High | Require a final merged/package SHA, per-item applicability, AST/pack derivation, placeholder/partial/publish distinctions, local CSS authority, and no application import or external execution. | Low after final-baseline certification. |
 
 ## Implementation Plan
 
-### Phase 1 — Establish the inert template and finite inventory
+### Milestone A, Phase 1 — Reconcile and Lock the Canonical Tree
 
-1. Build the current `main`-to-`develop` topic inventory, add `surface-inventory.json`, the bounded README/map, and the minimal compilable unregistered module metadata/index shell.
-2. Add preset, registration-absence, tier-presence, exact-link, and context-budget tests; capture each failure before adding the matching source/preset change, then make the focused test green in the same step.
-3. Preserve the source in `empty`, `crm`, and `classic`, while proving classic example and ratelimit probe behavior unchanged.
+1. Classify the current 20 differing paths, preserve the correct monorepo behavior, and make the two example trees byte-identical through `yarn template:sync:fix`.
+2. Add the exact parity test and prohibit example-specific template exceptions/transforms.
+3. Add the README, finite inventory, and surface map using only verified existing paths and capability owners.
 
-Exit criterion: all preset/link/budget tests are green, every emitted app contains a compilable inert reference shell, and no preset activates it.
+Exit criterion: `yarn template:sync` and the focused parity test pass, and the map distinguishes existing coverage from verified gaps.
 
-### Phase 2 — Land the scoped CRUD golden path
+### Milestone A, Phase 2 — Ship Both Reference Modules Inert in Every Preset
 
-1. Add task/link entities, validators, custom fields, encryption map, migration/JSON snapshot, defaults/example seeds, ACL/DI, entity-ID bridge, and CLI metadata.
-2. Implement CRUD factory/Query Engine routes, Data Engine commands, link writes, guards/interceptors, optimistic locking, finite undo, enrichers, events/search, and OpenAPI contracts.
-3. Add and pass focused API/security/command/migration/seed/activated-ID tests, run generation, and prove a clean second migration generation.
+1. Stop deleting `src/modules/example` from `empty`/`crm` and remove its default classic registration.
+2. Remove or registry-gate example-only home quick links, remove `design_system` from the standalone template registry, then add source-present/registration-absent tests and negative runtime-surface assertions for both reference modules in all presets.
+3. Add separate explicit activation fixtures that generate, compile, and exercise the existing Todo slice and the PR #4301 gallery without cross-enabling them.
 
-Exit criterion: the enabled fixture passes the complete scoped CRUD/domain contract and the disabled preset remains inert.
+Exit criterion: every scaffold ships the exact example source and packed gallery source, activates neither reference module, and each explicit activation remains functional independently.
 
-### Phase 3 — Land async runtime examples
+### Milestone B — Extend Only Missing Core and Runtime Surfaces
 
-1. Add export, bounded/idempotent import, cache/invalidation, queue worker/progress integration, notifications, and audience-scoped DOM events.
-2. Add failure/cancellation/partial-success, retry, leakage, tenant-isolation, notification, and event-refresh tests as each mechanism lands.
-3. Keep every step green by using the existing platform progress API and command boundary rather than adding temporary module-local contracts.
+1. Deliver each verified encryption, extension/link, search/vector, translations, setup hooks/defaults/examples, shared-form, cache/rich-DI, Todo bulk-progress, client/portal notification, page middleware, AI, integration/provider/workflow, generator-plugin, fact-readable UI-host, and topology row as an independently green vertical slice against the existing Todo domain.
+2. For the bulk-progress slice, land the exact injected action, scoped/idempotent 202 route, durable operation/outbox helper, scheduler dispatcher, leased/checkpointed worker lifecycle, progress result contract, and `TC-EXAMPLE-003-todo-bulk-progress.spec.ts` together.
+3. Add the self-contained integration test named by every added/materially changed example extension surface, plus enum-ledger/generator fixtures and focused unit/security/isolation/retry/conflict/event/search/vector/cache/notification/generation/migration tests as appropriate.
 
-Exit criterion: focused async/runtime tests and the Phase 2 suite are green, including retry and cancellation behavior.
+Exit criterion: every `example` inventory row has a real caller/test and no duplicate domain or placeholder file exists.
 
-### Phase 4 — Land customer-grade UI and UMES extensions
+### Milestone C — Synchronize Skills and Harness
 
-1. Implement the customers-style DataTable view with perspectives, advanced filters, search, URL state, auto-discovered fields, export, and shared create/edit CrudForm configuration.
-2. Add local hosts, headless injections, component wrapping, and the typed activated-fixture override example.
-3. Add and pass integration coverage for customers, catalog, and sales contributions independently, all hosts absent, locking/conflicts, progress/notification refresh, accessibility, and i18n.
+1. Classify the complete emitted owner set and all 136 fences in the exact eight `main` baseline assets, then render visible exact-file links in every `source-required` guide/skill/reference/fact owner while preserving normative rule ownership and emitted tiers.
+2. Generate the source-link inventory, separate local example reference-facts JSON/Markdown, and enum-derived topology ledger; preserve the normal combined-package JSON and enabled-package Markdown contracts; register canonical-example, PR #4301 design-system-gallery, per-item PR #4277 applicability, and other declared-installed references; and add failure-first source-selection/read-policy cases after semantic deduplication.
+3. Synchronize validators/oracles, release matrix, counts/docs, knowledge manifest, link hashes, package/preset applicability, and generated harness copies through the owning workflows.
 
-Exit criterion: API and key UI paths are green in every optional-host matrix and all earlier phase suites remain green.
+Exit criterion: relevant agents follow visible exact links within budget, all baseline topics have a checked disposition, local and installed targets resolve from packed fresh scaffolds, the disabled local example has an explicit reference-only projection while unchanged normal package outputs exclude app-local modules, activated-extractor parity passes, unrelated reads fail, and every affected harness surface agrees.
 
-### Phase 5 — Synchronize skill links and reference-specific harness coverage
+### Milestone D — Certify Monorepo and Standalone Behavior
 
-1. Update module, data, UI, extension, and eject/customize skills with exact line-number-free inventory links; add ACL/migration operational guidance to emitted `AGENTS.md` and verify instruction budgets/generated tiers.
-2. After the example-read-policy companion lands, semantically deduplicate the 192-case catalog, then pair each failing source-selection/skill-coverage/reference-root registration assertion with its implementation and make it green before the next step.
-3. Synchronize affected case `exampleRoots`, catalog, validator/oracle, release matrix, counts/docs, and generated copies through the owning workflows.
+1. Run monorepo example tests, every declared new-extension integration test alone and repeated/order-randomized, PR #4883 enum/topology/override-target contract tests, template parity, preset matrix, activated standalone fixture, packed-package/local-fact link validation, final PR #4277 token/Code Connect/tier derivation and negative fixtures, create-app integration, and the configured validation gate.
+2. Run the affected certified harness lane and capture sanitized evidence.
+3. Re-read the diff for accidental activation, stale mirror files, copied identifiers, dead links, placeholders, and scope drift.
 
-Exit criterion: every inventory capability has one owner and a working link; the agent selects and uses the reference; every affected case registers the exact root/entrypoints/capability IDs/budgets; all reference-specific tests are green. Generic read semantics and harness-workflow policy changes proceed independently under their companion specs.
+Exit criterion: both environments are green, the example trees are identical, new apps are runtime-inert, and the harness uses the emitted example as its canonical module reference.
 
-### Phase 6 — Certify the emitted app
-
-1. Run the activated compile/runtime fixture, preset matrix, focused integration/UI suite, instruction/link budgets, and the full configured validation gate.
-2. Run the affected certified harness lane through the owning skills and capture sanitized evidence.
-3. Re-read the complete diff for placeholders, scope drift, dead links, stale generated copies, and accidental activation.
-
-Exit criterion: all configured gates and affected harness lanes are green, with no default runtime change and no unsupported surface omitted.
-
-## Documentation and Rollout
-
-- Document enable/copy/rename steps and the short capability router in the emitted README; keep normative rules in their owning skills and exhaustive ownership/source links in the surface map.
-- Update the harness case catalog and generated copies through their owning workflows.
-- Update emitted `AGENTS.md` with ACL sync and migration/snapshot routing while staying inside its instruction budget; the companion spec owns spec-first policy.
-- Add an `UPGRADE_NOTES.md` entry only if implementation reveals an observable scaffold-output migration that warrants consumer action; no deprecation entry is expected for this additive, disabled source.
-- Release with ordinary create-app changes. No feature flag, database rollout, or provider preconfiguration is required.
-
-## Final Compliance Report
+## Final Compliance Report — 2026-08-03
 
 ### AGENTS.md Files Reviewed
 
@@ -695,82 +607,76 @@ Exit criterion: all configured gates and affected harness lanes are green, with 
 - `.ai/specs/AGENTS.md`
 - `packages/create-app/AGENTS.md`
 - `packages/create-app/template/AGENTS.md`
-- `.ai/docs/module-development.md`
-- `packages/core/AGENTS.md`
-- `packages/core/src/modules/customers/AGENTS.md`
-- `packages/core/src/modules/sales/AGENTS.md`
 - `packages/ui/AGENTS.md`
 - `packages/ui/src/backend/AGENTS.md`
-- `packages/shared/AGENTS.md`
-- `packages/cache/AGENTS.md`
-- `packages/queue/AGENTS.md`
-- `packages/events/AGENTS.md`
-- `packages/search/AGENTS.md`
-- `packages/cli/AGENTS.md`
+- `.ai/docs/module-development.md`
+- `.ai/docs/agent-instructions.md`
 - `BACKWARD_COMPATIBILITY.md`
 - `.ai/skills/om-spec-writing/references/spec-checklist.md`
+- `.ai/skills/om-spec-writing/references/compliance-review.md`
 - `.ai/skills/om-spec-writing/references/frontend-architecture-contract.md`
 
 ### Compliance Matrix
 
 | Area | Result |
 |---|---|
-| Scope cohesion | Independent review confirmed the comprehensive inert reference, direct skill links/preset boundary, and focused harness proof form one developer-infrastructure capability. Spec-first, generic example-read semantics, and generic harness governance are split into one-way companion specs. |
-| Naming | `reference_module` is a deliberate teaching-fixture exception, not a new naming precedent for product modules. |
-| Duplicate review | No covering OSS/enterprise spec, issue, or PR found; related historical work is linked. |
-| Architecture | Disabled source preserves runtime behavior; each domain has one skill/guide rule owner, while the shared reference owns executable examples and links. |
-| Security and tenancy | Explicit tenant/organization scoping, guarded writes, decryption helpers, ACL, and cross-scope 404 coverage. |
-| Optimistic locking | `updated_at`, `updatedAt`, command guard, CrudForm-derived headers, delete coverage, and 409 UI recovery specified. |
-| API and compatibility | Additive routes exist only after activation; no current contract is removed or renamed. |
-| UI architecture | Server-first pages, bounded client islands, serializable props, shared component families, DS tokens, accessibility, and i18n specified. |
-| Events/search/enrichers/widgets | Concrete registrations with real callers, stable identifiers, scoped data, customers/catalog/sales integrations, and focused tests. |
-| Data/runtime breadth | Custom fields, ID-based links, encryption, JSON migration/snapshot, default/example seeding, Data/Query Engine, import/export, cache, queue/worker/progress, notifications, and DOM bridge are all executable and tested. |
-| UMES breadth | API/command interceptors, guards, enrichers, entity extensions, headless/widget injections, component replacement, optional hosts, and unified overrides are indexed and exercised. |
-| Skill parity | Each richer `main` topic must retain a rule owner and exact line-number-free implementation link; eject/customize remains emitted and extension-first. |
-| Entity identity | `ReferenceTask` maps to `E.reference_module.reference_task` / `reference_module:reference_task`; only enricher `targetEntity` uses `reference_module.reference_task` as an entity identity. The disabled tree uses one `entityId()` bridge because #601 forbids absent generated members, and the activated proof imports `E` through the app alias. |
-| Testing | API/key UI paths, async/security behavior, fixture isolation, preset and source-link contracts, frontend/context budgets, generation, and failure-first evaluator coverage included. |
-| Harness registration | Cases are semantically deduplicated; reference-root entries, validators, fixed output/trace oracles, release matrix, focused tests, counts/docs, and emitted copies move together while generic read semantics stay with their companion. |
-| Operational impact | No default runtime, migration, seed, route, navigation, or provider effect. |
-| Open questions | None. Q1–Q4 are documented decisions; the exhaustive-surface decision is explicitly user-directed. |
+| Scope cohesion | The fresh reviewer recommended splitting delivery, runtime slices, fact topology, and harness migration. Maintainer decision Q7 explicitly retains one program umbrella because the required outcome is one shipped canonical reference, while each delivery/per-gap/harness/certification milestone remains independently mergeable and the three generic policies already live in companion specs. |
+| Canonical mechanism | Reuses the live Todo CRUD, commands, CrudForm/DataTable, events, UMES, and widget surfaces; gaps extend the same module. |
+| Module isolation | Tenant/org scope, IDs/snapshots, optional hosts, and no cross-module ORM relationships remain mandatory. |
+| Optimistic locking | Existing `updated_at`/`updatedAt` and default CRUD/child lock rules stay part of the activated proof. |
+| Security/encryption | New sensitive example data requires encryption maps, decrypting reads, and leakage tests. |
+| Template ownership | Monorepo authoring source and byte-identical template mirror are explicit and machine-enforced. |
+| Runtime boundary | Source ships everywhere; registration and every derived runtime surface remain absent until opt-in. |
+| Harness | Every emitted owner and prior implementation topic is classified; visible exact local/installed links, packed resolution, capability budgets, source-selection traces, and synchronized release assets are specified. |
+| Bulk progress | The Todo DataTable selected-row action, guarded route, real queue/worker, `progressJobId`, and platform top-bar lifecycle form one canonical end-to-end reference. |
+| Integration coverage | Every added or materially changed runtime/discovery extension surface declares self-contained activated integration tests and dependencies; static/unit proof alone is rejected. |
+| Module facts/topology | The disabled local example receives a separate, explicitly reference-only portable projection covering executable PR #4883 source, contribution, activation, target, three-resolution, policy, registry, override, diagnostic, and bound-host mechanisms; normal package outputs keep their existing semantics; catalog/framework/unbound/negative-fixture values are explicit. |
+| Design system | Every canonical example UI row maps direct or honest composite constituent coverage to the merged PR #4301 gallery and exact packed UI source; all fresh presets are `source-only`, explicit activation proves the route, and the modules remain runtime-decoupled. |
+| Design foundation | Every entry in the derived PR #4301 gallery inventory carries honest PR #4277 applicability; local CSS remains token truth, exact packed Code Connect files are Figma-only references, and unavailable/placeholder/partial/publication-not-evidenced states cannot be promoted. |
+| Frontend architecture | Todos route roots stay or become server components; interactive forms/table/widgets are bounded client islands; no global provider is added; LOC, hydration, boundary, build, and Playwright evidence are explicit. |
+| Compatibility | No shipped framework contract changes; the fresh-classic default behavior change is explicit and tested. |
+| Open questions | None; reuse, disablement, exact sync, and additive extension were explicitly directed. |
 
 ### Internal Consistency Check
 
 | Check | Status | Notes |
 |---|---|---|
-| Data models match API contracts | Pass | Task fields, scoping, encryption, versions, and CRUD responses align. |
-| API contracts match UI/UX | Pass | DataTable and CrudForm consume the specified list/detail/mutation contracts and unified 409 behavior. |
-| Risks cover write operations | Pass | Transactions, optimistic locking, soft deletion, undo, and event/search leakage risks are addressed. |
-| Commands cover mutations | Pass | Create, update, delete, and restore use command and mutation-guard boundaries. |
-| Cache behavior matches reads | Pass | Tenant/org-tagged cache entries exclude encrypted data; all writes, undo, and imports invalidate after commit; time-sensitive enrichment opts out where needed. |
-| Async behavior matches commands | Pass | Import workers are idempotent, progress-aware, and command-mediated; notifications and DOM events use safe scoped payloads. |
-| Skill examples match supported surfaces | Pass | A parity gate requires exact, live, line-number-free links and rejects topic loss or placeholder discovery files. |
-| Harness registration matches each case mode | Pass | Writable behaviors require fixed oracles, generated validation, and isolated review lanes; read-only routing audits use focused evaluator assertions. |
+| Source ownership matches delivery | Pass | `apps/mercato` authors; template mirrors; emitted app copies the mirror. |
+| Inventory matches implementation strategy | Pass | Existing surfaces are linked; verified gaps extend Todo/example only. |
+| Runtime boundary matches tests | Pass | Preset negative assertions and activated fixture cover both states. |
+| Skill routing matches harness reads | Pass | Both use `src/modules/example` plus the same capability inventory. |
+| Prior example coverage matches visible links | Pass | All 136 fences in the exact eight baseline assets receive a checked disposition and every source-required owner renders an exact-file link. |
+| Risks cover writes and synchronization | Pass | Scope, locking, encryption, queues, cache, audiences, and drift are explicit. |
 
 ### Non-Compliant Items
 
-None. `reference_module` is an approved teaching-fixture naming exception scoped to this disabled example; product modules remain subject to the normal plural-ID rule.
+None at design level. Implementation remains blocked from completion until the baseline tree drift is reconciled and all configured gates pass.
 
 ### Verdict
 
-**Fully compliant — approved and ready for implementation after this design PR merges.**
+**Fully specified and ready for implementation after design review.**
 
 ## Changelog
 
-- 2026-07-31: Initial draft based on the observed `ratelimit_probe` selection trace, repository/spec/tracker duplicate research, and the standalone harness merged in PR #4529.
-- 2026-07-31: Renamed the proposed module to `reference_module`, documented the naming exception, and enumerated the harness catalog, validator, oracle, matrix, test, count, and generated-copy registration surfaces required for complete coverage.
-- 2026-07-31: Corrected class-derived colon-form entity IDs versus dot-form enricher targets, added a #601-safe disabled-source ID bridge plus activated generated-entity/runtime proof, aligned command files with `commands/**`, and made the intentionally uncovered `integration`/`ai-workflow` harness axes explicit.
-- 2026-08-01: Expanded the canonical reference from a narrow CRUD slice to a production-shaped module/runtime/UI/UMES example with custom fields, links, encryption, seeds, JSON migration/snapshot, Data/Query Engine, import/export, cache, queue/workers/progress, notifications, DOM bridge, and concrete customers/catalog/sales injections.
-- 2026-08-01: Added customer-grade perspectives/filter/search/export and shared create/edit form contracts, ACL sync guidance, exact line-number-free skill/example parity, emitted eject/customize coverage, bounded harness example reads, and evaluator tests; split global spec-first, generic example-read semantics, and harness-governance into companion specs.
-- 2026-08-01: Froze a one-to-one discovery/override inventory, encrypted server-derived link and undo snapshots, bounded import/export and best-effort side-effect contracts, and machine-verifiable harness evidence; final independent review approved all four specs with no blockers.
+- 2026-07-31: Initial draft based on the observed `ratelimit_probe` selection trace and the standalone harness merged in PR #4529.
+- 2026-08-01: Expanded the proposed reference coverage and split spec-first routing, generic read policy, and harness governance into companion specs.
+- 2026-08-03: Replaced the proposed duplicate teaching module with the existing `example` module as the sole standalone reference; required source-present/runtime-disabled delivery in every preset, additive gap extensions, exact skill/harness source links, byte-identical synchronization from `apps/mercato` to the create-app template, and an explicit `referenceStatus` separate from capability coverage kind.
+- 2026-08-03: Added whole-harness `main` snippet parity, visible exact canonical/installed links, packed-package link validation, a connected Todo DataTable bulk-operation progress reference, and mandatory self-contained integration tests for every new example extension.
+- 2026-08-03: Made delivery/per-gap/harness/certification milestones independently mergeable; specified the historical-block ledger schema, location-independent mirrored links, the concrete injected Todo bulk-progress protocol, and exact integration-test/dependency rows for every new extension.
+- 2026-08-03: Pinned the exact eight historical assets, hashes, and 136 CommonMark fences; made Todo bulk publication at-least-once through a durable operation outbox plus scheduler recovery and leased/checkpointed execution.
+- 2026-08-03: Audited PR #4883's complete module-fact/extension taxonomy; required local example fact generation (subsequently refined to a separate reference-only projection), statically readable registries, every executable mechanism and bound UI surface, explicit catalog/unbound classifications, specialist-depth links, and integration tests for all new additions.
+- 2026-08-03: Corrected disabled-module fact semantics with a separate reference-only projection and activated-extractor parity while preserving combined-package JSON/enabled-package Markdown outputs; expanded all three resolution and closed diagnostic sets, override domains/modes/notes/nested hosts, negative fixtures, reviewed reader-parity fixtures, AI file overrides, customer-role setup, notification handlers, explicit local-source discrimination, canonical fingerprints, and the frontend architecture contract.
+- 2026-08-03: Added PR #4301 as the living design-system provenance baseline; required visible exact gallery-entry and live-route references, mapped every canonical example UI use to the public component demonstrated by the gallery, and prohibited runtime coupling or copied gallery snippets.
+- 2026-08-03: Updated the merged PR #4301 baseline, distinguished direct entries from constituent coverage for composites, and made `design_system` source-present but registration/route/nav/runtime-disabled in every newly generated standalone app with a separate activation fixture.
+- 2026-08-03: Added PR #4277 as a per-design-item tooling sidecar: local token truth, role-gated packed Code Connect references, closed applicability/mapping/node/publish/tier states, final-baseline certification, and explicit prohibitions on fabricated coverage or Figma execution authority.
 
-### Review — 2026-08-01
+### Review — 2026-08-03
 
-- **Reviewer:** Agent, with an independent fresh-context scope-cohesion pass.
-- **Scope cohesion:** Passed after splitting three independently deployable policies into linked one-way companions. This spec owns only the comprehensive inert reference, its direct skill links/preset boundary, and the focused proof that agents discover and use it.
-- **Security:** Passed at design level; all added data/runtime/extension paths preserve tenant/organization scope, encryption, ACL, guarded writes, safe audiences, and leakage tests.
-- **Performance:** Passed; explicit client-boundary, 300-line, heavy-dependency, provider, hydration, and build-evidence budgets are recorded.
-- **Cache:** Passed at design level; cache is now a concrete tenant-scoped example with safe payload and post-commit invalidation requirements.
-- **Commands:** Passed; all proposed mutations retain command, undo, mutation-guard, and optimistic-lock requirements.
-- **Risks:** Passed; harness registration drift and accidental naming-precedent risks are now explicit and testable.
-- **Identifier review:** Passed; the disabled tree centralizes the colon form through the canonical `entityId()` helper, activation proves equality with `E.reference_module.reference_task`, the enricher uses the distinct dot form, and runtime coverage catches silent entity-resolution mistakes.
-- **Verdict:** Approved. The final independent review closed all scope, inventory, persistence, evaluator, and governance blockers.
+- **Reviewer:** Agent, with independent fresh-context scope-cohesion and cross-spec consistency passes.
+- **Scope cohesion:** The fresh pass recommended splitting the broad program. Q7 is the recorded maintainer decision to retain the umbrella invariant while defining independently mergeable canonical-delivery, per-gap, harness-migration, and certification milestones; generic policies remain independently deliverable in the three companion specs.
+- **Security:** Passed at design level; exposed example files require scoped, locked, encrypted, reference-quality behavior or `referenceStatus: "qa-only"` exclusion.
+- **Performance:** Passed; emitted-size facts, bounded reads, and focused-file growth constraints replace the invalid small-module budget.
+- **Cache:** Passed at design level; the missing cache example is DI-resolved, tenant/org tagged, and invalidated on every Todo write path.
+- **Commands:** Passed; existing scoped command, undo/redo, and optimistic-lock behavior is preserved and regression-tested.
+- **Risks:** Passed; baseline drift, accidental activation, dead links, classic behavior change, context breadth, and source-link drift are explicit.
+- **Verdict:** Approved for design review under the explicit Q7 milestone boundaries.

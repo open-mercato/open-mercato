@@ -17,6 +17,7 @@ const mockBuildAdminNav = jest.fn()
 const mockEm = { find: jest.fn(async () => []), findOne: jest.fn(async () => null) }
 const mockRbacService = {
   loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'] })),
+  getEffectiveFeatures: jest.fn(async () => ['*']),
   userHasAllFeatures: jest.fn(async () => true),
 }
 
@@ -108,6 +109,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockEm.find.mockResolvedValue([])
   mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: ['*'] })
+  mockRbacService.getEffectiveFeatures.mockResolvedValue(['*'])
   mockRbacService.userHasAllFeatures.mockResolvedValue(true)
   mockBuildAdminNav.mockResolvedValue(navEntries())
   mockGetNavGroupOrderOverride.mockReturnValue(null)
