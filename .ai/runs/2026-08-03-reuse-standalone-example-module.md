@@ -53,11 +53,19 @@ Source docs:
 
 ### Phase 1: Canonical reuse design
 
-- [ ] 1.1 Rewrite the canonical spec around the existing example module
-- [ ] 1.2 Define delivery, reference routing, and verification contracts
-- [ ] 1.3 Define byte-identical monorepo/template example synchronization
+- [x] 1.1 Rewrite the canonical spec around the existing example module — 4ba460af1
+- [x] 1.2 Define delivery, reference routing, and verification contracts — 4ba460af1
+- [x] 1.3 Define byte-identical monorepo/template example synchronization — 4ba460af1
 
 ### Phase 2: Companion alignment and review
 
-- [ ] 2.1 Align the three companion specs with canonical example reuse
-- [ ] 2.2 Complete consistency, compliance, and docs-only validation review
+- [x] 2.1 Align the three companion specs with canonical example reuse — 4ba460af1
+- [x] 2.2 Complete consistency, compliance, and docs-only validation review — 4ba460af1
+
+## Validation Evidence
+
+- Local runner selected because Docker is unavailable in the WSL environment.
+- Passed: `yarn build:packages`, `yarn generate`, second `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage` (advisory unused-key report only), `yarn typecheck`, `yarn build:app`, `yarn agents:check-budget`, `git diff --check`, terminology checks, and local Markdown-link resolution.
+- The first `yarn test` run exposed an unrelated timing flake in `agent-harness-evaluator.test.ts`; its exact test passed immediately on rerun.
+- The full `yarn test` rerun exposed pre-existing `backendChrome.current-organization.test.ts` expectations that omit the runtime's `preserveAspectRatio: false`; the exact test reproduces independently of this Markdown-only diff.
+- `yarn template:sync` intentionally reports the existing 29-file repository/template baseline drift, including the `example` differences this design requires the implementation phase to reconcile. No sync fix was applied in this specs-only run.
