@@ -35,6 +35,8 @@ Recreate the exact `actions/setup-node` v7 dependency update from PR #4885 on a 
 
 ## Progress
 
+PR: #4903
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Recreate the dependency update
