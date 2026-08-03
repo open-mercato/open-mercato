@@ -1865,6 +1865,41 @@ function normalizeRouteId(routeId: string): string {
 }
 
 /**
+ * Owner marker for a contribution bound to a framework host (dashboard, menus,
+ * notifications, …). Framework hosts have no module surface of their own, so the
+ * activation is recorded on the contributor and never produces an incoming row.
+ */
+const FRAMEWORK_HOST_OWNER = 'framework'
+
+/**
+ * Framework host families each host-reference adapter may bind, so a dashboard
+ * contribution resolves through `dashboard-host-consumer` rather than being claimed
+ * by the generic widget-injection adapter that runs first.
+ */
+const FRAMEWORK_HOST_FAMILIES_BY_ACTIVATION: Partial<Record<ModuleExtensionActivationKind, ExtensionHostFamily[]>> = {
+  'dashboard-host-consumer': ['dashboard'],
+  'widget-injection-consumer': ['menu', 'generic', 'crud-form', 'data-table', 'notification', 'integration'],
+  'component-extension-consumer': ['component-handle'],
+}
+
+/**
+ * Resolves a target id against the framework host catalog — exact ids first, then
+ * the patterned entries (`dashboard:*`, `crud-form:*`, `integrations.detail:{id}`),
+ * so a concrete `dashboard:<widget>` contribution reaches `framework.dashboard`.
+ */
+function findFrameworkHost(
+  targetId: string,
+  activationKind: ModuleExtensionActivationKind,
+): ModuleExtensionHostFact | null {
+  const families = FRAMEWORK_HOST_FAMILIES_BY_ACTIVATION[activationKind]
+  if (!families) return null
+  const candidates = FRAMEWORK_HOSTS.filter((host) => families.includes(host.family))
+  const exact = candidates.find((host) => host.id === targetId)
+  if (exact) return exact
+  return candidates.find((host) => host.resolution === 'pattern' && patternMatches(host.id, targetId)) ?? null
+}
+
+/**
  * A call site that guards only some operations does not activate a contribution
  * declaring none of them. Either side leaving operations undeclared means "any".
  */
@@ -2029,9 +2064,13 @@ export function correlateIncomingExtensions(
             })
             if (referenceBinding) {
               resolution = 'bound'
-              ownerModule = referenceBinding.ownerModule
+              // A framework host owns no module surface: record the activation on the
+              // contributor and leave `ownerModule` unset so no incoming row is emitted.
+              const isFrameworkHost = referenceBinding.ownerModule === FRAMEWORK_HOST_OWNER
+              ownerModule = isFrameworkHost ? null : referenceBinding.ownerModule
+              const activationOwner = isFrameworkHost ? contributorModuleId : referenceBinding.ownerModule
               for (const activation of referenceBinding.activations) {
-                registerSyntheticActivation(referenceBinding.ownerModule, activation)
+                registerSyntheticActivation(activationOwner, activation)
               }
               boundActivationIds = referenceBinding.activations.map((activation) => activation.id)
             } else {
@@ -2190,7 +2229,11 @@ function resolveReferenceBinding(input: {
     }
 
     if (adapter.mode === 'host-reference' && (kind === 'widget-injection-consumer' || kind === 'component-extension-consumer' || kind === 'dashboard-host-consumer')) {
+      const frameworkHostFact = input.boundHostIndex.has(input.targetRef.id)
+        ? null
+        : findFrameworkHost(input.targetRef.id, kind)
       const hostEntry = input.boundHostIndex.get(input.targetRef.id)
+        ?? (frameworkHostFact ? { moduleId: FRAMEWORK_HOST_OWNER, host: frameworkHostFact } : undefined)
       if (!hostEntry) continue
       const hostSource = hostReferenceSource(hostEntry.host)
       if (!hostSource) continue

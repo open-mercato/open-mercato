@@ -71,9 +71,11 @@ describe('module-facts BC resolve guard (T2)', () => {
     // AI tools/agents, owned contracts, hosts, contributions) emit a typed
     // `factRef` pointer instead of a duplicated source ref, and `factKey` is
     // omitted when it equals the entry `id` — so the index costs references, never
-    // copied provenance payloads.
+    // copied provenance payloads. The cap also covers the newly reachable
+    // framework-host activations (dashboard/menu/notification contributions now
+    // resolve as bound instead of silently falling back to capability-only).
     expect(extractionCpuDurationMs).toBeLessThan(30_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_450_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES

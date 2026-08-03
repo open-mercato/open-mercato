@@ -8,6 +8,7 @@ import {
   extractActivationTargetOwners,
   extractModuleExtensionFacts,
   withModuleExtensionFactExtractionCache,
+  ALL_ACTIVATION_KINDS,
   type ApiRouteInterceptorBridge,
 } from '../module-extension-facts'
 import { renderModuleFactsMarkdown, type ModuleFacts } from '../module-facts'
@@ -644,5 +645,82 @@ describe('module extension activations and incoming index', () => {
     const resolution = (result.ext.contributionResolutions ?? [])
       .find((entry) => entry.contributionId === 'ext.rec-update')
     expect(resolution?.resolution).toBe('bound')
+  })
+
+  it('executes every activation adapter: each kind produces a bound activation', () => {
+    write(moduleRoot('host'), 'extension-points.ts', `
+      import { defineModuleExtensionPoints, dataTableExtensionHost, componentExtensionHost } from 'x'
+      export const extensionPoints = defineModuleExtensionPoints({
+        moduleId: 'host',
+        hosts: {
+          records: dataTableExtensionHost({ tableId: 'host.records', source: 'Records.tsx' }),
+          detail: componentExtensionHost({ componentId: 'page:host.detail', source: 'Detail.tsx' }),
+        },
+      })
+    `)
+    write(moduleRoot('host'), 'Records.tsx', 'export const tableId = extensionPoints.hosts.records.tableId')
+    write(moduleRoot('host'), 'Detail.tsx', 'export const id = extensionPoints.hosts.detail.componentId')
+    write(moduleRoot('host'), 'api/records/route.ts', `
+      import { makeCrudRoute } from 'x'
+      import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+      export const crud = makeCrudRoute({ orm: { entity: Rec }, enrichers: { entityId: 'host:record' } })
+      export const POST = crud.POST
+      export async function GET(req) {
+        await runRouteMutationGuards({ container, req, auth, input: { resourceKind: 'host:record' } })
+        return queryEngine.query('host:record', { tenantId: 't', extensions: { userId: 'u' } })
+      }
+    `)
+    write(moduleRoot('host'), 'commands/update.ts', `
+      const updateCommand = { id: 'host.records.update', async execute() {} }
+      registerCommand(updateCommand)
+    `)
+    write(moduleRoot('ext'), 'data/enrichers.ts', `
+      export const enrichers = [{ id: 'ext.badge', targetEntity: 'host:record', async enrichOne(r) { return r } }]
+    `)
+    write(moduleRoot('ext'), 'data/guards.ts', `
+      export const guards = [{ id: 'ext.guard', targetEntity: 'host:record', operations: ['update'], async validate() {} }]
+    `)
+    write(moduleRoot('ext'), 'api/interceptors.ts', `
+      export const interceptors = [{ id: 'ext.interceptor', targetRoute: 'host/records', methods: ['POST'], async before() {} }]
+    `)
+    write(moduleRoot('ext'), 'commands/interceptors.ts', `
+      export const interceptors = [{ id: 'ext.command', targetCommand: 'host.records.update', async beforeExecute() {} }]
+    `)
+    write(moduleRoot('ext'), 'widgets/injection-table.ts', `
+      export const injectionTable = {
+        'data-table:host.records:columns': [{ widgetId: 'ext.column' }],
+      }
+    `)
+    write(moduleRoot('ext'), 'widgets/components.ts', `
+      export const componentOverrides = [{ target: { componentId: 'page:host.detail' }, wrapper: true }]
+    `)
+    write(moduleRoot('ext'), 'widgets/dashboard/stats/widget.ts', `
+      export const widget = { metadata: { id: 'ext.stats', title: 'Stats' } }
+      export default widget
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', entities: [{ id: 'host:record' }], apiRoutes: [{ path: '/host/records', methods: ['GET', 'POST'] }] },
+      { id: 'ext' },
+    ])
+
+    const activationKinds = new Set(
+      Object.values(result).flatMap((surface) => (surface.activations ?? []).map((activation) => activation.kind)),
+    )
+    expect([...activationKinds].sort()).toEqual([...ALL_ACTIVATION_KINDS].sort())
+
+    // Dashboard contributions bind to the framework `dashboard:*` host, which owns no
+    // module surface — the activation is recorded on the contributor with a traceable
+    // framework source, and no incoming row is emitted.
+    const dashboardActivation = (result.ext.activations ?? [])
+      .find((activation) => activation.kind === 'dashboard-host-consumer')
+    expect(dashboardActivation?.source.sourcePath).toBe('packages/ui/src')
+    expect(dashboardActivation?.bridge).toEqual({ factSection: 'hosts', factKey: 'framework.dashboard' })
+    expect((result.ext.incoming ?? []).some((entry) => entry.contributionKind === 'widget'
+      && entry.target.id.startsWith('dashboard:'))).toBe(false)
+
+    const dashboardResolution = (result.ext.contributionResolutions ?? [])
+      .find((entry) => entry.target.id.startsWith('dashboard:'))
+    expect(dashboardResolution?.resolution).toBe('bound')
   })
 })
