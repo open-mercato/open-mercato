@@ -56,10 +56,10 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.1.5",
-    "@mikro-orm/decorators": "^7.1.5",
-    "@mikro-orm/migrations": "^7.1.5",
-    "@mikro-orm/postgresql": "^7.1.5",
+    "@mikro-orm/core": "^7.1.8",
+    "@mikro-orm/decorators": "^7.1.8",
+    "@mikro-orm/migrations": "^7.1.8",
+    "@mikro-orm/postgresql": "^7.1.8",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "cross-spawn": "^7.0.6",
@@ -78,7 +78,7 @@
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.12"
   },
   "publishConfig": {
     "access": "public"

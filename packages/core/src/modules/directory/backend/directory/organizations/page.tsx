@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/directory/extension-points'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -271,7 +272,7 @@ export default function DirectoryOrganizationsPage() {
             setPage(1)
           }}
           sortable={false}
-          perspective={{ tableId: 'directory.organizations.list' }}
+          perspective={{ tableId: extensionPoints.hosts.organizationsTable.tableId }}
           rowActions={(row) => (
             canManage ? (
               <RowActions
