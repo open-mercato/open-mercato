@@ -40,9 +40,9 @@ Make the versioned Lucide icon registry a reproducible generator output instead 
 
 ### Phase 1: Shared generator lifecycle
 
-- [ ] 1.1 Extract repository discovery and deterministic generation into one reusable module
-- [ ] 1.2 Add explicit sync and non-writing parity-check commands
-- [ ] 1.3 Keep the UI build wired to the shared generator
+- [x] 1.1 Extract repository discovery and deterministic generation into one reusable module — cf137956b
+- [x] 1.2 Add explicit sync and non-writing parity-check commands — cf137956b
+- [x] 1.3 Keep the UI build wired to the shared generator — cf137956b
 
 ### Phase 2: Drift prevention
 
