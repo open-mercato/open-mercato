@@ -45,8 +45,8 @@ Prevent internal payment-session failures from leaking through the sessions API 
 
 ### Phase 1: Safe payment-session error mapping
 
-- [ ] 1.1 Route missing-adapter failures through a typed HTTP error and sanitize unexpected 502 responses
-- [ ] 1.2 Add focused service and route regression tests
+- [x] 1.1 Route missing-adapter failures through a typed HTTP error and sanitize unexpected 502 responses — c88ca2ac9f
+- [x] 1.2 Add focused service and route regression tests — c88ca2ac9f
 
 ### Phase 2: Test robustness and validation
 
