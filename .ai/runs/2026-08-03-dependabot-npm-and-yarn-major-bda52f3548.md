@@ -58,7 +58,7 @@ Land the compatible parts of PR #4896 on `develop`, with the workspace's BullMQ 
 
 ### Phase 3: Correct reviewer-facing metadata
 
-- [ ] 3.1 Update PR #4911's title and description to match the three actual upgrades and document the compatibility assessment
+- [x] 3.1 Update PR #4911's title and description to match the three actual upgrades and document the compatibility assessment — 0e2535f8f
 
 ### Phase 4: Validate and finalize
 
