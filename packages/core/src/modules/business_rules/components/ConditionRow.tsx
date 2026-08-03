@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Select,
@@ -166,14 +166,17 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
       </div>
 
       {/* Delete Button */}
-      <button
+      <IconButton
         type="button"
         onClick={onDelete}
-        className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
+        variant="ghost"
+        size="xs"
+        className="hover:bg-destructive/10 hover:text-destructive"
         title={t('business_rules.components.conditionRow.deleteCondition')}
+        aria-label={t('business_rules.components.conditionRow.deleteCondition')}
       >
         <X className="w-4 h-4" />
-      </button>
+      </IconButton>
 
       {/* Error Display */}
       {error && (

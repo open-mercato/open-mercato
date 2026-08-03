@@ -1,6 +1,6 @@
 # Destructive Button Loudness Policy (`destructive` quiet, `destructive-solid` for the point of no return)
 
-> Status: **IMPLEMENTED — shipped with PR [#4652](https://github.com/open-mercato/open-mercato/pull/4652)**
+> Status: **IMPLEMENTED — pending merge; originated in PR [#4652](https://github.com/open-mercato/open-mercato/pull/4652)**
 > Refs: issue [open-mercato/open-mercato#4651](https://github.com/open-mercato/open-mercato/issues/4651)
 > Related: [`.ai/ds-rules.md`](../ds-rules.md) · [`.ai/ui-components.md`](../ui-components.md) · [`.ai/skills/om-ds-guardian/references/component-guide.md`](../skills/om-ds-guardian/references/component-guide.md)
 
@@ -29,7 +29,8 @@ that tells authors which is which:
   `dark:` overrides are removed from the destructive family.
 - `packages/ui/src/backend/confirm-dialog/ConfirmDialog.tsx` — maps `variant="destructive"` to
   `destructive-solid` for the confirm button.
-- Six point-of-no-return confirmations across `core`, `search`, and `wms` opt into `destructive-solid`.
+- Nine production point-of-no-return confirmations across `core`, `search`, and `ui` opt into
+  `destructive-solid`; the design-system dialog example demonstrates the same policy.
 - 49 status/validation call sites move from `text-destructive` to `text-status-error-text`.
 - `.ai/ds-rules.md`, `.ai/ui-components.md`, and the DS Guardian component guide record the policy.
 - `scripts/check-token-parity.mjs` gains a `--root` flag and a CI-executed test.
@@ -161,7 +162,7 @@ change.
 | # | Failure scenario | Severity | Affected area | Mitigation | Residual risk |
 |---|---|---|---|---|---|
 | 1 | A third-party module's final confirmation stays on `destructive` and renders quiet, so an irreversible action loses its visual weight. | Medium | Any module with hand-rolled confirm dialogs | This spec's migration section; the policy is documented in `ds-rules.md`, `ui-components.md`, and the DS Guardian component guide, which module authors' agents read. | Cannot be enforced across repos — a module that never reads the guidance keeps a quiet confirm. The action still requires an explicit click in a dialog with a title stating the consequence. |
-| 2 | An in-repo confirmation is missed during the audit and stays quiet. | Medium | Core/UI confirm dialogs | Full-repo audit of every `variant="destructive"` occurrence classified by dialog context; six point-of-no-return sites migrated; `ds-health-check.sh` reports the solid usage count for ongoing review. | A future new confirm dialog can be written on the quiet variant; only review catches it. |
+| 2 | An in-repo confirmation is missed during the audit and stays quiet. | Medium | Core/UI confirm dialogs | Full-repo audit of every `variant="destructive"` occurrence classified by dialog context; nine production point-of-no-return sites migrated and the design-system dialog example updated; `ds-health-check.sh` reports the solid usage count for ongoing review. | A future new confirm dialog can be written on the quiet variant; only review catches it. |
 | 3 | `destructive-solid` spreads back onto triggers, restoring the wall of red. | Low | Any module | The variant name states its scope; MUST NOT rules in `ui-components.md`; usage count reported by the DS health check. | Requires reviewer attention; not machine-enforced. |
 | 4 | The quiet treatment fails contrast in dark mode on an unusual surface. | Low | Theming | `scripts/check-token-parity.mjs` verifies WCAG ratios for every token pair in both themes and runs in CI. | The checker covers token pairs, not arbitrary custom surfaces a module paints underneath the button. |
 | 5 | A module relies on `text-destructive` for status copy and the split makes its UI inconsistent with core. | Low | Any module | Both tokens remain valid; migration is advisory and mechanical. | Cosmetic inconsistency only. |
@@ -180,4 +181,4 @@ change.
 
 ## Changelog
 
-- **2026-08-01** — Spec written to document the primitive behavior change requested in code review on PR #4652. Records the loudness policy, the status-vs-action token boundary, the enforcement guards, and the migration path for external module authors. Implementation shipped in the same PR: quiet `destructive` + additive `destructive-solid`, six point-of-no-return confirmations migrated, 49 status-copy call sites moved from `text-destructive` to `text-status-error-text`, `dark:` overrides dropped from the destructive family, and `check-token-parity.mjs` promoted from an advisory script to a CI-executed gate.
+- **2026-08-01** — Spec written to document the primitive behavior change requested in code review on PR #4652. Records the loudness policy, the status-vs-action token boundary, the enforcement guards, and the migration path for external module authors. Implementation prepared in the same change: quiet `destructive` + additive `destructive-solid`, nine production point-of-no-return confirmations migrated, the design-system dialog example updated, 49 status-copy call sites moved from `text-destructive` to `text-status-error-text`, `dark:` overrides dropped from the destructive family, and `check-token-parity.mjs` promoted from an advisory script to a CI-executed gate.
