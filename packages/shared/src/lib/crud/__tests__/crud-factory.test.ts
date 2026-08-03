@@ -492,6 +492,7 @@ describe('CRUD Factory', () => {
     const dynamicCsvRoute = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },
       orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
       list: {
         schema: querySchema,
         entityId: 'example.todo',
