@@ -47,6 +47,6 @@ findings). Each Progress row below maps 1:1 to a review finding.
 
 ### Phase 5: Verification and close-out
 
-- [ ] 5.1 Full validation gate (`.ai/agentic.config.json` `validation.commands`)
-- [ ] 5.2 `om-code-review` + breaking-change self-review, spec changelog refresh
+- [x] 5.1 Full validation gate (`.ai/agentic.config.json` `validation.commands`) — 6254fa9ed
+- [x] 5.2 `om-code-review` + breaking-change self-review, spec changelog refresh — pending push
 - [ ] 5.3 `om-auto-review-pr` autofix loop until clean
