@@ -1,0 +1,676 @@
+{
+  "version": 1,
+  "moduleId": "example",
+  "generatedNote": "Finite capability inventory for the canonical `example` reference module. Paths are app-root-relative and resolve identically in the monorepo app (apps/mercato/), the create-app template mirror (packages/create-app/template/), and an emitted standalone app. `readStatus` is derived: `readable` only when `referenceStatus` is `canonical` AND `coverageKind` is `example`. `sourcePaths` never contains `__tests__/**` or `__integration__/**` — those appear only under `integrationTestPaths` as repository-only evidence (scaffolding filters them out of emitted apps). No line anchors, no directory-only entries, no wildcards. Rows marked `qa-only` failed the reference-quality gate documented in ../README.md and carry an exact `qaOnlyReason`. This inventory covers only surfaces that exist TODAY; verified gaps land with their own slices.",
+  "capabilities": [
+    {
+      "capabilityId": "module.metadata",
+      "title": "Module metadata and auto-discovery entrypoint",
+      "description": "Minimal `ModuleInfo` export that makes the directory a discoverable module. Everything else in the module is found by file convention, not by registration in this file.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/index.ts"],
+      "integrationTestPaths": [],
+      "dependencyModules": [],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "module.acl-features",
+      "title": "ACL feature declarations with dependencies",
+      "description": "Declarative feature ids used by `requireFeatures` guards, including `dependsOn` chains so granting a manage feature implies its view feature.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/acl.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/acl-dependencies.test.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "module.setup-role-features",
+      "title": "Tenant setup and default role feature grants",
+      "description": "`ModuleSetupConfig` mapping built-in roles to wildcard feature grants applied during tenant initialization.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/setup.ts"],
+      "integrationTestPaths": [],
+      "dependencyModules": [],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "module.di-registration",
+      "title": "Module DI registrar",
+      "description": "`register(container)` entrypoint. Demonstrates registering payment-gateway, shipping-carrier, and inbound-webhook adapters plus provider descriptors from a module.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/di.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts"
+      ],
+      "dependencyModules": ["payment_gateways", "shipping_carriers", "webhooks"],
+      "ruleOwner": "om-integration-builder"
+    },
+    {
+      "capabilityId": "module.cli-command",
+      "title": "Module CLI command and seeding helper",
+      "description": "Module-owned CLI entrypoint that installs custom entities and seeds example Todos for a tenant/organization pair.",
+      "coverageKind": "example",
+      "referenceStatus": "qa-only",
+      "readStatus": "qa-only",
+      "qaOnlyReason": "Gate 4 (any shortcut): `installCustomEntitiesFromModules(em as any, cache, ...)` in `cli.ts` erases the `EntityManager` type on an ORM handle that is then used to mutate data. `EntityManager` is already imported in the same file and narrows without `any`.",
+      "sourcePaths": ["src/modules/example/cli.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-011.spec.ts"],
+      "dependencyModules": ["entities"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "module.i18n-catalogs",
+      "title": "Module locale catalogs",
+      "description": "Per-module translation catalogs consumed by `useT()` on the client and `resolveTranslations()` on the server. Every user-facing string in the module resolves through a key defined here.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/i18n/en.json",
+        "src/modules/example/i18n/de.json",
+        "src/modules/example/i18n/es.json",
+        "src/modules/example/i18n/pl.json"
+      ],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-APP-001-metadata.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "data.entities",
+      "title": "MikroORM entities with tenant/organization columns",
+      "description": "Module-owned entities using UUID primary keys, snake_case columns, `created_at`/`updated_at`/`deleted_at`, and explicit `tenant_id`/`organization_id` scope columns. No cross-module ORM relationships.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/data/entities.ts"],
+      "integrationTestPaths": [],
+      "dependencyModules": [],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "data.validators",
+      "title": "Zod validators and inferred types",
+      "description": "Create/update/list schemas in `data/validators.ts` with types derived via `z.infer`, including a shared enum schema reused across create, update, and list contracts.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/data/validators.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/todo-priority-validation.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "data.custom-fields",
+      "title": "Custom entities and custom field definitions (`ce.ts`)",
+      "description": "Declarative `CustomEntitySpec` / `CustomFieldDefinition` set covering integer, select, boolean, multi-text tags, markdown multiline, dynamic `optionsUrl`, listbox input, attachments, defaults, and validation rules.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/ce.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "dependencyModules": ["entities"],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "data.migrations",
+      "title": "Module migrations and ORM snapshot",
+      "description": "Generated SQL migrations plus the module-scoped `.snapshot-open-mercato.json` that `yarn db:generate` diffs against. Copy the workflow, never the files.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/migrations/Migration20251030150038.ts",
+        "src/modules/example/migrations/Migration20260226161000_example.ts",
+        "src/modules/example/migrations/.snapshot-open-mercato.json"
+      ],
+      "integrationTestPaths": [],
+      "dependencyModules": [],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "api.crud-factory",
+      "title": "CRUD route via `makeCrudRoute`",
+      "description": "Smallest complete `makeCrudRoute` slice: per-method ACL metadata, ORM binding with org/tenant/soft-delete fields, list schema and sort map, `mapToEntity`/`applyToEntity`, soft delete, and scoped cross-module cache invalidation in `afterCreate`/`afterUpdate`/`afterDelete`.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/api/customer-priorities/route.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-021.spec.ts"
+      ],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "api.crud-query-engine-custom-fields",
+      "title": "CRUD list through the Query Engine with dynamic custom fields and CSV export",
+      "description": "Todo list route: query-engine field selectors, `cf:*` custom-field projection and filtering, per-request custom-field definition discovery in `beforeList`, command-backed create/update/delete actions, and CSV export configuration.",
+      "coverageKind": "example",
+      "referenceStatus": "qa-only",
+      "readStatus": "qa-only",
+      "qaOnlyReason": "Gate 4 (any shortcut): file-scope `/* eslint-disable @typescript-eslint/no-explicit-any */` with ~25 `any` uses, including `(ctx.container.resolve('em') as any)` and `(em as any).getKysely()` reaching the ORM and raw SQL builder. Gate 1 (scoping): `beforeList` mutates the module-scoped `dynamicCfKeys` and `sortFieldMapRef` from tenant/organization-scoped `CustomFieldDef` rows, and `transformItem`/`sortFieldMap` read them back on later requests, so one tenant's custom-field key set bleeds into another tenant's projection and sort map. `listFields` is also reassigned after `makeCrudRoute` captured it, so that reassignment is dead code.",
+      "sourcePaths": ["src/modules/example/api/todos/route.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
+      "dependencyModules": ["entities", "query_index"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "api.openapi",
+      "title": "OpenAPI specs for module routes",
+      "description": "Module-local OpenAPI factory built on the shared CRUD OpenAPI helpers: shared error/ok/created schemas, paged list response schema, and per-resource create/update/delete documentation.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/api/openapi.ts"],
+      "integrationTestPaths": [],
+      "dependencyModules": [],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "api.custom-route",
+      "title": "Hand-written (non-CRUD) API route",
+      "description": "Custom `GET` handler that builds its own request container, reads auth from cookies, and queries the directory module through the Query Engine.",
+      "coverageKind": "example",
+      "referenceStatus": "qa-only",
+      "readStatus": "qa-only",
+      "qaOnlyReason": "Gate 4 (any shortcut): `res.items.map((org: any) => ...)` erases the query-engine result type at the point where response data is shaped. Additionally uses raw `new Response(JSON.stringify(...))` and raw `console.error` instead of the shared response/logging helpers.",
+      "sourcePaths": ["src/modules/example/api/organizations/route.ts"],
+      "integrationTestPaths": [],
+      "dependencyModules": ["directory"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "api.option-source-routes",
+      "title": "Dynamic option sources for custom fields (`optionsUrl`)",
+      "description": "Routes backing the `optionsUrl` of the `labels` (tags) and `assignee` (listbox) custom fields declared in `ce.ts`.",
+      "coverageKind": "example",
+      "referenceStatus": "qa-only",
+      "readStatus": "qa-only",
+      "qaOnlyReason": "Gate 2 (raw json().catch): `api/notifications/route.ts` and `api/assignees/route.ts` both read bodies with `await request.json().catch(() => ({}))` instead of `readJsonSafe`. Gate 4 (any shortcut): `api/tags/route.ts` uses `resolve('em') as any` and `(r as any).valueText` to reach ORM rows and their columns.",
+      "sourcePaths": [
+        "src/modules/example/api/tags/route.ts",
+        "src/modules/example/api/assignees/route.ts",
+        "src/modules/example/api/notifications/route.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/api/__tests__/tags.tenant-scope.test.ts"],
+      "dependencyModules": ["entities"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "api.interceptors",
+      "title": "API route interceptors (before/after, body and query rewrite)",
+      "description": "Exact-route and wildcard `targetRoute` interceptors covering request rejection, timeout handling, thrown-error handling, query rewriting, cross-module query narrowing to `?ids=`, and `after` response merging via shared metadata.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/api/interceptors.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "commands.write",
+      "title": "Command-mediated create/update/delete",
+      "description": "Registered command handlers with Zod parsing, custom-field extraction, `ensureScope` tenant/organization enforcement, `prepare` snapshots, CRUD side effects, and a fork-isolated native update that avoids flushing unrelated request-scoped state.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/commands/todos.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/commands/__tests__/todos.update.test.ts",
+        "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "commands.undo-redo",
+      "title": "Undo, redo, and audit log snapshots",
+      "description": "`isUndoable` handlers with `captureAfter`, translated `buildLog` audit entries, `buildChanges` diffs including custom fields, scope-validating `resolveUndoScope`, and `makeCreateRedo` for redo support.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/commands/todos.ts"],
+      "integrationTestPaths": ["src/modules/example/commands/__tests__/todos.undo.test.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "commands.interceptors",
+      "title": "Command interceptors (beforeExecute / afterExecute)",
+      "description": "Pattern-targeted command interceptor that passes state from `beforeExecute` to `afterExecute` through the interceptor metadata bag.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/commands/interceptors.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "events.typed-definitions",
+      "title": "Typed module events with `createModuleEvents`",
+      "description": "`as const` event table producing a typed emitter and a union of emittable event ids, including `clientBroadcast: true` for DOM Event Bridge delivery.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/events.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-003.spec.ts"],
+      "dependencyModules": ["events"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "events.crud-indexer-bridge",
+      "title": "CRUD event and query-index payload configuration",
+      "description": "`CrudEventsConfig` and `CrudIndexerConfig` exported from the command module and reused by both the command handlers and the CRUD route, so events and index upserts stay consistent across entrypoints.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/commands/todos.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts"],
+      "dependencyModules": ["query_index", "events"],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "events.sync-subscribers",
+      "title": "Synchronous before/after CRUD subscribers",
+      "description": "Three sync subscriber shapes: payload rewriting before create, rejection with a status code before update, and a non-blocking after-delete handler.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/subscribers/auto-default-priority.ts",
+        "src/modules/example/subscribers/prevent-uncomplete.ts",
+        "src/modules/example/subscribers/audit-delete.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"],
+      "dependencyModules": ["events"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "events.ephemeral-subscriber",
+      "title": "Ephemeral (non-persistent) event subscriber",
+      "description": "Minimal `persistent: false` subscriber that resolves a service from the DI context.",
+      "coverageKind": "example",
+      "referenceStatus": "qa-only",
+      "readStatus": "qa-only",
+      "qaOnlyReason": "Gate 4 (any shortcut): the exported handler signature is `(payload: any, ctx: { resolve: <T=any>(name: string) => T })`, so both the event payload and every resolved service are untyped at the module's public boundary.",
+      "sourcePaths": ["src/modules/example/subscribers/example-event.ts"],
+      "integrationTestPaths": [],
+      "dependencyModules": ["events"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "ui.page-shell",
+      "title": "Backend page shell and page metadata",
+      "description": "Server-rendered `Page`/`PageHeader`/`PageBody` shells plus `page.meta.ts` declarative guards, navigation group/order, icon token, and breadcrumb with `labelKey` fallbacks.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/backend/todos/page.tsx",
+        "src/modules/example/backend/todos/page.meta.ts",
+        "src/modules/example/backend/page.tsx",
+        "src/modules/example/backend/page.meta.ts"
+      ],
+      "integrationTestPaths": [],
+      "dependencyModules": [],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "ui.datatable",
+      "title": "DataTable list page with export and row actions",
+      "description": "Client island rendering `DataTable`: translated columns, `BooleanIcon`/`EnumBadge` value renderers, custom-field column visibility, `fetchCrudList` data loading, view and full export configs, `RowActions` with a confirm dialog, flash messages, and pagination.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/components/TodosTable.tsx",
+        "src/modules/example/types.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "title": "DataTable perspectives, filters, and organization scope",
+      "description": "The `perspective={{ tableId }}` binding, `filters`/`filterValues`/`onFiltersApply`/`onFiltersClear` wiring, server-side query param mapping for checkbox and dateRange filters, and `useOrganizationScopeVersion` cache keying.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/components/TodosTable.tsx"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "title": "CrudForm create page",
+      "description": "`CrudForm` with memoized translated fields, two-column groups, a `customFields` group that renders `ce.ts` definitions, a custom component group, `createCrud` submission, and a flash-carrying success redirect.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/backend/todos/create/page.tsx",
+        "src/modules/example/backend/todos/create/page.meta.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "title": "CrudForm edit page with load, delete, and not-found states",
+      "description": "Scoped detail load through `fetchCrudList`, custom-field initial values via `extractCustomFieldEntries`, `RecordNotFoundState`/`ErrorMessage`, group-level `setValue` actions, `updateCrud`/`deleteCrud`, and `pushWithFlash` navigation.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/backend/todos/[id]/edit/page.tsx",
+        "src/modules/example/backend/todos/[id]/edit/page.meta.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "ui.frontend-page",
+      "title": "Public (non-backend) module page",
+      "description": "Minimal storefront-side page proving that a module can own routes outside `/backend` while still resolving translations.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/frontend/example.tsx"],
+      "integrationTestPaths": [],
+      "dependencyModules": [],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "umes.mutation-guard",
+      "title": "Mutation guard",
+      "description": "`MutationGuard` bound to an entity kind and operation set, returning an `{ ok: false, message, status }` rejection that the shared guard bridge turns into an HTTP error.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/data/guards.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.response-enricher",
+      "title": "Response enricher for another module's API",
+      "description": "`ResponseEnricher` adding a namespaced `_example` block to `customers.person` list and detail responses, with `enrichMany` batching, a `fallback` value, a timeout, and an explicit `cacheableOnListHit: false` decision.",
+      "coverageKind": "example",
+      "referenceStatus": "qa-only",
+      "readStatus": "qa-only",
+      "qaOnlyReason": "Gate 4 (any shortcut): both `enrichOne` and `enrichMany` open their ORM handle with `(context.em as any).fork()`. `EnricherContext.em` is typed `unknown` precisely so consumers narrow it — `as EntityManager` works here, and `as any` additionally erases the types of every subsequent `em.find` call.",
+      "sourcePaths": ["src/modules/example/data/enrichers.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-002.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-012.spec.ts"
+      ],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection-table",
+      "title": "Widget injection table (spot id to widget id mapping)",
+      "description": "`ModuleInjectionTable` mapping every supported spot-id shape — portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menu spots, detail spots, tab groups, and a nested widget addon spot — to widget ids, with cross-module entries kept behind an env flag.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/widgets/injection-table.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/widgets/__tests__/injection-table.test.ts",
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts"
+      ],
+      "dependencyModules": ["customers", "catalog", "sales", "customer_accounts"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection.crud-form-field",
+      "title": "Headless CrudForm field injection with a save handler",
+      "description": "`InjectionFieldWidget` contributing a select field into another module's CrudForm, plus an `onSave` event handler that upserts the value through the contributing module's own API.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-field/widget.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection.datatable-column",
+      "title": "Headless DataTable column injection",
+      "description": "`InjectionColumnWidget` adding a column that reads the enricher-provided `_example.priority` accessor path from another module's list response.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-column/widget.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection.datatable-filter",
+      "title": "Headless DataTable filter injection",
+      "description": "`InjectionFilterWidget` contributing a server-strategy select filter whose `queryParam` is consumed by the module's own API interceptor to narrow the host query.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-filter/widget.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection.datatable-row-action",
+      "title": "Headless DataTable row-action injection with placement",
+      "description": "`InjectionRowActionWidget` using `InjectionPosition` relative placement and a defensively narrowed navigate callback from the host context.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-row-action/widget.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection.datatable-bulk-action",
+      "title": "Headless DataTable bulk-action injection",
+      "description": "`InjectionBulkActionWidget` operating on selected rows and returning `{ ok, affectedCount }` to the host table. This is the currently shipped bulk-action reference; it is synchronous and does not return a `progressJobId`.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection.menu-items",
+      "title": "Menu item injection into sidebar and profile dropdown",
+      "description": "`InjectionMenuItemWidget` entries with `labelKey`, icon token, `features` gating, group assignment, and `InjectionPosition` placement (`Last`, and `Before` a named anchor item).",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/example-menus/widget.ts",
+        "src/modules/example/widgets/injection/example-profile-menu/widget.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-003.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "umes.injection.rendered-widget",
+      "title": "Rendered injection widget with a guarded mutation",
+      "description": "Data-only `widget.ts` registration plus a focused client leaf: `readApiResultOrThrow` load, `useGuardedMutation().runMutation` write, DS primitives, semantic tokens, translated loading/saving/error states, and effect cleanup.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
+        "src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx"
+      ],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "umes.component-replacement",
+      "title": "Component replacement and wrapping (`widgets/components.ts`)",
+      "description": "`ComponentOverride` entries targeting `ComponentReplacementHandles.section(...)` handles in the `wrapper` mode.",
+      "coverageKind": "example",
+      "referenceStatus": "qa-only",
+      "readStatus": "qa-only",
+      "qaOnlyReason": "Gate 3 (hard-coded status colors): the wrapper class names use raw Tailwind palette shades — `border-amber-300 bg-amber-50/40` and `border-blue-300 bg-blue-50/40` — instead of semantic/status tokens. The file also only demonstrates the `wrapper` mode (`replace` and `props` are absent) and exports a conditionally spread array, so static fact extraction cannot read its entries.",
+      "sourcePaths": ["src/modules/example/widgets/components.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/widgets/__tests__/components.test.ts",
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "ui.dashboard-widget",
+      "title": "Dashboard widget with typed settings",
+      "description": "`DashboardWidgetModule` with metadata, feature gating, default size/enabled state, a lazily loaded client component, and a `hydrateSettings`/`dehydrateSettings` pair that clamps persisted user settings back into range.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/widgets/dashboard/todos/widget.ts",
+        "src/modules/example/widgets/dashboard/todos/config.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/widgets/dashboard/__tests__/config.test.ts"],
+      "dependencyModules": ["dashboards"],
+      "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "notifications.type",
+      "title": "In-app notification type declaration",
+      "description": "`NotificationTypeDefinition` with translation keys for title/body, severity, icon token, actions with variants and hrefs, a primary action id, and an expiry window.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/notifications.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-008.spec.ts"],
+      "dependencyModules": ["notifications"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "notifications.reactive-handler",
+      "title": "Reactive notification handler",
+      "description": "`NotificationHandler` bound to a notification type, feature-gated, raising a toast and re-emitting a DOM event so other client code can react.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/notifications.handlers.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-008.spec.ts"],
+      "dependencyModules": ["notifications"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "messages.object-type",
+      "title": "Message object type registration and server-side preview",
+      "description": "`MessageObjectTypeDefinition` binding an entity to the messages module, plus a server-only preview loader that uses `findOneWithDecryption` with explicit tenant/organization scope and translated fallbacks.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/message-objects.ts",
+        "src/modules/example/lib/messageObjectPreviews.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-003.spec.ts"],
+      "dependencyModules": ["messages"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "integrations.mock-adapters",
+      "title": "Mock payment, shipping, and inbound-webhook adapters",
+      "description": "Credential-free adapters implementing the gateway, carrier, and webhook-endpoint contracts, including signature verification. Use them to understand adapter shape; production providers live in their own npm workspace packages.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/lib/mock-gateway-adapter.ts",
+        "src/modules/example/lib/mock-shipping-adapter.ts",
+        "src/modules/example/lib/mock-webhook-endpoint-adapter.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/lib/__tests__/mock-gateway-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-shipping-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-webhook-endpoint-adapter.test.ts",
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts"
+      ],
+      "dependencyModules": ["payment_gateways", "shipping_carriers", "webhooks"],
+      "ruleOwner": "om-integration-builder"
+    },
+    {
+      "capabilityId": "overrides.unified-registry",
+      "title": "Unified module overrides in the app registry",
+      "description": "Typed, inactive `entry.overrides` examples for every wired override domain (routes, events, workers, widgets, notifications, interceptors, command interceptors, enrichers, guards, cli, setup, acl, di, encryption, nav). Lives in the app registry, not in the module.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules.ts"],
+      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "testing.integration-coverage",
+      "title": "Module integration and unit coverage",
+      "description": "Repository-only Playwright and unit suites for the module. Standalone scaffolding filters `__tests__/**` and `__integration__/**` out of emitted apps, so these are evidence paths, never readable emitted source. Follow the testing guide for how to write your own.",
+      "coverageKind": "specialist-route",
+      "referenceStatus": "canonical",
+      "readStatus": "qa-only",
+      "sourcePaths": [],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/meta.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-002.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-003.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-012.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts",
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts",
+        "src/modules/example/__tests__/acl-dependencies.test.ts",
+        "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
+        "src/modules/example/widgets/__tests__/injection-table.test.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-integration-tests"
+    }
+  ]
+}

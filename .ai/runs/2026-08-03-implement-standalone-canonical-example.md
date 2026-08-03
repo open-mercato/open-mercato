@@ -48,10 +48,10 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 |---|---|---|---|---|
 | 1 | Housekeeping: remove the leaked "do not commit" date-picker demo block (and its invalid `git checkout --` recovery hint) from `example/backend/page.tsx`; correct stale spec baselines | CANON-A1.1 | done | — |
 | 2 | Fix live cross-tenant leak in `example/api/tags/route.ts` (missing `tenantId` predicate) | CANON-A1 reference-quality | done | — |
-| 3 | Add `template-example-module-parity.test.ts` (sorted paths + SHA-256) + `repo-wide-guards.mjs` exception | CANON-A1.2 | pending | — |
-| 4 | Add `example/README.md`, `references/surface-map.md`, `references/surface-inventory.json` (existing-surface rows) + mirror | CANON-A1.3 | pending | — |
-| 5 | `TEMPLATE_CONTENT_TRANSFORMS` entry for `src/modules.ts`; drop `empty.files.remove`; remove `example` + `design_system` from template registry | CANON-A2.1 | pending | — |
-| 6 | Flip preset assertions; add preset-matrix test (source-present / registration-absent / no dead nav) | CANON-A2.2 | pending | — |
+| 3 | Add `template-example-module-parity.test.ts` (sorted paths + SHA-256) + `repo-wide-guards.mjs` exception | CANON-A1.2 | done | — |
+| 4 | Add `example/README.md`, `references/surface-map.md`, `references/surface-inventory.json` (existing-surface rows) + mirror | CANON-A1.3 | done | — |
+| 5 | `TEMPLATE_CONTENT_TRANSFORMS` entry for `src/modules.ts`; drop `empty.files.remove`; remove `example` + `design_system` from template registry | CANON-A2.1 | done | — |
+| 6 | Flip preset assertions; add preset-matrix test (source-present / registration-absent / no dead nav) | CANON-A2.2 | done | — |
 | 7 | Activation fixtures: `{ id: 'example', from: '@app' }` and `{ id: 'design_system', from: '@open-mercato/core' }` | CANON-A2.3 | pending | — |
 | 8 | Spec-first routing rule in emitted `AGENTS.md` + planning-skill handoff (resolve instruction-budget headroom first) | SPEC-P1 | pending | — |
 | 9 | `exampleRoots` / `installedVersionFallback` / `sourceReferenceIds` case-schema fields + evaluator + oracle fixtures | READ-P1a | pending | — |
@@ -63,6 +63,8 @@ Each row keeps its dependency edge so a follow-up run can start immediately.
 
 | Deferred work | Depends on | Why deferred |
 |---|---|---|
+| **Fix cross-request tenant bleed in `example/api/todos/route.ts`** (see audit finding above), then flip `api.crud-query-engine-custom-fields` to `canonical` and move `api.crud-factory` back to the Todo route | — | **Highest-priority follow-up.** Changes request-scoped state handling in a live custom-field route; needs its own review and regression coverage. |
+| Remediate the other 8 qa-only files so their inventory rows become `readable` | — | Mechanical but per-file; each flip needs the audit re-run. |
 | CANON-B gap slices: encryption, search, translations, `notifications.client.ts`, `data/extensions.ts`, `extension-points.ts` | Task 4 (inventory rows) | 6 independent vertical slices, each with its own integration test. |
 | CANON-B: complete optimistic locking; shared Todo form extraction | Task 4 | `beforeList` at `api/todos/route.ts` drops columns; needs its own review. |
 | CANON-B: cache + rich DI; setup seeding | Task 4 | Uses DI token `'cache'` (**not** `'cacheService'` as `packages/cache/AGENTS.md` claims — Boy-Scout fix needed). |
@@ -80,6 +82,34 @@ Each row keeps its dependency edge so a follow-up run can start immediately.
 | READ-P2: reason-gated `installedVersionFallback` + redaction fixtures | Task 9 | — |
 | GOV-P1/P2: `knowledge-change.schema.json`, validator/controller, 9 mandatory workflow steps | CANON-C source-link-inventory | Validator consumes the inventory; needs a real knowledge-contract change to exercise. |
 | SPEC-P2: 6 routing cases + 2 writable ordering proofs | Task 8, Task 9 | — |
+
+## Findings From the Reference-Quality Audit (Task 4)
+
+The inventory audit opened every file it was asked to mark `canonical`. **7 capability rows covering
+9 files failed the bar** and carry `referenceStatus: "qa-only"` + `readStatus: "qa-only"` + a
+`qaOnlyReason` naming the exact defect, so the harness cannot read them until they are remediated.
+
+The most serious finding is a **second live tenant-isolation defect**, distinct from the one fixed in
+Task 2 and not yet fixed:
+
+> `apps/mercato/src/modules/example/api/todos/route.ts` — `beforeList` writes module-scoped
+> `dynamicCfKeys` / `sortFieldMapRef` from tenant- and organization-scoped `CustomFieldDef` rows, and
+> `transformItem` / `sortFieldMap` read them back on *later* requests. One tenant's custom-field key
+> set therefore bleeds into another tenant's projection and sort map. `listFields` is also reassigned
+> after `makeCrudRoute` already captured it, so that reassignment is dead code.
+
+This is the file the canonical spec designates as the CRUD reference target. It is deliberately **not**
+fixed in this PR: the fix changes request-scoped state handling in a route with live custom-field
+behavior and needs its own review and regression coverage. It is tracked as the first row of the
+deferred backlog. Until then `api.crud-factory` points at `api/customer-priorities/route.ts` — a fully
+clean `makeCrudRoute` with scoped ORM binding, sort map, soft delete, and cross-module cache
+invalidation — which the spec's "point to a safer exact file" allowance permits.
+
+Remaining qa-only defects: `data/enrichers.ts` (`(context.em as any).fork()` erasing a deliberately
+`unknown` type), `widgets/components.ts` (raw `amber`/`blue` palette shades instead of status tokens),
+`cli.ts` (`em as any` on a data-mutating ORM handle), `api/organizations/route.ts` (`any` at response
+shaping, raw `Response`, raw `console.error`), `api/assignees/route.ts` + `api/notifications/route.ts`
+(raw `.json().catch(...)`), `subscribers/example-event.ts` (`any` in the exported handler signature).
 
 ## Corrections to the Reconnaissance Itself
 

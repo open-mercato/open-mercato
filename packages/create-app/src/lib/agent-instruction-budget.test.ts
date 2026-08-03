@@ -10,7 +10,9 @@ import { generateShared, injectModuleGuides, readEnabledModuleIds } from '../set
 const CREATE_APP_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const CODEX_DEFAULT_PROJECT_DOC_BYTES = 32 * 1024
 const STANDALONE_ROOT_TARGET_BYTES = 12 * 1024
-const CLASSIC_APP_ONLY_MODULES = new Set(['example', 'ratelimit_probe'])
+// `example` is no longer listed here: the classic scaffold ships its source but keeps
+// it unregistered in src/modules.ts, so it never reaches the enabled-module fact index.
+const CLASSIC_APP_ONLY_MODULES = new Set(['ratelimit_probe'])
 
 const ROOT_SOURCES = [
   'template/AGENTS.md',
@@ -142,7 +144,11 @@ test('generated classic Codex root and representative initial chains fit their b
     const classicFactModules = readEnabledModuleIds(path.join(targetDir, 'src', 'modules.ts'))
       .filter((moduleId) => !CLASSIC_APP_ONLY_MODULES.has(moduleId))
       .sort()
-    assert.equal(classicFactModules.length, 49, 'classic scaffold fact index changed; review its root budget')
+    // 48 = every statically enabled scaffold module minus the app-only ratelimit probe.
+    // `example` and `design_system` ship as source but stay unregistered, so neither is indexed.
+    assert.equal(classicFactModules.length, 48, 'classic scaffold fact index changed; review its root budget')
+    assert.ok(!classicFactModules.includes('example'))
+    assert.ok(!classicFactModules.includes('design_system'))
     injectModuleGuides(path.join(targetDir, 'AGENTS.md'), classicFactModules)
     generateCodex(config)
 
