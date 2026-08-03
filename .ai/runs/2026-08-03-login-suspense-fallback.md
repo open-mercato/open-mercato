@@ -48,8 +48,10 @@
 
 - [x] 2.1 Add an upstream create-app unit test that locks monorepo/template login-route parity — ab5a27fec
 - [x] Post-validation fix: isolate localized storage route tests from the global module registry — 7a998e24a
-- [ ] 2.2 Run targeted tests, the configured validation gate, design-system review, compatibility review, and automated PR review
-- [ ] 2.3 Open a superseding PR with explicit credit to @tomaioo and link/close #4368 after the replacement is ready
+- [x] 2.2 Run targeted tests, the configured validation gate, design-system review, compatibility review, and automated PR review — 875a03648
+- [x] 2.3 Open a superseding PR with explicit credit to @tomaioo and link/close #4368 after the replacement is ready — PR #4920
+
+PR: #4920
 
 ## Validation Notes
 
