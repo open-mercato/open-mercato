@@ -125,8 +125,6 @@ Load facts for every named/targeted module, not incidental use. Mechanisms: even
 3. Implement the smallest complete slice through real call sites.
 4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
 
-## i18n
+Locales: en, pl, es, de, ko in `src/i18n/{locale}.json`.
 
-Translation files live in `src/i18n/{locale}.json`. Supported locales are `en`, `pl`, `es`, `de`, and `ko`.
-
-Precedence: root → BC → installed `AGENTS.md` → facts; stop on skew/conflict; never guess.
+Order: root → BC → installed rules → facts; stop on conflict.
