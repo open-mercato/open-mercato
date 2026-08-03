@@ -54,4 +54,4 @@ Replace the oversized monolithic lessons document with a context-efficient catal
 
 - [x] 2.1 Update monorepo and standalone agent instructions plus the two harness-evolution skills to route through the tagged catalog and write one focused lesson record. — f969b82eb
 - [x] 2.2 Update standalone lesson templates and both harness ownership-manifest producers so nested lesson files are emitted and preserved as user-editable, with parity tests. — f969b82eb
-- [ ] 2.3 Update the standalone harness design documentation and run the scoped and configured validation gates.
+- [x] 2.3 Update the standalone harness design documentation and run the scoped and configured validation gates. — f969b82eb, 3200169c5
