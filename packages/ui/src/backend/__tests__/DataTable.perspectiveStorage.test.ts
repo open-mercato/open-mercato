@@ -1,7 +1,8 @@
 /** @jest-environment jsdom */
-import { readPerspectiveSnapshot, writePerspectiveSnapshot } from '../DataTable'
+import { clearAllPerspectiveState, readPerspectiveSnapshot, writePerspectiveSnapshot } from '../DataTable'
 
 const PREFIX = 'om_table_perspective_snapshot'
+const COOKIE_PREFIX = 'om_table_perspective'
 
 describe('DataTable perspective snapshot storage (versioned envelope)', () => {
   beforeEach(() => {
@@ -15,6 +16,16 @@ describe('DataTable perspective snapshot storage (versioned envelope)', () => {
     expect(stored.v).toBe(1)
     expect(stored.data).toEqual(snapshot)
     expect(readPerspectiveSnapshot('tbl')).toEqual(snapshot)
+  })
+
+  it('round-trips user column widths (columnSizing) through the snapshot (#1835)', () => {
+    const snapshot = {
+      perspectiveId: 'p1',
+      settings: { columnOrder: ['a', 'b'], columnSizing: { a: 240, b: 120 } },
+      updatedAt: 456,
+    }
+    writePerspectiveSnapshot('tbl-sizing', snapshot)
+    expect(readPerspectiveSnapshot('tbl-sizing')).toEqual(snapshot)
   })
 
   it('migrates a legacy bare (pre-envelope) snapshot on read', () => {
@@ -40,5 +51,65 @@ describe('DataTable perspective snapshot storage (versioned envelope)', () => {
     writePerspectiveSnapshot('tbl5', { perspectiveId: null, settings: { columnOrder: ['z'] }, updatedAt: 1 })
     writePerspectiveSnapshot('tbl5', null)
     expect(localStorage.getItem(`${PREFIX}:tbl5`)).toBeNull()
+  })
+})
+
+describe('clearAllPerspectiveState (tenant-isolation at the auth identity boundary, #4185)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    for (const cookie of document.cookie ? document.cookie.split(';') : []) {
+      const name = cookie.split('=')[0]?.trim()
+      if (name) document.cookie = `${name}=; Path=/; Max-Age=0`
+    }
+  })
+
+  it('removes every perspective snapshot across all tables', () => {
+    writePerspectiveSnapshot('customers-companies', {
+      perspectiveId: null,
+      settings: { columnSizing: { name: 210, status: 60 } },
+      updatedAt: 1,
+    })
+    writePerspectiveSnapshot('customers-people', {
+      perspectiveId: null,
+      settings: { columnSizing: { name: 300 } },
+      updatedAt: 2,
+    })
+
+    clearAllPerspectiveState()
+
+    expect(localStorage.getItem(`${PREFIX}:customers-companies`)).toBeNull()
+    expect(localStorage.getItem(`${PREFIX}:customers-people`)).toBeNull()
+    expect(readPerspectiveSnapshot('customers-companies')).toBeNull()
+    expect(readPerspectiveSnapshot('customers-people')).toBeNull()
+  })
+
+  it('leaves unrelated localStorage keys untouched', () => {
+    writePerspectiveSnapshot('customers-companies', {
+      perspectiveId: null,
+      settings: { columnSizing: { name: 210 } },
+      updatedAt: 1,
+    })
+    localStorage.setItem('om_login_tenant', 'acme')
+    localStorage.setItem('om:auth:identity', '123')
+
+    clearAllPerspectiveState()
+
+    expect(localStorage.getItem(`${PREFIX}:customers-companies`)).toBeNull()
+    expect(localStorage.getItem('om_login_tenant')).toBe('acme')
+    expect(localStorage.getItem('om:auth:identity')).toBe('123')
+  })
+
+  it('expires the active-view perspective cookies', () => {
+    document.cookie = `${COOKIE_PREFIX}:customers-companies=view-1; Path=/`
+    expect(document.cookie).toContain(`${COOKIE_PREFIX}:customers-companies=view-1`)
+
+    clearAllPerspectiveState()
+
+    expect(document.cookie).not.toContain(`${COOKIE_PREFIX}:customers-companies`)
+  })
+
+  it('is a no-op when nothing is stored', () => {
+    expect(() => clearAllPerspectiveState()).not.toThrow()
+    expect(localStorage.length).toBe(0)
   })
 })

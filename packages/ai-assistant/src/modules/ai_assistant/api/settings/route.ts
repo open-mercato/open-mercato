@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
@@ -6,6 +7,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { findApiKeyBySecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import {
@@ -15,6 +17,7 @@ import {
   isOpenCodeProviderConfigured,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
+import { resolveModerationPolicy } from '../../lib/moderation-policy'
 import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
 import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
@@ -57,6 +60,9 @@ const runtimeOverrideUpsertSchema = z.object({
   allowedOverrideModelsByProvider: z
     .record(z.string().min(1).max(64), z.array(z.string().min(1).max(256)))
     .optional(),
+  // Input moderation override: true = on, false = off, null = inherit.
+  // Spec 2026-06-04-ai-input-moderation-and-safety-identifiers.
+  inputModeration: z.boolean().nullable().optional(),
 })
 
 const runtimeOverrideClearSchema = z.object({
@@ -170,8 +176,26 @@ export async function GET(req: NextRequest) {
         ? getOpenCodeProviderConfiguredEnvKey(fallbackOpenCodeProviderId)
         : null
 
-    // Check if MCP_SERVER_API_KEY is configured (required for MCP authentication)
-    const mcpKeyConfigured = !!process.env.MCP_SERVER_API_KEY?.trim()
+    // Check if the MCP API key is configured (required for MCP authentication):
+    // either directly via MCP_SERVER_API_KEY or via the shared key file that
+    // the containerized mcp service provisions (MCP_SERVER_API_KEY_FILE).
+    // The file variant is validated against the api_keys table — the file
+    // outlives DB resets and key deletion, so mere existence would report a
+    // green badge while OpenCode -> MCP auth is actually broken.
+    const mcpKeyFilePath = process.env.MCP_SERVER_API_KEY_FILE?.trim()
+    let mcpKeyConfigured = !!process.env.MCP_SERVER_API_KEY?.trim()
+    if (!mcpKeyConfigured && mcpKeyFilePath && existsSync(mcpKeyFilePath)) {
+      try {
+        const fileSecret = readFileSync(mcpKeyFilePath, 'utf8').trim()
+        if (fileSecret.startsWith('omk_')) {
+          const keyContainer = await createRequestContainer()
+          const keyEm = keyContainer.resolve<EntityManager>('em')
+          mcpKeyConfigured = !!(await findApiKeyBySecret(keyEm, fileSecret))
+        }
+      } catch {
+        mcpKeyConfigured = false
+      }
+    }
 
     // Phase 4a: resolve tenant override row and per-agent resolution matrix
     let tenantOverride: {
@@ -228,6 +252,7 @@ export async function GET(req: NextRequest) {
         const em = container.resolve<EntityManager>('em')
         const repo = new AiAgentRuntimeOverrideRepository(em)
         const overrideRow = await repo.getDefault({ tenantId, organizationId, agentId: null })
+        const tenantWideInputModeration = overrideRow?.inputModeration ?? null
         if (overrideRow) {
           tenantOverride = {
             providerId: overrideRow.providerId ?? null,
@@ -343,6 +368,20 @@ export async function GET(req: NextRequest) {
             modelId: agentResolution.modelId,
             baseURL: agentResolution.baseURL ?? null,
             source: agentResolution.source,
+            moderation: {
+              // `untrustedInput` agents enforce moderation; the UI renders a
+              // non-editable "Enforced" badge for them.
+              enforced: agent.untrustedInput === true,
+              // Per-agent control value: null = inherit, true = on, false = off.
+              override: agentOverrideRow?.inputModeration ?? null,
+              // Resolved runtime policy (enforced | on | off) after precedence.
+              effective: resolveModerationPolicy({
+                untrustedInput: agent.untrustedInput,
+                perAgentOverride: agentOverrideRow?.inputModeration ?? null,
+                tenantWideOverride: tenantWideInputModeration,
+                env,
+              }),
+            },
           }
         })
         agentResolutions = await Promise.all(agentResolutionPromises)
@@ -671,11 +710,11 @@ export async function PUT(req: NextRequest) {
   try {
     const container = await createRequestContainer()
     const rbacService = container.resolve<RbacService>('rbacService')
-    const acl = await rbacService.loadAcl(auth.sub, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-    })
-    const canManage = acl.isSuperAdmin || acl.features.includes('ai_assistant.settings.manage')
+    const canManage = await rbacService.userHasAllFeatures(
+      auth.sub,
+      ['ai_assistant.settings.manage'],
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     if (!canManage) {
       return NextResponse.json({ error: 'Forbidden', code: 'forbidden' }, { status: 403 })
     }
@@ -699,6 +738,9 @@ export async function PUT(req: NextRequest) {
       ...(allowedOverrideModelsByProvider !== undefined
         ? { allowedOverrideModelsByProvider }
         : {}),
+      ...(Object.prototype.hasOwnProperty.call(bodyResult.data, 'inputModeration')
+        ? { inputModeration: bodyResult.data.inputModeration ?? null }
+        : {}),
     }
     const row = await repo.upsertDefault(
       upsertInput,
@@ -714,6 +756,7 @@ export async function PUT(req: NextRequest) {
       baseURL: row.baseUrl,
       allowedOverrideProviders: row.allowedOverrideProviders ?? null,
       allowedOverrideModelsByProvider: row.allowedOverrideModelsByProvider ?? {},
+      inputModeration: row.inputModeration ?? null,
       updatedAt: row.updatedAt,
     })
   } catch (error) {
@@ -757,11 +800,11 @@ export async function DELETE(req: NextRequest) {
   try {
     const container = await createRequestContainer()
     const rbacService = container.resolve<RbacService>('rbacService')
-    const acl = await rbacService.loadAcl(auth.sub, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-    })
-    const canManage = acl.isSuperAdmin || acl.features.includes('ai_assistant.settings.manage')
+    const canManage = await rbacService.userHasAllFeatures(
+      auth.sub,
+      ['ai_assistant.settings.manage'],
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     if (!canManage) {
       return NextResponse.json({ error: 'Forbidden', code: 'forbidden' }, { status: 403 })
     }

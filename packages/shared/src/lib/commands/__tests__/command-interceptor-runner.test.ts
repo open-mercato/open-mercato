@@ -7,6 +7,10 @@ import {
 } from '../command-interceptor-runner'
 import type { CommandInterceptor, CommandInterceptorContext, CommandInterceptorUndoContext } from '../command-interceptor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  applyAclFeatureOverrides,
+  resetModuleContractOverridesForTests,
+} from '@open-mercato/shared/modules/overrides'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -59,6 +63,10 @@ describe('matchesCommandPattern', () => {
 })
 
 describe('runCommandInterceptorsBefore', () => {
+  afterEach(() => {
+    resetModuleContractOverridesForTests()
+  })
+
   it('returns ok when no interceptors match', async () => {
     const interceptor = makeInterceptor({
       id: 'i1',
@@ -157,6 +165,26 @@ describe('runCommandInterceptorsBefore', () => {
 
     expect(withWildcard.ok).toBe(false)
     expect(withWildcard.error?.message).toBe('Blocked by wildcard')
+  })
+
+  it('does not run an interceptor gated by a nulled ACL feature', async () => {
+    applyAclFeatureOverrides({ 'premium.audit': null })
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      features: ['premium.audit'],
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false }),
+    })
+
+    const result = await runCommandInterceptorsBefore(
+      [interceptor],
+      'customers.create-person',
+      {},
+      baseContext,
+      ['*', 'premium.audit'],
+    )
+
+    expect(result.ok).toBe(true)
+    expect(interceptor.beforeExecute).not.toHaveBeenCalled()
   })
 })
 
