@@ -1,8 +1,48 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { randomInt } from 'node:crypto';
 import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/helpers/integration/api';
-import { readJsonSafe, getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures';
-import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures';
+import {
+  deleteGeneralEntityIfExists,
+  expectId,
+  getTokenScope,
+  readJsonSafe,
+} from '@open-mercato/core/helpers/integration/generalFixtures';
+import {
+  createOrganizationFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteUserIfExists,
+} from '@open-mercato/core/helpers/integration/authFixtures';
+
+const LAST_HOLDER_ERROR = 'Cannot remove the last active holder of role "admin"';
+
+async function expectError(response: APIResponse, status: number, message: string): Promise<void> {
+  expect(response.status()).toBe(status);
+  const body = await readJsonSafe<{ error?: string }>(response);
+  expect(body?.error).toContain(message);
+}
+
+async function updateConfirmation(
+  request: APIRequestContext,
+  token: string,
+  userId: string,
+  isConfirmed: boolean,
+): Promise<APIResponse> {
+  return apiRequest(request, 'PUT', '/api/auth/users', {
+    token,
+    data: { id: userId, isConfirmed },
+  });
+}
+
+async function createTenant(request: APIRequestContext, token: string, name: string): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/directory/tenants', {
+    token,
+    data: { name },
+  });
+  expect(response.status()).toBe(201);
+  const body = await readJsonSafe<{ id?: string }>(response);
+  return expectId(body?.id, 'Tenant create response should include id');
+}
 
 test.describe('TC-AUTH-054: Protected Role Floors and Deactivation Semantics', () => {
   test('enforces protected role floors, deactivation login block, and tenant isolation', async ({ request }) => {
@@ -10,125 +50,111 @@ test.describe('TC-AUTH-054: Protected Role Floors and Deactivation Semantics', (
     const adminToken = await getAuthToken(request, 'admin');
 
     const adminScope = getTokenScope(adminToken);
-    const orgId = adminScope.organizationId;
-    const adminUserId = adminScope.userId;
+    const organizationId = expectId(adminScope.organizationId, 'Admin token should include organization id');
+    const adminUserId = expectId(adminScope.userId, 'Admin token should include user id');
 
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
-
-    // 1. Last admin removal: trying to remove the admin role from the current admin (who is the only admin)
-    // should fail with 400.
-    const removeRoleRes = await apiRequest(request, 'PUT', '/api/auth/users', {
-      token: adminToken,
-      data: {
-        id: adminUserId,
-        roles: [], // strip all roles
-      },
-    });
-    expect(removeRoleRes.status()).toBe(400);
-    const removeRoleBody = await readJsonSafe<{ error?: string }>(removeRoleRes);
-    expect(removeRoleBody?.error).toContain('Cannot remove the last active holder of role "admin"');
-
-    // 2. Deactivating the last admin: trying to update isConfirmed: false should fail with 400.
-    const deactivateRes = await apiRequest(request, 'PUT', '/api/auth/users', {
-      token: adminToken,
-      data: {
-        id: adminUserId,
-        isConfirmed: false,
-      },
-    });
-    expect(deactivateRes.status()).toBe(400);
-    const deactivateBody = await readJsonSafe<{ error?: string }>(deactivateRes);
-    expect(deactivateBody?.error).toContain('Cannot remove the last active holder of role "admin"');
-
-    // 3. Deleting the last admin: trying to delete the current admin should fail with 400.
-    const deleteRes = await apiRequest(request, 'DELETE', `/api/auth/users?id=${encodeURIComponent(adminUserId)}`, {
-      token: adminToken,
-    });
-    expect(deleteRes.status()).toBe(400);
-    const deleteBody = await readJsonSafe<{ error?: string }>(deleteRes);
-    expect(deleteBody?.error).toContain('Cannot remove the last active holder of role "admin"');
-
-    // 4. Create another admin user so we have 2 admin users. Then deactivation/deletion of one is allowed.
     const secondAdminEmail = `admin-two-${stamp}@example.com`;
-    const secondAdminId = await createUserFixture(request, adminToken, {
-      email: secondAdminEmail,
-      password: 'StrongSecret123!',
-      organizationId: orgId,
-      roles: ['admin'],
-    });
+    const secondAdminPassword = 'StrongSecret123!';
+    let secondAdminId: string | null = null;
+    let foreignTenantId: string | null = null;
+    let foreignOrganizationId: string | null = null;
+    let foreignUserId: string | null = null;
 
     try {
-      // Deactivating one admin should succeed now because we have another active admin.
-      const deactivateSecondRes = await apiRequest(request, 'PUT', '/api/auth/users', {
+      const removeRoleResponse = await apiRequest(request, 'PUT', '/api/auth/users', {
         token: adminToken,
-        data: {
-          id: secondAdminId,
-          isConfirmed: false,
-        },
+        data: { id: adminUserId, roles: [] },
       });
-      expect(deactivateSecondRes.status()).toBe(200);
+      await expectError(removeRoleResponse, 400, LAST_HOLDER_ERROR);
 
-      // 5. Deactivation Login block: trying to login as the deactivated user should fail with 401.
-      const loginRes = await postForm(request, '/api/auth/login', {
+      await expectError(
+        await updateConfirmation(request, adminToken, adminUserId, false),
+        400,
+        LAST_HOLDER_ERROR,
+      );
+
+      const deleteResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/auth/users?id=${encodeURIComponent(adminUserId)}`,
+        { token: adminToken },
+      );
+      await expectError(deleteResponse, 400, LAST_HOLDER_ERROR);
+
+      secondAdminId = await createUserFixture(request, adminToken, {
         email: secondAdminEmail,
-        password: 'StrongSecret123!',
-      });
-      expect(loginRes.status()).toBe(401);
-      const loginBody = await readJsonSafe<{ error?: string }>(loginRes);
-      expect(loginBody?.error).toContain('Invalid email or password');
-
-      // 6. Tenant Oracle Defense: a foreign scoped tenant should receive 404 instead of 400/403.
-      // We will obtain a different tenant's admin token (e.g. from superadmin).
-      const tenantBRes = await apiRequest(request, 'POST', '/api/directory/tenants', {
-        token: superadminToken,
-        data: { name: `TenantB-${stamp}` },
-      });
-      expect(tenantBRes.status()).toBe(201);
-      const tenantBBody = await readJsonSafe<{ id: string }>(tenantBRes);
-      const tenantBId = tenantBBody!.id;
-
-      const orgBRes = await apiRequest(request, 'POST', '/api/directory/organizations', {
-        token: superadminToken,
-        data: { name: `OrgB-${stamp}`, tenantId: tenantBId },
-      });
-      expect(orgBRes.status()).toBe(201);
-      const orgBBody = await readJsonSafe<{ id: string }>(orgBRes);
-      const orgBId = orgBBody!.id;
-
-      const userBId = await createUserFixture(request, superadminToken, {
-        email: `user-b-${stamp}@example.com`,
-        password: 'StrongSecret123!',
-        organizationId: orgBId,
+        password: secondAdminPassword,
+        organizationId,
         roles: ['admin'],
       });
+      const secondAdminToken = await getAuthToken(request, secondAdminEmail, secondAdminPassword);
 
-      // Now, try to delete or edit userB using tenant A's admin token. It must return 404.
-      const crossTenantDeleteRes = await apiRequest(request, 'DELETE', `/api/auth/users?id=${encodeURIComponent(userBId)}`, {
-        token: adminToken,
+      expect((await updateConfirmation(request, adminToken, secondAdminId, false)).status()).toBe(200);
+
+      const existingSessionResponse = await apiRequest(request, 'GET', '/api/auth/profile', {
+        token: secondAdminToken,
       });
-      expect(crossTenantDeleteRes.status()).toBe(404);
+      expect(existingSessionResponse.status()).toBe(401);
 
-      const crossTenantUpdateRes = await apiRequest(request, 'PUT', '/api/auth/users', {
-        token: adminToken,
-        data: {
-          id: userBId,
-          roles: [],
-        },
+      const loginResponse = await postForm(request, '/api/auth/login', {
+        email: secondAdminEmail,
+        password: secondAdminPassword,
       });
-      expect(crossTenantUpdateRes.status()).toBe(404);
+      expect(loginResponse.status()).toBe(401);
+      const loginBody = await readJsonSafe<{ error?: string }>(loginResponse);
+      expect(loginBody?.error).toContain('Invalid email or password');
 
-      // Cleanup Tenant B and User B
-      await deleteUserIfExists(request, superadminToken, userBId);
-      await apiRequest(request, 'DELETE', `/api/directory/organizations?id=${encodeURIComponent(orgBId)}`, {
-        token: superadminToken,
-      }).catch(() => undefined);
-      await apiRequest(request, 'DELETE', `/api/directory/tenants?id=${encodeURIComponent(tenantBId)}`, {
-        token: superadminToken,
-      }).catch(() => undefined);
+      expect((await updateConfirmation(request, superadminToken, secondAdminId, true)).status()).toBe(200);
 
+      foreignTenantId = await createTenant(request, superadminToken, `TenantB-${stamp}`);
+      foreignOrganizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `OrgB-${stamp}`,
+        tenantId: foreignTenantId,
+      });
+      foreignUserId = await createUserFixture(request, superadminToken, {
+        email: `user-b-${stamp}@example.com`,
+        password: secondAdminPassword,
+        organizationId: foreignOrganizationId,
+        roles: [],
+      });
+
+      const crossTenantDeleteResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/auth/users?id=${encodeURIComponent(foreignUserId)}`,
+        { token: adminToken },
+      );
+      expect(crossTenantDeleteResponse.status()).toBe(404);
+
+      const crossTenantUpdateResponse = await apiRequest(request, 'PUT', '/api/auth/users', {
+        token: adminToken,
+        data: { id: foreignUserId, roles: [] },
+      });
+      expect(crossTenantUpdateResponse.status()).toBe(404);
+
+      const concurrentResponses = await Promise.all([
+        updateConfirmation(request, superadminToken, adminUserId, false),
+        updateConfirmation(request, superadminToken, secondAdminId, false),
+      ]);
+      expect(concurrentResponses.map((response) => response.status()).sort()).toEqual([200, 400]);
+      const rejectedResponse = concurrentResponses.find((response) => response.status() === 400);
+      if (!rejectedResponse) throw new Error('[internal] One concurrent deactivation should be rejected');
+      await expectError(rejectedResponse, 400, LAST_HOLDER_ERROR);
     } finally {
-      // Cleanup second admin user
-      await deleteUserIfExists(request, adminToken, secondAdminId);
+      await updateConfirmation(request, superadminToken, adminUserId, true).catch(() => undefined);
+      if (secondAdminId) {
+        await updateConfirmation(request, superadminToken, secondAdminId, true).catch(() => undefined);
+      }
+      await deleteUserIfExists(request, superadminToken, foreignUserId);
+      await deleteOrganizationIfExists(request, superadminToken, foreignOrganizationId);
+      await deleteGeneralEntityIfExists(
+        request,
+        superadminToken,
+        '/api/directory/tenants',
+        foreignTenantId,
+      );
+      await deleteUserIfExists(request, superadminToken, secondAdminId);
     }
   });
 });

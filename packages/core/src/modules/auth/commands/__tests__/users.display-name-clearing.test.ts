@@ -39,12 +39,20 @@ describe('auth.users.update display name clearing', () => {
 
     const em = {
       find: async () => [],
+      begin: async () => undefined,
+      commit: async () => undefined,
+      rollback: async () => undefined,
       remove: () => undefined,
       persist: () => undefined,
       flush: async () => undefined,
       nativeDelete: async () => 0,
       create: (_entity: unknown, data: unknown) => data,
-      findOne: async () => null,
+      findOne: async () => ({
+        id: '523e4567-e89b-12d3-a456-426614174901',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        deletedAt: null,
+      }),
     } as unknown as EntityManager
 
     const container = {

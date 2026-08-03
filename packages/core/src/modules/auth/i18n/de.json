@@ -162,6 +162,7 @@
   "auth.users.consents.loading": "Einwilligungen werden geladen...",
   "auth.users.consents.withdrawn": "Widerrufen",
   "auth.users.errors.emailExists": "E-Mail-Adresse wird bereits verwendet",
+  "auth.users.errors.last_holder_critical_role": "Der letzte aktive Inhaber der Rolle \"{roleName}\" kann nicht entfernt werden",
   "auth.users.flash.created": "Benutzer erstellt",
   "auth.users.flash.createdEmailFailed": "Benutzer erstellt, aber die Einladungs-E-Mail konnte nicht gesendet werden. Sie können sie über die Benutzerseite erneut senden.",
   "auth.users.flash.createdWithInvite": "Benutzer erstellt und Einladung gesendet",

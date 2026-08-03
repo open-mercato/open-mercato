@@ -194,6 +194,36 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
     expect(result).toBe(mockUser1)
   })
 
+  it('does not count duplicate role links as distinct active holders', async () => {
+    const em = makeEm()
+    const dataEngine = {
+      deleteOrmEntity: jest.fn(async () => mockUser1),
+    }
+    const ctx = makeCtx(em, dataEngine)
+
+    findOneMock.mockImplementation((entity) => {
+      if (entity === User) return mockUser1
+      return null
+    })
+
+    findMock.mockImplementation((entity) => {
+      if (entity === Role) return [mockAdminRole]
+      if (entity === UserRole) {
+        return [
+          { user: mockUser1, role: mockAdminRole },
+          { user: mockUser1, role: mockAdminRole },
+        ]
+      }
+      return []
+    })
+
+    const handler = commandRegistry.get('auth.users.delete') as CommandHandler
+
+    await expect(handler.execute({ id: userId }, ctx)).rejects.toThrow(
+      new CrudHttpError(400, { error: 'Cannot remove the last active holder of role "admin"' })
+    )
+  })
+
   it('fails to deactivate the last active admin', async () => {
     const em = makeEm()
     const dataEngine = {
@@ -313,6 +343,12 @@ describe('auth.users.update/delete protected role floor floor checks', () => {
       expect.objectContaining({ 
         lockMode: LockMode.PESSIMISTIC_WRITE,
         orderBy: { id: 'ASC' }
+      })
+    )
+    const userRoleCall = findMock.mock.calls.find(call => call[0] === UserRole)
+    expect(userRoleCall[1]).toEqual(
+      expect.objectContaining({
+        user: expect.objectContaining({ tenantId }),
       })
     )
   })

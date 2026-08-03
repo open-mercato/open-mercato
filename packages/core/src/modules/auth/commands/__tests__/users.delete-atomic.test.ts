@@ -67,7 +67,7 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
         return 0
       },
       find: async () => [],
-      findOne: async () => null,
+      findOne: async () => ({ id: userId, organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null }),
       remove: () => undefined,
       persist: () => ({ flush: async () => undefined }),
       create: (_entity: unknown, data: unknown) => data,
