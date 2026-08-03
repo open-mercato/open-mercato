@@ -51,8 +51,8 @@ Source implementation: PR #4883 (`feat/module-facts-source-linked-contracts`), i
 
 ### Phase 1: Inventory and coverage audit
 
-- [ ] 1.1 Generate source-linked extension and override fact inventory
-- [ ] 1.2 Audit official docs and record coverage gaps
+- [x] 1.1 Generate source-linked extension and override fact inventory — 2fa370e4e
+- [x] 1.2 Audit official docs and record coverage gaps — 2fa370e4e
 
 ### Phase 2: Official documentation coverage
 
