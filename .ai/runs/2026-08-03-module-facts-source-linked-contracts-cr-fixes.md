@@ -23,9 +23,9 @@ findings). Each Progress row below maps 1:1 to a review finding.
 
 ### Phase 1: Provenance index and Markdown source links (review findings Major 3, Major 4)
 
-- [ ] 1.1 Make `factSources` the uniform provenance index — every proven `(kind,id)` resolves to a source or a deterministic typed fact reference; keep the byte guard explicit
-- [ ] 1.2 Render portable source links on every represented Markdown fact (entities, events, ACL, DI tokens, search, notifications, UMES hosts/contributions)
-- [ ] 1.3 Render activation IDs/bridges instead of bare `kind`, and add a source-linked contribution-resolution section
+- [x] 1.1 Make `factSources` the uniform provenance index — every proven `(kind,id)` resolves to a source or a deterministic typed fact reference; keep the byte guard explicit — 4f0b89075
+- [x] 1.2 Render portable source links on every represented Markdown fact (entities, events, ACL, DI tokens, search, notifications, UMES hosts/contributions) — 4f0b89075
+- [x] 1.3 Render activation IDs/bridges instead of bare `kind`, and add a source-linked contribution-resolution section — 4f0b89075
 
 ### Phase 2: Runtime parity for owned contracts (Major 1, Major 2)
 
