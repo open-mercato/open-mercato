@@ -46,8 +46,8 @@ Make the versioned Lucide icon registry a reproducible generator output instead 
 
 ### Phase 2: Drift prevention
 
-- [ ] 2.1 Add failure-first unit and real-repository parity coverage
-- [ ] 2.2 Enforce Lucide registry parity in repository CI
+- [x] 2.1 Add failure-first unit and real-repository parity coverage — e128a1aeb
+- [x] 2.2 Enforce Lucide registry parity in repository CI — e128a1aeb
 
 ### Phase 3: Standalone harness guidance
 
