@@ -97,7 +97,7 @@ describe('module extension activations and incoming index', () => {
     fs.rmSync(workspace, { recursive: true, force: true })
   })
 
-  it('binds CRUD response + query enrichers from a real factory option and emits two incoming rows + one sorted resolution', () => {
+  it('binds only the CRUD response enricher from the factory option, never the query stage', () => {
     write(moduleRoot('host'), 'api/records/route.ts', `
       import { makeCrudRoute } from 'x'
       export const crud = makeCrudRoute({
@@ -115,30 +115,84 @@ describe('module extension activations and incoming index', () => {
       { id: 'ext' },
     ])
 
+    // `enrichers: { entityId }` runs `applyResponseEnrichers` only; the query-engine
+    // enricher stage needs a query call that passes `extensions`.
     const enricherActivations = (result.host.activations ?? []).filter((a) => a.host.id === 'host:record')
-    expect(enricherActivations.map((a) => a.kind).sort()).toEqual(['crud-response-enricher', 'query-enricher'])
-    for (const activation of enricherActivations) {
-      expect(activation.source.sourcePath).toBe('node_modules/pkg/src/modules/host/api/records/route.ts')
-      expect(activation.source.line).toBeGreaterThan(0)
-      expect(activation.host).toEqual({ kind: 'entity', id: 'host:record', moduleId: 'host' })
-    }
+    expect(enricherActivations.map((a) => a.kind)).toEqual(['crud-response-enricher'])
+    expect(enricherActivations[0].source.sourcePath).toBe('node_modules/pkg/src/modules/host/api/records/route.ts')
+    expect(enricherActivations[0].source.line).toBeGreaterThan(0)
+    expect(enricherActivations[0].host).toEqual({ kind: 'entity', id: 'host:record', moduleId: 'host' })
 
     const incoming = (result.host.incoming ?? []).filter((entry) => entry.contributionId === 'ext.record-badge')
-    expect(incoming).toHaveLength(2)
-    expect(incoming.every((entry) => entry.resolution === 'bound' && entry.contributorModuleId === 'ext')).toBe(true)
-    expect(incoming.map((entry) => entry.activationId).sort()).toEqual([
-      'entity:host:record:crud-response-enricher',
-      'entity:host:record:query-enricher',
-    ])
+    expect(incoming).toHaveLength(1)
+    expect(incoming[0].resolution).toBe('bound')
+    expect(incoming[0].contributorModuleId).toBe('ext')
+    expect(incoming[0].activationId).toBe('entity:host:record:crud-response-enricher')
 
     const resolutions = (result.ext.contributionResolutions ?? []).filter((r) => r.contributionId === 'ext.record-badge')
     expect(resolutions).toHaveLength(1)
     expect(resolutions[0].resolution).toBe('bound')
-    expect(resolutions[0].activationIds).toEqual([
-      'entity:host:record:crud-response-enricher',
-      'entity:host:record:query-enricher',
-    ])
+    expect(resolutions[0].activationIds).toEqual(['entity:host:record:crud-response-enricher'])
     expect(resolutions[0].target).toEqual({ kind: 'entity', id: 'host:record', moduleId: 'host' })
+  })
+
+  it('binds the query-enricher stage from a query call site that passes extensions', () => {
+    write(moduleRoot('host'), 'api/records/route.ts', `
+      import { makeCrudRoute } from 'x'
+      export const crud = makeCrudRoute({
+        orm: { entity: Rec },
+        enrichers: { entityId: 'host:record' },
+      })
+      export async function GET(req) {
+        const queryEngine = resolve('queryEngine')
+        return queryEngine.query('host:record', { tenantId: 't', extensions: { userId: 'u' } })
+      }
+    `)
+    write(moduleRoot('ext'), 'data/enrichers.ts', `
+      export const enrichers = [{ id: 'ext.record-badge', targetEntity: 'host:record', queryEngine: { enabled: true }, async enrichOne(r) { return r } }]
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', entities: [{ id: 'host:record' }], apiRoutes: [{ path: '/host/records', methods: ['GET'] }] },
+      { id: 'ext' },
+    ])
+
+    const kinds = (result.host.activations ?? [])
+      .filter((a) => a.host.id === 'host:record')
+      .map((a) => a.kind)
+      .sort()
+    expect(kinds).toEqual(['crud-response-enricher', 'query-enricher'])
+  })
+
+  it('treats an enricher with queryEngine.enabled false as response-only', () => {
+    write(moduleRoot('ext'), 'data/enrichers.ts', `
+      export const enrichers = [
+        { id: 'ext.disabled', targetEntity: 'host:record', queryEngine: { enabled: false, engines: ['json'] }, async enrichOne(r) { return r } },
+        { id: 'ext.enabled', targetEntity: 'host:record', queryEngine: { enabled: true, engines: ['json'] }, async enrichOne(r) { return r } },
+        { id: 'ext.plain', targetEntity: 'host:record', async enrichOne(r) { return r } },
+      ]
+    `)
+
+    write(moduleRoot('host'), 'api/records/route.ts', `
+      import { makeCrudRoute } from 'x'
+      export const crud = makeCrudRoute({ orm: { entity: Rec } })
+      export const GET = crud.GET
+    `)
+
+    const result = runPipeline(roots, [
+      { id: 'host', entities: [{ id: 'host:record' }] },
+      { id: 'ext' },
+    ])
+
+    const byId = new Map((result.ext.contributions ?? []).map((contribution) => [contribution.id, contribution]))
+    const disabled = byId.get('ext.disabled')
+    const enabled = byId.get('ext.enabled')
+    const plain = byId.get('ext.plain')
+    expect(disabled?.details).not.toHaveProperty('queryEngine')
+    expect(disabled?.activation).toBe('host-opt-in')
+    expect(plain?.details).not.toHaveProperty('queryEngine')
+    expect(enabled?.details).toHaveProperty('queryEngine')
+    expect(enabled?.activation).toBe('caller-opt-in')
   })
 
   it('classifies an enricher targeting an entity WITHOUT the factory option as capability-only, never bound', () => {
@@ -324,9 +378,9 @@ describe('module extension activations and incoming index', () => {
 
     const contributors = new Set((result.host.incoming ?? []).map((entry) => entry.contributorModuleId))
     expect(contributors).toEqual(new Set(['ext-a', 'ext-b']))
-    // Each contributor matches two enricher activations → two incoming rows each.
-    expect((result.host.incoming ?? []).filter((e) => e.contributorModuleId === 'ext-a')).toHaveLength(2)
-    expect((result.host.incoming ?? []).filter((e) => e.contributorModuleId === 'ext-b')).toHaveLength(2)
+    // The route activates response enrichment only, so each contributor matches one activation.
+    expect((result.host.incoming ?? []).filter((e) => e.contributorModuleId === 'ext-a')).toHaveLength(1)
+    expect((result.host.incoming ?? []).filter((e) => e.contributorModuleId === 'ext-b')).toHaveLength(1)
   })
 
   it('marks a genuinely unresolved concrete target distinctly from optional-missing', () => {

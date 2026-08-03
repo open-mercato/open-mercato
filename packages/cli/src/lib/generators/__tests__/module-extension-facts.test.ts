@@ -93,7 +93,7 @@ describe('module extension facts', () => {
     write(moduleRoot, 'data/enrichers.ts', `
       const enricher = {
         id: 'alpha.records.enricher', targetEntity: 'alpha:record', features: ['alpha.view'], timeout: 750,
-        fallback: {}, queryEngine: { engines: ['json'], applyOn: ['list'] },
+        fallback: {}, queryEngine: { enabled: true, engines: ['json'], applyOn: ['list'] },
         async enrichOne() {}, async enrichMany() {},
       }
       export const enrichers = [enricher]

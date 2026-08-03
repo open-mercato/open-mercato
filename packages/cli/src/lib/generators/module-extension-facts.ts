@@ -1010,7 +1010,12 @@ function extractEnrichers(options: ExtractModuleExtensionFactsOptions): ModuleEx
       const targetEntity = stringValue(entry.targetEntity)
       if (!targetEntity) return null
       const timeoutMs = numberValue(entry.timeout) ?? 2000
-      const queryEngine = isStaticObject(entry.queryEngine) ? entry.queryEngine : null
+      const queryEngineConfig = isStaticObject(entry.queryEngine) ? entry.queryEngine : null
+      // `enricher-registry` selects query-engine enrichers by `queryEngine.enabled === true`,
+      // so a config object that omits it (or sets it false) is NOT query-enabled.
+      const queryEngine = queryEngineConfig && booleanValue(queryEngineConfig.enabled) === true
+        ? queryEngineConfig
+        : null
       const surfaces = [entry.enrichMany === true ? 'list' : null, entry.enrichOne === true ? 'detail' : null]
         .filter((value): value is 'list' | 'detail' => value !== null)
       const base = contributionBase(id, sourcePath, id)
@@ -1491,6 +1496,23 @@ function sortActivations(activations: ModuleExtensionActivation[]): ModuleExtens
  * presence alone never lands here — only a literal `enrichers: { entityId }`
  * option or a mutation-guard bridge call with a static `resourceKind`/`entityId`.
  */
+/**
+ * `<engine>.query(entityId, { …, extensions })` — the only call shape that enables the
+ * query-engine enricher and sync query-lifecycle stages.
+ */
+function isQueryWithExtensionsCall(node: ts.Node, context: StaticContext): node is ts.CallExpression {
+  if (!ts.isCallExpression(node)) return false
+  const callee = node.expression
+  const calleeName = ts.isPropertyAccessExpression(callee)
+    ? callee.name.text
+    : ts.isIdentifier(callee)
+      ? callee.text
+      : null
+  if (calleeName !== 'query') return false
+  const queryOptions = node.arguments[1] ? staticValue(node.arguments[1], context) : undefined
+  return isStaticObject(queryOptions) && queryOptions.extensions !== undefined
+}
+
 function extractCallSiteActivations(options: ExtractModuleExtensionFactsOptions): ModuleExtensionActivation[] {
   const activations: ModuleExtensionActivation[] = []
   const seen = new Set<string>()
@@ -1505,15 +1527,35 @@ function extractCallSiteActivations(options: ExtractModuleExtensionFactsOptions)
     const context = buildStaticContext(file)
     const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
     const visit = (node: ts.Node): void => {
+      // `enrichers: { entityId }` on a CRUD route runs `applyResponseEnrichers` after the
+      // list/detail hook. It does NOT enable the query-engine enricher stage.
       if (ts.isPropertyAssignment(node) && propertyName(node.name) === 'enrichers') {
         const config = staticValue(node.initializer, context)
         const entityId = isStaticObject(config) ? stringValue(config.entityId) : undefined
         if (entityId) {
           const host: ModuleExtensionTargetRef = { kind: 'entity', id: entityId, moduleId: options.moduleId }
-          const source: ModuleFactSourceRef = { sourcePath, line: nodeLine(file, node) }
-          for (const kind of ['crud-response-enricher', 'query-enricher'] as const) {
-            push({ id: activationId(host, kind), kind, host, contributionKinds: ['response-enricher'], source })
-          }
+          push({
+            id: activationId(host, 'crud-response-enricher'),
+            kind: 'crud-response-enricher',
+            host,
+            contributionKinds: ['response-enricher'],
+            source: { sourcePath, line: nodeLine(file, node) },
+          })
+        }
+      }
+      // The query-engine enricher stage runs only for a query that passes `extensions`,
+      // so the bound call site is `queryEngine.query('<entityId>', { …, extensions })`.
+      if (isQueryWithExtensionsCall(node, context)) {
+        const entityId = stringValue(staticValue(node.arguments[0], context))
+        if (entityId) {
+          const host: ModuleExtensionTargetRef = { kind: 'entity', id: entityId, moduleId: options.moduleId }
+          push({
+            id: activationId(host, 'query-enricher'),
+            kind: 'query-enricher',
+            host,
+            contributionKinds: ['response-enricher'],
+            source: { sourcePath, line: nodeLine(file, node) },
+          })
         }
       }
       if (
