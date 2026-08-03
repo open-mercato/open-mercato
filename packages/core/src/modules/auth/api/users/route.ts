@@ -11,7 +11,7 @@ import {
   queryUserList,
   type ResolvedUserListScope,
   type UserFilter,
-} from './userListQuery'
+} from '../../lib/userListQuery'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'

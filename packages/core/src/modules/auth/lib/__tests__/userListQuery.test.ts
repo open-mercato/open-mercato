@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   queryUserList,
   type ResolvedUserListScope,
-} from '@open-mercato/core/modules/auth/api/users/userListQuery'
+} from '../userListQuery'
 
 const mockFindWithDecryption = jest.fn()
 const mockLoadCustomFieldValues = jest.fn()
