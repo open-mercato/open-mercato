@@ -312,6 +312,116 @@ describe('module extension facts', () => {
     ]))
   })
 
+  it('classifies component overrides by the ComponentOverride discriminant and resolves handle builders', () => {
+    write(moduleRoot, 'widgets/components.ts', `
+      import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+      function wrapRecords(Original) { return Original }
+      export const componentOverrides = [
+        {
+          target: { componentId: ComponentReplacementHandles.section('ui.detail', 'NotesSection') },
+          priority: 50,
+          wrapper: (Original) => Original,
+        },
+        {
+          target: { componentId: ComponentReplacementHandles.dataTable('alpha.records.list') },
+          priority: 50,
+          wrapper: wrapRecords,
+        },
+        {
+          target: { componentId: ComponentReplacementHandles.crudForm('alpha.record') },
+          priority: 50,
+          propsTransform: (props) => props,
+        },
+        {
+          target: { componentId: ComponentReplacementHandles.page('/backend/alpha') },
+          priority: 50,
+          replacement: AlphaPage,
+          propsSchema: alphaPropsSchema,
+        },
+        {
+          target: { componentId: ComponentReplacementHandles.mystery('alpha') },
+          priority: 50,
+          wrapper: (Original) => Original,
+        },
+      ]
+    `)
+
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+
+    const overrides = facts.contributions
+      .filter((contribution) => contribution.kind === 'component-override')
+      .map((contribution) => contribution.kind === 'component-override'
+        ? { id: contribution.id, ...contribution.details }
+        : null)
+
+    expect(overrides).toEqual([
+      {
+        id: 'alpha.component-override.0:section:ui.detail.NotesSection',
+        handle: 'section:ui.detail.NotesSection',
+        mode: 'wrapper',
+        propsContract: 'component-props-schema',
+      },
+      {
+        id: 'alpha.component-override.1:data-table:alpha.records.list',
+        handle: 'data-table:alpha.records.list',
+        mode: 'wrapper',
+        propsContract: 'component-props-schema',
+      },
+      {
+        id: 'alpha.component-override.2:crud-form:alpha.record',
+        handle: 'crud-form:alpha.record',
+        mode: 'props',
+        propsContract: 'component-props-schema',
+      },
+      {
+        id: 'alpha.component-override.3:page:/backend/alpha',
+        handle: 'page:/backend/alpha',
+        mode: 'replace',
+        propsContract: 'component-props-schema',
+      },
+    ])
+    // A handle the framework builder catalog does not describe never becomes a
+    // guessed id built from the call's first argument.
+    expect(JSON.stringify(facts.contributions)).not.toContain('ui.detail"')
+    expect(JSON.stringify(facts.contributions)).not.toContain('"alpha"')
+  })
+
+  it('reads arrow-function convention hooks as declared surfaces', () => {
+    write(moduleRoot, 'data/enrichers.ts', `
+      const enrichList = async (records) => records
+      export const enrichers = [{
+        id: 'alpha.arrow', targetEntity: 'alpha:record',
+        enrichMany: enrichList,
+        enrichOne: async (record) => record,
+      }]
+    `)
+
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [{ id: 'alpha:record' }],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+
+    expect(facts.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'alpha.arrow',
+        details: expect.objectContaining({ surfaces: ['list', 'detail'] }),
+      }),
+    ]))
+  })
+
   it('reports declarations whose authoritative source no longer binds the host key', () => {
     write(moduleRoot, 'extension-points.ts', `
       export const extensionPoints = defineModuleExtensionPoints({
