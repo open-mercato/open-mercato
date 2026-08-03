@@ -320,6 +320,12 @@ test.describe('TC-INC-009: Incident portal and bulk APIs', () => {
   })
 
   test('bulk acknowledge queues work, processes valid ids despite one missing id, and is RBAC-gated', async ({ request }) => {
+    // Queued bulk work is drained through a polling loop, and the RBAC half then
+    // provisions a role plus a user (bcrypt) before it can assert the 403. That ran
+    // 14.7s against the 20s default — 73% of the budget — so it timed out once CI
+    // got slower rather than because the behaviour changed.
+    test.slow()
+
     let incidentOneId: string | null = null
     let incidentTwoId: string | null = null
     let roleId: string | null = null
