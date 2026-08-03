@@ -354,12 +354,6 @@ export function buildRegistryConfig(registryUrl: string): string {
   configLines.push('npmScopes:')
   configLines.push('  open-mercato:')
   configLines.push(`    npmRegistryServer: "${registryUrl}"`)
-  // Yarn >= 4.10 quarantines versions younger than npmMinimalAgeGate (default 1440
-  // minutes). The scope-level value wins over any top-level one, so without this a
-  // just-published Verdaccio or private-registry build fails resolution with
-  // "All versions satisfying <version> are quarantined". The gate guards against
-  // freshly published public packages; a registry the operator pointed us at
-  // explicitly is already trusted.
   configLines.push('    npmMinimalAgeGate: 0')
 
   return configLines.join('\n')

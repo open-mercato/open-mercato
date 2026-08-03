@@ -1,3 +1,3 @@
 export const integrationMeta = {
-  dependsOnModules: ['payment_gateways'],
+  dependsOnModules: ['payment_gateways', 'sales'],
 }

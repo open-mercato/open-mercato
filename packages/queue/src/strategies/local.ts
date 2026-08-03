@@ -49,9 +49,18 @@ const fsp = fs.promises
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
  * - Not suitable for production or multi-process environments
  *
- * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential
- * backoff and moved to a dead-letter store once attempts are exhausted (see the
- * retry handling in `process()` below).
+ * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential backoff.
+ * **This strategy keeps no failed-job store**: once attempts are exhausted the job is
+ * removed from `queue.json` and only counted in `state.failedCount`, so the payload is
+ * lost and the failure survives solely as an error log line. The `async` strategy keeps
+ * only a bounded inspection window: `removeOnFail: 1000` retains the most recent 1000
+ * failures and removes older ones as later failures arrive. Workflows that require
+ * no-loss persistence must write their own durable record before enqueueing, regardless
+ * of strategy.
+ *
+ * `DEFAULT_MAX_ATTEMPTS` is a module constant, not a per-job option — callers cannot
+ * request a different attempt count. (`async` likewise hard-codes `attempts: 3`.)
+ * See the retry handling in `process()` below.
  *
  * All file I/O is asynchronous (`fs.promises.*`) so queue operations do not
  * block the Node.js event loop. A per-queue promise chain serializes
@@ -262,7 +271,7 @@ export function createLocalQueue<T = unknown>(
           failed++
           lastJobId = job.id
           if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
-            logger.error('Job exhausted all attempts, moving to dead letter', { jobId: job.id, maxAttempts: DEFAULT_MAX_ATTEMPTS })
+            logger.error('Job exhausted all attempts; dropping it (no dead-letter store)', { jobId: job.id, maxAttempts: DEFAULT_MAX_ATTEMPTS })
             deadJobIds.add(job.id)
           } else {
             const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
