@@ -42,6 +42,8 @@ Prevent internal payment-session failures from leaking through the sessions API 
 
 ## Progress
 
+PR: #4898
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Safe payment-session error mapping
