@@ -16,9 +16,7 @@ const container = {
   }),
 }
 
-
 const getAuthFromRequest = jest.fn()
-const resolveIsSuperAdmin = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
@@ -26,11 +24,6 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequest(...(args as [])),
-}))
-
-jest.mock('@open-mercato/core/modules/auth/lib/tenantAccess', () => ({
-  resolveIsSuperAdmin: (...args: unknown[]) => resolveIsSuperAdmin(...(args as [])),
-  requireSuperAdmin: jest.requireActual('@open-mercato/core/modules/auth/lib/tenantAccess').requireSuperAdmin,
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
@@ -52,7 +45,6 @@ describe('GET /api/directory/tenants superadmin guard', () => {
 
   it('denies GET to a non-superadmin', async () => {
     getAuthFromRequest.mockResolvedValue({ sub: 'user-a', tenantId: actorTenantId, orgId: null, isSuperAdmin: false })
-    resolveIsSuperAdmin.mockResolvedValue(false)
 
     const res = await GET(new Request('http://localhost/api/directory/tenants'))
 
@@ -64,8 +56,6 @@ describe('GET /api/directory/tenants superadmin guard', () => {
 
   it('allows GET to a superadmin', async () => {
     getAuthFromRequest.mockResolvedValue({ sub: 'super-1', tenantId: actorTenantId, orgId: null, isSuperAdmin: true })
-    resolveIsSuperAdmin.mockResolvedValue(true)
-
     em.findAndCount.mockResolvedValue([[], 0])
 
     const res = await GET(new Request('http://localhost/api/directory/tenants'))

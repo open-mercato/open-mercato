@@ -7,7 +7,6 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { E } from '#generated/entities.ids.generated'
-
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
