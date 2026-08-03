@@ -8,7 +8,7 @@
 
 ## TLDR
 
-Generated standalone agents need a deterministic planning gate: new features and substantial capabilities start from a covering specification, while bug fixes, minor changes, and isolated refactors may proceed directly. A new feature skips the spec only when the user explicitly says so. Put this rule in emitted instructions and planning/scaffold routing, then hand module implementation to `om-module-scaffold`, which uses the shipped, disabled `src/modules/example` tree as its canonical code reference rather than inventing a second teaching module.
+Generated standalone agents need a deterministic planning gate: new features and substantial capabilities start from a covering specification, while bug fixes, minor changes, and isolated refactors may proceed directly. A new feature skips the spec only when the user explicitly says so. Put this rule in emitted instructions and planning/scaffold routing, then hand module implementation to `om-module-scaffold`, which follows visible exact-file links to the shipped, disabled `src/modules/example` tree or declared installed-package references rather than inventing a second teaching module. Every newly planned extension surface must name self-contained integration coverage.
 
 ## Problem Statement
 
@@ -29,7 +29,9 @@ The emitted `packages/create-app/template/AGENTS.md` and relevant planning/modul
 5. Skip the spec for a new feature only when the user's current request explicitly says to skip/bypass the spec. Silence, urgency, a “small feature” estimate, or an earlier generic preference is not an override.
 6. When classification is genuinely ambiguous and materially changes the workflow, ask one bounded question; do not ask when repository evidence resolves it.
 
-After `spec-first` or `reuse-spec` completes, implementation routing is a one-way handoff: module work loads `om-module-scaffold`, starts at `src/modules/example/README.md`, and adapts only the capability-linked source files. The specification names the relevant example capability IDs and exact paths in its implementation plan when known. It must not propose a shadow teaching module, duplicate the whole example tree, or treat `ratelimit_probe` as a blueprint. If a required ordinary module surface is absent from the canonical inventory, framework-maintenance scope extends `example` and its tests/inventory; downstream app scope follows the owning installed guide until that upstream addition exists.
+After `spec-first` or `reuse-spec` completes, implementation routing is a one-way handoff: module work loads `om-module-scaffold`, starts at the visible link to `src/modules/example/README.md`, and adapts only the capability-linked source files. The specification names the relevant example capability IDs, source-reference IDs, visible owner links, and exact app-root target paths in its implementation plan when known. A specialist branch names the exact declared `node_modules/@open-mercato/<package>/src/**` reference and package/preset applicability rather than saying only “inspect node_modules.” It must not propose a shadow teaching module, duplicate the whole example tree, or treat `ratelimit_probe` as a blueprint. If a required ordinary module surface is absent from the canonical inventory, framework-maintenance scope extends `example` and its tests/inventory; downstream app scope follows the owning installed guide until that upstream addition exists.
+
+Every proposed added or materially changed runtime/discovery extension surface has a traceability row from requirement to source capability/reference, implementation phase, and a self-contained integration test; putting a new surface in an existing capability row does not waive this requirement. The test creates its own tenant/organization fixtures, declares required modules, cleans up in `finally`, and proves the real API/UI/worker/event path. Unit, type, generator, or harness-routing tests may supplement but never replace that integration row. A spec may group closely coupled surfaces into one end-to-end test only when the assertions explicitly cover every surface. For a long-running DataTable bulk operation, the plan must separately name the bulk-action and operation-progress source-reference IDs and assertions, then cover selected-row start, returned `progressJobId`, queue/worker execution, visible top-bar progress, completion/refresh, partial failure, cancellation, retry/idempotency, and scope in the connected proof.
 
 This handoff does not grant the planning case write access to source, define example-read budgets, or make the spec-first policy an owner of module architecture. Those remain with the canonical-example, example-read-policy, and module-scaffold contracts.
 
@@ -42,6 +44,8 @@ The instruction uses concrete examples and links to the installed spec-writing s
 - Emitted root `AGENTS.md` routing and the smallest relevant planning/scaffold skill references.
 - Existing-spec discovery and duplicate avoidance.
 - A concise handoff from approved module specs to `om-module-scaffold` and the canonical example inventory.
+- Visible exact local/installed source-reference IDs and target paths in implementation plans.
+- Requirement-to-integration-test traceability for every newly introduced extension surface.
 - Focused harness/evaluator coverage for every decision branch.
 - Instruction-budget, tier, link, and generated-copy synchronization.
 
@@ -70,7 +74,7 @@ All six table rows run first as read-only routing cases. Their structured oracle
 Two additional writable proofs establish ordering:
 
 - **New-feature proof:** writable roots are limited to the fixture's `.ai/specs/**`; `src/**`, package manifests, migrations, and generated registries are forbidden. The fixed oracle requires exactly one new or amended correctly named spec with problem, contracts, tests, and phased implementation sections, plus an ordered trace showing the spec write before any implementation attempt. Any source write or placeholder-only spec fails.
-- For a module-shaped new-feature proof, the spec's implementation section must route to `om-module-scaffold` and name the relevant canonical example capability IDs/paths when the fixture provides them. The oracle rejects a shadow teaching module, a whole-example copy, `ratelimit_probe` reuse, or any source write during planning.
+- For a module-shaped new-feature proof, the spec's implementation section must route to `om-module-scaffold` and name the relevant canonical example capability IDs, source-reference IDs, visible links, exact paths, and self-contained integration tests when the fixture provides them. A specialist fixture requires an exact declared installed-package source link. The oracle rejects a shadow teaching module, a whole-example copy, `ratelimit_probe` reuse, directory/wildcard-only source hints, missing extension integration coverage, or any source write during planning.
 - **Existing-spec proof:** the only writable path is the exact seeded covering spec. The oracle requires that file to be read/referenced (and amended only when the prompt changes its contract), rejects any second spec, and rejects all source writes during the planning case.
 
 The explicit-skip, bug-fix, minor-change, and ambiguous cases remain read-only because their contract is classification, not successful feature implementation. Their routing oracle proves `direct`/`ask` without granting a broad write root. Case IDs are allocated only after semantic deduplication against the current catalog.
@@ -79,7 +83,7 @@ The explicit-skip, bug-fix, minor-change, and ambiguous cases remain read-only b
 
 - Focused instruction test proves the rule exists once, links to a valid installed skill, and stays within the instruction budget.
 - Tier/preset tests prove all built-in presets emit the rule and required skill references.
-- Evaluator unit tests cover the six read-only rows plus the two writable ordering proofs, including negative/ambiguous wording, module-example handoff, duplicate-reference rejection, and write-root rejection.
+- Evaluator unit tests cover the six read-only rows plus the two writable ordering proofs, including negative/ambiguous wording, visible module/installed-source handoff, duplicate/dead/directory reference rejection, missing extension-integration-row rejection, and write-root rejection.
 - Harness cases record fail-before/pass-after evidence and update required catalog, validator, oracle, matrix, counts, docs, and generated copies for their modes.
 - Run `yarn agents:check-budget`, the focused create-app tests, affected harness lane, and the configured validation gate.
 
@@ -89,14 +93,14 @@ The explicit-skip, bug-fix, minor-change, and ambiguous cases remain read-only b
 
 1. Add failing focused tests for the decision table, link resolution, preset emission, and instruction budget.
 2. Add the concise emitted instruction, planning-skill route, and canonical-example implementation handoff, making each focused test green before proceeding.
-3. Verify existing spec discovery and duplicate avoidance against real emitted paths.
+3. Verify existing spec discovery, duplicate avoidance, exact source-link resolution, and required extension integration-test traceability against real emitted paths.
 
 Exit criterion: every preset exposes one consistent rule, all focused tests pass, and instruction budgets remain green.
 
 ### Phase 2 — Certify behavior in the harness
 
 1. Semantically deduplicate current cases and add/extend only the missing decision rows.
-2. Pair each failing evaluator assertion with its policy/routing implementation and finish the step green.
+2. Pair each failing evaluator assertion with its policy/routing implementation, including exact-link and extension-integration traceability assertions, and finish the step green.
 3. Synchronize mode-specific validators/oracles/release lanes, generated copies, counts, and docs; run the affected certified lane.
 
 Exit criterion: all six routing decisions and both writable ordering proofs are observable and green without whole-output goldens or unrelated write/context access.
@@ -133,7 +137,8 @@ This is an additive agent-workflow policy. It changes generated-agent behavior b
 | Scope cohesion | One independently deployable capability: emitted spec-first routing plus its behavioral proof. |
 | User decision | Explicitly confirmed by the 2026-08-01 brief; no open architectural default. |
 | Agent authority | Explicit user override is preserved; ambiguous material classification asks once. |
-| Example reuse | Planning stays source-read-only and hands module work to the canonical `src/modules/example` inventory without owning its read policy. |
+| Example reuse | Planning stays source-read-only and hands module work to visible exact canonical/installed references without owning their read policy. |
+| Integration traceability | Every newly planned extension surface names a self-contained real-path integration test in the requirement/phase matrix. |
 | Instruction budget | Normative decision only in `AGENTS.md`; procedure remains in the owning skill. |
 | Testing | Six finite routing oracles, preset/link/budget tests, and an affected certified lane. |
 | Runtime/compatibility | No runtime, API, schema, provider, or module behavior changes. |
@@ -146,6 +151,8 @@ This is an additive agent-workflow policy. It changes generated-agent behavior b
 
 - 2026-08-01: Initial draft defined the standalone spec-first decision contract and routing proofs.
 - 2026-08-03: Added the one-way module implementation handoff to `om-module-scaffold` and canonical `src/modules/example` capability links; prohibited shadow teaching modules, whole-tree copies, and `ratelimit_probe` reuse.
+- 2026-08-03: Required visible exact local/installed source-reference links in implementation plans and self-contained integration coverage for every new extension surface, including DataTable bulk-operation progress.
+- 2026-08-03: Extended traceability to materially changed surfaces inside existing rows and required separate DataTable bulk-action and operation-progress source/assertion coverage in their connected integration proof.
 
 ### Review — 2026-08-03
 
