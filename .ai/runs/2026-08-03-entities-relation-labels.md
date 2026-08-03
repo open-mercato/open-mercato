@@ -37,14 +37,16 @@ Recreate the useful intent of closed PR #4300 on a fresh `develop` base so relat
 
 ## Progress
 
+PR: #4904
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Correct relation display resolution
 
-- [ ] 1.1 Expose relation target metadata additively and resolve record-list relation values through the shared relation-options path.
-- [ ] 1.2 Render labels and supported links in relation cells while preserving raw-ID titles and progressive fallback behavior.
+- [x] 1.1 Expose relation target metadata additively and resolve record-list relation values through the shared relation-options path. — 85de7cf645
+- [x] 1.2 Render labels and supported links in relation cells while preserving raw-ID titles and progressive fallback behavior. — 85de7cf645
 
 ### Phase 2: Regression coverage and delivery
 
-- [ ] 2.1 Add focused tests for metadata exposure, single/multi values, batched chunks, synthesized URLs, and failed lookups.
+- [x] 2.1 Add focused tests for metadata exposure, single/multi values, batched chunks, synthesized URLs, and failed lookups. — 85de7cf645
 - [ ] 2.2 Run the configured validation gate, complete the authoritative autofix review, and finalize the PR for review.
