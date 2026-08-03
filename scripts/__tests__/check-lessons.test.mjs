@@ -49,6 +49,23 @@ test('repository lesson catalog is structurally valid and context bounded', () =
   assert.deepEqual(checkLessonsCatalog(repositoryRoot), [])
 })
 
+test('monorepo lesson consumers route through the tagged index without bulk loading', () => {
+  const consumers = [
+    'AGENTS.md',
+    '.ai/skills/om-code-review/SKILL.md',
+    '.ai/skills/om-prepare-issue/SKILL.md',
+    '.ai/skills/om-pre-implement-spec/SKILL.md',
+    '.ai/skills/om-implement-spec/SKILL.md',
+    '.ai/skills/om-refresh-standalone-harness/SKILL.md',
+  ]
+  for (const relativePath of consumers) {
+    const source = fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8')
+    assert.match(source, /\.ai\/lessons\.md/)
+    assert.match(source, /(scan|Scan).*?(module|area|tag|topic)/s)
+    assert.doesNotMatch(source, /(?:Read|read|Skim|skim) `?\.ai\/lessons\.md`? for/)
+  }
+})
+
 test('lesson catalog checker accepts a focused tagged record', () => {
   const rootDir = createCatalogFixture()
   try {

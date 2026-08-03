@@ -5,6 +5,7 @@ Extend this app. Route first; never probe unmatched context.
 ## Always
 
 - Route all axes; missing context: `yarn mercato agentic:init --update-harness`.
+- Scan `.ai/lessons.md` by selected area/module/topic tags and open only matching records; after a correction, update one focused record plus its index row. Never bulk-read lessons.
 - App code: `src/modules/<id>/`; framework context only for a named version gap.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
