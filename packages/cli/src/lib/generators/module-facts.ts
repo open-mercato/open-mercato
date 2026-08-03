@@ -2289,13 +2289,26 @@ function renderSourceLinkedListSection(
   return [heading, '', `| ${idColumnLabel} | Source |`, '|---|---|', ...rows].join('\n')
 }
 
+/**
+ * A generated fact only earns a markdown link when it names an exact module code
+ * file. Directory-valued provenance (the module source root, framework hosts that
+ * only know their owning package folder) renders as plain text: a link to a folder
+ * resolves to nothing in an editor or on the repository browser, so emitting one
+ * costs a consumer a dead click instead of taking them to the declaration site.
+ */
+export function isExactSourceFilePath(sourcePath: string): boolean {
+  return MODULE_CODE_EXTENSIONS.some((extension) => sourcePath.endsWith(extension))
+}
+
 function renderSourceLink(sourcePath: string): string {
+  if (!isExactSourceFilePath(sourcePath)) return sourcePath
   return `[${sourcePath}](../../../${sourcePath})`
 }
 
 function renderSourceRefLink(source: ModuleFactSourceRef): string {
   const anchor = source.line ? `#L${source.line}` : ''
   const label = source.line ? `${source.sourcePath}:${source.line}` : source.sourcePath
+  if (!isExactSourceFilePath(source.sourcePath)) return label
   return `[${label}](../../../${source.sourcePath}${anchor})`
 }
 
