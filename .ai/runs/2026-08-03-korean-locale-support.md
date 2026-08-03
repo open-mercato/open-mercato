@@ -51,8 +51,8 @@ This run is based on the Korean localization contributed by `@moduvoice` in PR #
 
 ### Phase 1: Rebase the Korean locale onto current develop
 
-- [ ] 1.1 Reapply supported-locale wiring and synchronized app/template loader changes
-- [ ] 1.2 Carry forward credited Korean catalogs and complete current-base parity
+- [x] 1.1 Reapply supported-locale wiring and synchronized app/template loader changes — cc960f06b
+- [x] 1.2 Carry forward credited Korean catalogs and complete current-base parity — cc960f06b
 
 ### Phase 2: Lock in the user flow
 
