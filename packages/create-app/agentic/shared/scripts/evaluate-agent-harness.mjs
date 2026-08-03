@@ -1598,10 +1598,26 @@ function validateReviewCommand(command, root, expectedReads) {
   return violations
 }
 
-function addTraceCandidate(state, raw, expand = false, refused = false) {
+function addTraceCandidate(state, raw, expand = false, refused = false, provenance = null) {
   if (Array.isArray(raw)) {
-    for (const item of raw) addTraceCandidate(state, item, expand, refused)
-  } else if (typeof raw === 'string' && raw.trim()) state.candidates.push({ raw, expand, refused })
+    for (const item of raw) addTraceCandidate(state, item, expand, refused, provenance)
+  } else if (typeof raw === 'string' && raw.trim()) {
+    state.candidates.push({ raw, expand, refused, ...(provenance ?? {}) })
+  }
+}
+
+// A read that leaves the canonical example root may declare WHY. The tool server already
+// refused any value outside the reason enum, so the trace can only carry a recognized code
+// here; the evaluator still decides whether the case declared that reason and whether the
+// budgets allow the read. Without this channel a live run could never satisfy the
+// reason-gated fallback branch, so live installed reads always failed closed.
+function readProvenance(value) {
+  const reason = value.reason ?? value.fallback_reason ?? value.fallbackReason
+  const capabilityId = value.capabilityId ?? value.capability_id
+  const provenance = {}
+  if (typeof reason === 'string' && reason) provenance.fallbackReason = reason
+  if (typeof capabilityId === 'string' && capabilityId) provenance.capabilityId = capabilityId
+  return Object.keys(provenance).length > 0 ? provenance : null
 }
 
 // Tool-call identifiers whose paired result reported an error. The evaluator-owned MCP
@@ -1651,7 +1667,7 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   const refusedCall = Boolean(callId) && state.refusedCallIds.has(callId)
   for (const [key, child] of Object.entries(value)) {
     if (isContentTool && /^(?:file_path|filepath|path|paths|filename|file)$/i.test(key)) {
-      addTraceCandidate(state, child, /glob|grep|search/.test(toolName), refusedCall)
+      addTraceCandidate(state, child, /glob|grep|search/.test(toolName), refusedCall, readProvenance(value))
     } else if (isContentTool && /^(?:command|cmd)$/i.test(key)) {
       const commands = Array.isArray(child) ? child : [child]
       for (const command of commands) {
@@ -1898,7 +1914,27 @@ function expandObservedPath(root, relative, expand) {
   }
 }
 
-function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads, selectedRoutes = new Set()) {
+// Sanitized, content-free accounting of the example read policy for the result record.
+// It makes a reason-gated installed-source read auditable in captured evidence without
+// carrying any file bytes; the paths it names are already app-relative.
+function exampleReadPolicySummary(trace) {
+  return {
+    roots: (trace.roots ?? []).map((entry) => ({
+      root: entry.root,
+      entrypoints: [...(entry.entrypoints ?? [])],
+      capabilities: [...new Set(entry.capabilities ?? [])].sort(),
+      files: entry.files,
+      bytes: entry.bytes,
+    })),
+    fallback: {
+      reason: trace.fallback?.reason ?? null,
+      files: trace.fallback?.files ?? 0,
+      bytes: trace.fallback?.bytes ?? 0,
+    },
+  }
+}
+
+export function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads, selectedRoutes = new Set()) {
   const state = {
     root,
     available: false,
@@ -1931,6 +1967,8 @@ function observedContext(stdout, root, caseRecord, writable, reviewExpectedReads
       exampleReads.push({
         path: normalized.relative,
         kind: candidate.listDirectory ? 'list' : candidate.expand ? 'glob' : 'read',
+        ...(candidate.fallbackReason ? { fallbackReason: candidate.fallbackReason } : {}),
+        ...(candidate.capabilityId ? { capabilityId: candidate.capabilityId } : {}),
       })
     }
     if (normalized.unsafe) {
@@ -3319,6 +3357,9 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         actualContext: stats,
         declaredContext: declaredStats,
         ...(trace.refusedPaths?.length ? { refusedContextReads: recursivelySanitize(trace.refusedPaths, runRoot) } : {}),
+        ...(trace.exampleReadPolicy?.roots?.length || trace.exampleReadPolicy?.fallback?.reason
+          ? { exampleReadPolicy: recursivelySanitize(exampleReadPolicySummary(trace.exampleReadPolicy), runRoot) }
+          : {}),
         ...(writableResult ? { writable: writableResult } : {}),
       }
       const resultPath = writeResult(root, result, resultSchema)

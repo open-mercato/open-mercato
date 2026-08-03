@@ -45,6 +45,14 @@ type Evaluator = {
   exampleReadAllowlist: (caseRecord: unknown, appRoot?: string) => string[]
   immutableExampleRoots: (caseRecord: unknown) => string[]
   normalizeExampleReadPath: (value: unknown) => { relative?: string; violation?: string }
+  observedContext: (
+    stdout: string,
+    root: string,
+    caseRecord: unknown,
+    writable: boolean,
+    reviewExpectedReads?: string[],
+    selectedRoutes?: Set<string>,
+  ) => { exampleReadPolicy: PolicyTrace; violations: string[]; paths: string[] }
 }
 
 let evaluatorPromise: Promise<Evaluator> | undefined
@@ -763,6 +771,125 @@ test('family 7: an ordinary example surface is never a specialist-route fallback
 // ---------------------------------------------------------------------------------------------
 // Path normalization — POSIX plus Windows-style syntax.
 // ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// Oracle family 8 — the live runner carries the reason code, so a reason-gated fallback is
+// reachable outside the synthetic fixtures. Before this channel existed the trace recorded only
+// `{path, kind}`, so every live installed-source read hit "fallback reason is unknown" and the
+// declared `installedVersionFallback` contract could never be satisfied by a real run.
+// ---------------------------------------------------------------------------------------------
+
+const INSTALLED_SOURCE = 'node_modules/@open-mercato/core/src/modules/customers/api/route.ts'
+
+function readEvent(pathValue: string, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({ type: 'mcp_tool_call', name: 'harness__read', arguments: { path: pathValue, ...extra } })
+}
+
+function liveTrace(evaluator: Evaluator, root: string, lines: string[], caseRecord: unknown) {
+  return evaluator.observedContext(lines.join('\n'), root, caseRecord, false)
+}
+
+test('family 8: a live trace carries the declared reason code into the fallback accounting', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const caseRecord = declaredCase({})
+    const entrypointLines = ENTRYPOINTS.map((entrypoint) => readEvent(`${EXAMPLE_ROOT}/${entrypoint}`))
+
+    const withReason = liveTrace(evaluator, root, [
+      ...entrypointLines,
+      readEvent(capability('api.crud-factory').sourcePaths[0]),
+      readEvent(INSTALLED_SOURCE, { reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH' }),
+    ], caseRecord)
+
+    assert.equal(withReason.exampleReadPolicy.firstViolation, null)
+    assert.equal(withReason.exampleReadPolicy.fallback.reason, 'INSTALLED_VERSION_CONTRACT_MISMATCH')
+    assert.equal(withReason.exampleReadPolicy.fallback.files, 1)
+    assert.equal(withReason.exampleReadPolicy.reads.at(-1)?.fallbackReason, 'INSTALLED_VERSION_CONTRACT_MISMATCH')
+
+    // The same trace without the reason must still fail closed — the channel grants nothing on
+    // its own, it only lets a case that DECLARED the reason satisfy its own contract.
+    const withoutReason = liveTrace(evaluator, root, [
+      ...entrypointLines,
+      readEvent(capability('api.crud-factory').sourcePaths[0]),
+      readEvent(INSTALLED_SOURCE),
+    ], caseRecord)
+    assert.match(withoutReason.exampleReadPolicy.firstViolation ?? '', /fallback reason is unknown/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 8: the live channel carries the capability id a specialist-route fallback needs', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const entrypointLines = ENTRYPOINTS.map((entrypoint) => readEvent(`${EXAMPLE_ROOT}/${entrypoint}`))
+    const trace = liveTrace(evaluator, root, [
+      ...entrypointLines,
+      readEvent(INSTALLED_SOURCE, { reason: 'SPECIALIST_ROUTE_NOT_DECLARED', capabilityId: 'api.crud-factory' }),
+    ], declaredCase({
+      fallback: {
+        allowed: true,
+        reasonCodes: ['SPECIALIST_ROUTE_NOT_DECLARED', 'INSTALLED_VERSION_CONTRACT_MISMATCH'],
+        maxFiles: 4,
+        maxBytes: 65_536,
+      },
+    }))
+
+    // `api.crud-factory` is an ordinary example surface, so the specialist-route reason is refused
+    // on its classification — proving the capability id survived the trace rather than arriving
+    // empty (which would have failed with the different "<missing>" message).
+    assert.match(trace.exampleReadPolicy.firstViolation ?? '', /an ordinary example surface is not a fallback reason/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 8: one trace may not mix two declared fallback reasons', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const trace = evaluator.evaluateExampleReadPolicy({
+      caseRecord: declaredCase({
+        fallback: {
+          allowed: true,
+          reasonCodes: ['SPECIALIST_ROUTE_NOT_DECLARED', 'INSTALLED_VERSION_CONTRACT_MISMATCH'],
+          maxFiles: 4,
+          maxBytes: 65_536,
+        },
+      }),
+      appRoot: root,
+      reads: [
+        ...entrypointReads(),
+        { path: INSTALLED_SOURCE, fallbackReason: 'INSTALLED_VERSION_CONTRACT_MISMATCH' },
+        { path: 'node_modules/@open-mercato/core/src/modules/customers/api/other.ts', fallbackReason: 'SPECIALIST_ROUTE_NOT_DECLARED', capabilityId: 'api.crud-factory' },
+      ],
+    })
+    assert.match(trace.firstViolation ?? '', /mixes reason codes/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 8: the tool server refuses a read whose declared reason is outside the enum', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-example-policy-reason-')))
+  try {
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), '# agents\n')
+    const replies = callToolServer(root, 'read-only', ['AGENTS.md'], [], [], [
+      { name: 'read', arguments: { path: 'AGENTS.md', reason: 'BECAUSE_I_SAID_SO' } },
+      { name: 'read', arguments: { path: 'AGENTS.md', capabilityId: '../../etc/passwd' } },
+      { name: 'read', arguments: { path: 'AGENTS.md', reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH' } },
+    ])
+    assert.equal(replies[1].result.isError, true)
+    assert.match(replies[1].result.content[0].text, /declared installed-source fallback reason code/)
+    assert.equal(replies[2].result.isError, true)
+    assert.match(replies[2].result.content[0].text, /capability id/)
+    assert.notEqual(replies[3].result.isError, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('path normalization accepts Windows-style separators and rejects every escape spelling', async () => {
   const evaluator = await loadEvaluator()

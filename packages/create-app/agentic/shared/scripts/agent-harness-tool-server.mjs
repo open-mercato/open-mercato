@@ -16,6 +16,14 @@ const FORBIDDEN_BASENAMES = new Set([
   'service-account-credentials.json',
 ])
 const FORBIDDEN_SECRET_EXTENSIONS = new Set(['.key', '.pem', '.p12', '.pfx'])
+// Declarative provenance for a read outside the canonical example root. The server does
+// NOT authorize on it — the read allowlist still governs what may be read — but it refuses
+// an unrecognized value so the runner trace cannot carry an arbitrary string into the
+// evaluator's reason-gated fallback accounting. Mirrors `cases.schema.json`.
+const INSTALLED_FALLBACK_REASON_CODES = new Set([
+  'SPECIALIST_ROUTE_NOT_DECLARED',
+  'INSTALLED_VERSION_CONTRACT_MISMATCH',
+])
 
 function fail(message) {
   process.stderr.write(`agent-harness-tool-server: ${message}\n`)
@@ -130,7 +138,16 @@ const tools = [
   {
     name: 'read',
     description: 'Read one exact app-relative instruction, fact, source, or allowed target file. Fact-linked @open-mercato package source reads are allowed; absolute paths, discovery, credentials, dependency writes, Git, and harness internals are rejected.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' } } },
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['path'],
+      properties: {
+        path: { type: 'string' },
+        reason: { type: 'string', enum: [...INSTALLED_FALLBACK_REASON_CODES] },
+        capabilityId: { type: 'string' },
+      },
+    },
   },
   ...(mode === 'writable' ? [{
     name: 'write',
@@ -164,6 +181,13 @@ function handle(message) {
     const name = message.params?.name
     const input = message.params?.arguments ?? {}
     if (name === 'read') {
+      if (input.reason !== undefined && !INSTALLED_FALLBACK_REASON_CODES.has(input.reason)) {
+        throw new Error('read reason must be a declared installed-source fallback reason code')
+      }
+      if (input.capabilityId !== undefined
+        && (typeof input.capabilityId !== 'string' || !/^[a-z0-9][a-z0-9.-]{0,63}$/.test(input.capabilityId))) {
+        throw new Error('read capabilityId must be a bounded surface-inventory capability id')
+      }
       const { real } = resolveRead(input.path)
       toolResult(message.id, fs.readFileSync(real, 'utf8'))
       return
