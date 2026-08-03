@@ -16,6 +16,8 @@ import {
   MapPin,
 } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 
 export type PersonTabId =
   | 'activities'
@@ -35,7 +37,9 @@ type TabDef = {
   count?: React.ReactNode
 }
 
-type PersonDetailTabsProps = {
+export const PERSON_DETAIL_TABS_COMPONENT_ID = 'section:customers.people.detailTabs'
+
+export type PersonDetailTabsProps = {
   activeTab: PersonTabId
   onTabChange: (tab: PersonTabId) => void
   injectedTabs?: Array<{ id: string; label: string }>
@@ -64,7 +68,7 @@ function formatTabCount(count: number): string | number | undefined {
   return count > 999 ? '999+' : count
 }
 
-export function PersonDetailTabs({
+function DefaultPersonDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
@@ -185,4 +189,21 @@ export function PersonDetailTabs({
       </div>
     </div>
   )
+}
+
+registerComponent<PersonDetailTabsProps>({
+  id: PERSON_DETAIL_TABS_COMPONENT_ID,
+  component: DefaultPersonDetailTabs,
+  metadata: {
+    module: 'customers',
+    description: 'Person detail tab navigation and content.',
+  },
+})
+
+export function PersonDetailTabs(props: PersonDetailTabsProps) {
+  const ResolvedTabs = useRegisteredComponent<PersonDetailTabsProps>(
+    PERSON_DETAIL_TABS_COMPONENT_ID,
+    DefaultPersonDetailTabs,
+  )
+  return <ResolvedTabs {...props} />
 }

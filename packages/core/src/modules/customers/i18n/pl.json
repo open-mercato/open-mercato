@@ -1617,6 +1617,7 @@
   "customers.errors.person_not_found": "Nie znaleziono osoby",
   "customers.errors.person_profile_not_found": "Nie znaleziono profilu osoby",
   "customers.errors.person_required": "Wymagany identyfikator osoby",
+  "customers.errors.primaryPersonMustBeLinked": "Główna osoba musi być powiązana z dealem",
   "customers.errors.profile_must_be_object": "profil musi być obiektem",
   "customers.errors.profile_unsupported_field": "Nieobsługiwane pole profilu: {{field}}",
   "customers.errors.role_not_found": "Nie znaleziono roli",

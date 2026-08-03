@@ -382,10 +382,34 @@ async function syncDealPeople(
   if (personIds === undefined) {
     if (primaryPersonEntityId === undefined) return
     const links = await em.find(CustomerDealPersonLink, { deal })
+    if (primaryPersonEntityId !== null && !links.some((link) => link.person.id === primaryPersonEntityId)) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(400, {
+        error: translate(
+          'customers.errors.primaryPersonMustBeLinked',
+          'Primary person must be linked to the deal',
+        ),
+      })
+    }
     for (const link of links) {
-      link.isPrimary = link.person.id === primaryPersonEntityId
+      link.isPrimary = false
+    }
+    await em.flush()
+    if (primaryPersonEntityId !== null) {
+      const primaryLink = links.find((link) => link.person.id === primaryPersonEntityId)
+      if (primaryLink) primaryLink.isPrimary = true
     }
     return
+  }
+  const unique = Array.from(new Set(personIds ?? []))
+  if (primaryPersonEntityId !== undefined && primaryPersonEntityId !== null && !unique.includes(primaryPersonEntityId)) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(400, {
+      error: translate(
+        'customers.errors.primaryPersonMustBeLinked',
+        'Primary person must be linked to the deal',
+      ),
+    })
   }
   let effectivePrimaryId = primaryPersonEntityId
   if (effectivePrimaryId === undefined) {
@@ -393,8 +417,7 @@ async function syncDealPeople(
     effectivePrimaryId = existingPrimary?.person?.id ?? null
   }
   await em.nativeDelete(CustomerDealPersonLink, { deal })
-  if (!personIds || !personIds.length) return
-  const unique = Array.from(new Set(personIds))
+  if (!unique.length) return
   for (const personId of unique) {
     const person = await requireCustomerEntity(em, personId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'person', 'Person not found')
     ensureSameScope(person, deal.organizationId, deal.tenantId)

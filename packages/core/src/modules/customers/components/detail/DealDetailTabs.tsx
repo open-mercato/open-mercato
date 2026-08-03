@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { Activity, Building2, History, NotebookPen, Paperclip, Users } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 
 export type DealTabId =
@@ -21,7 +23,9 @@ type TabDef = {
   count?: React.ReactNode
 }
 
-type DealDetailTabsProps = {
+export const DEAL_DETAIL_TABS_COMPONENT_ID = 'section:customers.deals.detailTabs'
+
+export type DealDetailTabsProps = {
   activeTab: DealTabId
   onTabChange: (tab: DealTabId) => void
   injectedTabs?: Array<{ id: string; label: string }>
@@ -45,7 +49,7 @@ function formatTabCount(count: number): string | number | undefined {
   return count > 999 ? '999+' : count
 }
 
-export function DealDetailTabs({
+function DefaultDealDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
@@ -130,4 +134,21 @@ export function DealDetailTabs({
       </div>
     </div>
   )
+}
+
+registerComponent<DealDetailTabsProps>({
+  id: DEAL_DETAIL_TABS_COMPONENT_ID,
+  component: DefaultDealDetailTabs,
+  metadata: {
+    module: 'customers',
+    description: 'Deal detail tab navigation and content.',
+  },
+})
+
+export function DealDetailTabs(props: DealDetailTabsProps) {
+  const ResolvedTabs = useRegisteredComponent<DealDetailTabsProps>(
+    DEAL_DETAIL_TABS_COMPONENT_ID,
+    DefaultDealDetailTabs,
+  )
+  return <ResolvedTabs {...props} />
 }

@@ -1759,6 +1759,15 @@
           "unique": false
         },
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "customer_deal_people_primary_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"customer_deal_people_primary_uq\" on \"customer_deal_people\" (\"deal_id\") where \"is_primary\""
+        },
+        {
           "columnNames": [
             "id"
           ],

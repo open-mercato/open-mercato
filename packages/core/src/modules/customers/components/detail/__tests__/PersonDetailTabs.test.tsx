@@ -3,7 +3,13 @@
  */
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
-import { PersonDetailTabs, resolveLegacyTab } from '../PersonDetailTabs'
+import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
+import {
+  PERSON_DETAIL_TABS_COMPONENT_ID,
+  PersonDetailTabs,
+  type PersonDetailTabsProps,
+  resolveLegacyTab,
+} from '../PersonDetailTabs'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
@@ -14,6 +20,10 @@ jest.mock('@open-mercato/ui/primitives/button', () => ({
 }))
 
 describe('PersonDetailTabs', () => {
+  afterEach(() => {
+    registerComponentOverrides([])
+  })
+
   it('renders an Addresses tab', () => {
     render(
       <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
@@ -40,6 +50,27 @@ describe('PersonDetailTabs', () => {
     expect(screen.queryByRole('tab', { name: /emails/i })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'Custom' })).toBeNull()
     expect(screen.getByRole('tab', { name: 'Other' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /activities/i })).toBeInTheDocument()
+  })
+
+  it('lets a downstream props transform hide tabs without replacing the detail page (#4379)', () => {
+    registerComponentOverrides([
+      {
+        target: { componentId: PERSON_DETAIL_TABS_COMPONENT_ID },
+        priority: 50,
+        metadata: { module: 'test' },
+        propsTransform: (props: PersonDetailTabsProps) => ({
+          ...props,
+          hiddenTabIds: ['emails'],
+        }),
+      },
+    ])
+    render(
+      <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.queryByRole('tab', { name: /emails/i })).toBeNull()
     expect(screen.getByRole('tab', { name: /activities/i })).toBeInTheDocument()
   })
 

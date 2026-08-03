@@ -439,6 +439,11 @@ export class CustomerDealStageTransition {
 @Entity({ tableName: 'customer_deal_people' })
 @Index({ name: 'customer_deal_people_deal_idx', properties: ['deal'] })
 @Index({ name: 'customer_deal_people_person_idx', properties: ['person'] })
+@Index({
+  name: 'customer_deal_people_primary_uq',
+  expression:
+    `create unique index "customer_deal_people_primary_uq" on "customer_deal_people" ("deal_id") where "is_primary"`,
+})
 @Unique({ name: 'customer_deal_people_unique', properties: ['deal', 'person'] })
 export class CustomerDealPersonLink {
   [OptionalProps]?: 'isPrimary' | 'createdAt'
