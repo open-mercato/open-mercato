@@ -16,11 +16,8 @@ import {
   customerInviteIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
-import { createLogger } from '@open-mercato/shared/lib/logger'
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('customer_accounts').child({ component: 'portal-users-invite' })
 
 const logger = createLogger('customer_accounts').child({ component: 'portal-users-invite' })
 
