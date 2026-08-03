@@ -38,7 +38,7 @@ Recreate the exact `actions/setup-node` v7 dependency update from PR #4885 on a 
 
 ### Phase 1: Recreate the dependency update
 
-- [ ] 1.1 Port the setup-node v7 change
+- [x] 1.1 Port the setup-node v7 change — a39f79750
 
 ### Phase 2: Verify and hand off
 
