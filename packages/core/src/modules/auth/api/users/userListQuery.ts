@@ -6,9 +6,7 @@ import { E } from '#generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
-import { sql } from 'kysely'
+import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 
 export type UserFilter = FilterQuery<User>
 
@@ -207,15 +205,6 @@ async function collectSearchFilters(
   return searchFilters
 }
 
-type SearchTokenQueryBuilder = {
-  selectFrom: (table: string) => SearchTokenQueryBuilder
-  select: (column: string) => SearchTokenQueryBuilder
-  where: (...args: unknown[]) => SearchTokenQueryBuilder
-  groupBy: (column: string) => SearchTokenQueryBuilder
-  having: (expression: unknown) => SearchTokenQueryBuilder
-  execute: () => Promise<Array<{ entity_id?: unknown }>>
-}
-
 async function findUserIdsBySearchTokens(
   em: EntityManager,
   entityType: string,
@@ -223,31 +212,13 @@ async function findUserIdsBySearchTokens(
   tenantScope: string | null | undefined,
   field?: string,
 ): Promise<string[] | null> {
-  const trimmed = search.trim()
-  if (!trimmed) return null
-  const searchConfig = resolveSearchConfig()
-  if (!searchConfig.enabled) return []
-  const { hashes } = tokenizeText(trimmed, searchConfig)
-  if (!hashes.length) return []
-
-  const db = (em as unknown as { getKysely: () => SearchTokenQueryBuilder }).getKysely()
-  let query = db
-    .selectFrom('search_tokens')
-    .select('entity_id')
-    .where('entity_type', '=', entityType)
-    .where('token_hash', 'in', hashes)
-    .groupBy('entity_id')
-    .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
-  if (field) {
-    query = query.where('field', '=', field)
-  }
-  if (tenantScope !== undefined) {
-    query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
-  }
-  const rows = await query.execute()
-  return rows
-    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  return findEntityIdsBySearchTokensCompat({
+    db: em.getKysely<SearchTokenDatabase>(),
+    entityType,
+    query: search,
+    fields: field ? [field] : undefined,
+    scope: { tenantId: tenantScope },
+  })
 }
 
 async function mapUserListItems(

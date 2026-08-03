@@ -137,23 +137,22 @@ async function computePresenterAndLinks(
     queryEngine,
   }
 
-  // If search.ts config exists, use formatResult/buildSource for presenter
   if (config?.formatResult || config?.buildSource) {
-    if (config.buildSource) {
+    if (config.formatResult) {
+      try {
+        presenter = (await config.formatResult(buildContext)) ?? null
+      } catch (err) {
+        logWarning('formatResult failed', { entityId, recordId, err })
+      }
+    }
+
+    if (!presenter && config.buildSource) {
       try {
         const source = await config.buildSource(buildContext)
         if (source?.presenter) presenter = source.presenter
         if (source?.links) links = source.links
       } catch (err) {
         logWarning('buildSource failed', { entityId, recordId, err })
-      }
-    }
-
-    if (!presenter && config.formatResult) {
-      try {
-        presenter = (await config.formatResult(buildContext)) ?? null
-      } catch (err) {
-        logWarning('formatResult failed', { entityId, recordId, err })
       }
     }
   }
@@ -203,8 +202,10 @@ export function createPresenterEnricher(
   encryptionService?: TenantDataEncryptionService | null,
 ): PresenterEnricherFn {
   return async (results, tenantId, organizationId) => {
-    // Find results missing presenter OR with encrypted presenter
-    const missingResults = results.filter(needsSearchResultEnrichment)
+    const shouldEnrich = (result: SearchResult): boolean =>
+      needsSearchResultEnrichment(result) || entityConfigMap.has(result.entityId as EntityId)
+
+    const missingResults = results.filter(shouldEnrich)
     if (missingResults.length === 0) return results
 
     // Group by entity type for config lookup
@@ -285,16 +286,15 @@ export function createPresenterEnricher(
 
     // Enrich results with computed presenter, URL, and links
     return results.map((result) => {
-      if (!needsSearchResultEnrichment(result)) return result
+      if (!shouldEnrich(result)) return result
       const key = `${result.entityId}:${result.recordId}`
       const enriched = enrichmentMap.get(key)
       if (!enriched) return result
-      const hasExistingLinks = Array.isArray(result.links) && result.links.length > 0
       return {
         ...result,
         presenter: enriched.presenter ?? result.presenter,
         url: result.url ?? enriched.url,
-        links: hasExistingLinks ? result.links : (enriched.links ?? result.links),
+        links: enriched.links ?? result.links,
       }
     })
   }

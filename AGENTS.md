@@ -118,6 +118,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, ORM config, Jest setup) | `.ai/skills/om-migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
 | Integration testing, Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.agents/skills/om-integration-tests/SKILL.md` |
+| Refreshing standalone-app AI harness coverage after module, extension-point, contract, generator/discovery, or release changes | `.ai/skills/om-refresh-standalone-harness/SKILL.md` + `packages/create-app/agentic/shared/ai/skills/om-evolve-harness/SKILL.md` |
 | **Spec & PR Automation** | |
 | Spec lifecycle (pre-implement → implement → write/update), code review, DS review | `.agents/skills/{om-spec-writing,om-code-review}/SKILL.md` + `.ai/skills/{om-pre-implement-spec,om-implement-spec,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
 | PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | `.agents/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-auto-qa-pr,om-merge-buddy,om-review-prs,om-close-fixed-issues,om-auto-update-changelog,om-prepare-issue}/SKILL.md` |
@@ -136,7 +137,7 @@ Most `om-*` automation skills come from the shared [open-mercato/skills](https:/
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; name new spec files `{YYYY-MM-DD}-{kebab-case-title}.md`. Skip for small fixes. Skills: `om-spec-writing` (research/phasing), `om-pre-implement-spec` (readiness audit), `om-implement-spec` (execution).
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
-3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
+3.  **Self-improvement**: After corrections, scan `.ai/lessons.md`; update one tagged lesson record + index row or the relevant AGENTS.md. Never bulk-read lessons.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
 5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
 6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.

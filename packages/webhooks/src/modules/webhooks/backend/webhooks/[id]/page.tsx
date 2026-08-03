@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
 import { useParams, usePathname, useRouter } from 'next/navigation'
 import { RotateCw } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -679,7 +680,7 @@ export default function WebhookDetailPage() {
 
               return <RowActions items={items} />
             }}
-            perspective={{ tableId: 'webhooks.deliveries' }}
+            perspective={{ tableId: extensionPoints.hosts.deliveriesTable.tableId }}
             pagination={{
               page: deliveryPage,
               pageSize: 20,

@@ -25,6 +25,7 @@ export interface ProgressService {
 
 export const HEARTBEAT_INTERVAL_MS = 5000
 export const STALE_JOB_TIMEOUT_SECONDS = 60
+export const STALE_PENDING_TIMEOUT_SECONDS = 900
 
 export function calculateEta(
   processedCount: number,

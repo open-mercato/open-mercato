@@ -74,7 +74,7 @@ export function register(container: AppContainer) {
         return {
           async _resolveService(scope: { tenantId: string; organizationId: string }) {
             const creds = await integrationCredentialsService.resolve('storage_s3', scope)
-            if (!creds) throw new Error('S3 storage integration is not configured for this tenant.')
+            if (!creds) throw new Error('[internal] S3 storage integration is not configured for this tenant.')
             return createStorageService({
               authMode: creds.authMode === 'ambient' || creds.authMode === 'access_keys'
                 ? (creds.authMode as 'ambient' | 'access_keys')
