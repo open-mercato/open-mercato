@@ -415,6 +415,14 @@ No non-compliant item or required human confirmation was identified.
 - Specified additive source references, complete safe DI classification, runtime discovery parity, and standalone package/harness proof.
 - Kept established rich extension/search/AI facts authoritative and made root-record compatibility an explicit regression gate.
 
+### 2026-08-03 — Implemented
+
+- Added the additive provenance vocabulary (`ModuleFactSourceRef`, `ModuleFactRef`, `ModuleFactSourceKind`, `factSources`, `factDiagnostics`) and `ownedContracts` families (module-metadata, command, worker, page-middleware, setup, encryption, di-registration, custom-entity, ai-extension, generator-plugin) to `packages/cli/src/lib/generators/module-facts.ts`, with rich Awilix DI classification (`asFunction`/`asClass`/`asValue`/alias) and legacy `diTokens` preserved.
+- Aligned the subscriber reader to runtime recursion and completed integration array/bundle coverage; added `factSources` provenance without duplicating rich payloads; added safe static page metadata and Markdown source columns/sections.
+- Provenance index (`factSources`) covers fact kinds lacking an inline source; kinds already carrying `sourcePath`/`source` are referenced by identity, keeping the aggregate JSON within the determinism byte guard.
+- Verified additively: `@open-mercato/cli` suite green (no legacy field/count change; customers golden fixture unchanged), determinism + no-leak negatives covered by `module-facts.owned-contracts.test.ts`.
+- Deferred (infra-gated): the fresh-Verdaccio scaffold `harness:release` proof runs in Linux CI with Docker + a model runner; the deterministic packaging path is covered by the create-app byte-identical fact-index test.
+
 ## Review — 2026-08-02
 
 - **Fresh-context scope verdict:** KEEP after canonicalizing portable source paths and duplicate-source selection.

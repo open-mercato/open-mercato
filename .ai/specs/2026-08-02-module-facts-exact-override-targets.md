@@ -423,6 +423,14 @@ No non-compliant item or required human confirmation was identified.
 - Defined exhaustive domain adapters, exact structured paths, page/mutation guard separation, and standalone exact-key proof.
 - Aligned domain names with `ModuleOverrideDomain` and constrained diagnostics to per-module entries.
 
+### 2026-08-03 — Implemented
+
+- Added `packages/cli/src/lib/generators/module-override-targets.ts`: a closed adapter registry keyed to the runtime `ModuleOverrideDomain` union (16 domains; `nav` classified framework-only), emitting per-module `overrideTargets` (exact `domain`/`path`/`key`, supported `modes` from the framework override-host catalog, `factRef`, portable `source`, closed `notes`) and per-module `overrideTargetDiagnostics`.
+- Enforced the terminal-key invariant and runtime round-trip (API method/path + page-route keys fed back through the real appliers/normalizers); DI targets expose token + registration kind with no values; `overrides.guards` maps to page middleware only (mutation guards excluded with the `page-middleware-not-mutation-guard` note); framework-only `nav.groupOrder` never becomes a module target. Added the copyable **Exact override targets** Markdown section.
+- Updated the standalone `om-system-extension` override guidance (`unified-overrides.md`) to route agents through `overrideTargets`/`overrideTargetDiagnostics`, require a bound `activation` before claiming runtime invocation, check the `incoming` index, and keep the page-vs-mutation-guard distinction.
+- Verified additively: `@open-mercato/cli` suite green incl. adapter-coverage, round-trip positive/negative, DI no-values, and byte-identical regeneration; bc-guard JSON cap raised for the exhaustive per-entry targets. Also de-corrupted internal composite dedup/sort keys (NUL-byte separators → collision-proof `JSON.stringify` tuples), restoring the touched generators to valid UTF-8.
+- Deferred (infra-gated): strengthening `OMH-089` and the fresh-scaffold `harness:release` exact-key proof run in Linux CI with Docker + a model runner; the deterministic `harness:validate --all` catalog and cases.json expansion are the documented follow-up.
+
 ## Review — 2026-08-02
 
 - **Fresh-context scope verdict:** KEEP after defining `key`/`path` invariants and deterministic diagnostic storage.

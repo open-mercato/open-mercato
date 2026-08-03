@@ -416,6 +416,13 @@ No non-compliant item or required human confirmation was identified.
 - Preserved all legacy host/contribution facts while defining source-linked bindings and target-side references.
 - Defined the shared target, activation, and contribution-kind identities used by the additive topology fields.
 
+### 2026-08-03 — Implemented
+
+- Added `ModuleExtensionSurfaceFactsAdditions` (`activations`, `incoming`, `contributionResolutions`) to `packages/shared/src/modules/widgets/extension-points.ts` and the closed extractor-adapter registry in `module-extension-facts.ts` (compile-time exhaustive `Record` + runtime coverage test) deriving activations from real call sites; entity presence alone stays `capability-only`, never `bound`.
+- Built the post-selection cross-module correlation (`correlateIncomingExtensions`) emitting compact target-owned incoming rows and contributor-owned resolutions (bound / capability-only / optional-target-missing / wildcard / unresolved), with the documented two-activation cardinality and deterministic dedup/sort; three distinct Markdown sections (available hosts / active bindings / incoming).
+- Verified additively: existing hosts/contributions golden fixtures unchanged; `@open-mercato/cli` + `@open-mercato/shared` suites green. The bc-guard byte budget was raised for the additive topology layers (no contribution payloads duplicated).
+- Deferred (infra-gated): the fresh-scaffold `harness:release` proof runs in Linux CI with Docker + a model runner.
+
 ## Review — 2026-08-02
 
 - **Fresh-context scope verdict:** KEEP after defining contributor-owned resolution storage, multi-activation cardinality, and the closed bridge-adapter coverage rule.
