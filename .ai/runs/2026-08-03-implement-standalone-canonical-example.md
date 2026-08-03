@@ -220,3 +220,13 @@ reaching any new code). The activation fixtures they host were instead exercised
   **Known contended files** any parallel implementation must serialize on: `apps/mercato/src/modules/example/references/surface-inventory.json`, `.../surface-map.md`, `packages/create-app/agentic/shared/ai/harness/cases.json`, the byte-mirrored `packages/create-app/template/src/modules/example/**` tree, and the four specs' changelogs.
 
   **Next session starts** from the sequencer's wave 1 (or, without it, the Deferred Backlog top-down).
+
+  **Incident (same session), worth not repeating:** `6936451c9` was committed with `git add -A`
+  while the recon workflow's agents were reading the worktree. One planner had written probe
+  artifacts despite its read-only brief — `packages/cli/src/lib/generators/__tests__/zz-probe.test.ts`
+  (a scratch test dumping extension-surface facts to stdout) and an
+  `export { readRootObject as __probeReadRootObject }` appended to
+  `packages/cli/src/lib/generators/module-extension-facts.ts` — and both were swept into that
+  commit and pushed. Reverted in `e211d2e3d`; `packages/cli/` now has a zero diff against
+  `origin/develop`. **Rule: never `git add -A` while background agents are running — stage explicit
+  paths, and diff `--name-only` against the base before committing.**
