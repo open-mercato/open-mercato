@@ -1383,6 +1383,196 @@ function check(id, passed, requirement) {
   return { id, passed: Boolean(passed), requirement }
 }
 
+function routeMetadataPath(ts, sourceFile) {
+  const source = ts.createSourceFile(
+    sourceFile,
+    fs.readFileSync(sourceFile, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    sourceFile.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== 'metadata') continue
+      const initializer = unwrapExpression(ts, declaration.initializer)
+      if (!initializer || !ts.isObjectLiteralExpression(initializer)) continue
+      for (const property of initializer.properties) {
+        if (!ts.isPropertyAssignment(property) || propertyName(ts, property.name) !== 'path') continue
+        const value = unwrapExpression(ts, property.initializer)
+        if (value && ts.isStringLiteralLike(value)) return value.text
+      }
+    }
+  }
+  return undefined
+}
+
+function normalizeRoutePath(value) {
+  const normalizedSegments = value
+    .replaceAll('\\', '/')
+    .split('/')
+    .filter((segment) => segment && !(segment.startsWith('(') && segment.endsWith(')')) && !segment.startsWith('@'))
+    .map((segment) => {
+      if (/^\[\[\.\.\.[^\]]+\]\]$/.test(segment)) return '[[...]]'
+      if (/^\[\.\.\.[^\]]+\]$/.test(segment)) return '[...]'
+      if (/^\[[^\]]+\]$/.test(segment)) return '[]'
+      return segment
+    })
+  return `/${normalizedSegments.join('/')}`
+}
+
+function sourceHttpMethods(ts, sourceFile) {
+  const source = ts.createSourceFile(sourceFile, fs.readFileSync(sourceFile, 'utf8'), ts.ScriptTarget.Latest, true)
+  const methods = new Set()
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(statement.name.text)) methods.add(statement.name.text)
+    }
+    if (!ts.isVariableStatement(statement) || !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(declaration.name.text)) methods.add(declaration.name.text)
+      if (!ts.isObjectBindingPattern(declaration.name)) continue
+      for (const element of declaration.name.elements) {
+        const name = element.propertyName ?? element.name
+        if (ts.isIdentifier(name) && ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(name.text)) methods.add(name.text)
+      }
+    }
+  }
+  return methods
+}
+
+function pageRoutePath(moduleId, surface, pageFile) {
+  const surfaceRoot = path.join('src', 'modules', moduleId, surface)
+  const relative = path.relative(surfaceRoot, pageFile).replaceAll(path.sep, '/')
+  const segments = relative.split('/')
+  const file = segments.pop()
+  const modern = file === 'page.ts' || file === 'page.tsx'
+  const routeSegments = modern ? segments : [...segments, file.replace(/\.(?:ts|tsx)$/, '')]
+  if (surface === 'frontend') return normalizeRoutePath(`/${routeSegments.join('/')}`)
+  const backendSegments = modern
+    ? routeSegments
+    : routeSegments[0] === moduleId ? routeSegments : [moduleId, ...routeSegments]
+  return normalizeRoutePath(`/backend/${backendSegments.length ? backendSegments.join('/') : moduleId}`)
+}
+
+function installedFactRoutes(root) {
+  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+  const factsStat = safeTargetEntry(root, factsFile)
+  if (!factsStat) return []
+  if (!factsStat.isFile()) throw new Error('installed module facts must be a regular file')
+  const facts = JSON.parse(fs.readFileSync(factsFile, 'utf8'))
+  if (!facts || typeof facts !== 'object' || Array.isArray(facts)) {
+    throw new Error('installed module facts must contain a module object')
+  }
+
+  const routes = []
+  for (const [moduleId, moduleFacts] of Object.entries(facts)) {
+    if (!moduleFacts || typeof moduleFacts !== 'object' || Array.isArray(moduleFacts)) continue
+    const sourceRoot = typeof moduleFacts.sourceRoot === 'string'
+      ? moduleFacts.sourceRoot
+      : `.ai/guides/module-facts.json#${moduleId}`
+    for (const apiRoute of Array.isArray(moduleFacts.apiRoutes) ? moduleFacts.apiRoutes : []) {
+      if (!apiRoute || typeof apiRoute !== 'object' || typeof apiRoute.path !== 'string') continue
+      const methods = new Set(
+        (Array.isArray(apiRoute.methods) ? apiRoute.methods : [])
+          .filter((method) => typeof method === 'string')
+          .map((method) => method.toUpperCase()),
+      )
+      if (!methods.size) continue
+      routes.push({
+        surface: 'api',
+        routePath: normalizeRoutePath(apiRoute.path),
+        sourceFile: undefined,
+        displayPath: typeof apiRoute.sourcePath === 'string' ? apiRoute.sourcePath : `${sourceRoot}#api:${apiRoute.path}`,
+        methods,
+        origin: 'installed',
+      })
+    }
+    for (const [surface, factKey] of [['backend', 'backendPages'], ['frontend', 'frontendPages']]) {
+      for (const page of Array.isArray(moduleFacts[factKey]) ? moduleFacts[factKey] : []) {
+        if (!page || typeof page !== 'object' || typeof page.path !== 'string') continue
+        routes.push({
+          surface,
+          routePath: normalizeRoutePath(page.path),
+          sourceFile: undefined,
+          displayPath: typeof page.sourcePath === 'string' ? page.sourcePath : `${sourceRoot}#${surface}:${page.path}`,
+          methods: new Set(),
+          origin: 'installed',
+        })
+      }
+    }
+  }
+  return routes
+}
+
+function duplicateRouteChecks(ts, root) {
+  const modulesRoot = path.join(root, 'src', 'modules')
+  const moduleStat = safeTargetEntry(root, modulesRoot)
+  if (!moduleStat?.isDirectory()) return []
+  const routes = []
+  for (const moduleEntry of fs.readdirSync(modulesRoot, { withFileTypes: true })) {
+    if (!moduleEntry.isDirectory() || moduleEntry.name.startsWith('.')) continue
+    for (const surface of ['api', 'backend', 'frontend']) {
+      const surfaceRoot = path.join(modulesRoot, moduleEntry.name, surface)
+      const files = collectSourceFiles(root, [path.relative(root, surfaceRoot)])
+      for (const sourceFile of files) {
+        const relative = path.relative(surfaceRoot, sourceFile).replaceAll(path.sep, '/')
+        if (/\.(?:test|spec)\.(?:ts|tsx)$/.test(relative) || /(?:^|\/)page\.meta\.(?:ts|tsx)$/.test(relative) || /(?:^|\/)[^/]+\.meta\.(?:ts|tsx)$/.test(relative)) continue
+        if (surface === 'api') {
+          const segments = relative.split('/')
+          const file = segments.pop()
+          const legacyMethod = ['get', 'post', 'put', 'patch', 'delete'].includes(segments[0]) ? segments.shift().toUpperCase() : undefined
+          const modern = file === 'route.ts' || file === 'route.tsx'
+          const routeSegments = modern ? segments : [...segments, file.replace(/\.(?:ts|tsx)$/, '')]
+          const metadataPath = routeMetadataPath(ts, sourceFile)
+          const routePath = normalizeRoutePath(metadataPath ?? `/${[moduleEntry.name, ...routeSegments].join('/')}`)
+          const methods = legacyMethod ? new Set([legacyMethod]) : sourceHttpMethods(ts, sourceFile)
+          if (methods.size) routes.push({
+            surface,
+            routePath,
+            sourceFile,
+            displayPath: path.relative(root, sourceFile).replaceAll(path.sep, '/'),
+            methods,
+            origin: 'app',
+          })
+          continue
+        }
+        if (!/(?:^|\/)page\.(?:ts|tsx)$/.test(relative) && !/^[^/]+\.(?:ts|tsx)$/.test(relative)) continue
+        routes.push({
+          surface,
+          routePath: pageRoutePath(moduleEntry.name, surface, sourceFile),
+          sourceFile,
+          displayPath: path.relative(root, sourceFile).replaceAll(path.sep, '/'),
+          methods: new Set(),
+          origin: 'app',
+        })
+      }
+    }
+  }
+  routes.push(...installedFactRoutes(root))
+
+  const duplicateGroups = new Map()
+  for (const route of routes) {
+    const key = `${route.surface}:${route.routePath}`
+    const peers = duplicateGroups.get(key) ?? []
+    peers.push(route)
+    duplicateGroups.set(key, peers)
+  }
+  return [...duplicateGroups.entries()].flatMap(([key, entries]) => {
+    if (entries.length < 2) return []
+    if (!entries.some((entry) => entry.origin === 'app')) return []
+    const conflicts = entries.filter((entry, index) => entries.some((peer, peerIndex) => {
+      if (peerIndex === index) return false
+      if (entry.surface !== 'api') return true
+      return [...entry.methods].some((method) => peer.methods.has(method))
+    }))
+    if (conflicts.length < 2) return []
+    const sources = conflicts.map((entry) => entry.displayPath).join(', ')
+    return [`${key} (${sources})`]
+  })
+}
+
 function caseChecks(ts, caseId, facts, root, sourceFiles) {
   const definition = WRITABLE_CASES[caseId]
   if (definition.family === 'complete-module') {
@@ -1902,6 +2092,8 @@ export function evaluateWritableAstOracle({ root: requestedRoot, caseId, phase }
   const ts = loadTargetTypeScript(root)
   const definition = WRITABLE_CASES[caseId]
   const checks = definition.artifacts.map((artifact) => check(`artifact:${artifact}`, artifactExists(root, artifact), `artifact ${artifact} exists`))
+  const duplicateRoutes = duplicateRouteChecks(ts, root)
+  checks.push(check('routes.unique', duplicateRoutes.length === 0, `generated API, backend, and frontend URL patterns are unique${duplicateRoutes.length ? ` (${duplicateRoutes.join('; ')})` : ''}`))
   const sourceFiles = collectSourceFiles(root, definition.sources)
   checks.push(check('source.present', sourceFiles.length > 0, 'at least one case-owned TypeScript source file'))
   if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles), root, sourceFiles))

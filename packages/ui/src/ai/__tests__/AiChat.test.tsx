@@ -93,6 +93,8 @@ const dict = {
   'ai_assistant.chat.emptyTranscript':
     'No messages yet. Ask the agent anything to get started.',
   'ai_assistant.chat.errorTitle': 'Agent dispatch failed',
+  'ai_assistant.errors.moderationBlocked':
+    'Your message was blocked by the content safety filter. Please rephrase and try again.',
   'ai_assistant.chat.agentTasksTitle': 'Tool calls',
   'ai_assistant.chat.regionLabel': 'AI chat',
   'ai_assistant.chat.send': 'Send message',
@@ -575,6 +577,35 @@ describe('<AiChat>', () => {
     expect(screen.getByText('Agent dispatch failed')).toBeInTheDocument()
     expect(screen.getByText(/Unknown agent/)).toBeInTheDocument()
     expect(screen.getByText('agent_unknown')).toBeInTheDocument()
+  })
+
+  it('renders the translated message (not the raw server text) for a moderation_blocked envelope', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    fetchMock.mockResolvedValueOnce(
+      createErrorResponse(400, {
+        error: 'Input rejected by the content safety filter.',
+        code: 'moderation_blocked',
+      }),
+    )
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'flagged input' } })
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('moderation_blocked')).toBeInTheDocument()
+    })
+    // The friendly localized copy is shown; the internal server text is not.
+    expect(
+      screen.getByText(/blocked by the content safety filter/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Input rejected by the content safety filter.')).toBeNull()
+    // Content-safety rejections render as a soft warning, not destructive.
+    expect(document.querySelector('[data-ai-chat-error="moderation_blocked"]')).not.toBeNull()
   })
 
   it('Escape aborts an in-flight streaming response', async () => {

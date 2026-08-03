@@ -15,6 +15,21 @@ function readPackage(relativePath: string): string {
   return fs.readFileSync(path.join(packagesRoot, relativePath), 'utf8')
 }
 
+test('standalone lessons use a tagged progressive catalog and one focused record', () => {
+  const rootInstructions = readAgentic('shared/AGENTS.md.template')
+  const index = readAgentic('shared/ai/lessons.md')
+  const evolutionSkill = readAgentic('shared/ai/skills/om-evolve-harness/SKILL.md')
+
+  assert.match(rootInstructions, /Lessons: scan `\.ai\/lessons\.md` tags/)
+  assert.match(rootInstructions, /open\/update one matching record \+ row/)
+  assert.match(index, /catalog indexes 0 focused lessons/)
+  assert.match(index, /architecture.*module-data.*umes.*backend-ui.*integration.*ai-workflow.*debugging.*testing.*framework-context.*spec-pr/s)
+  assert.match(index, /Copy `\.ai\/lessons\/_template\.md` to one focused/)
+  assert.match(index, /node scripts\/check-lessons\.mjs/)
+  assert.match(evolutionSkill, /Open only matching records/)
+  assert.match(evolutionSkill, /update one focused lesson record and its index row/)
+})
+
 test('standalone module contracts require structured runtime logging without banning script output', () => {
   const contracts = readAgentic('guides/contracts.md')
   assert.match(contracts, /createLogger\('<module>'\)/)
@@ -293,6 +308,8 @@ test('standalone review flow enforces the customers-derived module and design-sy
   assert.match(autoReview, /design-system/)
 
   const generatedPolicy = readAgentic('shared/ai/harness/generated-code-review-policy.md')
+  assert.match(generatedPolicy, /om-judge-agent-session/)
+  assert.match(generatedPolicy, /smallest harness owner/)
   assert.match(generatedPolicy, /\.ai\/review-checklist\.md/)
   assert.match(generatedPolicy, /module elements/)
   assert.match(generatedPolicy, /design-system/)

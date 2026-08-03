@@ -13,14 +13,14 @@ and `agent-harness-release.test.ts`.
 Two entry points cooperate:
 
 - **Evaluator** — `scripts/evaluate-agent-harness.mjs` — evaluates a single case
-  (deterministic / routing / writable / generated-code-review lane).
+  (deterministic / routing / writable / generative-judge lane; generated-code-review flags remain aliases).
 - **Release gate** — `scripts/run-agent-harness-release.mjs` — orchestrates the
   full per-release matrix, invoking the evaluator and the fixture preparer as
   subprocesses.
 
 A *code-generation case* is any catalog case whose `evaluationKind` is
 `implementation` or `regression` (`WRITABLE_KINDS`, `evaluate-agent-harness.mjs:37`).
-There are 45 such cases (`ai/harness/validators.json`; asserted in the test suite).
+There are 46 such cases (`ai/harness/validators.json`; asserted in the test suite).
 Examples: `OMH-011` (CRUD routes), `OMH-093` (business contact-merge command),
 `OMH-163/164/165/192` (test authoring).
 
@@ -67,7 +67,8 @@ The release gate wraps this in a larger ordered sequence.
    `framework-context.mjs` against the target, rewrites its manifest and search
    evidence to app-relative paths, and admits only that materialized output root to
    the read allowlist. The model receives the exact manifest, search result, and
-   source root; direct `node_modules` reads remain forbidden.
+   source root. Exact fact-linked `node_modules/@open-mercato/*/src/**` reads are
+   warning-level examples; broad dependency discovery and all dependency writes remain forbidden.
 
 ### Phase C — Pre-edit verification & "before" oracle
 7. `verifyWritableTarget()` (`:1788-1836`) asserts the target is a real non-symlink
@@ -97,7 +98,7 @@ The release gate wraps this in a larger ordered sequence.
       an empty env (`/usr/bin/env -i node agent-harness-tool-server.mjs …`,
       `:1440-1450`). It exposes exact-path `read` and (writable) atomic `write`,
       re-validates every path against the allowlists, rejects
-      absolute/traversal/symlink/forbidden paths (`.env*`, `.git`, `node_modules`,
+      absolute/traversal/symlink/forbidden paths (`.env*`, `.git`, undeclared dependencies,
       `.ai/harness`, secret extensions), caps I/O at 256 KiB, and writes via temp
       file + `O_EXCL` rename (`agent-harness-tool-server.mjs:30-101, 146-151`).
     - **Codex**: all built-in tools disabled, `--sandbox workspace-write`,
@@ -195,21 +196,22 @@ The release gate wraps this in a larger ordered sequence.
     `loopback` only. The JSON report must show ≥1 passing test and **zero**
     skipped/todo/focused/flaky/unexpected tests (`:397-428, 1266-1337`).
 
-### Phase J — Generated-code review (explicit, read-only, post-oracle)
-23. Review runs only against a *passing* writable result whose oracle evidence is
+### Phase J — Generative judge (explicit, read-only, post-oracle)
+23. The judge runs only against a *passing* writable result whose oracle evidence is
     `beforeOraclePassed=false && afterOraclePassed=true` with zero violations, the
     prompt hash matches, and the target's **current fingerprint still equals** the
     reviewed one (else "writable target changed after the source result",
     `:2056-2084`).
 24. Changed files are copied as **line-numbered inert `.txt` snapshots** into a
-    read-only review bundle with the pinned `om-code-review` skill (verified against
+    read-only judge bundle with the local `om-judge-agent-session` skill and pinned `om-code-review` skill (verified against
     provenance hashes — a modified installed skill → exit 2), a policy doc, and an
-    evidence manifest. The reviewer runs read-only with an MCP `read` tool and may
+    evidence manifest. The judge runs read-only with an MCP `read` tool and may
     use **at most one** inspection command (`:2090-2141`).
-25. The review response is schema- and semantics-validated: `approve` cannot carry
+25. The judge response is schema- and semantics-validated: `approve` cannot carry
     a `blocker`/`major` finding, `request changes` requires one, and the report must
-    contain the fixed headings and every evidence id (`:646-677`). **Gate:** pass
-    only if verdict is `approve` and there are no violations.
+    contain the fixed headings and every evidence id. It separately emits artifact findings,
+    design-system review, and one smallest harness owner per escaped defect. **Gate:** pass
+    only if code review approves, the judge verdict is `pass`, and there are no violations.
 
 ### Release order (`buildReleasePlan`, `run-agent-harness-release.mjs:691-722`)
 `deterministic:all` → `validation:{generate,typecheck,lint,build}` →
@@ -224,7 +226,7 @@ A code-gen case passes only if it clears **all six gates in order**: sandboxed
 agent run → clean trace (fail-closed on undeclared/forbidden reads) →
 allowlist-only writes → controller-owned AST **and** behavior oracles with a genuine
 before-fail / after-pass transition → post-oracle immutability → (release)
-four-command validation + real generated tests + explicit `om-code-review` approval.
+four-command validation + real generated tests + explicit `om-judge-agent-session` pass composing `om-code-review`.
 The security spine is: an env-cleared MCP server as the only tool surface, an OS
 sandbox as the filesystem/network authority, before/after fingerprinting of even
 protected roots, and controller-only trusted oracles, with fingerprint binding

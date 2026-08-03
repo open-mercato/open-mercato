@@ -59,7 +59,7 @@ await cacheService.invalidateTag('customers')  // Clears all customer-related ca
 
 Cache invalidation and query-index side effects (`emitCrudSideEffects`) MUST fire **after** the originating domain write commits — the same rule that keeps them OUTSIDE the `withAtomicFlush` block (see `packages/core/AGENTS.md` → "Entity Update Safety — `withAtomicFlush`"). Because invalidation runs post-commit and the query-index read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, reads can briefly see a short convergence window after a write.
 
-An opt-in env flag, `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default **OFF**, 100% backward compatible), is planned to make that read-projection tail converge synchronously on write so reads never observe the window — at the cost of added write latency. Frame it as opt-in/forthcoming; do not assume it is on. See `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
+The opt-in env flag `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default **OFF**, 100% backward compatible) makes that read-projection tail converge synchronously on write and propagates index-write failures instead of swallowing them — at the cost of added write latency. It does not move query-index side effects into the domain-write transaction. See `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 
 ## Adding Caching to a Module
 

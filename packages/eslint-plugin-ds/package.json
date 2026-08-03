@@ -12,7 +12,7 @@
     "test": "node --require ../../scripts/typescript-js-require-hook.cjs --test ./tests/rules.test.js"
   },
   "devDependencies": {
-    "@typescript-eslint/parser": "^8.59.3",
+    "@typescript-eslint/parser": "^8.65.0",
     "eslint": "^9.39.4"
   },
   "peerDependencies": {
