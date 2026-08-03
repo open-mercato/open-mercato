@@ -21,7 +21,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({
     child: () => ({
+      debug: jest.fn(),
+      info: jest.fn(),
       warn: (...args: unknown[]) => mockLoggerWarn(...args),
+      error: jest.fn(),
     }),
   }),
 }))
