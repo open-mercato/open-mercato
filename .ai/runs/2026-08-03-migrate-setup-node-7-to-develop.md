@@ -9,7 +9,7 @@ Recreate the exact `actions/setup-node` v7 dependency update from PR #4885 on a 
 - Preserve PR #4885's one-line `actions/setup-node@v6` to `actions/setup-node@v7` change in `.github/workflows/audit.yml`.
 - Base the replacement branch and PR on `develop`, as required by the repository's branch policy and agentic configuration.
 - Run the configured validation gate and authoritative automated review before marking the replacement ready.
-- Cross-link and close PR #4885 only after the replacement PR is ready.
+- Cross-link and close PR #4885 once the exact patch has a watchable replacement; mark the replacement ready only after validation and review complete.
 
 **Source PR:** `https://github.com/open-mercato/open-mercato/pull/4885`
 
@@ -24,13 +24,13 @@ Recreate the exact `actions/setup-node` v7 dependency update from PR #4885 on a 
 ### Phase 2: Verify and hand off
 
 - **2.1 Run validation and authoritative review.** Execute the configured validation gate in order, normalize the replacement PR's labels, and complete the `om-auto-review-pr` autofix pass.
-- **2.2 Replace the original PR.** Mark the verified replacement PR ready, cross-link it from PR #4885, close the original, and release the migration claim.
+- **2.2 Replace the original PR.** Cross-link and close PR #4885 after the exact patch is preserved in the replacement, then mark the replacement ready only after validation and review complete.
 
 ## Risks
 
 - **Action runtime compatibility:** `actions/setup-node@v7` changes the action runtime and dependencies; the repository uses GitHub-hosted runners, and the full validation plus PR CI provide the available project-level regression coverage.
 - **Scope drift:** the source PR contains one workflow-line change, so the migrated diff is compared directly with PR #4885 and any unrelated edit is rejected.
-- **Duplicate work:** the replacement is opened before the original is closed for watchable progress, but the two PRs are cross-linked and only the `develop` replacement remains open at completion.
+- **Duplicate work:** PR #4885 is closed and cross-linked to draft PR #4903, leaving only the `develop` replacement open; the original can be reopened if the replacement cannot proceed.
 - **Base validation blockers:** the local full gate cannot complete on the current `develop` baseline. `yarn i18n:check-usage` reports 21 pre-existing missing keys, and `yarn test` reports five pre-existing `storage-s3-routes` failures caused by an unregistered module registry. Both failures reproduce on clean `origin/develop`; fixing them is unrelated to this workflow-only migration and would expand the change into UI/i18n and storage test infrastructure.
 
 ## Progress
@@ -47,3 +47,5 @@ PR: #4903
 
 - [ ] 2.1 Run validation and authoritative review
 - [ ] 2.2 Replace the original PR
+
+> Partial handoff: PR #4885 was closed in favor of draft PR #4903 after the exact patch was preserved; replacement readiness remains pending on Step 2.1.
