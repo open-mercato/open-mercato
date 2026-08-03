@@ -65,14 +65,42 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
       await expect(handle).toBeAttached();
       const defaultWidth = await handleColumnWidth(handle);
 
-      const box = await handle.boundingBox();
-      expect(box).not.toBeNull();
-      const cx = box!.x + box!.width / 2;
-      const cy = box!.y + box!.height / 2;
-      await page.mouse.move(cx, cy);
-      await page.mouse.down();
-      await page.mouse.move(cx + 130, cy, { steps: 10 });
-      await page.mouse.up();
+      const origin = await handle.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      await handle.dispatchEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: origin.x,
+        clientY: origin.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      await page.evaluate(({ x, y }) => {
+        document.dispatchEvent(new PointerEvent('pointermove', {
+          bubbles: true,
+          button: 0,
+          buttons: 1,
+          clientX: x + 130,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+        document.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          buttons: 0,
+          clientX: x + 130,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+      }, origin);
 
       const widened = await handleColumnWidth(handle);
       expect(widened, 'dragging the handle should widen the column').toBeGreaterThan(defaultWidth + 80);
