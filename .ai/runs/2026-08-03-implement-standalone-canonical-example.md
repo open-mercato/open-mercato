@@ -270,3 +270,19 @@ Full per-slice plans (files, tests, contract surfaces, conflict sets) are in tha
   workflow result; the biggest are entity-extension routing (E8), injection-table optionality (E3),
   the bulk-action widget shape (E7), the CANON-C baseline/inventory circular dependency, and the
   SPEC-P2 oracle carrier.
+
+## Maintainer Decisions (2026-08-03, session 3)
+
+Answered by the maintainer against the recon workflow's decision list. These are binding for the
+remaining waves; a slice that contradicts one must re-open the decision rather than diverge.
+
+| # | Decision | Chosen | Consequence |
+|---|---|---|---|
+| D1 | Entity extensions (E8) | **Add optional `table?: string` to `EntityExtension`** and prefer it at `packages/shared/src/lib/query/engine.ts:926` | Ships as its own `packages/shared` PR with query-engine unit tests BEFORE the example's `data/extensions.ts`. ADDITIVE to a STABLE type. Fixes the naive-pluralizer bug (`example_customer_prioritys` vs `example_customer_priorities`) for every module, not just the example. Then `api/todos/route.ts` opts into `includeExtensions`. |
+| D2 | Registry static-readability gate (E3) | **Always-on entries + pass-through wrappers** | Cross-module injection entries gated only by `metadata.requiredModules` (already enforced at `injection-loader.ts:466-471`); the two checkout component wrappers register unconditionally and return `Original` untouched when the flag is off, so rendered DOM and `TC-CHKT-031`'s `data-testid` hooks stay byte-identical. Retires `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` — **needs an explicit BC waiver + UPGRADE_NOTES.md entry**, and the env var must also be dropped from both `.env.example` files. Two permanently-registered inert overrides will be visible in the UMES DevTool; that is accepted. |
+| D3 | DataTable bulk action shape (E7) | **Data-only `widget.ts` + `readApiResultOrThrow`; amend the spec** | Matches the existing `customer-priority-bulk-actions` precedent. No `packages/ui` contract change. The canonical spec's `widget.client.tsx` / `useGuardedMutation` wording is corrected to reality as part of E7. |
+| D4 | CANON-C circular dependency | **Land a checked `source-link-topics.json` registry** | `topicId → declared owner + requirement class`, used as the baseline validator's resolution target. The inventory generator later asserts its derived topic set equals that registry exactly, so the registry stays a contract rather than a second authority. Unblocks C4 before C5. |
+
+Still open (not asked, each has a recommended option recorded in the workflow result): the OMH-018/082/093/176
+budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-P2 oracle carrier (H2/H6),
+`seedDefaults` content (E5), and the E7 scheduler/optimistic-lock sub-decisions.
