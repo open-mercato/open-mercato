@@ -49,7 +49,7 @@ Extend the case schema with:
 }
 ```
 
-`sourceReferenceIds` resolve against emitted `.ai/harness/source-link-inventory.json`. Each ID identifies one visible link in an emitted owner, one exact regular target file, and `readStatus: "readable"`. Repository-only integration evidence and canonical-example rows derived as `readStatus: "qa-only"` remain validation evidence but are forbidden in case `sourceReferenceIds`. A canonical-example reference additionally names its capability ID and must agree with `surface-inventory.json`. An installed-package reference names the selected package, package-relative `src/**` file, package version/hash, and preset/tier applicability. The evaluator verifies that the case required/read the origin owner containing the link before following it, and charges the target against the case's normal file/byte budgets. Source-reference IDs do not grant a directory, glob, sibling file, transitive import, or QA evidence read.
+`sourceReferenceIds` resolve against emitted `.ai/harness/source-link-inventory.json`. Each ID identifies one visible link in an emitted owner, one exact regular target file, and `readStatus: "readable"`. Repository-only integration evidence and canonical-example rows derived as `readStatus: "qa-only"` remain validation evidence but are forbidden in case `sourceReferenceIds`. A canonical-example reference additionally names its capability ID and must agree with `surface-inventory.json`; PR #4883 topology references also name the generated `example` fact/contribution/activation/override-target ID that led to the source. An installed-package reference names the selected package, package-relative `src/**` file, package version/hash, and preset/tier applicability. The evaluator verifies that the case required/read the origin owner containing the link before following it, and charges the target against the case's normal file/byte budgets. Source-reference IDs do not grant a directory, glob, sibling file, transitive import, or QA evidence read.
 
 Paths are case-root relative, normalized through realpath, and reject absolute paths, `..`, symlink escapes, generated caches, credentials, secrets, local ops files, and writable-target reads outside the existing case contract. The evaluator permits multiple exact files under a root up to both budgets. Reading starts from an entrypoint; subsequent reads must map to an `allowedCapabilityId` referenced by the prompt/plan. For the canonical root, IDs and exact files are validated against `src/modules/example/references/surface-inventory.json`; missing IDs, stale paths, entries with `referenceStatus: "qa-only"`, and files outside the mapped capability fail. Directory-wide reads, glob dumps, and unrelated capability files fail even below the byte budget.
 
@@ -60,6 +60,8 @@ A declared installed-package reference is first-class context and may be followe
 An undeclared installed-package fallback is allowed only after local entrypoint/declared-link inspection and only when the inventory classifies the requested capability as `specialist-route` and records `SPECIALIST_ROUTE_NOT_DECLARED`, or the trace records `INSTALLED_VERSION_CONTRACT_MISMATCH` for an exact mapped contract. A missing ordinary module surface is not a fallback reason: the canonical example spec must extend `example` and update its inventory. Fallback uses its own smaller budgets and retains the harness's package/version and sensitive-path restrictions. Cases without `exampleRoots` or `sourceReferenceIds` retain current non-installed behavior, but every existing case that used the universal installed-source glob must be audited and migrated to visible exact declared references or one of these two reason-gated fallback branches before the glob is removed.
 
 The schema accepts only `src/modules/example` for canonical-module cases and rejects shadow or alias roots, duplicate roots, entries whose inventory path or hash does not match the emitted fixture, unknown/orphan source-reference IDs, and references whose visible owner link or packed target differs from the manifest.
+
+The emitted local-example module-facts Markdown and `.ai/guides/module-facts.json#example` are valid visible owners even though the module is disabled. They must carry portable `src/modules/example/**` provenance produced from the local tree, not a package/workspace path. A case may read the compact fact row first and then follow only the exact linked source IDs needed for its requested mechanism. Missing local facts, package-only facts, non-clickable roots, stale enum-ledger fingerprints, unresolved canonical facts, or topology IDs that do not correlate to the linked source fail before any fallback is considered.
 
 ## Ownership Boundary
 
@@ -84,6 +86,7 @@ Focused fixtures cover:
 7. A writable case attempts to mutate the canonical example or installed package through a broad `src/modules/**` grant and fails before the write.
 8. A legacy root, stale capability mapping, source with `referenceStatus: "qa-only"` or `readStatus: "qa-only"`, ordinary-surface fallback, wrong preset/tier, wrong installed version, unpublished path, or workspace-only target fails schema/evaluator validation.
 9. Two capability assertions independently select the canonical DataTable bulk-action source and operation-progress source, then one writable/oracle lane proves their connected `progressJobId` lifecycle.
+10. A topology case starts from the generated local `example` fact sheet, selects representative contribution/activation/override-target rows, follows their exact local or framework links, and proves all enum-ledger classifications; a package-only fact sheet, a statically invisible runtime registry, fabricated unbound surface, or unresolved fact fails.
 
 The result records ordered reads, matched root/capability, cumulative files/bytes, fallback reason, and the first violation. It never records file contents or secret values.
 
@@ -93,6 +96,7 @@ The result records ordered reads, matched root/capability, cumulative files/byte
 
 - Case schema, evaluator implementation, trace result, canonical-root/source-link inventory validation, immutability precedence, and focused fixtures.
 - Progressive multi-file example reads, direct exact declared installed-source reads, and bounded undeclared specialist-route/version-mismatch fallback.
+- Generated local-example fact/topology owners and fact-to-source correlation inside the same immutable budgets.
 - Backward-compatible non-installed behavior for cases without the new field, plus explicit migration of prior broad installed-source reliance.
 
 ### Out of scope
@@ -104,10 +108,11 @@ The result records ordered reads, matched root/capability, cumulative files/byte
 ## Testing and Validation
 
 - Schema tests reject malformed or legacy roots, missing entrypoints, unknown/stale/QA-only capability IDs, unknown/orphan or QA-only source-reference IDs, zero/negative budgets, unsafe paths, and fallback reasons outside the exact two-value enum.
-- Evaluator tests cover the nine oracle families above on POSIX and path-normalization fixtures for Windows syntax.
+- Evaluator tests cover the ten oracle families above on POSIX and path-normalization fixtures for Windows syntax.
 - Security tests cover symlink escapes, encoded traversal, newline paths, generated caches, credentials, and output redaction.
 - A generated `empty` fixture and each applicable preset/tier prove the emitted inventory resolves every visible local or installed link to an exact regular file from actual packed packages, not workspace symlinks, and that broad writable roots cannot mutate them.
 - A whole-harness scanner compares rendered links with the inventory and rejects missing, undeclared, directory-only, wildcard, line-anchored, dead, unpublished, stale-hash, wrong-version, wrong-preset, and orphan records. It also proves generated facts render exact-file provenance for entities, events, ACL, DI, search, notifications, hosts, and contributions rather than clickable source roots.
+- PR #4883 fixtures prove the disabled local example fact sheet covers every permitted enum-ledger row, follows exact source links, distinguishes emitted/framework/catalog/unbound classifications, and does not count module-override configuration or unbound UI spots as emitted contributions.
 - A checked migration audit enumerates every existing case whose prior warning/read allowlist included `node_modules/@open-mercato/*/src/**`, records whether the case actually relied on it, and replaces every reliance with an exact visible declared reference or an allowed reason-gated fallback before removal. Compatibility tests prove non-installed reads remain identical and migrated installed reads use only their new exact contract; unmigrated broad reads fail rather than warn/permit.
 - Run focused create-app tests, affected harness lane, and configured validation gate.
 
@@ -127,7 +132,7 @@ Exit criterion: declared multi-file roots work, unsafe/unrelated reads fail, eve
 2. Implement reason-gated fallback and make every fixture green.
 3. Run an affected certified lane with a synthetic example root and capture sanitized evidence.
 
-Exit criterion: all nine oracle families, compatibility tests, security tests, packed fresh-scaffold proofs, and the affected lane are green.
+Exit criterion: all ten oracle families, compatibility tests, security tests, packed fresh-scaffold proofs, and the affected lane are green.
 
 ## Backward Compatibility and Risks
 
@@ -141,7 +146,7 @@ The schema is additive, but installed-source permissions are intentionally tight
 | User decision | Explicitly required by the 2026-08-01 brief. |
 | Security | Realpath containment, sensitive-path denial, redacted results, and negative fixtures. |
 | Canonical source | `src/modules/example` and declared installed files are inventory-backed, bounded, exact, and immutable; legacy shadow roots and broad installed globs are rejected. |
-| Finite oracle | One schema and nine enumerated evaluator fixture families plus whole-harness packed-link validation. |
+| Finite oracle | One schema and ten enumerated evaluator fixture families plus whole-harness packed-link/local-fact validation. |
 | Compatibility | Non-installed behavior stays identical; every prior broad installed-source reliance receives an explicit migration disposition and an exact declared reference or reason-gated fallback before permission removal. |
 
 **Verdict: Fully specified and ready for implementation after design review.**
@@ -152,6 +157,7 @@ The schema is additive, but installed-source permissions are intentionally tight
 - 2026-08-03: Pointed the policy at the shipped `src/modules/example` tree, added inventory validation and read-only precedence, restricted fallback to specialist/versioned gaps, rejected legacy shadow roots, added generated-empty fixtures, and made `referenceStatus: "qa-only"` a deterministic read denial.
 - 2026-08-03: Added visible owner-bound source references, first-class exact installed-package links, packed-artifact resolution, generated-fact exact links, broad-glob removal, and whole-harness dead/orphan link enforcement.
 - 2026-08-03: Added separate specialist/version-mismatch reason codes, readable-versus-QA evidence status, a complete legacy-glob migration audit, and distinct DataTable bulk-action/progress capability assertions.
+- 2026-08-03: Added local disabled-example module-fact owners, PR #4883 fact-to-source/topology correlation, enum-ledger classifications, and a tenth evaluator family for exhaustive mechanism navigation.
 
 ### Review — 2026-08-03
 

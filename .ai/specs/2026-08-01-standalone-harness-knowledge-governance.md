@@ -29,6 +29,7 @@ The owning workflows classify a change as `knowledge-contract` when it changes a
 - installed package/version/preset applicability for a declared source target;
 - any file mapped by a case `exampleRoots` entry or `src/modules/example/references/surface-inventory.json`;
 - generated fact provenance or rendering of exact source files;
+- PR #4883 module-fact/extension enum sets, extraction classification, local-example fact generation, topology correlation, or override-target resolution;
 - module discovery/generator contracts;
 - case `context.required`, `allowedExtra`, forbidden reads, or framework fallback;
 - evaluator interpretation of tool/file-read traces;
@@ -81,6 +82,8 @@ The validator derives the class from the diff rather than trusting `changeClass`
 
 For `example-source`, the validator resolves mappings from the base and head inventories, requires hashes for the authoring file, template mirror, and emitted file when the scaffold copies it, and rejects stale/missing capability IDs, moved paths without an inventory update, a non-identical template mirror, or a generated copy that was not refreshed. Repository-only `__tests__` and `__integration__` entries may be QA evidence paths but are not falsely required in emitted fixtures and are derived as `readStatus: "qa-only"`; cases may reference only `readStatus: "readable"` source records. Every added or materially changed runtime/discovery extension surface must name at least one self-contained module integration test and its dependency modules, even when the surface is added to an existing capability row; missing test paths, seeded-data reliance, or static/unit-only proof fails. An ordinary module capability cannot be reclassified as an installed fallback merely to avoid extending the canonical example.
 
+The validator also regenerates the canonical spec's `factCoverage` ledger from the actual PR #4883/shared exports and extracts the local example from each of the authoring, template, and emitted roots. It requires identical semantic facts with layout-correct portable source paths, merges the emitted entry into `.ai/guides/module-facts.json`, resolves every generated Markdown source link, and rejects package-only omission, stale enum classification, conditional registries invisible to static extraction, duplicate module IDs, unresolved canonical diagnostics, wrong `node_modules` source roots, or a fact claiming a runtime surface without its declared integration proof. `framework-only`, `catalog-only`, and `currently-unbound` are closed statuses; only the exact catalog classifications approved by the canonical spec may use them.
+
 For `source-link` and `installed-source`, the controller derives `source-link-inventory.json` from the complete emitted-owner scan plus canonical/packed-source inventories; it is never separately authored. The validator compares rendered Markdown links exactly with that derived output. Every `source-required` topic must have a visible link in its declared owner; every rendered source link must have one manifest record; every fence in the canonical spec's exact eight-asset pinned-`main` baseline must validate against `source-link-baseline.schema.json` and have one checked disposition. The validator verifies the eight full-file hashes, per-asset CommonMark fence counts, and 136 total dispositions before resolving topic mappings. It generates each applicable preset/tier from a coherent package build, installs actual packed/Verdaccio artifacts, resolves each link relative to its emitted owner, and requires an exact regular file with the recorded package/version/hash. It rejects code-span-only paths, directories, roots, wildcards, line anchors, undeclared/orphan links, symlink escapes, unpublished/workspace-only files, missing optional packages, wrong-version duplicates, stale generated facts, QA-only case references, and manual manifests that claim a link the owner does not render. Package `src/**` is preferred and required while it is published; `dist` may be used only after the read tool/evaluator explicitly supports exact compiled files and records degraded provenance.
 
 For `knowledge-contract`, the validator requires at least one changed focused test that demonstrates the affected contract and passes the controller-owned base/head execution above, verifies every affected case exists, derives the current catalog count from `cases.json`, checks validator/oracle membership required by each case mode, derives release lanes from `release-matrix.json`, resolves every documentation/example/source-link inventory path, and compares every generated/template/packed-target hash with its authoritative source. Missing owners, baseline dispositions, visible links, cases, tests, executions, lanes, docs, mappings, hashes, counts, or affected-range entries are hard failures. The manifest cannot waive a required surface; empty arrays are permitted only when the validator derives that the surface is inapplicable for every affected case mode.
@@ -99,6 +102,8 @@ Both `packages/create-app/agentic/shared/ai/skills/om-evolve-harness/SKILL.md` a
 8. Prove the focused test passes and run the affected certified lane; reject completion when any authoritative/generated/packed hash, link, owner, baseline disposition, or count is stale.
 9. Generate and pass the machine validation manifest above; attach its sanitized result to the affected-lane evidence.
 
+For PR #4883-shaped changes, steps 2–8 also compare all exported fact/contribution/activation/host/capability/policy/target/resolution/registry/override/surface sets to the example ledger, require one permitted classification per value, and run the local-fact generator plus every mapped integration test. A public union value that no extractor can emit must be explicitly catalog-only with a tested ownership rationale; it cannot silently count as example coverage.
+
 When the change adds a missing ordinary module surface, both workflows route it to the canonical `apps/mercato/src/modules/example/**` authoring tree, materialize the byte-identical create-app mirror through `yarn template:sync:fix`, update the surface/source-link inventories and exact case links, add a self-contained activated integration test, and run `yarn template:sync`. They must not create a second teaching module or satisfy the case only through installed-source fallback.
 
 The skill provides a checklist and routes to the exact files; it does not paste evaluator implementations.
@@ -113,6 +118,7 @@ The skill provides a checklist and routes to the exact files; it does not paste 
 - Canonical-example source/link classification and monorepo/template/emitted hash synchronization.
 - Complete emitted-owner classification, prior-example parity, visible direct-link synchronization, exact generated-fact provenance, and packed installed-source validation.
 - Enforcement that every added or materially changed canonical-example runtime/discovery extension surface declares self-contained integration coverage, regardless of capability-row creation.
+- Enum-derived PR #4883 fact/topology coverage, local-example fact generation, fact-readable registry enforcement, and exact generated source-link synchronization.
 
 ### Out of scope
 
@@ -131,6 +137,7 @@ The skill provides a checklist and routes to the exact files; it does not paste 
 - Example-source fixtures cover changed/moved/deleted linked files, stale capability mappings, non-identical template mirrors, correctly filtered repository-only tests, stale emitted copies, and forbidden fallback substitution.
 - Whole-harness fixtures cover a missing visible link, manifest-only record, undeclared rendered link, directory/wildcard/line-anchor link, orphan baseline topic, missing generated-fact source, wrong preset/version, unpublished/workspace-only target, symlink escape, and stale packed hash.
 - Extension fixtures reject any added or materially changed example runtime/discovery surface without a declared module-local integration test/dependency list, including a new surface placed inside an existing row, and prove each declared test runs self-contained from an activated fresh scaffold.
+- Module-fact fixtures cover package-only omission of `example`, a wrong local source root, stale enum-ledger rows, statically invisible conditional registries, unreachable/misclassified activation kinds, false module-override contribution ownership, unbound-surface fabrication, non-zero canonical diagnostics, and a valid framework/catalog/unbound classification.
 - Run focused create-app tests, instruction/link budgets, affected harness lane, and the configured validation gate.
 
 ## Implementation Plan
@@ -196,6 +203,7 @@ The change strengthens internal harness procedure and evaluator policy. It does 
 - 2026-08-01: Initial draft defined machine-enforced knowledge-contract versus asset-sync governance.
 - 2026-08-03: Added `example-source` classification for inventory-linked canonical example code, exact authoring/template/emitted hash synchronization, missing-surface extension routing, and stale/moved/deleted source fixtures.
 - 2026-08-03: Added whole-harness owner/link parity, `installed-source` classification, visible exact-file enforcement, packed-package resolution, generated-fact provenance, and mandatory integration-test declarations for new example extensions.
+- 2026-08-03: Added PR #4883 enum-ledger governance, local disabled-example fact generation, static fact-readability checks, topology/override-target validation, and mapped integration execution for every executable mechanism.
 - 2026-08-03: Made the source-link inventory explicitly controller-derived, added baseline-schema validation and readable-versus-QA evidence status, and closed the integration-test evasion path for surfaces added to existing capability rows.
 - 2026-08-03: Bound baseline validation to eight exact pinned assets, their full-file hashes, per-asset CommonMark fence counts, and 136 mandatory dispositions.
 
