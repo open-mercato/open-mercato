@@ -56,7 +56,7 @@ This run is based on the Korean localization contributed by `@moduvoice` in PR #
 
 ### Phase 2: Lock in the user flow
 
-- [ ] 2.1 Add observed integration coverage for Korean selection, persistence, rendering, reload, and reset
+- [x] 2.1 Add observed integration coverage for Korean selection, persistence, rendering, reload, and reset — 98f97dd76
 
 ### Phase 3: Verify and prepare the superseding PR
 
