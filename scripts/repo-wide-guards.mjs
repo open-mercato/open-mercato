@@ -152,6 +152,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/primitives/__tests__/zindex-overlay.test.tsx',
         scans: 'apps/mercato and packages/create-app/template globals.css — z-index scale',
       },
+      {
+        path: 'src/backend/icons/__tests__/lucideRegistryGenerator.test.ts',
+        scans: 'git-tracked files repo-wide — importers of the deep lucideRegistry.generated path',
+      },
     ],
   },
   {
