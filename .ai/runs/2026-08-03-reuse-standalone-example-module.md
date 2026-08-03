@@ -63,6 +63,7 @@ PR: #4878
 
 - [x] 2.1 Align the three companion specs with canonical example reuse — 4ba460af1
 - [x] 2.2 Complete consistency, compliance, and docs-only validation review — 4ba460af1
+- [x] Post-review fix: separate inventory coverage kind from QA-only reference status — e91e24e3e
 
 ## Validation Evidence
 
