@@ -1,7 +1,8 @@
-import { type Kysely, sql } from 'kysely'
+import { type Kysely, type Transaction, sql } from 'kysely'
 import {
   isSearchFieldBlocklisted,
   resolveSearchConfig,
+  resolveSearchTokenLimits,
   type SearchConfig,
 } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
@@ -40,6 +41,7 @@ type BuildTokenOptions = {
 
 const DEFAULT_SCOPE = { organizationId: null, tenantId: null }
 type EntityFieldPair = [string, string]
+type SearchTokenExecutor = Kysely<any> | Transaction<any>
 
 export const isSearchDebugEnabled = (): boolean => {
   return parseBooleanToken(process.env.OM_SEARCH_DEBUG ?? '') === true
@@ -78,9 +80,7 @@ function shouldIndexField(
   if (lower.endsWith('_at')) return false
   if (['created_at', 'updated_at', 'deleted_at', 'tenant_id', 'organization_id'].includes(lower)) return false
   if (isSearchFieldBlocklisted(field, entityType, config)) return false
-  const values = collectTextValues(value)
-  if (!values.length) return false
-  return values.some((text) => tokenizeText(text, config).tokens.length > 0)
+  return collectTextValues(value).some((text) => text.length > 0)
 }
 
 export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[] {
@@ -94,19 +94,32 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
     organizationId: params.organizationId ?? DEFAULT_SCOPE.organizationId,
     tenantId: params.tenantId ?? DEFAULT_SCOPE.tenantId,
   }
+  const limits = resolveSearchTokenLimits(config)
+  const recordLimit = limits.maxTokensPerRecord > 0 ? limits.maxTokensPerRecord : Number.POSITIVE_INFINITY
+  const fieldLimit = limits.maxTokensPerField > 0 ? limits.maxTokensPerField : Number.POSITIVE_INFINITY
 
   for (const [field, rawValue] of Object.entries(params.doc)) {
+    if (tokens.length >= recordLimit) break
     if (!shouldIndexField(field, rawValue, config, params.entityType)) continue
     const values = collectTextValues(rawValue)
     const seen = new Set<string>()
+    let fieldTokenCount = 0
     for (const text of values) {
-      const { tokens: textTokens, hashes } = tokenizeText(text, config)
+      if (tokens.length >= recordLimit || fieldTokenCount >= fieldLimit) break
+      const remainingLimit = Math.min(recordLimit - tokens.length, fieldLimit - fieldTokenCount)
+      const candidateLimit = fieldTokenCount + remainingLimit
+      const tokenConfig = Number.isFinite(candidateLimit)
+        ? { ...config, maxTokensPerField: candidateLimit }
+        : config
+      const { tokens: textTokens, hashes } = tokenizeText(text, tokenConfig)
       for (let i = 0; i < textTokens.length; i += 1) {
+        if (tokens.length >= recordLimit || fieldTokenCount >= fieldLimit) break
         const token = textTokens[i]
         const hash = hashes[i]
         const dedupeKey = `${field}|${hash}`
         if (seen.has(dedupeKey)) continue
         seen.add(dedupeKey)
+        fieldTokenCount += 1
         debug('token.generated', { entityType: params.entityType, recordId: params.recordId, field, hash })
         tokens.push({
           entity_type: params.entityType,
@@ -151,7 +164,8 @@ function buildFieldPairs(recordId: string, doc?: Record<string, unknown> | null)
 
 export async function replaceSearchTokensForRecord(
   db: Kysely<any>,
-  params: BuildTokenOptions
+  params: BuildTokenOptions,
+  options?: { trx?: SearchTokenExecutor },
 ): Promise<void> {
   const rows = buildSearchTokenRows(params)
   const config = params.config ?? resolveSearchConfig()
@@ -160,8 +174,8 @@ export async function replaceSearchTokensForRecord(
   const tenantId = params.tenantId ?? null
   const fieldPairs = buildFieldPairs(String(params.recordId), params.doc)
 
-  await db.transaction().execute(async (trx) => {
-    let deleteQuery = trx
+  const writeTokens = async (executor: SearchTokenExecutor): Promise<void> => {
+    let deleteQuery = executor
       .deleteFrom('search_tokens' as any)
       .where('entity_type' as any, '=', params.entityType)
       .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
@@ -180,18 +194,27 @@ export async function replaceSearchTokensForRecord(
     if (!rows.length) return
     const payloads = rows.map((row) => ({ ...row, created_at: sql`now()` }))
     for (const batch of chunk(payloads, INSERT_BATCH_SIZE)) {
-      await trx.insertInto('search_tokens' as any).values(batch as any).execute()
+      await executor.insertInto('search_tokens' as any).values(batch as any).execute()
     }
-  })
+  }
+
+  if (options?.trx) {
+    await writeTokens(options.trx)
+    return
+  }
+
+  await db.transaction().execute(writeTokens)
 }
 
 export async function deleteSearchTokensForRecord(
   db: Kysely<any>,
-  params: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+  params: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null },
+  options?: { trx?: SearchTokenExecutor },
 ): Promise<void> {
   const organizationId = params.organizationId ?? null
   const tenantId = params.tenantId ?? null
-  await db
+  const executor = options?.trx ?? db
+  await executor
     .deleteFrom('search_tokens' as any)
     .where('entity_type' as any, '=', params.entityType)
     .where('entity_id' as any, '=', String(params.recordId))

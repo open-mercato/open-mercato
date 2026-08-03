@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
+        scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
+      },
+      {
         path: 'src/__tests__/license-metadata-consistency.test.ts',
         scans: 'git-tracked files repo-wide — enterprise license headers',
       },
@@ -79,6 +83,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
         scans: 'packages/ and apps/ — CRUD indexer configuration',
+      },
+      {
+        path: 'src/modules/design_system/gallery/__tests__/gallery-coverage.test.ts',
+        scans: 'packages/ui/src/primitives — design-system gallery coverage',
       },
     ],
   },
@@ -148,6 +156,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/primitives/__tests__/zindex-overlay.test.tsx',
         scans: 'apps/mercato and packages/create-app/template globals.css — z-index scale',
       },
+      {
+        path: 'src/backend/icons/__tests__/lucideRegistryGenerator.test.ts',
+        scans: 'git-tracked files repo-wide — importers of the deep lucideRegistry.generated path',
+      },
     ],
   },
   {
@@ -172,6 +184,14 @@ export const REPO_WIDE_GUARDS = [
  * Each entry needs a reason, so the next person can tell "already covered" from "forgotten".
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
+  {
+    path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/root-layout-theme-script.test.ts',
+    reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
   {
     path: 'packages/create-app/src/lib/template-dependency-drift.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',

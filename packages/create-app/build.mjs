@@ -99,7 +99,7 @@ if (guidesFound > 0) {
 // scaffold links only its enabled subset (packages/create-app/src/setup/tools/shared.ts).
 // Auth comes from the generated module registry (`apis[].metadata`); a missing registry
 // yields warnings, never a crash. Discovery goes through the resolver, never a hardcoded
-// packages/* path (.ai/lessons.md §161-169).
+// packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
 const { extractAllModuleFacts, renderModuleFactsJson } = await import(
   '@open-mercato/cli/lib/generators/module-facts'
 )
