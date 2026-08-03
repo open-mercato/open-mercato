@@ -47,6 +47,8 @@ This run is based on the Korean localization contributed by `@moduvoice` in PR #
 
 ## Progress
 
+PR: #4912
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Rebase the Korean locale onto current develop
@@ -61,4 +63,4 @@ This run is based on the Korean localization contributed by `@moduvoice` in PR #
 ### Phase 3: Verify and prepare the superseding PR
 
 - [x] 3.1 Pass targeted locale parity, type, and integration checks — 8a8db67f6
-- [ ] 3.2 Pass the full validation and review gates and finalize the superseding PR
+- [x] 3.2 Pass the full validation and review gates and finalize the superseding PR — 8c52d07a4
