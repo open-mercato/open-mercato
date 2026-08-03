@@ -56,6 +56,9 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 8 | Spec-first routing rule in emitted `AGENTS.md` + planning-skill handoff (resolve instruction-budget headroom first) | SPEC-P1 | done | — |
 | 9 | `exampleRoots` / `installedVersionFallback` case-schema fields + evaluator + oracle fixtures | READ-P1a | done | — |
 | 10 | Full validation gate + spec changelog updates | CANON-D (partial) | done | — |
+| 11 | Fix the cross-request tenant bleed in `example/api/todos/route.ts`; add the `ListConfig.csv` function form; regression test; flip `api.crud-query-engine-custom-fields` | CANON-A1 reference-quality / READ-P1a | done | `c6cf75d34` |
+| 12 | Clear the five remaining remediable `qa-only` rows (`cli.ts`, `enrichers.ts`, `example-event.ts`, `organizations`, `tags`/`assignees`/`notifications`); DS tokens on `widgets/components.ts` | CANON-B reference-quality | done | `7dea5f0cf` |
+| 13 | Remove the universal `node_modules/@open-mercato/*/src/**` read permission from all 202 cases + checked-disposition test + doc sync | READ-P1b | done | `66998e1c7` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -63,8 +66,6 @@ Each row keeps its dependency edge so a follow-up run can start immediately.
 
 | Deferred work | Depends on | Why deferred |
 |---|---|---|
-| **Fix cross-request tenant bleed in `example/api/todos/route.ts`** (see audit finding above), then flip `api.crud-query-engine-custom-fields` to `canonical` and move `api.crud-factory` back to the Todo route | — | **Highest-priority follow-up.** Changes request-scoped state handling in a live custom-field route; needs its own review and regression coverage. |
-| Remediate the other 8 qa-only files so their inventory rows become `readable` | — | Mechanical but per-file; each flip needs the audit re-run. |
 | CANON-B gap slices: encryption, search, translations, `notifications.client.ts`, `data/extensions.ts`, `extension-points.ts` | Task 4 (inventory rows) | 6 independent vertical slices, each with its own integration test. |
 | CANON-B: complete optimistic locking; shared Todo form extraction | Task 4 | `beforeList` at `api/todos/route.ts` drops columns; needs its own review. |
 | CANON-B: cache + rich DI; setup seeding | Task 4 | Uses DI token `'cache'` (**not** `'cacheService'` as `packages/cache/AGENTS.md` claims — Boy-Scout fix needed). |
@@ -78,7 +79,6 @@ Each row keeps its dependency edge so a follow-up run can start immediately.
 | CANON-C: local reference-fact generation (`portableSourceRoot` / `sourceKind: "local-reference"`) | PR #4883 | `toPortableSourceRoot` needs a new discriminant; 4 emission points. |
 | CANON-C: skill/guide link migration (8 owner families) | Task 4 | One PR per owner family. |
 | CANON-C: harness case additions | Task 9 | Dedup against OMH-027/035/181/185/193; count pinned in 6 places, writable ids in 5. |
-| READ-P1b: 202-case `node_modules/@open-mercato/*/src/**` glob migration | Task 9 | Per-case disposition required; no partial-credit path. |
 | READ-P2: reason-gated `installedVersionFallback` + redaction fixtures | Task 9 | — |
 | GOV-P1/P2: `knowledge-change.schema.json`, validator/controller, 9 mandatory workflow steps | CANON-C source-link-inventory | Validator consumes the inventory; needs a real knowledge-contract change to exercise. |
 | SPEC-P2: 6 routing cases + 2 writable ordering proofs | Task 8, Task 9 | — |
@@ -207,3 +207,4 @@ reaching any new code). The activation fixtures they host were instead exercised
   [#4897](https://github.com/open-mercato/open-mercato/pull/4897) opened as a draft on the first commit
   and updated on every push. **Next session starts at the Deferred Backlog**, top row first (the
   `api/todos/route.ts` cross-request tenant bleed).
+- **2026-08-03 — session 2 (`/om-auto-continue-pr 4897`):** Resumed from the Deferred Backlog. **Upstream PR #4883 merged** at 12:09Z, so `packages/cli/src/lib/generators/module-override-targets.ts` is now on `develop` and every backlog row that named it as a blocker is unblocked (none were implemented in this session). Three rows landed: the top-priority `api/todos/route.ts` cross-request tenant bleed (`c6cf75d34`), the reference-quality remediation batch (`7dea5f0cf`), and the read-policy broad-glob migration (`66998e1c7`). Decision recorded against the backlog's first row: `api.crud-factory` **stays** on `api/customer-priorities/route.ts` because the two capability rows demonstrate different CRUD mechanisms; only `api.crud-query-engine-custom-fields` flipped. Observed once in four full `yarn workspace create-mercato-app test` runs: `agent-harness-evaluator.test.ts` → "live Codex retries one successful startup that emitted no context reads" failed with `$.durationMs is below minimum 0`, a clock artifact in the fake-runner duration measurement; it did not reproduce in the other three runs and is independent of every change in this session. **Next session starts at the remaining Deferred Backlog rows**, in order: the CANON-B gap slices, the registry static-readability refactor (which is what still holds `umes.component-replacement` at `qa-only`), CANON-C source-link work (now unblocked), READ-P2, SPEC-P2, and GOV-P1/P2.
