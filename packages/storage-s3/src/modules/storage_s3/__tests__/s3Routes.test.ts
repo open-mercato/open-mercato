@@ -5,6 +5,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => `translated:${key}`,
+  }),
+}))
+
 const mockResolveCredentials = jest.fn()
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
@@ -93,7 +99,24 @@ describe('storage_s3 standalone route key scope', () => {
     }))
 
     expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      error: 'translated:storage_s3.errors.keyAccessDenied',
+    })
     expect(mockGetSignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('localizes invalid delete payload errors', async () => {
+    const response = await DELETE(new Request('http://example.test/api/storage-providers/s3/delete', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'translated:storage_s3.errors.invalidPayload',
+    })
+    expect(mockDelete).not.toHaveBeenCalled()
   })
 
   it('deletes shared namespace objects for an authorized storage manager', async () => {
@@ -116,6 +139,9 @@ describe('storage_s3 standalone route key scope', () => {
       )
 
       expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toEqual({
+        error: 'translated:storage_s3.errors.keyAccessDenied',
+      })
     }
     expect(mockRead).not.toHaveBeenCalled()
   })

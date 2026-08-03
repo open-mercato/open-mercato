@@ -81,6 +81,24 @@ flowchart TD
 2. Hook uses map + tenant DEK to decrypt mapped fields.
 3. API/CRUD receives hydrated plaintext while the DB keeps ciphertext.
 
+### Querying encrypted columns
+
+Decryption happens on **load**, not on **filter**. A `where` clause is passed to the database as
+written, so a plaintext predicate against an encrypted column is compared to ciphertext:
+
+- **It matches nothing, and it does not raise.** `{ title: 'Renewal' }`, `{ title: { $in: [...] } }`
+  and `em.count()` with such a filter return empty/zero rather than an error. Guard clauses and
+  idempotency checks built this way silently no-op once encryption is enabled — and keep working in
+  local dev with `TENANT_DATA_ENCRYPTION=no`, which is how the mistake survives review.
+- **For exact lookups, declare a hash column.** Add `hashField` to the field's rule in the module's
+  encryption map and filter on the hash (this is how `users.email_hash` supports login).
+- **Otherwise read, then compare in memory.** `findWithDecryption` / `findOneWithDecryption` /
+  `findAndCountWithDecryption` (`@open-mercato/shared/lib/encryption/find`) hydrate plaintext, so the
+  comparison happens on decrypted values. Scope the query by tenant/organization first so the set
+  stays bounded.
+- Sorting and `LIKE` have the same limitation — see the encrypted-sort helpers in the `customers`
+  module for the established pattern.
+
 ### Failure modes
 
 - **KMS unreachable** – encryption layer logs a warning and (per requirements) continues without encryption; maps are still evaluated so we can re-enable later.
