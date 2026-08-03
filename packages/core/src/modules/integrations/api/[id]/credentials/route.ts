@@ -21,7 +21,7 @@ import {
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
 } from '../../guards'
-import { resolveIntegrationsOrganizationId } from '../../../lib/organization-scope'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -45,9 +45,12 @@ function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: string 
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveIntegrationsOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = await resolveParams(ctx)
@@ -91,9 +94,12 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveIntegrationsOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = await resolveParams(ctx)
