@@ -4,6 +4,7 @@ import { HybridQueryEngine } from './lib/engine'
 import { markDeleted } from './lib/indexer'
 import type { EventBus } from '@open-mercato/events'
 import type { VectorIndexService } from '@open-mercato/search/vector'
+import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
 
 function toEntityTypeFromEvent(event: string): string | null {
   // Expect '<module>.<entity>.<action>'
@@ -65,6 +66,10 @@ export function register(container: AppContainer) {
 
     const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
       try {
+        // DataEngine emits the canonical query_index.upsert_one itself. The
+        // bridge only covers domain events from write paths that do not own an
+        // indexer, otherwise failures and error logs are duplicated.
+        if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
         const em = ctx.resolve('em')
         let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
         let tenantId = payload?.tenantId || ctx?.tenantId || null
@@ -118,6 +123,7 @@ export function register(container: AppContainer) {
     }
     const makeDeleteHandler = (entityType: string) => async (payload: any, ctx: any) => {
       try {
+        if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
         const em = ctx.resolve('em')
         let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
         let tenantId = payload?.tenantId || ctx?.tenantId || null

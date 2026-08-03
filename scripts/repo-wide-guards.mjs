@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
+        scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
+      },
+      {
         path: 'src/__tests__/license-metadata-consistency.test.ts',
         scans: 'git-tracked files repo-wide — enterprise license headers',
       },
