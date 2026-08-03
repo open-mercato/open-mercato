@@ -51,8 +51,19 @@ describe('module-facts BC resolve guard (T2)', () => {
     // contribution payloads are duplicated). Incoming rows are cross-module only;
     // resolution rows are required one-per-contribution by the spec's acceptance
     // criteria and are the dominant term.
+    //
+    // JSON cap raised again by the exact-override-targets spec
+    // (2026-08-02-module-facts-exact-override-targets): the additive per-module
+    // `overrideTargets` project one exact key per real override entry (acl
+    // features, di tokens, subscribers, pages, workers, encryption, widgets,
+    // notifications, cli, setup, ai, interceptors/enrichers, page guards). These
+    // are required exhaustively by the spec's acceptance criteria; targets carry
+    // only compact structured path/key/factRef/source refs (no runtime values or
+    // contribution payloads). The delta cap is unchanged because `overrideTargets`
+    // live in both the complete and legacy renders (only `extensionSurfaces` is
+    // stripped for the legacy comparison).
     expect(extractionCpuDurationMs).toBeLessThan(30_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(2_500_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_000_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     expect(markdownBytes).toBeLessThan(1_200_000)
   })

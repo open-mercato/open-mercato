@@ -1710,7 +1710,7 @@ export function correlateIncomingExtensions(
   const activationIndex = new Map<string, Array<{ moduleId: string; activation: ModuleExtensionActivation }>>()
   const activationKey = (kind: ModuleExtensionActivationKind, hostKind: ModuleExtensionTargetRef['kind'], id: string): string => {
     const normId = hostKind === 'api-route' ? normalizeRouteId(id) : id
-    return `${kind} ${hostKind} ${normId}`
+    return JSON.stringify([kind, hostKind, normId])
   }
   // Index bound hosts by their runtime id for host-reference resolution.
   const boundHostIndex = new Map<string, { moduleId: string; host: ModuleExtensionHostFact }>()
@@ -1949,8 +1949,8 @@ function hostReferenceSource(host: ModuleExtensionHostFact): ModuleFactSourceRef
 }
 
 function incomingIdentity(entry: ModuleIncomingExtensionRef): string {
-  const target = `${entry.target.kind} ${entry.target.id}`
-  return `${entry.contributorModuleId} ${entry.contributionId} ${target} ${entry.activationId ?? entry.resolution}`
+  const target = JSON.stringify([entry.target.kind, entry.target.id])
+  return JSON.stringify([entry.contributorModuleId, entry.contributionId, target, entry.activationId ?? entry.resolution])
 }
 
 function dedupeIncoming(entries: ModuleIncomingExtensionRef[]): ModuleIncomingExtensionRef[] {
@@ -1966,7 +1966,7 @@ function dedupeIncoming(entries: ModuleIncomingExtensionRef[]): ModuleIncomingEx
 }
 
 function resolutionIdentity(entry: ModuleContributionResolution): string {
-  return `${entry.contributionId} ${entry.target.kind} ${entry.target.id} ${entry.resolution}`
+  return JSON.stringify([entry.contributionId, entry.target.kind, entry.target.id, entry.resolution])
 }
 
 function sortResolutions(entries: ModuleContributionResolution[]): ModuleContributionResolution[] {
@@ -1992,6 +1992,23 @@ export function assertNoUnresolvedExtensionTargets(
   if (unresolved.length > 0) {
     throw new Error(`[module-facts] unresolved first-party extension targets: ${unresolved.join(', ')}`)
   }
+}
+
+/**
+ * Supported merge/replace/disable modes for each dotted unified-override host,
+ * derived from {@link FRAMEWORK_OVERRIDE_HOSTS} (the framework catalog authority
+ * — spec 2026-08-02-module-facts-exact-override-targets). Keyed by the dotted
+ * host id (e.g. `routes.api`, `ai.extensions`, `nav.groupOrder`) so the module
+ * override-target adapters share one mode source of truth with the catalog.
+ */
+export function getFrameworkOverrideModes(): Record<string, 'disable-replace' | 'replace' | 'additive'> {
+  const modes: Record<string, 'disable-replace' | 'replace' | 'additive'> = {}
+  for (const host of FRAMEWORK_OVERRIDE_HOSTS) {
+    const dotted = host.key.replace(/^framework\.module-override\./, '')
+    const mode = host.operations?.[0]
+    if (mode === 'disable-replace' || mode === 'replace' || mode === 'additive') modes[dotted] = mode
+  }
+  return modes
 }
 
 export function getFrameworkExtensionHosts(): ModuleExtensionHostFact[] {

@@ -5,7 +5,6 @@ import type {
   ModuleExtensionContributionFact,
   ModuleExtensionSurfaceFacts,
   ModuleExtensionTargetRef,
-  ModuleFactSourceRef,
 } from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
 import { extractCommandIdsFromSource } from './module-registry'
@@ -20,6 +19,11 @@ import {
   renderFrameworkExtensionPointsMarkdown,
   withModuleExtensionFactExtractionCache,
 } from './module-extension-facts'
+import {
+  collectModuleOverrideTargets,
+  type ModuleOverrideTarget,
+  type ModuleOverrideTargetDiagnostic,
+} from './module-override-targets'
 
 export interface ModuleEntityFact {
   id: string
@@ -202,6 +206,8 @@ export interface ModuleFacts {
   factSources?: ModuleFactSourceEntry[]
   ownedContracts?: ModuleOwnedContracts
   factDiagnostics?: ModuleFactDiagnostic[]
+  overrideTargets?: ModuleOverrideTarget[]
+  overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
   warnings: string[]
 }
 
@@ -1959,7 +1965,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
       left.id.localeCompare(right.id),
   )
 
-  return {
+  const facts: ModuleFacts = {
     module: moduleId,
     title,
     description,
@@ -1987,6 +1993,15 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     ...(factDiagnostics.length > 0 ? { factDiagnostics } : {}),
     warnings,
   }
+
+  // Exact unified override targets (spec 2026-08-02-module-facts-exact-override-targets).
+  // Adapters consume the fully-populated owned facts + contributions above.
+  const overrides = collectModuleOverrideTargets(facts)
+  if (overrides.overrideTargets.length > 0) facts.overrideTargets = overrides.overrideTargets
+  if (overrides.overrideTargetDiagnostics.length > 0) {
+    facts.overrideTargetDiagnostics = overrides.overrideTargetDiagnostics
+  }
+  return facts
 }
 
 export interface ModuleFactsJsonEvent {
@@ -2022,6 +2037,8 @@ export interface ModuleFactsJsonEntry {
   factSources?: ModuleFactSourceEntry[]
   ownedContracts?: ModuleOwnedContracts
   factDiagnostics?: ModuleFactDiagnostic[]
+  overrideTargets?: ModuleOverrideTarget[]
+  overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
 }
 
 const EMPTY_SECTION_MARKER = '_none_'
@@ -2264,6 +2281,29 @@ function renderIncomingContributionsSection(extensionSurfaces: ModuleExtensionSu
   ].join('\n')
 }
 
+function renderOverrideTargetPath(target: ModuleOverrideTarget): string {
+  let display = 'overrides'
+  for (let index = 0; index < target.path.length; index += 1) {
+    const segment = target.path[index]
+    const isKeyedTerminal = target.key !== undefined && index === target.path.length - 1
+    display += isKeyedTerminal ? `[${JSON.stringify(segment)}]` : `.${segment}`
+  }
+  return display
+}
+
+function renderOverrideTargetsSection(targets: readonly ModuleOverrideTarget[] | undefined): string {
+  if (!targets || targets.length === 0) return `## Exact override targets\n\n${EMPTY_SECTION_MARKER}`
+  const header = '| Domain | Path / key | Supported modes | Referenced fact | Source |'
+  const divider = '|---|---|---|---|---|'
+  const rows = targets.map((target) => {
+    const path = `\`${renderOverrideTargetPath(target)}\``
+    const modes = target.modes.join(', ') || '—'
+    const fact = `${target.factRef.factSection}:${target.factRef.factKey}`
+    return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source)} |`
+  })
+  return ['## Exact override targets', '', header, divider, ...rows].join('\n')
+}
+
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
   const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
   const sections = [
@@ -2306,6 +2346,8 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     renderLinkedFactsSection('## AI tools / MCP capabilities', facts.aiTools.map((tool) => ({ label: tool.name, sourcePath: tool.sourcePath }))),
     '',
     renderLinkedFactsSection('## AI agents', facts.aiAgents.map((agent) => ({ label: agent.id, sourcePath: agent.sourcePath }))),
+    '',
+    renderOverrideTargetsSection(facts.overrideTargets),
     '',
   ]
   const owned = facts.ownedContracts ?? {}
@@ -2362,6 +2404,12 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
       : {}),
     ...(facts.factDiagnostics && facts.factDiagnostics.length > 0
       ? { factDiagnostics: facts.factDiagnostics }
+      : {}),
+    ...(facts.overrideTargets && facts.overrideTargets.length > 0
+      ? { overrideTargets: facts.overrideTargets }
+      : {}),
+    ...(facts.overrideTargetDiagnostics && facts.overrideTargetDiagnostics.length > 0
+      ? { overrideTargetDiagnostics: facts.overrideTargetDiagnostics }
       : {}),
   }
 }
