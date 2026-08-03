@@ -7902,7 +7902,7 @@ __metadata:
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
-    bullmq: ^5.0.0
+    bullmq: ^5.0.0 || ^6.0.0
   peerDependenciesMeta:
     bullmq:
       optional: true
@@ -7925,7 +7925,7 @@ __metadata:
   peerDependencies:
     "@mikro-orm/core": ^7.0.14
     "@open-mercato/shared": "workspace:*"
-    bullmq: ^5.0.0
+    bullmq: ^5.0.0 || ^6.0.0
     ioredis: ^5.0.0
     zod: ">=3.23.0"
   peerDependenciesMeta:
