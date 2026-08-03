@@ -2363,5 +2363,3 @@ export function renderFrameworkExtensionPointsMarkdown(): string {
     '',
   ].join('\n')
 }
-
-export { readRootObject as __probeReadRootObject }
