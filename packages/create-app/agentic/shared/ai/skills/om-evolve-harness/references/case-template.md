@@ -15,7 +15,7 @@ Use the next contiguous `OMH-NNN` ID. Take the shape of an adjacent case from `.
   "owner": { "kind": "root|guide|skill|facts|hook", "path": "app/relative/path", "ruleIds": ["BC-NN"] },
   "expectedRouter": { "required": ["route-id"], "allowedExtra": [] },
   "requiredSkills": ["om-skill-name"],
-  "context": { "required": ["AGENTS.md", "owner/path"], "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"] },
+  "context": { "required": ["AGENTS.md", "owner/path"], "forbidden": [".env*", ".git/**"] },
   "requiredDecisions": ["semantic-decision-id"],
   "forbiddenPatterns": ["unsafe-regex"],
   "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],

@@ -67,8 +67,10 @@ The release gate wraps this in a larger ordered sequence.
    `framework-context.mjs` against the target, rewrites its manifest and search
    evidence to app-relative paths, and admits only that materialized output root to
    the read allowlist. The model receives the exact manifest, search result, and
-   source root. Exact fact-linked `node_modules/@open-mercato/*/src/**` reads are
-   warning-level examples; broad dependency discovery and all dependency writes remain forbidden.
+   source root. Exact fact-linked installed source reads
+   (`node_modules/@open-mercato/<package>/src/<exact/path>`) are warning-level examples and
+   only when the case declares them; no case carries a glob-shaped installed-source
+   allowance. Broad dependency discovery and all dependency writes remain forbidden.
 
 ### Phase C — Pre-edit verification & "before" oracle
 7. `verifyWritableTarget()` (`:1788-1836`) asserts the target is a real non-symlink
