@@ -1617,6 +1617,7 @@
   "customers.errors.person_not_found": "Person not found",
   "customers.errors.person_profile_not_found": "Person profile not found",
   "customers.errors.person_required": "Person id is required",
+  "customers.errors.primaryPersonMustBeLinked": "Primary person must be linked to the deal",
   "customers.errors.profile_must_be_object": "profile must be an object",
   "customers.errors.profile_unsupported_field": "Unsupported profile field: {{field}}",
   "customers.errors.role_not_found": "Role not found",

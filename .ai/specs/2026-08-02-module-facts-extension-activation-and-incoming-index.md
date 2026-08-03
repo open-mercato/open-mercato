@@ -416,6 +416,13 @@ No non-compliant item or required human confirmation was identified.
 - Preserved all legacy host/contribution facts while defining source-linked bindings and target-side references.
 - Defined the shared target, activation, and contribution-kind identities used by the additive topology fields.
 
+### 2026-08-03 — Implemented
+
+- Added `ModuleExtensionSurfaceFactsAdditions` (`activations`, `incoming`, `contributionResolutions`) to `packages/shared/src/modules/widgets/extension-points.ts` and the closed extractor-adapter registry in `module-extension-facts.ts` (compile-time exhaustive `Record` + runtime coverage test) deriving activations from real call sites; entity presence alone stays `capability-only`, never `bound`.
+- Built the post-selection cross-module correlation (`correlateIncomingExtensions`) emitting compact target-owned incoming rows and contributor-owned resolutions (bound / capability-only / optional-target-missing / wildcard / unresolved), with the documented two-activation cardinality and deterministic dedup/sort; three distinct Markdown sections (available hosts / active bindings / incoming).
+- Verified additively: existing hosts/contributions golden fixtures unchanged; `@open-mercato/cli` + `@open-mercato/shared` suites green. The bc-guard byte budget was raised for the additive topology layers (no contribution payloads duplicated).
+- Deferred (infra-gated): the fresh-scaffold `harness:release` proof runs in Linux CI with Docker + a model runner.
+
 ## Review — 2026-08-02
 
 - **Fresh-context scope verdict:** KEEP after defining contributor-owned resolution storage, multi-activation cardinality, and the closed bridge-adapter coverage rule.
@@ -424,3 +431,11 @@ No non-compliant item or required human confirmation was identified.
 - **Compatibility:** Passed; legacy arrays and IDs are preserved.
 - **Scope:** Cohesive; owned inventory and override syntax are explicit dependencies/non-goals.
 - **Verdict:** Ready for implementation after the provenance prerequisite.
+
+### 2026-08-03 — Code-review corrections
+
+- Enricher activation is configuration-aware: `queryEngine.enabled === true` is the runtime opt-in the enricher registry selects on, so `{ enabled: false }` is no longer treated as query-enabled. The CRUD `enrichers: { entityId }` option drives `applyResponseEnrichers` only and no longer synthesizes a `query-enricher` activation — that comes from the call shape that enables the stage, `query('<entityId>', { …, extensions })`.
+- API-interceptor binding is derived from real bridge call sites instead of route-file existence: `makeCrudRoute` runs both phases for every HTTP method the file exports, and a hand-written route runs whichever of `runApiInterceptorsBefore` / `runApiInterceptorsAfter` it calls. Correlation intersects a contribution's declared methods and phases with those bridges, activation identity carries the method, and one activation is emitted per bridged method.
+- Mutation-guard extraction parses each bridge shape with its own adapter — the canonical `runRouteMutationGuards({ …, input: { resourceKind, operation } })` nests the resource under `input` — and scans `lib/**` as well as `api/**` because wrappers commonly live there. Activations carry the guarded operations (`'custom'` mapped onto `update`) and correlation requires an operation intersection.
+- The dashboard adapter is reachable: correlation consults the framework host catalog (exact ids, then patterned entries such as `dashboard:*`) with a traceable framework source and bridge fact-ref. Framework hosts own no module surface, so the activation is recorded on the contributor and emits no incoming row; a per-adapter family gate keeps a dashboard target from being claimed by the generic widget-injection adapter.
+- Added a behavioral coverage test that drives one fixture through all eight activation adapters and asserts each produces a bound activation, alongside the existing structural closed-registry gate.

@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 115 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 116 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -134,6 +134,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
 - [Validate persisted-definition consumers before retiring legacy workflow rows](lessons/validate-persisted-definition-consumers-before-retiring.md) — area:integration,architecture,debugging; module:checkout,webhooks; topic:generated-files,database-migrations,webhooks
 - [Variant hero media should be written after importer flush-heavy work](lessons/variant-hero-media-should-be-written-after-importer.md) — area:integration,module-data; module:catalog,data_sync; topic:data-integrity,data-import,generated-files
+- [Webhook body-limit sweeps must include source-specific receivers](lessons/webhook-body-limit-sweeps-must-include-source-specific-receivers.md) — area:integration,testing,architecture; module:webhooks,payment_gateways,shipping_carriers,communication_channels,inbox_ops; topic:webhooks,network-security,testing
 - [Workspace packages with backend pages must build and export deep TSX entrypoints](lessons/workspace-packages-with-backend-pages-must-build-and.md) — area:integration,architecture; module:platform; topic:build-output,generated-files,module-boundaries
 
 ### ai-workflow
