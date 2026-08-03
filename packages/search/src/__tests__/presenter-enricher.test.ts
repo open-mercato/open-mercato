@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely'
 import type { SearchEntityConfig } from '../types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { SearchResult } from '@open-mercato/shared/modules/search'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { createPresenterEnricher } from '../lib/presenter-enricher'
 
@@ -141,5 +142,52 @@ describe('createPresenterEnricher', () => {
 
     expect(resolveLinks).toHaveBeenCalled()
     expect(enriched.links).toEqual([{ href: '/backend/customers/person-1', label: 'View', kind: 'primary' }])
+  })
+
+  it('re-renders a result that already has a stored presenter when the entity has a config', async () => {
+    const doc = { id: 'rec-1', display_name: 'Ada' }
+    mockedDecryptIndexDocForSearch.mockResolvedValue(doc)
+
+    const formatResult = jest.fn(async () => ({ title: 'Fresh Title', badge: 'Fresh' }))
+    const config = createConfig({
+      entityId: 'customers:customer_person_profile' as EntityId,
+      enabled: true,
+      formatResult,
+    })
+    const entityConfigMap = new Map<EntityId, SearchEntityConfig>([[config.entityId, config]])
+    const db = createKyselyMock([
+      { entity_type: 'customers:customer_person_profile', entity_id: 'rec-1', doc },
+    ])
+
+    const enrich = createPresenterEnricher(db, entityConfigMap)
+    const results: SearchResult[] = [{
+      entityId: 'customers:customer_person_profile' as EntityId,
+      recordId: 'rec-1',
+      score: 1,
+      source: 'fulltext',
+      presenter: { title: 'Stale English Title' },
+      url: '/x',
+    }]
+
+    const [enriched] = await enrich(results, 'tenant-1', null)
+
+    expect(formatResult).toHaveBeenCalledTimes(1)
+    expect(enriched.presenter?.title).toBe('Fresh Title')
+  })
+
+  it('keeps the stored presenter when the entity has no config', async () => {
+    const db = createKyselyMock([])
+    const enrich = createPresenterEnricher(db, new Map(), undefined)
+    const results: SearchResult[] = [{
+      entityId: 'unknown:thing' as EntityId,
+      recordId: 'rec-9',
+      score: 1,
+      source: 'fulltext',
+      presenter: { title: 'Stored' },
+      url: '/y',
+    }]
+
+    const [enriched] = await enrich(results, 'tenant-1', null)
+    expect(enriched.presenter?.title).toBe('Stored')
   })
 })

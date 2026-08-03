@@ -38,11 +38,21 @@ export async function initTelemetry(): Promise<void> {
   // from the actual, fully-loaded environment.
   resetTelemetryEnvCache()
   const env = readTelemetryEnv()
-  // Explicit off is absolute: do not resolve custom providers, register hooks,
-  // or install process-wide bridges when the backend is unset/noop/unknown.
-  if (!env.enabled) return
+  const configuredBackend = process.env.TELEMETRY_BACKEND?.trim().toLowerCase() ?? ''
+  const registeredProvider = configuredBackend && configuredBackend !== 'noop'
+    ? getRegisteredProvider(configuredBackend)
+    : undefined
+  // Explicit off is absolute: do not resolve providers, register hooks, or
+  // install process-wide bridges when the backend is unset/noop/unregistered.
+  if (!env.enabled && !registeredProvider) return
 
-  const provider = await resolveProvider(env.backend)
+  const provider = registeredProvider ?? await resolveProvider(env.backend)
+  if (!provider) {
+    logger.warn('Telemetry backend is unsupported; telemetry remains disabled', {
+      backend: configuredBackend || env.backend,
+    })
+    return
+  }
 
   // Only flag initialized AFTER start() succeeds — a throw here must leave
   // telemetry re-initializable, not stuck flagged-on with an unstarted provider.
@@ -59,14 +69,14 @@ export async function initTelemetry(): Promise<void> {
   })
 }
 
-async function resolveProvider(backend: TelemetryBackendName): Promise<TelemetryProvider> {
+async function resolveProvider(backend: TelemetryBackendName): Promise<TelemetryProvider | undefined> {
   const registered = getRegisteredProvider(backend)
   if (registered) return registered
 
   if (backend === 'console') return new ConsoleProvider()
   // signoz | newrelic | otlp — same OTLP provider, vendor differs only by endpoint.
   if (isOtlpBackend(backend)) return await loadOtlpProvider(backend)
-  throw new Error(`Unsupported enabled telemetry backend: ${backend}`)
+  return undefined
 }
 
 /**

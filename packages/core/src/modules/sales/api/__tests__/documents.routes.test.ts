@@ -20,13 +20,6 @@ const mockEm = {
   findOne: jest.fn(),
   fork: jest.fn(),
 }
-const ORDER_LINE = {
-  currencyCode: 'USD',
-  quantity: 1,
-  name: 'Required line',
-  unitPriceNet: 10,
-  unitPriceGross: 10,
-}
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
@@ -60,6 +53,14 @@ function makeRequest(body: unknown, method = 'PUT') {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+const validOrderLine = {
+  currencyCode: 'USD',
+  quantity: 1,
+  name: 'QA seed line',
+  unitPriceNet: 0,
+  unitPriceGross: 0,
 }
 
 function setupEntityMocks() {
@@ -206,7 +207,7 @@ describe('sales order create route payment-ledger compatibility', () => {
   it('returns warnings for accepted deprecated totals', async () => {
     const response = await createOrder(makeRequest({
       currencyCode: 'USD',
-      lines: [ORDER_LINE],
+      lines: [validOrderLine],
       outstandingAmount: 0,
       paidTotalAmount: 100,
     }, 'POST'))
@@ -233,7 +234,10 @@ describe('sales order create route payment-ledger compatibility', () => {
   })
 
   it('keeps the historical id-only response for clean creates', async () => {
-    const response = await createOrder(makeRequest({ currencyCode: 'USD', lines: [ORDER_LINE] }, 'POST'))
+    const response = await createOrder(makeRequest({
+      currencyCode: 'USD',
+      lines: [validOrderLine],
+    }, 'POST'))
 
     expect(response.status).toBe(201)
     await expect(response.json()).resolves.toEqual({
@@ -251,7 +255,7 @@ describe('sales order create route payment-ledger compatibility', () => {
       organizationId: '11111111-1111-4111-8111-111111111111',
       tenantId: '00000000-0000-4000-8000-000000000000',
       currencyCode: 'USD',
-      lines: [ORDER_LINE],
+      lines: [validOrderLine],
       paidTotalAmount: 0,
       refundedTotalAmount: 0,
       outstandingAmount: 0,

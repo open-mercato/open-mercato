@@ -64,4 +64,17 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(getLoggerExtension()).toBeDefined()
     expect(getTelemetryRuntime()).toBeDefined()
   })
+
+  it('initializes an explicitly registered custom backend', async () => {
+    const customProvider = provider('custom-observability')
+    registerProvider(customProvider)
+    process.env.TELEMETRY_BACKEND = 'custom-observability'
+
+    await initTelemetry()
+
+    expect(customProvider.start).toHaveBeenCalledTimes(1)
+    expect(getActiveProvider()).toBe(customProvider)
+    expect(getLoggerExtension()).toBeDefined()
+    expect(getTelemetryRuntime()).toBeDefined()
+  })
 })

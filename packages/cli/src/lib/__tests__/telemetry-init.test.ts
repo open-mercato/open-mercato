@@ -218,6 +218,23 @@ describe('mercato telemetry init', () => {
     expect(nextConfig).toContain('@open-mercato/telemetry/nextjs-config')
   })
 
+  it('migrates the legacy nextjs import before adding the missing spread', async () => {
+    baseFixture(tmpDir)
+    fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)
+    fs.writeFileSync(
+      path.join(tmpDir, 'next.config.ts'),
+      `import type { NextConfig } from 'next'\nimport { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs'\nconst nextConfig: NextConfig = { serverExternalPackages: ['esbuild', 'bullmq'] }\nexport default nextConfig\n`,
+    )
+
+    await runTelemetryInit([])
+
+    const nextConfig = read('next.config.ts')
+    assertParses(nextConfig, 'legacy-next-config')
+    expect(nextConfig).toContain("from '@open-mercato/telemetry/nextjs-config'")
+    expect(nextConfig).not.toContain("from '@open-mercato/telemetry/nextjs'")
+    expect(nextConfig).toContain("['esbuild', 'bullmq', ...telemetryServerExternalPackages]")
+  })
+
   it('flags next.config as manual when serverExternalPackages is absent', async () => {
     baseFixture(tmpDir)
     fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)

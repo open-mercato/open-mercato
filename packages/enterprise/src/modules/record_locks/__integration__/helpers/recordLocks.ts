@@ -925,9 +925,9 @@ export async function createOrderFixture(
     lines: [{
       currencyCode,
       quantity: 1,
-      name: 'Required line',
-      unitPriceNet: 10,
-      unitPriceGross: 10,
+      name: 'QA seed line',
+      unitPriceNet: 0,
+      unitPriceGross: 0,
     }],
   }, ['id', 'orderId']);
 }

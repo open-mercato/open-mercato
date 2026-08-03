@@ -13,6 +13,11 @@ import { parseInboundEmail } from '../../lib/emailParser'
 import { checkRateLimit } from '../../lib/rateLimiter'
 import { emitInboxOpsEvent } from '../../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  readBoundedRequestBody,
+  resolveWebhookBodyLimitBytes,
+  WebhookBodyTooLargeError,
+} from '@open-mercato/shared/lib/webhooks'
 
 const logger = createLogger('inbox_ops').child({ component: 'webhook' })
 
@@ -20,7 +25,10 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
-const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024 // 2MB
+const MAX_PAYLOAD_SIZE = resolveWebhookBodyLimitBytes(
+  process.env.INBOX_OPS_WEBHOOK_MAX_BODY_BYTES ?? process.env.OM_WEBHOOK_MAX_BODY_BYTES,
+  2 * 1024 * 1024,
+)
 const REPLAY_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
 
 function isTimestampFresh(timestamp: string): boolean {
@@ -211,20 +219,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
   }
 
-  const contentLength = parseInt(req.headers.get('content-length') || '0', 10)
-  if (contentLength > MAX_PAYLOAD_SIZE) {
-    return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
-  }
-
   let rawBody: string
   try {
-    rawBody = await req.text()
-  } catch {
+    rawBody = await readBoundedRequestBody(req, { maxBytes: MAX_PAYLOAD_SIZE })
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
+    }
     return NextResponse.json({ error: 'Bad request' }, { status: 400 })
-  }
-
-  if (rawBody.length > MAX_PAYLOAD_SIZE) {
-    return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
   }
 
   const verified = await verifyAndParse(req, rawBody)

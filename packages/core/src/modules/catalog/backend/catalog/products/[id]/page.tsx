@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -1525,7 +1526,7 @@ export default function EditCatalogProductPage({
           ) : undefined}
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           entityId={E.catalog.catalog_product}
           customFieldsetBindings={{
             [E.catalog.catalog_product]: { valueKey: "customFieldsetCode" },

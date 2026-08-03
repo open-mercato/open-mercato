@@ -13,8 +13,9 @@ off by default. Spec:
 - Keep host integration default-unloaded: check
   `isTelemetryBackendEnabled()` from shared code before dynamically importing
   this package.
-- Treat an unset, `noop`, or unknown backend as absolute off. Do not resolve
-  custom providers or register global hooks on that path.
+- Treat an unset, `noop`, or unregistered backend as absolute off. A custom
+  provider activates only after an explicit bootstrap registers the exact
+  configured name and calls `initTelemetry()`.
 - Name spans `module.entity.action` (lowercase, dot-separated).
 - Use semantic-convention metric/attribute names when available.
 - Keep metric labels low-cardinality. Tenant, organization, and user IDs belong

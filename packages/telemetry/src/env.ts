@@ -1,6 +1,5 @@
 import type { TelemetryBackendName } from './types'
-
-const BACKENDS: readonly TelemetryBackendName[] = ['noop', 'console', 'signoz', 'newrelic', 'otlp']
+import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
 
 /** Backend names that resolve to the OTLP provider (vendor differs only by endpoint). */
 const OTLP_BACKENDS: readonly TelemetryBackendName[] = ['signoz', 'newrelic', 'otlp']
@@ -28,7 +27,7 @@ export type TelemetryEnv = {
 
 function parseBackend(raw: string | undefined): TelemetryBackendName {
   const v = (raw ?? '').trim().toLowerCase()
-  return (BACKENDS as readonly string[]).includes(v) ? (v as TelemetryBackendName) : 'noop'
+  return isTelemetryBackendEnabled(v) ? (v as TelemetryBackendName) : 'noop'
 }
 
 function parseSampling(raw: string | undefined, isProd: boolean): number {

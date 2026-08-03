@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -332,7 +333,7 @@ export default function WorkflowInstancesListPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{
-            tableId: 'workflows.instances.list',
+            tableId: extensionPoints.hosts.instancesTable.tableId,
           }}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />

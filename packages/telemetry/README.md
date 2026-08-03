@@ -68,7 +68,15 @@ diagnostic backend.
 `traceparent` and `x-original-traceparent` from inbound/global carriers are
 ignored because either header is caller-controlled. Set it to true only behind a
 trusted upstream when global W3C continuation is required. The queue package's
-dedicated `metadata._trace` carrier does not require this flag.
+dedicated `metadata._trace` carrier does not require this flag. The richer
+`bullmq-otel` queue spans do use the process-global propagator, so they stay
+disabled while this flag is false; async queues then use the dedicated carrier.
+
+Custom providers remain supported through `registerProvider()`. Because the
+default host guard deliberately imports telemetry only for built-in backend
+names, a custom-provider bootstrap must import `@open-mercato/telemetry`,
+register a provider whose `name` matches `TELEMETRY_BACKEND`, and call
+`initTelemetry()` directly. Unregistered names remain a hard no-op.
 
 ## Existing apps
 

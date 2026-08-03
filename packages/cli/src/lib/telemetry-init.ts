@@ -49,6 +49,8 @@ const ENV_BLOCK = `
 # TELEMETRY_TRUST_INBOUND_TRACE=false # default false: root-per-request (ignore an
 #                                     # inbound traceparent from a proxy/LB). Set true
 #                                     # only behind a trusted upstream whose trace continues.
+#                                     # This also enables richer bullmq-otel spans;
+#                                     # otherwise async queues use metadata._trace.
 #
 # OTLP endpoint + auth — pick ONE vendor (use your region's host):
 #   SigNoz Cloud:
@@ -252,18 +254,19 @@ async function patchNextConfig(appDir: string, options: TelemetryInitOptions): P
   }
 
   let text = readFileSync(path, 'utf8')
-  text = text.replace(
-    "from '@open-mercato/telemetry/nextjs'",
-    "from '@open-mercato/telemetry/nextjs-config'",
-  )
   // Splice the array first, using the AST node's byte offsets (formatting-agnostic:
-  // handles both single-line and multi-line arrays). Do this before the import
-  // insert, which shifts earlier offsets.
+  // handles both single-line and multi-line arrays). Do this before modifying
+  // imports, because either an inserted import or the legacy import migration
+  // shifts the array offsets captured from the original source.
   if (!hasSpread) {
     const start = arrayInit.getStart()
     const end = arrayInit.getEnd()
     text = text.slice(0, start) + insertSpread(text.slice(start, end)) + text.slice(end)
   }
+  text = text.replace(
+    "from '@open-mercato/telemetry/nextjs'",
+    "from '@open-mercato/telemetry/nextjs-config'",
+  )
   if (!hasImport) {
     const importRegex = /^import[^\n]*$/gm
     let lastImport: RegExpExecArray | null = null
