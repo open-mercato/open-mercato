@@ -286,3 +286,15 @@ remaining waves; a slice that contradicts one must re-open the decision rather t
 Still open (not asked, each has a recommended option recorded in the workflow result): the OMH-018/082/093/176
 budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-P2 oracle carrier (H2/H6),
 `seedDefaults` content (E5), and the E7 scheduler/optimistic-lock sub-decisions.
+
+  **In flight (session 3, after W0):** wave 2 implementation workflow `wf_701c1552-80e`
+  (`canonical-example-wave-2`) — four slices in isolated worktrees, each committing to its own
+  branch, each followed by an independent verifier that checks the branch's file list against the
+  slice allowlist and re-runs the claimed tests:
+  `wave2/c1-cli-reader-fixes`, `wave2/c2-exact-file-fact-links`, `wave2/f1-cache-di-docs`,
+  `wave2/f2-read-policy-redaction`.
+  Branches are **local to those worktrees and not pushed** — if this session dies before merging,
+  the work is in `git worktree list` under `.claude/worktrees/` (or recoverable from the workflow's
+  `journal.jsonl`, which records every commit SHA). Nothing has been merged into
+  `feat/implement-standalone-canonical-example` yet, so the PR branch is unaffected by an
+  interrupted run. Resume with `Workflow({scriptPath, resumeFromRunId: 'wf_701c1552-80e'})`.
