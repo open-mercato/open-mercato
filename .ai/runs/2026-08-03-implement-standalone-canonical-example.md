@@ -61,6 +61,12 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 13 | Remove the universal `node_modules/@open-mercato/*/src/**` read permission from all 202 cases + checked-disposition test + doc sync | READ-P1b | done | `66998e1c7` |
 | 14 | Wire the installed-source fallback reason channel into live runs (`harness.read` reason/capabilityId, trace collector, sanitized `exampleReadPolicy` result summary, 4 family-8 fixtures) | READ-P2 (partial) | done | `ce351d1aa` |
 | 15 | Give the new CSV-form fixture route an indexer so `crud-indexer-config` guard passes | — | done | `105288d42` |
+| 16 | **W0** truth-up: unblock PR #4883 in both specs, correct OMH-018 slack 49→3 bytes, record the 12-wave plan | W0 | done | `e0806cc5b` |
+| 17 | Record the four maintainer decisions (D1-D4) binding the remaining waves | W0 | done | `d75357669` |
+| 18 | **Wave 2 C2** — generated facts render exact-file source links only | READ-P1b (step 2 remainder) | done | `8c66c9318` |
+| 19 | **Wave 2 C1** — component-override reader defects (props→propsTransform, function-valued props, ComponentReplacementHandles) + fail-closed test | CANON-B / 4883 readers | done | `b4aad8c3e`, `a1c0f7d05` |
+| 20 | **Wave 2 F1** — cache DI token/method doc correction + drift guard | CANON-B cache | done | (merge) |
+| 21 | **Wave 2 F2** — read-policy redaction/immutability/ledger fixtures + the fix that makes redaction actually tested | READ-P2 | done | `0d9b84b16` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -298,3 +304,43 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
   `journal.jsonl`, which records every commit SHA). Nothing has been merged into
   `feat/implement-standalone-canonical-example` yet, so the PR branch is unaffected by an
   interrupted run. Resume with `Workflow({scriptPath, resumeFromRunId: 'wf_701c1552-80e'})`.
+
+  **Wave 2 merged (session 3).** All four slices landed; each was checked by an independent verifier
+  before merge, and three came back `needs-work` with findings that were fixed on merge rather than
+  waved through:
+
+  - **C1** shipped an uncovered semantic change — the call-expression fallback was narrowed from
+    "any call forwards its first argument" to "only identifier-callee calls do", and the whole
+    1436-test CLI suite passed with the hunk reverted because the existing tests only exercise
+    `ComponentReplacementHandles` calls, which an explicit formula intercepts first. Pinned in
+    `a1c0f7d05` with a fail-before negative control. C1 also carries **two BACKWARD_COMPATIBILITY §14
+    notes for the PR body**: exactly one leaf changes across a real 55-module facts corpus
+    (enterprise/security `section:auth.login.form` mode `replace`→`wrapper`), and modules naming a
+    target via `ComponentReplacementHandles.section(...)` now publish `section:ui.detail.NotesSection`
+    instead of the nonexistent `ui.detail` — a published-ID change for scaffolded apps.
+  - **F2's headline claim was false as landed.** `exampleReadPolicySummary()` was never invoked by
+    any test; one fixture validated a hand-built literal, another grepped source text. A real leak
+    survived all 495 tests. Fixed in `0d9b84b16` by exporting the emission site's own composition as
+    `sanitizedExampleReadPolicy(trace, root)` so there is exactly one project-and-sanitize path and
+    it is the one under test. Mutation probe: dropping the sanitizer now fails two fixtures; before,
+    it failed none.
+  - **C1 defect 2 is NOT merged.** `extractInjectionTable` really does drop the string and
+    single-object slot forms `ModuleInjectionTable` allows (measured: catalog 3, sales 3, wms 2,
+    staff 1, integrations 1 — integrations contributes nothing today because of it — checkout 2).
+    Landing the fix fails the `assertNoUnresolvedExtensionTargets` build guard on two stale core
+    entries (`data-table:sales.payments:columns`, which no host declares and no DataTable renders;
+    and `data-table:catalog.products:bulk-actions`, a redundant legacy alias). **New backlog row:
+    remove those two stale entries, then land the slot normalization.**
+  - Also observed: one agent left an uncommitted probe in ANOTHER agent's worktree mid-run. It was
+    reverted by its owner and never reached a branch, but it is the second contamination incident
+    this session — the per-slice allowlist + independent verifier is what caught both.
+
+  **Gate after wave 2 (local runner):** `template:sync`, `build:packages`, `generate`,
+  `i18n:check-sync`, `typecheck`, `build:app`, `repo-wide-guards` (24 files), `agents:check-budget`
+  all green; `yarn workspace create-mercato-app test` 496/493 pass/0 fail; `@open-mercato/cli`
+  1442/1442; `@open-mercato/core` 8992/8992; `@open-mercato/shared` 1724/1724. `yarn test` still has
+  the one pre-existing `storage-s3-routes.test.ts` failure (5 tests), verified against a stashed tree
+  in session 2.
+
+  **Next session starts at wave 3** (E1 optimistic locking + shared Todo form; H1 GOV-P1), plus the
+  new stale-injection-entry row that unblocks C1 defect 2.
