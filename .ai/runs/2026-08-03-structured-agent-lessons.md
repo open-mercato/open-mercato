@@ -47,8 +47,8 @@ Replace the oversized monolithic lessons document with a context-efficient catal
 
 ### Phase 1: Catalog and migration
 
-- [ ] 1.1 Split every existing lesson into a stable slugged file with module, area, and concept tags; replace `.ai/lessons.md` with a linked catalog and authoring contract.
-- [ ] 1.2 Add deterministic repository checks that reject missing metadata, invalid harness areas, broken links, duplicate slugs, or orphan lesson records.
+- [x] 1.1 Split every existing lesson into a stable slugged file with module, area, and concept tags; replace `.ai/lessons.md` with a linked catalog and authoring contract. — 95a2d115d
+- [x] 1.2 Add deterministic repository checks that reject missing metadata, invalid harness areas, broken links, duplicate slugs, or orphan lesson records. — 95a2d115d
 
 ### Phase 2: Harness integration
 
