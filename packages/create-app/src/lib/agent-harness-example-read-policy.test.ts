@@ -1619,8 +1619,8 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 9,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['an operation-progress capability in surface-inventory.json', 'a WRITABLE shipped case declaring context.exampleRoots'],
-    note: 'OMH-210 now selects the DataTable bulk-action source from a shipped case, but the inventory still declares no operation-progress capability and every declaring case is read-only, so the connected progressJobId lane cannot be asserted.',
+    blockedBy: ['a WRITABLE shipped case declaring context.exampleRoots'],
+    note: 'Updated on 2026-08-04: the inventory now declares `runtime.bulk-operation-progress`, so that half of the blocker is retired and this ledger row no longer claims the capability is absent. Family 9 stays uncovered because the remaining blocker is real — every shipped case that declares `context.exampleRoots` is read-only, so no behavioral writable/oracle lane can assert the connected `progressJobId` flow. OMH-210 still selects only the DataTable bulk-action source.',
   },
   {
     specFamily: 10,

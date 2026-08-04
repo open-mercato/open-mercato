@@ -191,6 +191,7 @@
   "example.portal.title": "Portal Klienta",
   "example.priority.action.open": "Otwórz klienta",
   "example.priority.bulk.setNormal": "Ustaw normalny priorytet",
+  "example.todos.bulk.markDone": "Oznacz wybrane zadania jako wykonane",
   "example.priority.column": "Priorytet przykładowy",
   "example.priority.critical": "Krytyczny",
   "example.priority.detail.description": "Ustaw priorytet dla tego rekordu klienta.",

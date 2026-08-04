@@ -12,6 +12,7 @@ import {
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { assertOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityData, EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -41,6 +42,16 @@ export const todoUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   is_done: z.boolean().optional(),
   notes: todoNotesSchema.optional(),
+  /**
+   * Optional expected `updated_at` for command-level optimistic locking.
+   *
+   * Strictly additive: `assertOptimisticLock` is a documented no-op when the
+   * expected token is absent, so every existing caller — the CRUD route, the AI
+   * tools, the sync bridge — keeps its current behavior. The bulk-complete worker
+   * supplies it so a queued job never silently overwrites an edit made after the
+   * operation was queued.
+   */
+  expected_updated_at: z.string().min(1).optional(),
 })
 
 type SerializedTodo = {
@@ -296,6 +307,14 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       deletedAt: null,
     } as FilterQuery<Todo>, undefined, { tenantId: scope.tenantId, organizationId: scope.organizationId })
     if (!existing) throw new CrudHttpError(404, { error: 'Todo not found' })
+    // Runs in `prepare`, which the command bus always awaits before `execute`, so a
+    // stale version aborts the write instead of racing it.
+    assertOptimisticLock({
+      resourceKind: ENTITY_ID,
+      resourceId: parsed.id,
+      expected: parsed.expected_updated_at,
+      current: existing.updatedAt,
+    })
     const custom = await loadTodoCustomSnapshot(
       em,
       String(existing.id),
