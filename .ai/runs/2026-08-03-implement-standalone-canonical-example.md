@@ -344,3 +344,13 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
 
   **Next session starts at wave 3** (E1 optimistic locking + shared Todo form; H1 GOV-P1), plus the
   new stale-injection-entry row that unblocks C1 defect 2.
+
+  **In flight (session 3, after wave 2):** wave 3 workflow `wf_3141c54d-2b1` — three slices in
+  isolated worktrees on branches `wave3/e1-todo-optimistic-locking`,
+  `wave3/h1-gov-p1-knowledge-change`, `wave3/c1b-stale-injection-entries`, each followed by an
+  independent verifier that now also runs its OWN mutation probe on every added test (added after
+  wave 2 shipped a test whose headline claim was false). Branches are local to those worktrees and
+  **not pushed**; nothing is merged into the PR branch until the verdicts are read, so an interrupted
+  run leaves the PR branch untouched. Resume with
+  `Workflow({scriptPath, resumeFromRunId: 'wf_3141c54d-2b1'})`; every commit SHA is in that run's
+  `journal.jsonl`.
