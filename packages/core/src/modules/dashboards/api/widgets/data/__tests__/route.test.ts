@@ -129,6 +129,25 @@ describe('widget data route error mapping', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Invalid groupBy field: nope' })
   })
 
+  // The payload is valid in every respect except the null filter value, so the 400 can only come
+  // from that filter. Before the boundary rejected it, `column IN (NULL)` evaluated to SQL NULL
+  // for every row and the aggregation returned zero rows with no error (#4821 review).
+  test('refuses a null set filter value at the boundary instead of aggregating zero rows', async () => {
+    const response = await POST(
+      buildRequest({
+        entityType: 'sales:orders',
+        metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+        filters: [{ field: 'status', operator: 'in', value: null }],
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid request payload')
+    expect(Array.isArray(body.issues)).toBe(true)
+    expect(fetchWidgetData).not.toHaveBeenCalled()
+  })
+
   test('masks unexpected failures as a 500', async () => {
     fetchWidgetData.mockRejectedValue(new Error('connection terminated with an internal detail'))
 
