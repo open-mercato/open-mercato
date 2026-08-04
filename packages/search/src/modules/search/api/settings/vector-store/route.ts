@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { VectorDriverId } from '@open-mercato/shared/modules/vector'
+import type { VectorDriver } from '../../../../../vector'
 import { vectorStoreSettingsOpenApi } from '../../openapi'
 
 export const metadata = {
@@ -13,6 +15,9 @@ type DriverStatus = {
   name: string
   configured: boolean
   implemented: boolean
+  /** Runtime reachability of the store itself; `null` when the driver exposes no probe. */
+  available: boolean | null
+  unavailableReason: string | null
   envVars: {
     name: string
     set: boolean
@@ -24,6 +29,24 @@ type VectorStoreConfigResponse = {
   currentDriver: VectorDriverId
   configured: boolean
   drivers: DriverStatus[]
+}
+
+async function probeDriverStatus(
+  container: { resolve: <T = unknown>(name: string) => T },
+  driverId: VectorDriverId,
+): Promise<{ available: boolean | null; unavailableReason: string | null }> {
+  try {
+    const drivers = container.resolve<VectorDriver[]>('vectorDrivers')
+    const driver = drivers.find((entry) => entry.id === driverId)
+    if (!driver?.getStatus) return { available: null, unavailableReason: null }
+    const status = await driver.getStatus()
+    return {
+      available: status.available,
+      unavailableReason: status.available ? null : status.reason ?? null,
+    }
+  } catch {
+    return { available: null, unavailableReason: null }
+  }
 }
 
 const unauthorized = async () => {
@@ -45,12 +68,28 @@ export async function GET(req: Request) {
   // Check chromadb - would need CHROMA_URL
   const chromaUrlSet = Boolean(process.env.CHROMA_URL?.trim())
 
+  let pgvectorStatus: { available: boolean | null; unavailableReason: string | null } = {
+    available: null,
+    unavailableReason: null,
+  }
+  if (databaseUrlSet) {
+    const container = await createRequestContainer()
+    try {
+      pgvectorStatus = await probeDriverStatus(container, 'pgvector')
+    } finally {
+      const disposable = container as { dispose?: () => Promise<unknown> }
+      if (typeof disposable.dispose === 'function') await disposable.dispose()
+    }
+  }
+
   const drivers: DriverStatus[] = [
     {
       id: 'pgvector',
       name: 'PostgreSQL (pgvector)',
       configured: databaseUrlSet,
       implemented: true,
+      available: pgvectorStatus.available,
+      unavailableReason: pgvectorStatus.unavailableReason,
       envVars: [
         {
           name: 'DATABASE_URL',
@@ -64,6 +103,8 @@ export async function GET(req: Request) {
       name: 'Qdrant',
       configured: qdrantUrlSet,
       implemented: false,
+      available: null,
+      unavailableReason: null,
       envVars: [
         {
           name: 'QDRANT_URL',
@@ -82,6 +123,8 @@ export async function GET(req: Request) {
       name: 'ChromaDB',
       configured: chromaUrlSet,
       implemented: false,
+      available: null,
+      unavailableReason: null,
       envVars: [
         {
           name: 'CHROMA_URL',

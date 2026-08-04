@@ -7,10 +7,12 @@ import {
   createRuntimeFailureLatch,
   createRuntimeNoiseFilter,
   formatChildExitStatus,
+  isNonRuntimeFailureLine,
   isStatelessRuntimeNoiseLine,
   resolveChildExitCode,
   resolveUnexpectedExitCode,
 } from './dev-runtime-log-policy.mjs'
+import { getProcessTreeMemorySample } from './dev-memory-monitor.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -40,6 +42,21 @@ function resolveSpawnUtilsImport() {
   }
 
   throw new Error('Unable to resolve dev spawn utils module')
+}
+
+function resolveMemorySamplerImport() {
+  const candidates = [
+    new URL('./dev-memory-sampler.mjs', import.meta.url),
+    new URL('../../../scripts/dev-memory-sampler.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev memory sampler module')
 }
 
 function isEnabledEnvFlag(value) {
@@ -95,6 +112,12 @@ const {
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
 const { resolveProjectBinary, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
+const {
+  DEFAULT_MEMORY_TRACE_OUT_DIR,
+  createMemoryTraceSession,
+  inferDevMemoryMarkerFromLine,
+  resolveMemoryTraceIntervalMs,
+} = await import(resolveMemorySamplerImport())
 
 const command = resolveProjectBinary(process.platform === 'win32' ? 'mercato.cmd' : 'mercato')
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -138,6 +161,9 @@ const backgroundServiceModes = {
   scheduler: resolveAutoSpawnMode(process.env, 'AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER_LAZY'),
 }
 const shutdownNoticeOwnedByParent = process.env.OM_DEV_SHUTDOWN_NOTICE_OWNER === 'parent'
+const appMemoryTraceEnabled = isEnabledEnvFlag(process.env.OM_DEV_MEMORY_TRACE)
+  && process.env.OM_DEV_MEMORY_TRACE_OWNER !== 'parent'
+let memoryTrace = null
 const splashState = {
   mode: splashMode,
   phase: startupSplashPhase,
@@ -572,7 +598,7 @@ function looksLikeWarningLine(line) {
 }
 
 function looksLikeFailure(line) {
-  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line)) return false
+  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line) || isNonRuntimeFailureLine(line)) return false
 
   return /^error\b/i.test(line)
     || /^Error:/i.test(line)
@@ -900,10 +926,12 @@ async function runTargetedRouteWarmup() {
   const introMessage = '🔥 Precompiling /login, login POST, and /backend'
   const warmupCredentials = resolveWarmupCredentials()
 
+  markMemoryTrace('warmup:start', 'Warmup started')
   reportWarmupStep(introMessage, progressLabel)
 
   try {
     const loginPageStartedAt = Date.now()
+    markMemoryTrace('warmup:route-start', 'GET /login')
     const loginPageResponse = await fetchWarmupWithRetry(
       joinBaseUrl(runtimeWarmupState.baseUrl, '/login'),
       { method: 'GET', redirect: 'manual' },
@@ -919,8 +947,13 @@ async function runTargetedRouteWarmup() {
       `📄 Warmed /login in ${formatDuration(Date.now() - loginPageStartedAt)} (${loginPageResponse.status})`,
       progressLabel,
     )
+    markMemoryTrace('warmup:route-end', 'GET /login', {
+      status: loginPageResponse.status,
+      durationMs: Date.now() - loginPageStartedAt,
+    })
 
     const loginPostStartedAt = Date.now()
+    markMemoryTrace('warmup:route-start', 'POST /api/auth/login')
     const loginPostBody = new URLSearchParams({
       email: warmupCredentials.email,
       password: warmupCredentials.password,
@@ -968,8 +1001,13 @@ async function runTargetedRouteWarmup() {
       `🔐 Warmed POST /api/auth/login in ${formatDuration(Date.now() - loginPostStartedAt)} (${loginResponse.status})`,
       progressLabel,
     )
+    markMemoryTrace('warmup:route-end', 'POST /api/auth/login', {
+      status: loginResponse.status,
+      durationMs: Date.now() - loginPostStartedAt,
+    })
 
     const backendStartedAt = Date.now()
+    markMemoryTrace('warmup:route-start', 'GET /backend')
     const backendResponse = await fetchWarmupWithRetry(
       joinBaseUrl(runtimeWarmupState.baseUrl, '/backend'),
       {
@@ -1002,6 +1040,10 @@ async function runTargetedRouteWarmup() {
       `🗂️ Warmed authenticated /backend in ${formatDuration(Date.now() - backendStartedAt)} (${backendResponse.status})`,
       progressLabel,
     )
+    markMemoryTrace('warmup:route-end', 'GET /backend', {
+      status: backendResponse.status,
+      durationMs: Date.now() - backendStartedAt,
+    })
 
     runtimeWarmupState.retryAttempts = 0
     runtimeWarmupState.completed = true
@@ -1024,6 +1066,7 @@ async function runTargetedRouteWarmup() {
     })
     writeWarmupReadyFile('warmup-complete')
     console.log(formatStatusOutput(completedMessage, runtimeReadyProgressCurrent, 'App is ready'))
+    markMemoryTrace('warmup:end', 'Warmup completed', { durationMs: Date.now() - startedAt })
   } catch (error) {
     if (generation !== runtimeWarmupState.generation) {
       return
@@ -1050,6 +1093,7 @@ async function runTargetedRouteWarmup() {
           ],
         })
         console.log(formatStatusOutput(`❌ ${detail}`, runtimeProgressCurrent, progressLabel))
+        markMemoryTrace('warmup:failure', 'Warmup failed', { reason, attempts: attempt })
         return
       }
       const retryBaseMessage = runtimeWarmupState.tenantId && looksLikeTenantSelectionError(reason)
@@ -1075,6 +1119,7 @@ async function runTargetedRouteWarmup() {
     }
 
     const errorMessage = error instanceof Error ? error.message : 'unknown error'
+    markMemoryTrace('warmup:failure', 'Warmup failed', { reason: errorMessage })
     const isCredentialsFailure = error instanceof LoginError && error.status === 401
     const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
     const loginUrl = runtimeWarmupState.baseUrl
@@ -1124,79 +1169,15 @@ function maybeStartTargetedRouteWarmup() {
   runtimeWarmupState.promise = runTargetedRouteWarmup()
 }
 
-async function getProcessTreeMemoryBytes(rootPid) {
-  if (!Number.isInteger(rootPid) || rootPid <= 0) return null
-  if (process.platform === 'win32') return null
-
-  return new Promise((resolve) => {
-    const inspector = spawn('ps', ['-axo', 'pid=,ppid=,rss='], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-
-    let output = ''
-    inspector.stdout?.setEncoding('utf8')
-    inspector.stdout?.on('data', (chunk) => {
-      output += chunk
-    })
-
-    inspector.on('error', () => resolve(null))
-    inspector.on('close', (code) => {
-      if ((code ?? 1) !== 0) {
-        resolve(null)
-        return
-      }
-
-      const nodes = new Map()
-
-      for (const rawLine of output.split('\n')) {
-        const line = rawLine.trim()
-        if (!line) continue
-
-        const match = line.match(/^(\d+)\s+(\d+)\s+(\d+)$/)
-        if (!match) continue
-
-        const pid = Number.parseInt(match[1], 10)
-        const ppid = Number.parseInt(match[2], 10)
-        const rssKb = Number.parseInt(match[3], 10)
-        nodes.set(pid, { ppid, rssKb })
-      }
-
-      if (!nodes.has(rootPid)) {
-        resolve(null)
-        return
-      }
-
-      let totalKb = 0
-      const pending = [rootPid]
-      const seen = new Set()
-
-      while (pending.length > 0) {
-        const pid = pending.pop()
-        if (!Number.isInteger(pid) || seen.has(pid)) continue
-        seen.add(pid)
-
-        const node = nodes.get(pid)
-        if (node) {
-          totalKb += node.rssKb
-        }
-
-        for (const [candidatePid, candidateNode] of nodes.entries()) {
-          if (candidateNode.ppid === pid && !seen.has(candidatePid)) {
-            pending.push(candidatePid)
-          }
-        }
-      }
-
-      resolve(totalKb > 0 ? totalKb * 1024 : null)
-    })
-  })
-}
-
 function stopMemoryMonitor() {
   if (memoryState.interval) {
     clearInterval(memoryState.interval)
     memoryState.interval = null
   }
+}
+
+function markMemoryTrace(type, label, details = {}) {
+  memoryTrace?.mark(type, label, details)
 }
 
 function maybePrintMemoryUsage(force = false) {
@@ -1219,7 +1200,8 @@ function maybePrintMemoryUsage(force = false) {
   console.log(`🧠 Memory ${formatMemory(memoryState.currentBytes)} RSS (peak ${formatMemory(memoryState.peakBytes)})`)
 }
 
-function publishMemoryUsage(bytes) {
+function publishMemoryUsage(sample) {
+  const bytes = sample?.totalRssBytes
   if (!Number.isFinite(bytes) || bytes <= 0) return
   memoryState.currentBytes = bytes
   memoryState.peakBytes = Math.max(memoryState.peakBytes, bytes)
@@ -1237,10 +1219,22 @@ function startMemoryMonitor(child) {
 
   stopMemoryMonitor()
 
+  if (appMemoryTraceEnabled && !memoryTrace) {
+    memoryTrace = createMemoryTraceSession({
+      rootPid: child.pid,
+      intervalMs: resolveMemoryTraceIntervalMs(process.env),
+      outDir: process.env.OM_DEV_MEMORY_TRACE_DIR?.trim() || DEFAULT_MEMORY_TRACE_OUT_DIR,
+      label: `live-app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+      onSample: (sample) => publishMemoryUsage(sample),
+    })
+    memoryTrace.start()
+    markMemoryTrace('app-runtime:start', 'App runtime started', { pid: child.pid })
+  }
+
   const sample = async () => {
-    const bytes = await getProcessTreeMemoryBytes(child.pid)
-    if (bytes) {
-      publishMemoryUsage(bytes)
+    const memorySample = await getProcessTreeMemorySample(child.pid)
+    if (memorySample) {
+      publishMemoryUsage(memorySample)
     }
   }
 
@@ -1252,7 +1246,17 @@ function startMemoryMonitor(child) {
 
   child.on('exit', () => {
     stopMemoryMonitor()
+    void memoryTrace?.stop()
   })
+}
+
+async function finalizeRuntimeProcess(exitCode) {
+  try {
+    await memoryTrace?.stop()
+  } catch (error) {
+    console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  process.exit(exitCode)
 }
 
 function shutdown(exitCode = 0) {
@@ -1260,6 +1264,12 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   clearWarmupRetryTimer()
   stopMemoryMonitor()
+
+  if (rawLogFileStream) {
+    try {
+      rawLogFileStream.end()
+    } catch {}
+  }
 
   if (rawModeEnabled && process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
     process.stdin.setRawMode(false)
@@ -1280,7 +1290,7 @@ function shutdown(exitCode = 0) {
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
-    process.exit(exitCode)
+    void finalizeRuntimeProcess(exitCode)
     return
   }
 
@@ -1294,17 +1304,48 @@ function shutdown(exitCode = 0) {
         child.kill('SIGKILL')
       }
     }
-    process.exit(exitCode)
+    void finalizeRuntimeProcess(exitCode)
   }, 3000)
 }
 
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
 
+let rawLogFileStream
+let rawLogFileFailed = false
+
+function resolveRawLogFileStream() {
+  if (rawLogFileStream !== undefined) return rawLogFileStream
+  if (process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false') {
+    rawLogFileStream = null
+    return rawLogFileStream
+  }
+  try {
+    const logDir = process.env.OM_DEV_LOG_DIR?.trim()
+      ? path.resolve(process.env.OM_DEV_LOG_DIR.trim())
+      : path.resolve('.mercato', 'logs')
+    fs.mkdirSync(logDir, { recursive: true })
+    const runId = process.env.OM_DEV_RUN_ID?.trim()
+      || `${new Date().toISOString().toLowerCase().replace(/[:.]/g, '-')}-pid${process.pid}`
+    rawLogFileStream = fs.createWriteStream(path.join(logDir, `${runId}-app-raw.log`), { flags: 'a' })
+    rawLogFileStream.on('error', () => {
+      rawLogFileFailed = true
+    })
+  } catch {
+    rawLogFileStream = null
+  }
+  return rawLogFileStream
+}
+
 function bufferRawLog(line) {
   rawLogBuffer.push(line)
   if (rawLogBuffer.length > maxBufferedLogLines) {
     rawLogBuffer.shift()
+  }
+
+  const fileStream = resolveRawLogFileStream()
+  if (fileStream && !rawLogFileFailed) {
+    fileStream.write(`${line}\n`)
   }
 }
 
@@ -1408,6 +1449,7 @@ function parseDurationToken(token) {
 
 async function runInitialGenerate() {
   const startedAt = Date.now()
+  markMemoryTrace('generate:start', 'Generating app artifacts', { command: 'mercato generate' })
   updateStartupProgress(1, 'Generating app artifacts')
   console.log(`🧱 ${formatProgressStatus('Generating app artifacts...', 1, 'Generating app artifacts')}`)
   updateSplashState({
@@ -1429,8 +1471,10 @@ async function runInitialGenerate() {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace('generate:failure', 'Generating app artifacts', { exitCode })
       shutdown(exitCode)
     }
+    markMemoryTrace('generate:end', 'Generating app artifacts', { durationMs: Date.now() - startedAt })
     return
   }
 
@@ -1454,6 +1498,7 @@ async function runInitialGenerate() {
 
   const exitCode = resolveChildExitCode(result)
   if (exitCode !== 0) {
+    markMemoryTrace('generate:failure', 'Generating app artifacts', { exitCode })
     console.error('❌ Artifact generation failed')
     for (const line of capturedLines) {
       console.error(line)
@@ -1471,6 +1516,7 @@ async function runInitialGenerate() {
     activity: `App artifacts ready in ${formatDuration(Date.now() - startedAt)}`,
   })
   console.log(`✅ ${formatProgressStatus(`App artifacts ready in ${formatDuration(Date.now() - startedAt)}`, 1, 'App artifacts ready')}`)
+  markMemoryTrace('generate:end', 'Generating app artifacts', { durationMs: Date.now() - startedAt })
 }
 
 function createFilteredReporter(label, classifyLine) {
@@ -1483,6 +1529,10 @@ function createFilteredReporter(label, classifyLine) {
     if (plain.length === 0) return
 
     rememberRawLog(line)
+    const inferredMarker = inferDevMemoryMarkerFromLine(plain)
+    if (inferredMarker) {
+      markMemoryTrace(inferredMarker.type, inferredMarker.label, inferredMarker.details)
+    }
     captureBackgroundServiceLine(plain)
 
     if (failureLatch.isLatched()) {
@@ -1723,7 +1773,10 @@ function classifyServerLine(line) {
       progressLabel: 'Background services (lazy)',
     }
   }
-  if (line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)) {
+  if (
+    line.match(/^\[lazy-supervisor\] Pending job detected(?: .*)? — starting shared worker for all queues$/)
+    || line === '[lazy-supervisor] Enabled schedule detected — starting shared worker for all queues'
+  ) {
     const status = 'Starting shared worker (lazy shared)'
     return {
       type: 'status',
@@ -1898,6 +1951,7 @@ function startFilteredChild(args, label, classifyLine) {
   const child = spawnMercato(args)
   if (label === 'App runtime') {
     startMemoryMonitor(child)
+    markMemoryTrace('app-runtime:start', 'App runtime started', { pid: child.pid, command: ['mercato', ...args].join(' ') })
   }
 
   if (verbose) {
@@ -1921,6 +1975,18 @@ function resolveGenerateWatchMode(env) {
 }
 
 const generateWatchMode = resolveGenerateWatchMode(process.env)
+
+if (appMemoryTraceEnabled && !memoryTrace) {
+  memoryTrace = createMemoryTraceSession({
+    rootPid: process.pid,
+    intervalMs: resolveMemoryTraceIntervalMs(process.env),
+    outDir: process.env.OM_DEV_MEMORY_TRACE_DIR?.trim() || DEFAULT_MEMORY_TRACE_OUT_DIR,
+    label: `live-app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+    onSample: (sample) => publishMemoryUsage(sample),
+  })
+  memoryTrace.start()
+  markMemoryTrace('dev:start', 'App dev runner started', { mode: splashMode })
+}
 
 async function runClassicRuntime() {
   const initialGenerate = spawnMercato(['generate'])

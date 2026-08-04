@@ -112,6 +112,20 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       }
     },
   },
+  {
+    id: 'payment_gateways.register-session-initialization-prune',
+    version: '0.6.6',
+    messageKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.message',
+    ctaKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.cta',
+    successKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.success',
+    loadingKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.loading',
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerSessionInitializationPruneSchedule } = await import(
+        '@open-mercato/core/modules/payment_gateways/setup'
+      )
+      await registerSessionInitializationPruneSchedule(container, { tenantId, organizationId })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {

@@ -140,7 +140,7 @@ export function renderModuleGuidesBlock(selected: string[]): string {
   return [
     `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`,
     '',
-    'Load `.ai/guides/modules/<id>.md` only when `<id>` is explicitly named or is the targeted installed module/host; never preload all facts.',
+    'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all module facts.',
   ].join('\n')
 }
 
@@ -438,7 +438,11 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
         path: relativePath,
         sha256: hashFile(path),
         source: skillName ? (externalSkills.has(skillName) ? 'external-override' : 'local-skill') : 'generated',
-        userEditable: relativePath === 'AGENTS.md' || relativePath === '.ai/agentic.config.json' || relativePath === '.ai/lessons.md',
+        userEditable:
+          relativePath === 'AGENTS.md'
+          || relativePath === '.ai/agentic.config.json'
+          || relativePath === '.ai/lessons.md'
+          || relativePath.startsWith('.ai/lessons/'),
       }
     })
   atomicWriteFile(

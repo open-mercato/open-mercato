@@ -21,9 +21,11 @@ const logger = createLogger('shared').child({ component: 'redis' })
 export type ParsedRedisConnection = {
   host: string
   port: number
+  username?: string
   password?: string
   db?: number
   tls?: Record<string, unknown>
+  family?: number
 }
 
 /**
@@ -59,12 +61,8 @@ export function getRedisUrlOrThrow(prefix?: string): string {
 }
 
 /**
- * Parse a redis:// URL into a {host, port, password, db} object
- * suitable for BullMQ / ioredis structured connection options.
- *
- * @deprecated Prefer passing the full URL via `{ url: getRedisUrl(...) }` to
- * BullMQ/ioredis — this preserves rediss://, username, database, and query
- * params that structured parsing may lose. Kept for backward compatibility.
+ * Parse a redis:// URL into structured connection options suitable for
+ * BullMQ and ioredis.
  */
 export function parseRedisUrl(url: string): ParsedRedisConnection {
   try {
@@ -72,12 +70,17 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
     const dbStr = parsed.pathname ? parsed.pathname.slice(1) : ''
     const dbParsed = dbStr !== '' ? parseInt(dbStr, 10) : NaN
     const db = Number.isNaN(dbParsed) ? undefined : dbParsed
+    const familyValue = parsed.searchParams.get('family')
+    const familyParsed = familyValue !== null ? parseInt(familyValue, 10) : NaN
+    const family = [0, 4, 6].includes(familyParsed) ? familyParsed : undefined
     return {
       host: parsed.hostname || 'localhost',
       port: parseInt(parsed.port, 10) || 6379,
-      password: parsed.password || undefined,
+      username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
       db,
       tls: parsed.protocol === 'rediss:' ? {} : undefined,
+      family,
     }
   } catch {
     const safeUrl = url.replace(/\/\/[^:]*:[^@]*@/, '//<redacted>@')

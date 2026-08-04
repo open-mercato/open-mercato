@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { checkRateLimit } from '@open-mercato/shared/lib/ratelimit/helpers'
@@ -472,8 +472,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         || link.gatewaySettings?.presentationMode === 'auto'
         ? link.gatewaySettings.presentationMode
         : undefined
+
+      let sessionResult: Awaited<ReturnType<typeof paymentGatewayService.createPaymentSession>>
       try {
-        const sessionResult = await paymentGatewayService.createPaymentSession({
+        sessionResult = await paymentGatewayService.createPaymentSession({
           providerKey: link.gatewayProviderKey,
           paymentId: transactionId,
           idempotencyKey,
@@ -497,18 +499,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           organizationId: link.organizationId,
           tenantId: link.tenantId,
         })
-        await commandBus.execute('checkout.transaction.updateStatus', {
-          input: {
-            id: transaction.id,
-            status: mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus),
-            paymentStatus: sessionResult.transaction.unifiedStatus,
-            gatewayTransactionId: sessionResult.transaction.id,
-            organizationId: link.organizationId,
-            tenantId: link.tenantId,
-          },
-          ctx,
-        })
       } catch (error) {
+        // The gateway itself failed — mark the transaction failed and surface 502.
         await commandBus.execute('checkout.transaction.updateStatus', {
           input: {
             id: transaction.id,
@@ -527,6 +519,41 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         })
         throw new CrudHttpError(502, { error: 'checkout.payPage.errors.sessionStart' })
       }
+
+      // Update the transaction status to reflect the gateway response.
+      // If the webhook already raced ahead and completed this transaction,
+      // updateStatus will throw a 409 conflict — that is correct behavior and
+      // means the payment succeeded, so we treat it as benign and fall through
+      // to return the real, already-terminal transaction below.
+      let statusConflict = false
+      try {
+        await commandBus.execute('checkout.transaction.updateStatus', {
+          input: {
+            id: transaction.id,
+            status: mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus),
+            paymentStatus: sessionResult.transaction.unifiedStatus,
+            gatewayTransactionId: sessionResult.transaction.id,
+            organizationId: link.organizationId,
+            tenantId: link.tenantId,
+          },
+          ctx,
+        })
+      } catch (error) {
+        const isConflict = isCrudHttpError(error)
+          && error.status === 409
+          && (
+            (error.body as Record<string, unknown> | undefined)?.code === 'concurrent_status_update'
+            || (error.body as Record<string, unknown> | undefined)?.code === 'invalid_status_transition'
+          )
+        if (!isConflict) throw error
+        logger.info('Transaction status already advanced by concurrent writer — webhook won the race', {
+          linkId: link.id,
+          transactionId: transaction.id,
+          conflictCode: (error.body as Record<string, unknown> | undefined)?.code,
+        })
+        statusConflict = true
+      }
+
       const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
         id: transaction.id,
         organizationId: link.organizationId,
@@ -535,26 +562,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       if (!refreshedTransaction) {
         throw new CrudHttpError(404, { error: 'Transaction not found' })
       }
-      await emitCheckoutEvent('checkout.transaction.sessionStarted', {
-        transactionId: refreshedTransaction.id,
-        linkId: refreshedTransaction.linkId,
-        templateId: link.templateId ?? null,
-        slug: link.slug,
-        status: refreshedTransaction.status,
-        paymentStatus: refreshedTransaction.paymentStatus ?? null,
-        amount: Number(refreshedTransaction.amount),
-        currency: refreshedTransaction.currencyCode,
-        gatewayProvider: link.gatewayProviderKey,
-        gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
-        occurredAt: new Date().toISOString(),
-        tenantId: link.tenantId,
-        organizationId: link.organizationId,
-      }).catch(() => undefined)
+      if (!statusConflict) {
+        await emitCheckoutEvent('checkout.transaction.sessionStarted', {
+          transactionId: refreshedTransaction.id,
+          linkId: refreshedTransaction.linkId,
+          templateId: link.templateId ?? null,
+          slug: link.slug,
+          status: refreshedTransaction.status,
+          paymentStatus: refreshedTransaction.paymentStatus ?? null,
+          amount: Number(refreshedTransaction.amount),
+          currency: refreshedTransaction.currencyCode,
+          gatewayProvider: link.gatewayProviderKey,
+          gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
+          occurredAt: new Date().toISOString(),
+          tenantId: link.tenantId,
+          organizationId: link.organizationId,
+        }).catch(() => undefined)
+      }
       return NextResponse.json(
         await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),
         { status: 201 },
       )
     }
+
     return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
   } catch (error) {
     return handleCheckoutRouteError(error)

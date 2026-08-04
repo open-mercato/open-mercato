@@ -241,7 +241,7 @@ export function BusinessRuleConditionsEditor({
                         disabled={disabled}
                         className="ml-2 flex-shrink-0"
                       >
-                        <Trash2 className="size-4 text-red-600" />
+                        <Trash2 className="size-4 text-destructive" />
                       </Button>
                     }
                     title={t('workflows.fieldEditors.businessRuleConditions.removeCondition')}

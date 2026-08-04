@@ -84,6 +84,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
         scans: 'packages/ and apps/ — CRUD indexer configuration',
       },
+      {
+        path: 'src/modules/design_system/gallery/__tests__/gallery-coverage.test.ts',
+        scans: 'packages/ui/src/primitives — design-system gallery coverage',
+      },
     ],
   },
   {
@@ -144,6 +148,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/telemetry',
+    workspaceDir: 'packages/telemetry',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/default-unloaded.test.ts',
+        scans: 'apps/mercato, packages/create-app/template, packages/cli and packages/queue runtime hosts — telemetry stays unloaded unless a backend is configured (#4475)',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/ui',
     workspaceDir: 'packages/ui',
     jestConfig: 'jest.config.cjs',
@@ -151,6 +166,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/primitives/__tests__/zindex-overlay.test.tsx',
         scans: 'apps/mercato and packages/create-app/template globals.css — z-index scale',
+      },
+      {
+        path: 'src/backend/icons/__tests__/lucideRegistryGenerator.test.ts',
+        scans: 'git-tracked files repo-wide — importers of the deep lucideRegistry.generated path',
       },
     ],
   },
@@ -160,12 +179,20 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules plus every packages/ acl.ts — module override keys anchored to declared ACL features (#4462)',
+      },
+      {
         path: 'src/components/__tests__/starter-chrome-ds.test.ts',
         scans: 'apps/mercato and packages/create-app/template components — DS status tokens in starter chrome',
       },
       {
         path: 'src/components/__tests__/StartPageContent.test.tsx',
         scans: 'apps/mercato and packages/create-app/template StartPageContent — hydration-safety guard',
+      },
+      {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules and every packages/ acl.ts — ACL override keys anchored to a declared feature (#4944)',
       },
     ],
   },
@@ -190,6 +217,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   },
   {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
+    reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/standalone-portal-email-env-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {

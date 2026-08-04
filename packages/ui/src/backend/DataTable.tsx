@@ -1699,18 +1699,31 @@ export function DataTable<T>({
     })
   }, [table, mergedColumns])
 
-  const initialVisibilityApplied = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
+  // A stored perspective seeds `columnVisibility` at mount and wins outright over the
+  // `meta.hidden` defaults, so the auto-hide pass is skipped entirely in that case.
+  const visibilitySeededByStoredSettings = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
+  // Auto-hiding is a per-column default, applied once per column — not an enforcement.
+  // It cannot be latched by a single has-run boolean: columns arrive in waves, because
+  // custom-field columns are built from definitions fetched asynchronously. The first
+  // render carries no `cf_*` column at all, so a run-once pass found nothing to hide and
+  // still burned the latch, leaving fields declared `listVisible: false` visible for the
+  // rest of the session after a hard page load (#4859).
+  // It also cannot lean on `columnVisibility` as the record of what has been decided:
+  // `handleColumnChooserToggle` *deletes* a column's entry when the user turns it back on,
+  // so a re-shown column is indistinguishable from one never seen and would be hidden again
+  // on the next wave. Hence an explicit per-column record of what this pass has applied.
+  const autoHiddenColumnIds = React.useRef<Set<string>>(new Set())
   React.useEffect(() => {
-    if (initialVisibilityApplied.current) return
+    if (visibilitySeededByStoredSettings.current) return
     const hidden: VisibilityState = {}
     table.getAllLeafColumns().forEach((column) => {
       const hiddenMeta = (column.columnDef as any)?.meta?.hidden
-      if (hiddenMeta) hidden[column.id] = false
+      if (!hiddenMeta || autoHiddenColumnIds.current.has(column.id)) return
+      hidden[column.id] = false
+      autoHiddenColumnIds.current.add(column.id)
     })
-    if (Object.keys(hidden).length) {
-      setColumnVisibility((prev) => ({ ...hidden, ...prev }))
-    }
-    initialVisibilityApplied.current = true
+    if (!Object.keys(hidden).length) return
+    setColumnVisibility((prev) => ({ ...hidden, ...prev }))
   }, [table, mergedColumns])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
