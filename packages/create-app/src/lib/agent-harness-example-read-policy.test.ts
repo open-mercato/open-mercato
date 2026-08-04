@@ -921,18 +921,96 @@ test('path normalization accepts Windows-style separators and rejects every esca
 })
 
 // ---------------------------------------------------------------------------------------------
-// Backward compatibility — cases without `exampleRoots` keep their previous semantics exactly.
+// Shipped-catalog reachability — the policy is live for the cases that declare it and still inert
+// for every case that does not. `DECLARING_CASE_IDS` is the pinned contract: adding or removing a
+// declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-test('compatibility: no shipped case declares the new fields, so the policy is inert for all of them', async () => {
+const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212']
+
+function declaringShippedCases() {
+  return shippedCases().filter((entry) => entry.context.exampleRoots !== undefined)
+}
+
+function undeclaringShippedCases() {
+  return shippedCases().filter((entry) => entry.context.exampleRoots === undefined)
+}
+
+function declaredCapabilityIds(entry: { context: Record<string, unknown> }): string[] {
+  const roots = entry.context.exampleRoots as Array<{ allowedCapabilityIds: string[] }>
+  return roots.flatMap((declaration) => declaration.allowedCapabilityIds)
+}
+
+test('reachability: exactly the pinned shipped cases declare an example root, and each one is live', async () => {
   const evaluator = await loadEvaluator()
   const root = stageExampleApp()
   try {
-    const cases = shippedCases()
-    assert.ok(cases.length > 0)
-    for (const entry of cases) {
-      assert.equal(entry.context.exampleRoots, undefined, `${entry.id} must not declare exampleRoots yet`)
-      assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback yet`)
+    const declaring = declaringShippedCases()
+    assert.deepEqual(declaring.map((entry) => entry.id), DECLARING_CASE_IDS)
+    for (const entry of declaring) {
+      assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(entry, root), [], `${entry.id} must declare a valid root`)
+      assert.deepEqual(evaluator.immutableExampleRoots(entry), [EXAMPLE_ROOT], `${entry.id} must make the example root immutable`)
+      const allowlist = evaluator.exampleReadAllowlist(entry, root)
+      // Entrypoints, the inventory, and every mapped capability source — and nothing else.
+      const expected = [
+        `${EXAMPLE_ROOT}/references/surface-inventory.json`,
+        ...ENTRYPOINTS.map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
+        ...declaredCapabilityIds(entry).flatMap((id) => capability(id).sourcePaths),
+      ]
+      assert.deepEqual([...new Set(allowlist)].sort(), [...new Set(expected)].sort(), `${entry.id} allowlist must be its own exact files`)
+      for (const relative of allowlist) {
+        assert.ok(fs.existsSync(path.join(root, relative)), `${entry.id} allowlist names a file that does not ship: ${relative}`)
+      }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('reachability: every shipped declaring case reads its own capability set end to end and is refused another one', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    for (const entry of declaringShippedCases()) {
+      const allowed = declaredCapabilityIds(entry)
+      const reads: PolicyRead[] = [
+        ...entrypointReads(),
+        ...allowed.flatMap((id) => capability(id).sourcePaths.map((source) => ({ path: source }))),
+      ]
+      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: entry, appRoot: root, reads })
+      assert.equal(trace.firstViolation, null, `${entry.id} must be able to read its own declared capabilities`)
+      assert.equal(trace.roots.length, 1, `${entry.id} must account exactly one root`)
+      assert.deepEqual(trace.roots[0].entrypoints, ENTRYPOINTS, `${entry.id} must record both entrypoints`)
+      assert.equal(trace.roots[0].files, new Set(reads.map((read) => read.path)).size, `${entry.id} must charge every distinct read`)
+      assert.ok(trace.roots[0].capabilities.length > 0, `${entry.id} must resolve at least one capability`)
+      for (const resolved of trace.roots[0].capabilities) {
+        assert.ok(allowed.includes(resolved), `${entry.id} resolved an undeclared capability ${resolved}`)
+      }
+
+      const outside = inventoryCapabilities().find((row) => row.readStatus === 'readable'
+        && row.sourcePaths.some((source) => source.startsWith(`${EXAMPLE_ROOT}/`))
+        && !row.sourcePaths.some((source) => reads.some((read) => read.path === source)))
+      assert.ok(outside, `${entry.id} needs an inventory capability outside its own declaration`)
+      const refused = evaluator.evaluateExampleReadPolicy({
+        caseRecord: entry,
+        appRoot: root,
+        reads: [...entrypointReads(), { path: outside.sourcePaths.find((source) => source.startsWith(`${EXAMPLE_ROOT}/`))! }],
+      })
+      assert.match(refused.firstViolation ?? '', /maps to a capability the case did not declare/, `${entry.id} must refuse ${outside.capabilityId}`)
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('compatibility: every shipped case that does not declare the fields keeps byte-identical semantics', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const undeclaring = undeclaringShippedCases()
+    assert.equal(undeclaring.length, shippedCases().length - DECLARING_CASE_IDS.length)
+    for (const entry of undeclaring) {
+      assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback`)
       assert.deepEqual(evaluator.exampleReadAllowlist(entry, root), [], `${entry.id} read allowlist must be unchanged`)
       assert.deepEqual(evaluator.immutableExampleRoots(entry), [], `${entry.id} must gain no immutable roots`)
       assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(entry, root), [], `${entry.id} must gain no declaration errors`)
@@ -954,7 +1032,7 @@ test('compatibility: an undeclared case produces an inert trace for reads that a
     ]
     for (const undeclared of [
       { context: { required: ['AGENTS.md'], forbidden: ['.env'] }, allowedWrites: ['src/modules/**'] },
-      ...shippedCases().slice(0, 3),
+      ...undeclaringShippedCases().slice(0, 3),
     ]) {
       const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: undeclared, appRoot: root, reads })
       assert.deepEqual(trace, { reads: [], roots: [], fallback: { reason: null, files: 0, bytes: 0 }, firstViolation: null })
@@ -1363,7 +1441,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 4,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json', 'a shipped case declaring context.exampleRoots'],
+    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json'],
     note: 'Declared installed-source references — reference id, package, version, hash — do not exist. The only installed-source route implemented is the reason-gated fallback of spec family 5.',
   },
   {
@@ -1423,21 +1501,21 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 9,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['an operation-progress capability in surface-inventory.json', 'a shipped case declaring context.exampleRoots'],
-    note: 'The inventory declares umes.injection.datatable-bulk-action but no operation-progress capability, and no writable case declares an example root, so the connected progressJobId lane cannot be asserted.',
+    blockedBy: ['an operation-progress capability in surface-inventory.json', 'a WRITABLE shipped case declaring context.exampleRoots'],
+    note: 'OMH-210 now selects the DataTable bulk-action source from a shipped case, but the inventory still declares no operation-progress capability and every declaring case is read-only, so the connected progressJobId lane cannot be asserted.',
   },
   {
     specFamily: 10,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['the generated local example reference sheet', 'a shipped case declaring context.exampleRoots'],
+    blockedBy: ['the generated local example reference sheet'],
     note: 'The PR #4883 reference-fact and topology surfaces are not emitted.',
   },
   {
     specFamily: 11,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['a design-system gallery record in surface-inventory.json', 'a shipped case declaring context.exampleRoots'],
+    blockedBy: ['a design-system gallery record in surface-inventory.json'],
     note: 'The PR #4301 gallery surfaces are not emitted.',
   },
   {
@@ -1447,7 +1525,6 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     blockedBy: [
       'a PR #4277 designFoundation record in surface-inventory.json',
       'a design-system gallery record in surface-inventory.json',
-      'a shipped case declaring context.exampleRoots',
     ],
     note: 'The PR #4277 design-foundation surfaces are not emitted.',
   },
@@ -1457,7 +1534,8 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
   'context.sourceReferenceIds': () => !fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8').includes('sourceReferenceIds')
     && !evaluatorSource().includes('sourceReferenceIds'),
   'source-link-inventory.json': () => !fs.existsSync(path.join(sourceHarness, 'source-link-inventory.json')),
-  'a shipped case declaring context.exampleRoots': () => shippedCases().every((entry) => entry.context.exampleRoots === undefined),
+  'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
+    .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
   'an operation-progress capability in surface-inventory.json': () => !inventoryCapabilities().some((entry) => entry.capabilityId.includes('progress')),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
   'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),

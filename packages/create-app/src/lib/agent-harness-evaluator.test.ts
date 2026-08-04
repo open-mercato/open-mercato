@@ -15,6 +15,7 @@ const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandb
 const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 const sourceFrameworkContext = path.join(sharedRoot, 'scripts', 'framework-context.mjs')
+const templateExampleModule = fileURLToPath(new URL('../../template/src/modules/example/', import.meta.url))
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript-standalone/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
@@ -109,6 +110,10 @@ function stageApp(): string {
   fs.mkdirSync(path.join(root, 'node_modules'))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  // Every generated preset ships the example module source-present and runtime-disabled, and the
+  // cases that declare `context.exampleRoots` resolve their capability IDs against its emitted
+  // `references/surface-inventory.json`. Staging it keeps this fixture a faithful fresh scaffold.
+  fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-evaluator-fixture","private":true}\n')
   fs.symlinkSync(typescriptPackageRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
   return root
@@ -576,12 +581,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-208', () => {
+test('deterministic evaluation enforces the case schema through OMH-212', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-208')
+    assert.equal(cases.at(-1)?.id, 'OMH-212')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3750,7 +3755,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 208)
+  assert.equal(cases.length, 212)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
