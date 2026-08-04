@@ -102,8 +102,8 @@ Document the worker/CLI app-DI wiring in the IoC container docs and the shared p
 
 ### Phase 2: Fallback memoization
 
-- [ ] 2.1 Memoize the unresolvable `@/di` fallback per process
-- [ ] 2.2 Test that the fallback import is attempted at most once
+- [x] 2.1 Memoize the unresolvable `@/di` fallback per process — 76003595e
+- [x] 2.2 Test that the fallback import is attempted at most once — 76003595e
 
 ### Phase 3: Docs
 
