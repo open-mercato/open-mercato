@@ -137,6 +137,8 @@ test('ci.yml points at the guard manifest instead of carrying its own copy', () 
 
 test('ci.yml does not re-copy the guard enumeration it cannot keep in sync', () => {
   const comment = readWorkflowStepComment(STEP_NAME)
+  assert.ok(comment, `ci.yml has no "${STEP_NAME}" step, so there is no comment to check for a copied enumeration.`)
+
   const copied = listGuardPaths()
     .map(guardStem)
     .filter((stem) => comment.includes(stem))
