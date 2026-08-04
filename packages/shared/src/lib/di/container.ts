@@ -26,6 +26,11 @@ const GLOBAL_KEY = '__openMercatoDiRegistrars__'
 const APP_DI_REGISTRAR_KEY = '__openMercatoAppDiRegistrar__'
 const APP_DI_LOAD_WARNING_KEY = '__openMercatoAppDiLoadWarningEmitted__'
 const APP_DI_REGISTER_WARNING_KEY = '__openMercatoAppDiRegisterWarningEmitted__'
+// Set once the legacy `@/di` fallback proves the specifier is unresolvable in this process.
+// Worker/CLI processes run against built package output where the app's `@/` alias does not
+// exist, so retrying the import per request container only repeats a failed module resolution
+// (and its log line) once per job.
+const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
 // Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
 // services bootstrap() creates are inherently process-scoped (they hold
 // state across requests). Caching them on globalThis after the first
@@ -120,6 +125,9 @@ export function registerDiRegistrars(registrars: DiRegistrar[]) {
   // Force re-bootstrap on HMR — module subscribers may have changed.
   ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
+  // An app that gains a src/di.ts mid-session reloads through here, so the negative
+  // resolution result must not outlive the reload.
+  ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
 }
 
 export function getDiRegistrars(): DiRegistrar[] {
@@ -145,6 +153,15 @@ export function resetBootstrapCache(): void {
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_LOAD_WARNING_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_REGISTER_WARNING_KEY] = undefined
+  ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
+}
+
+function isAppDiModuleUnresolvable(): boolean {
+  return (globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] === true
+}
+
+function markAppDiModuleUnresolvable(): void {
+  ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = true
 }
 
 function isAppDiModuleNotFound(error: unknown): boolean {
@@ -267,7 +284,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
     } catch (error) {
       logger.error('App-level DI registrar failed', { err: error })
     }
-  } else {
+  } else if (!isAppDiModuleUnresolvable()) {
     // Backward-compatible fallback for apps that have not adopted explicit wiring.
     try {
       // @ts-ignore - @/di only exists in app context, not in packages
@@ -286,6 +303,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
       }
     } catch (err) {
       if (isAppDiModuleNotFound(err)) {
+        markAppDiModuleUnresolvable()
         logger.debug('App-level DI override module (@/di) not resolvable; skipping', { err })
       } else {
         warnAppDiFailureOnce(

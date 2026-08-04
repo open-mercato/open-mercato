@@ -46,7 +46,7 @@ export function WorkflowLegend() {
         </h3>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <div className="flex-shrink-0 w-8 h-0.5 bg-emerald-500"></div>
+            <div className="flex-shrink-0 w-8 h-0.5 bg-status-success-solid"></div>
             <span className="text-xs text-muted-foreground">{t('workflows.legend.edgeState.completed')}</span>
           </div>
           <div className="flex items-center gap-2">
