@@ -5,6 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
+import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 
@@ -193,7 +194,28 @@ async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams 
   ])
 }
 
+export function ensurePlaywrightBrowsersInstalled(): void {
+  let hasChromium = false
+
+  try {
+    const executablePath = chromium.executablePath()
+    hasChromium = fs.existsSync(executablePath)
+  } catch {
+    hasChromium = false
+  }
+
+  if (!hasChromium) {
+    console.error(red('Playwright browsers are not installed. Run the following before retrying:'))
+    console.error(yellow('  yarn playwright install'))
+    console.error(yellow('  yarn playwright install-deps   (Linux only, may require sudo)'))
+    console.error(cyan('See: https://playwright.dev/docs/browsers'))
+    process.exit(1)
+  }
+}
+
 async function main(): Promise<void> {
+  ensurePlaywrightBrowsersInstalled()
+
   const cleanup = process.argv.includes('--cleanup')
   const testArgs = rootIntegrationArgs()
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-integration-'))
