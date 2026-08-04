@@ -1986,7 +1986,6 @@ function buildReusableEnvironment(
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
     MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
-    NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
@@ -3338,7 +3337,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // var at the workflow level, masking the gap). Keep in sync with the
       // Playwright-process env block above.
       MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
-      NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
