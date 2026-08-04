@@ -75,5 +75,5 @@ classification. Adding a second test asserting the same enumeration would duplic
 
 ### Phase 1: Classify the guard
 
-- [ ] 1.1 Add the telemetry workspace group to REPO_WIDE_GUARDS
+- [x] 1.1 Add the telemetry workspace group to REPO_WIDE_GUARDS — 678541426
 - [ ] 1.2 Verify with the guard contract test, the guard runner and the validation gate
