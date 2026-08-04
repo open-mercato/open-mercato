@@ -186,6 +186,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/components/__tests__/StartPageContent.test.tsx',
         scans: 'apps/mercato and packages/create-app/template StartPageContent — hydration-safety guard',
       },
+      {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules and every packages/ acl.ts — ACL override keys anchored to a declared feature (#4944)',
+      },
     ],
   },
 ]
