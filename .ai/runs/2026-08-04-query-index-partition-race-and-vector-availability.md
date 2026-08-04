@@ -121,6 +121,8 @@ Three independent root causes surfaced by the same greenfield run.
 
 ## Progress
 
+PR: #4944
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Query index partition race
