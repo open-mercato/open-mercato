@@ -86,6 +86,9 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 38 | **Wave 8 H6** — SPEC-P2 writable proofs OMH-213/214 + the oracle-runner guard generalized | SPEC-P2 | done | `8d3a199ca` |
 | 39 | **Wave 8 E6** — ai-tools/ai-agents/page-middleware/portal-broadcast + 2 vacuous tests fixed | CANON-B fact families | done | `fef7fc4b1` |
 | 40 | Resolve a DI token declared as a computed property key (silent-zero fix) | CANON-B / reader | done | `00cba7f17` |
+| 41 | **Wave 9 C6** — fix the `search` silent zero + add the missing diagnostic (0 → 6 ids) | CANON-B / reader | done | (merge) |
+| 42 | **Wave 9 E7 (PARTIAL)** — durable Todo bulk-complete: outbox, CAS worker, progress route, bulk widget | CANON-B bulk/progress | partial | `d5fa51253` |
+| 43 | **Wave 9 H7** — GOV-P2 controller-owned base/head evidence contract | GOV-P2 | done | `e8eb259b0` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -781,3 +784,51 @@ before merging E3; findings change what E3 is allowed to do.
     tests are measurably the #1 failure mode here — more common than wrong behaviour.
 
   Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_e6893a0f-915'})`.
+
+  **Wave 9 merged (session 4). E7 is deliberately PARTIAL and the boundary is stated, not implied.**
+
+  - **E7 ships the durable operation end to end in UNITS** — CAS-leased outbox entity, dispatch
+    worker, bulk-complete route returning a `progressJobId`, data-only bulk widget (D3),
+    idempotency-keyed unique constraint. **NOT shipped:** the Playwright proof
+    (`TC-EXAMPLE-003`), which needs a live app + database + running queue/scheduler. The slice
+    declined to add an integration spec it could not execute. **The browser half — top-bar progress,
+    cleared selection, refresh on the terminal event — and the real queue round trip are UNPROVEN.**
+    The surface map says so rather than letting a populated `integrationTestPaths` imply otherwise.
+    The DB-backed halves (CAS predicate, unique-constraint race, dispatcher scoped find) are tested
+    only through injected interfaces, not against Postgres.
+  - **Migration passed the sanity gate**: one CREATE TABLE + one unique constraint, one DROP in
+    `down()`, no ALTER, no data migration. Verifier parsed both snapshots and diffed semantically —
+    exactly one table added.
+  - **TWO MORE FALSE PREMISES in inputs I supplied.** (1) The spec said to give the Todo table an
+    `extensionTableId`; it already resolves, because DataTable derives it from `perspective?.tableId`
+    FIRST and TodosTable already passes the host's. Spec amended. (2) The recon claimed the example
+    would be "the first module to seed a ScheduledJob" — four core modules already do, and
+    `payment_gateways` already implements the exact degrade-to-warning wrapper I asked the slice to
+    invent. It copied the precedent instead. **That is five false premises across nine waves; assume
+    briefs are wrong until the agent checks.**
+  - **TWO MORE VACUOUS TESTS, and MY FIRST FIX FOR ONE WAS ALSO VACUOUS.** (1) "keeps the version out
+    of the persisted column patch" inspected `prepare`'s undo snapshot — built entirely from the DB
+    entity, so it structurally could not carry an input key; a mutation genuinely leaking the value
+    into the real patch left it green. Now asserts the exported `buildTodoUpdatePatch`. (2)
+    "onTenantCreated gets no container" asserted absence of a key the test itself declined to write;
+    adding `container?: unknown` to the real type left it green. **My first rewrite used
+    `@ts-expect-error` — the jest transform does not fail on an unused directive, so that was vacuous
+    too, and my own probe caught it.** It now calls the hook and asserts the scheduler was NOT
+    registered. **Lesson: a type-level assertion is NOT enforced by this repo's test transform; pin
+    behaviour at runtime.**
+  - **C6 fixed the `search` silent zero and added the missing diagnostic**: 47 → 53 entity ids across
+    9 → 12 emitting modules, purely additive. More valuable, the one genuinely unreadable case left
+    (checkout) now emits 3 warnings pointing at exact lines instead of silently scoring zero.
+  - **H7's verifier died**, so I checked its two carried constraints myself: the validator is still
+    unwired from CI/config, and the fail-closed CANON-C reason is still accurate. **Realigned on
+    merge:** its forward reference pointed the future inventory at `agentic/shared/ai/harness/`, the
+    tree wave 7 deliberately moved these assets OUT of because it is copied into every generated app.
+    Left alone, the inventory would have landed back inside every scaffold.
+
+  **Gate after wave 9: FULLY GREEN.** `yarn test` exit 0 (25/25), create-mercato-app 580, guards,
+  budget, build:app. One locale-sort fix was needed after E7's new strings.
+
+  **Next: wave 10** — C5 (source-link inventory generator + `topicId` on all inventory rows +
+  regenerate-and-diff gate; this is what unblocks H7's fail-closed branch and wires the CANON-C
+  validators into CI) · H8 (harness source-selection assertions for the bulk-action and
+  operation-progress capabilities).
