@@ -331,11 +331,13 @@ Simplified response:
     {
       "name": "Dashboard",
       "items": [
-        { "href": "/backend", "title": "Overview", "enabled": true }
+        { "href": "/backend", "title": "Overview", "enabled": true, "order": 10 }
       ]
     }
   ]
 }
 ```
+
+Items (and their `children`) arrive already sorted by the weight each page declared as `pageOrder` — that weight is echoed back as `order`, so a custom shell can re-sort or merge its own entries against it instead of relying on array position.
 
 Use this endpoint to drive custom admin shells or to debug visibility rules when developing new modules.

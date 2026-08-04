@@ -37,6 +37,7 @@ type SidebarItem = {
   defaultTitle: string
   enabled: boolean
   hidden?: boolean
+  order?: number
   children?: SidebarItem[]
 }
 
@@ -279,6 +280,75 @@ describe('GET /api/auth/admin/nav', () => {
     const groups = await getGroupsFromResponse()
 
     expect(groups.find((group) => group.id === 'Dashboard')?.items.map((item) => item.href)).toContain('/backend/dashboard')
+  })
+
+  it('orders items inside a group by the declared pageOrder, not by module registration order', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'later_page',
+        pattern: '/backend/later/page-b',
+        title: 'Beta page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 71,
+      },
+      {
+        moduleId: 'earlier_page',
+        pattern: '/backend/earlier/page-a',
+        title: 'Alpha page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 70,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const sharedGroup = groups.find((group) => group.id === 'shared.nav.group')
+
+    expect(sharedGroup?.items.map((item) => item.href)).toEqual([
+      '/backend/earlier/page-a',
+      '/backend/later/page-b',
+    ])
+  })
+
+  it('serializes the declared order on nav items and their children', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms',
+        title: 'Warehouse',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 95,
+      },
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms/zones',
+        title: 'Zones',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 120,
+      },
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms/inventory',
+        title: 'Inventory',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 100,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const warehouse = groups.find((group) => group.id === 'wms.nav.group')?.items[0]
+
+    expect(warehouse?.order).toBe(95)
+    expect(warehouse?.children?.map((child) => [child.href, child.order])).toEqual([
+      ['/backend/wms/inventory', 100],
+      ['/backend/wms/zones', 120],
+    ])
   })
 
   it('returns the extended backend chrome payload fields for client hydration', async () => {

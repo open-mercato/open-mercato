@@ -138,6 +138,22 @@ async function serializeIconMarkup(icon: React.ReactNode | undefined): Promise<s
   }
 }
 
+const NAV_ITEM_FALLBACK_WEIGHT = 10_000
+
+/**
+ * The weight a nav entry sorts by, using the same `priority ?? order` precedence as `buildAdminNav`.
+ *
+ * Ordering is re-applied here, at the serialization boundary, so the payload's own `order` field is
+ * always consistent with the sequence it ships items in instead of inheriting an upstream sort (#4845).
+ */
+function resolveNavItemWeight(item: AdminNavItem): number {
+  return item.priority ?? item.order ?? NAV_ITEM_FALLBACK_WEIGHT
+}
+
+function sortNavItemsByWeight(items: AdminNavItem[]): AdminNavItem[] {
+  return [...items].sort((a, b) => resolveNavItemWeight(a) - resolveNavItemWeight(b))
+}
+
 async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
   return {
     id: item.href,
@@ -149,7 +165,10 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     pageContext: item.pageContext,
     iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
-    children: item.children ? await Promise.all(item.children.map((child) => serializeNavItem(child))) : undefined,
+    order: item.order ?? item.priority,
+    children: item.children
+      ? await Promise.all(sortNavItemsByWeight(item.children).map((child) => serializeNavItem(child)))
+      : undefined,
   }
 }
 
@@ -205,13 +224,12 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
 }
 
 async function groupEntries(entries: AdminNavItem[]): Promise<NavGroupWithWeight[]> {
-  const groupMap = new Map<string, NavGroupWithWeight>()
+  const groupMap = new Map<string, Omit<NavGroupWithWeight, 'items'> & { entries: AdminNavItem[] }>()
   for (const entry of entries) {
-    const weight = entry.priority ?? entry.order ?? 10_000
-    const serializedItem = await serializeNavItem(entry)
+    const weight = resolveNavItemWeight(entry)
     const existing = groupMap.get(entry.groupId)
     if (existing) {
-      existing.items.push(serializedItem)
+      existing.entries.push(entry)
       if (weight < existing.weight) existing.weight = weight
       continue
     }
@@ -219,11 +237,18 @@ async function groupEntries(entries: AdminNavItem[]): Promise<NavGroupWithWeight
       id: entry.groupId,
       name: entry.group,
       defaultName: entry.groupDefaultName,
-      items: [serializedItem],
+      entries: [entry],
       weight,
     })
   }
-  return normalizeGroupWeights(Array.from(groupMap.values()))
+  const groups: NavGroupWithWeight[] = []
+  for (const { entries: groupItems, ...group } of groupMap.values()) {
+    groups.push({
+      ...group,
+      items: await Promise.all(sortNavItemsByWeight(groupItems).map((entry) => serializeNavItem(entry))),
+    })
+  }
+  return normalizeGroupWeights(groups)
 }
 
 function adoptSidebarDefaults(groups: NavGroupWithWeight[]): NavGroupWithWeight[] {

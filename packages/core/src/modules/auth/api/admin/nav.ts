@@ -30,6 +30,7 @@ const sidebarNavItemSchema: z.ZodType<{
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
   iconName?: string
   iconMarkup?: string
+  order?: number
   children?: any[]
 }> = z.lazy(() =>
   z.object({
@@ -42,6 +43,7 @@ const sidebarNavItemSchema: z.ZodType<{
     pageContext: z.enum(['main', 'admin', 'settings', 'profile']).optional(),
     iconName: z.string().optional(),
     iconMarkup: z.string().optional(),
+    order: z.number().optional(),
     children: z.array(sidebarNavItemSchema).optional(),
   }),
 )
