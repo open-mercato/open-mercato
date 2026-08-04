@@ -1768,7 +1768,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     status: 'uncovered',
     fixtures: [],
     blockedBy: ['context.sourceReferenceIds'],
-    note: 'Declared installed-source references — reference id, package, version, hash — do not exist. The only installed-source route implemented is the reason-gated fallback of spec family 5.',
+    note: 'Declared installed-source references — reference id, package, version, hash — do not exist. The only installed-source route implemented is the reason-gated fallback of spec family 5. Re-checked 2026-08-04: CANON-C\'s whole-harness ledger DID land (`packages/create-app/scripts/source-links/source-link-inventory.json`, regenerate-and-diff gated), and that is easy to mistake for this family being unblocked. It is not. That ledger binds rendered links in emitted owners to exact files; this family needs the per-CASE `context.sourceReferenceIds` field, which neither `cases.schema.json` nor `evaluate-agent-harness.mjs` mentions, so no case can name a reference id and no trace can record one.',
   },
   {
     specFamily: 5,
@@ -1863,13 +1863,6 @@ const COVERAGE_LEDGER: LedgerRow[] = [
 const MISSING_SURFACES: Record<string, () => boolean> = {
   'context.sourceReferenceIds': () => !fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8').includes('sourceReferenceIds')
     && !evaluatorSource().includes('sourceReferenceIds'),
-  // Deliberately NOT `sourceHarness`: the CANON-C ledgers are monorepo-only and live outside
-  // the shipped `agentic/shared/**` tree, which is copied wholesale into every generated app.
-  // Probing the old harness path would report "still missing" forever and this anti-staleness
-  // gate would never fire — exactly the failure it exists to catch.
-  'source-link-inventory.json': () => !fs.existsSync(
-    fileURLToPath(new URL('../../scripts/source-links/source-link-inventory.json', import.meta.url)),
-  ),
   'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
     .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
@@ -1916,6 +1909,19 @@ test('ledger: every fixture the ledger cites exists in this file', () => {
       assert.ok(ownSource.includes(`test('${title}'`), `the ledger cites a fixture that does not exist: ${title}`)
     }
   }
+})
+
+/**
+ * The anti-staleness gate below only fires for a blocker a ledger row actually cites. A probe
+ * nobody cites is never evaluated, so it can silently become FALSE — which is what happened to
+ * the `source-link-inventory.json` probe: CANON-C's whole-harness ledger shipped in wave 10, the
+ * probe went false, and no assertion noticed because no row named it. That probe is gone; this
+ * test keeps the next one from lurking.
+ */
+test('ledger: no blocker probe exists that the ledger never cites, so a probe cannot silently go false', () => {
+  const cited = new Set(COVERAGE_LEDGER.flatMap((row) => row.blockedBy))
+  const orphans = Object.keys(MISSING_SURFACES).filter((surface) => !cited.has(surface))
+  assert.deepEqual(orphans, [], 'an uncited probe is never evaluated and will rot; delete it or cite it')
 })
 
 test('ledger: every gap the ledger claims is a surface that is genuinely absent today', () => {
