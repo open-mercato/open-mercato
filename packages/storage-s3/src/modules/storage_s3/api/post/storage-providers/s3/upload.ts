@@ -18,6 +18,8 @@ import {
 } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import { isS3KeyScopedToTenant } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
+import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
+import { reconcileTenantS3Objects } from '../../../../lib/quota-accounting'
 import { randomUUID } from 'crypto'
 
 export const metadata = {
@@ -130,16 +132,87 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: t('storage_s3.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
   }
 
-  const tenantUsageBytes = await readTenantStorageUsageBytes(driver, auth.tenantId, auth.orgId)
-  if (willExceedAttachmentTenantQuota(tenantUsageBytes, buffer.length)) {
-    return NextResponse.json({ error: t('storage_s3.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.') }, { status: 413 })
-  }
-
   const key =
     keyOverride ??
     `uploads/org_${auth.orgId}/tenant_${auth.tenantId}/${Date.now()}_${randomUUID().slice(0, 8)}_${safeName}`
 
-  await driver.putObject(key, buffer, trustedMimeType)
+  const { resolve } = await createRequestContainer()
+  let attachmentQuotaService: AttachmentQuotaService | null = null
+  let recoveryScheduler: ((
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>) | null = null
+  try {
+    attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
+    recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as (
+      payload: { reservationId: string; tenantId: string; organizationId: string },
+      delayMs: number,
+    ) => Promise<void>
+  } catch {
+    // Backward-compatible fallback below when the attachments quota service is not registered.
+  }
+  let reservation: { id: string; leaseToken: string; expiresAt: Date } | null = null
+  if (attachmentQuotaService) {
+    try {
+      await reconcileTenantS3Objects({
+        driver,
+        quotaService: attachmentQuotaService,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+      })
+      reservation = await attachmentQuotaService.reserve({
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        bytes: buffer.length,
+        source: 'storage_s3_upload',
+        storageDriver: 's3',
+        storagePath: key,
+      })
+      if (!recoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
+      await recoveryScheduler({
+        reservationId: reservation.id,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+      }, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
+      await attachmentQuotaService.beginStorage(reservation.id, reservation.leaseToken)
+    } catch (error) {
+      if (reservation) {
+        await attachmentQuotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
+        reservation = null
+      }
+      const code = (error as { code?: unknown })?.code
+      if (code === 'quota_exceeded') {
+        return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
+      }
+      if (code === 'quota_target_exists') {
+        return NextResponse.json({ error: 'The target storage key already exists.' }, { status: 409 })
+      }
+      return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
+    }
+  } else {
+    const tenantUsageBytes = await readTenantStorageUsageBytes(driver, auth.tenantId, auth.orgId)
+    if (willExceedAttachmentTenantQuota(tenantUsageBytes, buffer.length)) {
+      return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
+    }
+  }
+
+  try {
+    await driver.putObject(key, buffer, trustedMimeType)
+    if (reservation) {
+      await attachmentQuotaService!.markStored(reservation.id, reservation.leaseToken)
+      await attachmentQuotaService!.completeStandalone(reservation.id, reservation.leaseToken, buffer.length)
+    }
+  } catch (error) {
+    if (reservation) {
+      try {
+        await driver.deleteStrict('', key)
+        await attachmentQuotaService!.release(reservation.id, reservation.leaseToken)
+      } catch {
+        // Retain the reservation when object absence cannot be proven.
+      }
+    }
+    return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
+  }
 
   return NextResponse.json({
     key,
