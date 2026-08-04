@@ -134,6 +134,18 @@ describe('admin customer invitations listing route', () => {
     expect(scope).toEqual({ tenantId, organizationId })
   })
 
+  it('falls back to the default paging window when page/pageSize are not numbers', async () => {
+    const { GET } = await import('../users-invite')
+
+    const response = await GET(makeListRequest('page=abc&pageSize=none'))
+    const json = await response.json()
+
+    const [, , , options] = mockFindAndCountWithDecryption.mock.calls[0]
+    expect(options).toEqual(expect.objectContaining({ limit: 25, offset: 0 }))
+    expect(json.page).toBe(1)
+    expect(json.totalPages).toBe(1)
+  })
+
   it('rejects a non-uuid entity filter before it reaches the database', async () => {
     const { GET } = await import('../users-invite')
 

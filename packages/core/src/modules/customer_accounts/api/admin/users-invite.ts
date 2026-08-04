@@ -32,6 +32,11 @@ function resolveInvitedByUserId(auth: NonNullable<Awaited<ReturnType<typeof getA
   return auth.sub
 }
 
+function parsePositiveInt(value: string | null, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 // Pending invitations are the only trace a not-yet-accepted invite leaves: the
 // customer user row is created on accept, so every users-backed surface (admin
 // users list, the CRM person "account status" widget) shows the same empty
@@ -51,8 +56,9 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url)
-  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'))
-  const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '25')))
+  // A non-numeric page/pageSize must not reach the query as NaN.
+  const page = Math.max(1, parsePositiveInt(url.searchParams.get('page'), 1))
+  const pageSize = Math.min(100, Math.max(1, parsePositiveInt(url.searchParams.get('pageSize'), 25)))
   const personEntityId = url.searchParams.get('personEntityId')
   const customerEntityId = url.searchParams.get('customerEntityId')
   const email = url.searchParams.get('email')
