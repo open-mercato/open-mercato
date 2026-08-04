@@ -596,7 +596,7 @@ describe('CRUD Factory', () => {
     })
     const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Exhausted', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(503)
-    expect(res.headers.get('retry-after')).toBe('2')
+    expect(res.headers.get('Retry-After')).toBe('2')
     // The failed write is still rolled back — no created event/index leaks out.
     expect(Object.values(db)).toHaveLength(0)
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()

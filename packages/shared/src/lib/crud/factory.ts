@@ -564,7 +564,7 @@ function handleError(err: unknown): Response {
     })
     return json(
       { error: 'Service temporarily unavailable' },
-      { status: 503, headers: { 'retry-after': '2' } },
+      { status: 503, headers: { 'Retry-After': '2' } },
     )
   }
 

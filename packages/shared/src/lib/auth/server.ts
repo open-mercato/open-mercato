@@ -377,13 +377,14 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
   try {
     apiAuth = await resolveApiKeyAuth(apiKey)
   } catch (err) {
-    // Transient canonical-resolution failure on the API-key path must surface as
-    // 'error' (retryable 503), mirroring the interactive-token path above.
-    if (err instanceof AuthResolutionUnavailableError) {
-      hadUnavailableResolution = true
-    } else {
-      hadInvalidInteractiveToken = true
+    // Only a transient canonical-resolution failure maps to 'error' (retryable
+    // 503), mirroring the interactive-token path above. Anything else is an
+    // unexpected bug — rethrow so it surfaces as a 500 rather than being masked
+    // as an auth failure.
+    if (!(err instanceof AuthResolutionUnavailableError)) {
+      throw err
     }
+    hadUnavailableResolution = true
     return { auth: null, status: resolveUnauthenticatedStatus() }
   }
   if (!apiAuth) {
