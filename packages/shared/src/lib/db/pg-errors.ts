@@ -31,29 +31,28 @@ const TRANSIENT_CONNECTION_SQLSTATES = new Set([
 ])
 
 /**
- * Driver/ORM-wrapped errors that drop the SQLSTATE but still describe a transient
- * connection failure (pool-acquire timeouts, socket errors, DB restarting). The
- * SQLSTATE on `.code` is the primary signal; these catch the wrapped-message case.
+ * Postgres-driver / connection-pool messages that describe a transient DB
+ * connection failure when the SQLSTATE is dropped by the ORM wrapper. These are
+ * intentionally DB-specific phrases only. Bare socket codes (ECONNREFUSED,
+ * ETIMEDOUT, …) are deliberately NOT matched: they can originate from any
+ * outbound socket (HTTP, cache, queue), so keying off them would falsely
+ * attribute unrelated failures to the database.
  */
-const TRANSIENT_CONNECTION_PATTERNS = [
-  /ECONNREFUSED/i,
-  /ETIMEDOUT/i,
-  /ECONNRESET/i,
-  /ENOTFOUND/i,
+const TRANSIENT_DB_MESSAGE_PATTERNS = [
   /too many clients already/i,
   /unable to acquire a connection/i,
   /timeout acquiring a connection/i,
   /connection terminated/i,
-  /connection not available/i,
   /the database system is (starting up|shutting down|in recovery)/i,
 ]
 
 /**
  * Detect a transient Postgres connection / availability failure (pool exhaustion,
- * `max_connections` reached, DB restarting, socket drop) regardless of the
- * ORM/driver layer that surfaces it. Gates retryable 503 responses so callers do
- * not report a temporary infrastructure blip as an auth failure (401) or an
- * unexpected server error (500).
+ * `max_connections` reached, DB restarting) via its SQLSTATE or a DB-specific
+ * driver message. Gates retryable 503 responses so callers do not report a
+ * temporary infrastructure blip as an auth failure (401) or an unexpected server
+ * error (500). Scoped to unambiguous DB signals so generic socket errors from
+ * non-DB calls are never misclassified.
  */
 export function isTransientDbError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
@@ -64,8 +63,8 @@ export function isTransientDbError(err: unknown): boolean {
     return true
   }
   const message = (err as { message?: string }).message
-  if (typeof message === 'string' && TRANSIENT_CONNECTION_PATTERNS.some((pattern) => pattern.test(message))) {
+  if (typeof message === 'string' && TRANSIENT_DB_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))) {
     return true
   }
-  return typeof code === 'string' && TRANSIENT_CONNECTION_PATTERNS.some((pattern) => pattern.test(code))
+  return false
 }

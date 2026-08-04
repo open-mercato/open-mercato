@@ -19,9 +19,12 @@ describe('isTransientDbError', () => {
     expect(isTransientDbError(new Error('the database system is starting up'))).toBe(true)
   })
 
-  it('is true for socket-level error codes', () => {
-    expect(isTransientDbError({ code: 'ECONNREFUSED' })).toBe(true)
-    expect(isTransientDbError(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }))).toBe(true)
+  it('is false for bare socket errors with no Postgres signal (avoids false positives)', () => {
+    // Generic socket failures can come from any outbound connection (HTTP, cache,
+    // queue), so they must NOT be attributed to the database.
+    expect(isTransientDbError({ code: 'ECONNREFUSED' })).toBe(false)
+    expect(isTransientDbError({ code: 'ETIMEDOUT' })).toBe(false)
+    expect(isTransientDbError(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }))).toBe(false)
   })
 
   it('is false for a unique violation and other query-level errors', () => {
