@@ -85,3 +85,15 @@
   restricted container. All content oracles in the same test report `passed: true`. Reproduced with
   the sandbox disabled. This branch touches no file under `packages/create-app/`.
 - Neither failure is a regression from this change; both are recorded rather than worked around.
+
+## 2026-08-04T08:05:00Z — run complete
+
+- Merged 6 new `develop` commits; `yarn.lock` conflicted and was resolved by taking develop's
+  lockfile and regenerating. `yarn install --immutable` passes; PR is `MERGEABLE`.
+- Self-review found and fixed one minor: `scope.mjs` accepted a `--json` flag that `main()` never
+  read. Removed, spec contract corrected, regression test added (`b7118d504`).
+- Verdict is approve, but GitHub blocks self-approval, so it was submitted as a review comment. The
+  PR stays in `review` and needs an independent approval before merge.
+- Repo-level finding reported, not fixed here: `develop` fails `repo-wide-guards` on a create-app
+  test file introduced by #4927 and classified in neither list. Unrelated scope.
+- PR flipped to ready. Lock released.
