@@ -282,7 +282,7 @@ export function validateTopicRegistry({ registry, packageRoot }) {
       errors.push(`topic "${topicId}" does not match its derived ID "${String(derived)}"`)
     }
     for (const error of targetResolutionErrors(packageRoot, owner, href, resolved)) errors.push(`topic "${topicId}": ${error}`)
-    declaredLinks.add(`${owner} ${resolved}`)
+    declaredLinks.add(`${owner} ${resolved}`)
   }
 
   for (const owner of emittedMarkdownOwners(packageRoot)) {
@@ -290,7 +290,7 @@ export function validateTopicRegistry({ registry, packageRoot }) {
     if (source === null) continue
     for (const href of relativeMarkdownLinkHrefs(source)) {
       const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(owner), decodeURIComponent(href.split('#')[0])))
-      if (!declaredLinks.has(`${owner} ${resolved}`)) {
+      if (!declaredLinks.has(`${owner} ${resolved}`)) {
         errors.push(`owner "${owner}" renders an undeclared source link to "${resolved}"`)
       }
     }
