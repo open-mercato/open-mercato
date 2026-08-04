@@ -50,6 +50,8 @@ type Validator = {
   CONTROLLER_OWNED_FIELDS: readonly string[]
   CANON_C_REASON: string
   SOURCE_LINK_INVENTORY_PATH: string
+  STRIPPED_EXECUTION_ENV_KEYS: readonly string[]
+  DEFAULT_EXECUTION_TIMEOUT_MS: number
   deriveFocusedCommand: (testFile: string) => { runner?: string; argv?: string[]; error?: string }
   sanitizeExecutionEnv: (sourceEnv: Record<string, string | undefined>) => Record<string, string | undefined>
   runFocusedExecutions: (input: Record<string, unknown>) => ExecutionEvidence
@@ -889,6 +891,15 @@ test('om-evolve-harness routes to the nine mandatory knowledge-change steps', ()
   for (const field of validator.CONTROLLER_OWNED_FIELDS) {
     assert.ok(reference.includes(`\`${field}\``), `the reference must name the controller-owned field ${field}`)
   }
+
+  for (const key of validator.STRIPPED_EXECUTION_ENV_KEYS) {
+    assert.ok(reference.includes(`\`${key}\``), `the reference must name the stripped execution env key ${key}`)
+  }
+  assert.match(reference, /## Controller-owned base\/head execution/)
+  assert.match(reference, /exactly once per side/)
+  assert.match(reference, /base-plus-test-only to exit \*\*non-zero\*\* and head to exit \*\*zero\*\*/)
+  assert.match(reference, new RegExp(`--execution-timeout <ms>[^\\n]*default ${validator.DEFAULT_EXECUTION_TIMEOUT_MS}`))
+  assert.doesNotMatch(reference, /emits an empty `focusedExecutions` today/)
 })
 
 test('both package manifests expose the knowledge-change validator under the spec-named script', () => {
