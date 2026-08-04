@@ -24,7 +24,7 @@ Six high-severity advisories landed on `develop`'s dependency graph overnight. T
 
 Two `undici` descriptor groups (`^7.19.1, ^7.28.0` at 7.29.0 and `^8.9.0` at 8.9.0) are already on fixed versions; the bump should dedupe them rather than add a third resolution.
 
-Every fixed version is reachable **inside the ranges the manifests already declare**, so this is expected to be a lockfile-only change with no workspace manifest edits.
+**Revised during Phase 1.** The change is *not* lockfile-only. Root `package.json` carries a `resolutions` block that pins `brace-expansion`, `fast-uri`, `ip-address` and `socket.io-parser` to exactly the affected versions, so no range bump could reach a fix — the pins themselves are the fix surface. Three `undici` descriptors (`^7.12.0`, `^7.16.0`, `^8.5.0`) had no pin covering them and were resolving below the fixed versions, so they gained pins alongside the existing `undici` entries. No workspace manifest is touched.
 
 ## Scope
 
@@ -76,13 +76,13 @@ Every fixed version is reachable **inside the ranges the manifests already decla
 
 ### Phase 1: Reproduce and pin the fix set
 
-- [ ] 1.1 Reproduce the audit failure on clean `develop` and capture the advisory set
-- [ ] 1.2 Confirm every fix is reachable inside existing declared ranges
+- [x] 1.1 Reproduce the audit failure on clean `develop` and capture the advisory set — reproduced on `a575bebce`, 6 advisories
+- [x] 1.2 Confirm every fix is reachable inside existing declared ranges — **revised finding:** four packages were pinned by root `resolutions` to exactly the affected version, so the pins had to move; a range-only bump could never have reached the fix
 
 ### Phase 2: Bump the graph
 
-- [ ] 2.1 Bump the five packages in `yarn.lock` to their first fixed version
-- [ ] 2.2 Verify `audit-ci --severity high` exits 0 and the diff is resolutions-only
+- [x] 2.1 Bump the five packages to their first fixed version — root `resolutions` + regenerated lock — e49d80898
+- [x] 2.2 Verify `audit-ci --severity high` exits 0 and the diff is resolutions-only — 0 advisories; diff is root `package.json` resolutions + `yarn.lock` (+18/-32), no workspace manifest touched — e49d80898
 
 ### Phase 3: Validate
 
