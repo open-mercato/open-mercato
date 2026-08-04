@@ -118,3 +118,64 @@ jobs:
           path: packages/${{ matrix.package }}/reports/mutation/
           if-no-files-found: ignore
           retention-days: 14
+
+  # The job summary above is the primary surface and works everywhere. This job
+  # additionally posts the same markdown as a PR comment, but only for
+  # same-repository pull requests: a `pull_request` run from a fork receives a
+  # read-only token, so the step would fail rather than degrade. It is the same
+  # fork guard ci.yml's docker-build job uses.
+  comment:
+    needs: [scope, mutate]
+    if: |
+      always() &&
+      needs.scope.outputs.has_work == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download mutation reports
+        uses: actions/download-artifact@v6
+        with:
+          pattern: mutation-report-*
+          path: mutation-reports
+
+      - name: Post or update the mutation comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ENFORCED: ${{ vars.MUTATION_ENFORCE == 'true' && '--enforced' || '' }}
+        run: |
+          set -euo pipefail
+          MARKER='<!-- om:mutation-testing-report -->'
+          BODY_FILE=$(mktemp)
+          printf '%s\n\n' "$MARKER" > "$BODY_FILE"
+
+          shopt -s nullglob
+          for REPORT in mutation-reports/mutation-report-*/mutation.json; do
+            PACKAGE=$(basename "$(dirname "$REPORT")" | sed 's/^mutation-report-//')
+            node scripts/stryker/report.mjs "$REPORT" --package "$PACKAGE" ${ENFORCED} >> "$BODY_FILE"
+            printf '\n' >> "$BODY_FILE"
+          done
+
+          # Idempotent: reuse this run's own marker comment instead of appending a
+          # new one on every push.
+          EXISTING=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq "[.[] | select(.body | contains(\"${MARKER}\")) | .id] | first // empty")
+
+          if [ -n "${EXISTING}" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING}" \
+              -F body=@"$BODY_FILE" > /dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -F body=@"$BODY_FILE" > /dev/null
+          fi
