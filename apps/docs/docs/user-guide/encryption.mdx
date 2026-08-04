@@ -99,6 +99,7 @@ Notes:
 - With `--old-key`, rotation only updates fields that can be decrypted with that key; mismatched rows are skipped and logged.
 - Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
 - Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
+- These commands are tenant-scoped. They skip entities whose map is system-scoped (see the next section) and say so, because a tenant key cannot open system-scoped ciphertext.
 
 ## Backfilling system-scoped records
 
