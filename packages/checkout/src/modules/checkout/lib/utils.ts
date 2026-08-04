@@ -215,17 +215,22 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
 
 export async function ensureUniqueSlug(
   em: EntityManager,
-  _scope: CheckoutScope,
+  scope: CheckoutScope,
   requestedSlug: string | null | undefined,
   fallbackText: string,
   excludeId?: string | null,
 ): Promise<string> {
+  if (!scope?.organizationId || !scope?.tenantId) {
+    throw new Error('Organization ID and Tenant ID are required in CheckoutScope')
+  }
   const base = slugify(requestedSlug || fallbackText || 'pay-link') || 'pay-link'
   let candidate = base
   let counter = 1
   while (true) {
     const existing = await em.findOne(CheckoutLink, {
       slug: candidate,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
       deletedAt: null,
       ...(excludeId ? { id: { $ne: excludeId } } : {}),
     })
