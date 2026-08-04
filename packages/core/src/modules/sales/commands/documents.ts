@@ -6529,12 +6529,22 @@ const quoteAdjustmentDeleteSchema = z.object({
 
 const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
 
+// Locked outright on a shipped line: none of these may move at all.
 const SHIPPED_LINE_NUMERIC_PRICING_FIELDS = [
   "unitPriceNet",
   "unitPriceGross",
   "discountAmount",
   "discountPercent",
   "taxRate",
+] as const;
+
+// Line totals are derived, not authored: clients recompute and echo them on every
+// submit, so raising the quantity of a shipped line legitimately changes them. They
+// are still writable straight through, so they cannot simply be ignored either.
+// The invariant that separates a quantity edit from moving money is the per-unit
+// economics — total per unit must stay put, whatever the quantity does. That also
+// keeps discounted lines working, since a proportional total scales with quantity.
+const SHIPPED_LINE_DERIVED_TOTAL_FIELDS = [
   "totalNetAmount",
   "totalGrossAmount",
 ] as const;
@@ -6544,6 +6554,7 @@ type ShippedLineComparable = Pick<
   | "quantity"
   | "quantityUnit"
   | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
+  | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
 >;
 
 const hasNumericChange = (
@@ -6583,9 +6594,46 @@ const hasExactUnitChange = (
   (next ?? "").trim().toLowerCase() !==
   (previous ?? "").trim().toLowerCase();
 
+function hasShippedLineTotalChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  nextQuantity: number | null | undefined,
+  exact: boolean,
+): boolean {
+  const numericChange = exact ? hasExactNumericChange : hasNumericChange;
+  const previousQuantity = previous.quantity;
+  const canScale =
+    typeof previousQuantity === "number" &&
+    Math.abs(previousQuantity) > SHIPPED_QUANTITY_TOLERANCE &&
+    typeof nextQuantity === "number";
+
+  return SHIPPED_LINE_DERIVED_TOTAL_FIELDS.some((field) => {
+    const nextTotal = next[field];
+    const previousTotal = previous[field];
+    // Without a scalable quantity pair there is nothing to derive the expected
+    // total from, so fall back to locking the value outright.
+    if (!canScale || typeof previousTotal !== "number") {
+      return numericChange(nextTotal, previousTotal);
+    }
+    if (nextTotal === undefined || nextTotal === null) {
+      return exact ? numericChange(nextTotal, previousTotal) : false;
+    }
+    const expectedTotal =
+      (previousTotal / (previousQuantity as number)) * (nextQuantity as number);
+    // Scale the tolerance with magnitude: a fixed 1e-6 is below the float noise
+    // floor once totals reach six figures.
+    const tolerance = Math.max(
+      SHIPPED_QUANTITY_TOLERANCE,
+      Math.abs(expectedTotal) * 1e-9,
+    );
+    return Math.abs(nextTotal - expectedTotal) > tolerance;
+  });
+}
+
 function hasShippedLinePricingChange(
   next: Partial<ShippedLineComparable>,
   previous: ShippedLineComparable,
+  nextQuantity: number | null | undefined,
   exact: boolean,
 ): boolean {
   const numericChange = exact ? hasExactNumericChange : hasNumericChange;
@@ -6593,6 +6641,7 @@ function hasShippedLinePricingChange(
     SHIPPED_LINE_NUMERIC_PRICING_FIELDS.some((field) =>
       numericChange(next[field], previous[field]),
     ) ||
+    hasShippedLineTotalChange(next, previous, nextQuantity, exact) ||
     (exact
       ? hasExactUnitChange(next.quantityUnit, previous.quantityUnit)
       : hasUnitChange(next.quantityUnit, previous.quantityUnit))
@@ -6617,7 +6666,12 @@ async function assertShippedOrderLineChangeAllowed(
     nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE;
   const pricingChanged =
     nextSnapshot !== null &&
-    hasShippedLinePricingChange(nextSnapshot, existingSnapshot, exact);
+    hasShippedLinePricingChange(
+      nextSnapshot,
+      existingSnapshot,
+      nextQuantity,
+      exact,
+    );
   if (!quantityInvalid && !pricingChanged) return;
 
   const { translate } = await resolveTranslations();

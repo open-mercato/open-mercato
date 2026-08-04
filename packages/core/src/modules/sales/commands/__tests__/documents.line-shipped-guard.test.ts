@@ -259,6 +259,39 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
     expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
   })
 
+  it('allows raising the quantity when the client echoes recomputed totals', async () => {
+    // The real payload the order-line dialog sends: it always recomputes and
+    // includes both totals, so locking them against the stored value rejected a
+    // supported edit and blamed the price the user never touched.
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({
+      quantity: 10,
+      totalNetAmount: UNIT_PRICE_NET * 10,
+      totalGrossAmount: UNIT_PRICE_GROSS * 10,
+    }))
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it('allows raising the quantity when the client omits the totals entirely', async () => {
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({ quantity: 10, totalNetAmount: undefined }))
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it.each([
+    ['inflated net total', { quantity: 10, totalNetAmount: 1500, totalGrossAmount: UNIT_PRICE_GROSS * 10 }],
+    ['inflated gross total', { quantity: 10, totalNetAmount: UNIT_PRICE_NET * 10, totalGrossAmount: 1800 }],
+    ['stale total left behind', { quantity: 10, totalNetAmount: 400, totalGrossAmount: 492 }],
+  ])('rejects a quantity change carrying an %s', async (_label, overrides) => {
+    // Totals must stay consistent per unit. A quantity edit may scale them; it may
+    // not be used as cover for moving money while the unit price sits still.
+    shippedWorld()
+    const { caught, em } = await runUpsert(editInput(overrides))
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('allows lowering the quantity when the line has no shipments', async () => {
     setWorld({ shipments: [], shipmentItems: [] })
     const { caught } = await runUpsert(editInput({ quantity: 1, unitPriceNet: 5, unitPriceGross: 6 }))
