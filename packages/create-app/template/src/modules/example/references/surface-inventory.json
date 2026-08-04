@@ -137,17 +137,65 @@
     {
       "capabilityId": "data.migrations",
       "title": "Module migrations and ORM snapshot",
-      "description": "Generated SQL migrations plus the module-scoped `.snapshot-open-mercato.json` that `yarn db:generate` diffs against. Copy the workflow, never the files.",
+      "description": "Generated SQL migrations plus the module-scoped `.snapshot-open-mercato.json` that `yarn db:generate` diffs against, including a later additive `alter table ... add column` alongside the initial `create table`. Copy the workflow, never the files.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": [
         "src/modules/example/migrations/Migration20251030150038.ts",
         "src/modules/example/migrations/Migration20260226161000_example.ts",
+        "src/modules/example/migrations/Migration20260804120546_example.ts",
         "src/modules/example/migrations/.snapshot-open-mercato.json"
       ],
       "integrationTestPaths": [],
       "dependencyModules": [],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "data.encryption-map",
+      "title": "Tenant data encryption map for a module entity",
+      "description": "`defaultEncryptionMaps` declaring one at-rest-encrypted column (`example:todo.notes`). Shows the choice the declaration forces on every read path: the column is projected only for single-record requests, absent from `sortFieldMap` and from the CSV headers, never filtered with `$ilike`, and written through `TenantDataEncryptionService.encryptEntityPayload` on the `nativeUpdate` path because that path fires no ORM lifecycle hooks. Pre-image reads that feed undo snapshots use `findOneWithDecryption`.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/encryption.ts",
+        "src/modules/example/data/entities.ts",
+        "src/modules/example/commands/todos.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
+      ],
+      "dependencyModules": ["entities"],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "search.module-config",
+      "title": "Module search configuration",
+      "description": "`SearchModuleConfig` for one entity: `buildSource` text chunks with `checksumSource`, `formatResult` presenter, `resolveUrl` deep link, per-entity `aclFeatures`, and a `fieldPolicy` whose `searchable` whitelist carries only plaintext columns while the encrypted column is `excluded`. Token search over the encrypted column still works, because `search_tokens` rows are built from the DECRYPTED index doc and are not gated by this policy.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/search.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/encryption-search-contract.test.ts"
+      ],
+      "dependencyModules": ["query_index"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "search.encrypted-column-list-filter",
+      "title": "List filtering over an encrypted column through the token index",
+      "description": "The `notesSearch` list parameter resolves record ids with `findEntityIdsBySearchTokens` and narrows the query-engine filter to them, instead of the `$ilike` used for the plaintext `title`. An `$ilike` over an encrypted column compares a plaintext pattern against ciphertext and returns an empty page indistinguishable from a genuine no-result. The exported `buildEncryptedSearchIdNarrowing` pins the fail-closed reading of `matched: false` — the index was not consulted, and with no fallback predicate available the filter must not widen the result.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/api/todos/route.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/api/__tests__/todos.encrypted-search.test.ts"
+      ],
+      "dependencyModules": ["query_index"],
       "ruleOwner": "om-data-model-design"
     },
     {

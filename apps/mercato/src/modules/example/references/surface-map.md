@@ -40,9 +40,27 @@ Rule owners: `om-module-scaffold`, `om-integration-builder` (DI adapters).
 | `data.entities` | UUID PKs, snake_case columns, `tenant_id`/`organization_id`, `created_at`/`updated_at`/`deleted_at`, no cross-module relations | [`../data/entities.ts`](../data/entities.ts) | readable |
 | `data.validators` | Zod create/update/list schemas, `z.infer` types, shared enum schema | [`../data/validators.ts`](../data/validators.ts) | readable |
 | `data.custom-fields` | `ce.ts` custom entities and field kinds: integer, select, boolean, multi-text tags, markdown, `optionsUrl`, listbox, attachments, defaults, validation rules | [`../ce.ts`](../ce.ts) | readable |
-| `data.migrations` | Generated SQL migrations and the module-scoped ORM snapshot that `yarn db:generate` diffs against | [`../migrations/Migration20251030150038.ts`](../migrations/Migration20251030150038.ts), [`../migrations/Migration20260226161000_example.ts`](../migrations/Migration20260226161000_example.ts), [`../migrations/.snapshot-open-mercato.json`](../migrations/.snapshot-open-mercato.json) | readable |
+| `data.migrations` | Generated SQL migrations — an initial `create table` and a later additive `alter table ... add column` — plus the module-scoped ORM snapshot that `yarn db:generate` diffs against | [`../migrations/Migration20251030150038.ts`](../migrations/Migration20251030150038.ts), [`../migrations/Migration20260226161000_example.ts`](../migrations/Migration20260226161000_example.ts), [`../migrations/Migration20260804120546_example.ts`](../migrations/Migration20260804120546_example.ts), [`../migrations/.snapshot-open-mercato.json`](../migrations/.snapshot-open-mercato.json) | readable |
+| `data.encryption-map` | `defaultEncryptionMaps` for one at-rest-encrypted column, and every read/write path the declaration forces: explicit `encryptEntityPayload` before `nativeUpdate` (no ORM hooks fire there), `findOneWithDecryption` for undo pre-images | [`../encryption.ts`](../encryption.ts), [`../data/entities.ts`](../data/entities.ts), [`../commands/todos.ts`](../commands/todos.ts) | readable |
+
+Evidence: `__tests__/encryption-search-contract.test.ts`, `commands/__tests__/todos.notes-encryption.test.ts`.
 
 Rule owner: `om-data-model-design`.
+
+## Search
+
+An encrypted column changes what search can do with it, and the two files below are the two halves of that answer.
+
+| Capability | Demonstrates | Source | Status |
+|---|---|---|---|
+| `search.module-config` | `SearchModuleConfig` for one entity: `buildSource` + `checksumSource`, `formatResult`, `resolveUrl`, per-entity `aclFeatures`, and a `fieldPolicy` that whitelists only plaintext columns as `searchable` and puts the encrypted column in `excluded` | [`../search.ts`](../search.ts) | readable |
+| `search.encrypted-column-list-filter` | Text search over an encrypted column resolved from the hashed `search_tokens` index and narrowed to ids, instead of an `$ilike` that would compare a plaintext pattern against ciphertext; `matched: false` is read fail-closed | [`../api/todos/route.ts`](../api/todos/route.ts) | readable |
+
+The encrypted `notes` column is therefore: **not sortable** (`order by` would sort ciphertext, and the in-memory fallback is row-capped), **not exported to CSV**, **not projected on grid pages** (the query engine decrypts per row), and **searchable only through `search_tokens`**, which the query indexer builds from the *decrypted* index doc — so `fieldPolicy` excluding the field costs no reachability.
+
+Evidence: `__tests__/encryption-search-contract.test.ts`, `api/__tests__/todos.encrypted-search.test.ts`.
+
+Rule owners: `om-module-scaffold` (search config), `om-data-model-design` (encrypted read paths).
 
 ## API
 

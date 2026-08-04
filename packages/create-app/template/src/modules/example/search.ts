@@ -50,7 +50,7 @@ function buildTodoPresenter(
  * `notes` is deliberately absent. It is declared in `encryption.ts`, so it is
  * sensitive by definition and MUST NOT be shipped to an external embedding or
  * fulltext provider. It stays reachable through the `tokens` strategy instead:
- * the query indexer decrypts the index doc before tokenizing it, so
+ * `reindexSearchTokensForRecord` decrypts the index doc before tokenizing it, so
  * `search_tokens` holds hashes of the plaintext notes and matches them without
  * the plaintext ever leaving the database.
  */
@@ -83,11 +83,16 @@ export const searchConfig: SearchModuleConfig = {
       },
       resolveUrl: (ctx) => `/backend/todos/${encodeURIComponent(String(ctx.record.id))}/edit`,
       fieldPolicy: {
-        // `searchable` is a whitelist for provider-visible plaintext.
+        // `searchable` is a whitelist of fields safe to hand to an external
+        // provider as plaintext.
         searchable: ['title'],
-        // `hashOnly` keeps `notes` out of every provider-visible payload while
-        // leaving it matchable through the hashed `search_tokens` index.
-        hashOnly: ['notes'],
+        // `notes` is encrypted at rest, so it is excluded rather than hash-only:
+        // `hashOnly` advertises an approved hash sibling for exact-equality
+        // lookup, and this module's encryption map declares no `hashField`.
+        // Excluding it here costs nothing in reachability — `search_tokens` is
+        // built by the query indexer from the DECRYPTED index doc and is not
+        // gated by this policy, so token search over notes keeps working.
+        excluded: ['notes'],
       },
     },
   ],

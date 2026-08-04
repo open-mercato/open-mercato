@@ -7,8 +7,13 @@
  *
  * - a field in `defaultEncryptionMaps` that is ALSO in `fieldPolicy.searchable`
  *   would be handed to an external fulltext/vector provider as plaintext
- * - a field in `defaultEncryptionMaps` that is in NEITHER `searchable` nor
- *   `hashOnly` falls through the whitelist and is silently unsearchable
+ * - a field in `defaultEncryptionMaps` that appears in neither `excluded` nor
+ *   `hashOnly` is only implicitly kept out of provider payloads, so a later edit
+ *   to the whitelist can expose it without any signal
+ *
+ * Token search over the encrypted column is NOT covered by `fieldPolicy` at all:
+ * `search_tokens` rows come from `reindexSearchTokensForRecord`, which decrypts
+ * the index doc first. That is why excluding the field here costs no reachability.
  */
 import defaultEncryptionMaps from '../encryption'
 import searchConfig from '../search'
@@ -38,11 +43,21 @@ describe('example encryption map and search config agree', () => {
     expect(leaked).toEqual([])
   })
 
-  it('routes every encrypted field to hash-only search so it stays findable', () => {
-    const encrypted = encryptedFieldsFor(ENTITY_ID)
-    const hashOnly = new Set(searchEntityFor(ENTITY_ID).fieldPolicy?.hashOnly ?? [])
-    const unreachable = encrypted.filter((field) => !hashOnly.has(field))
-    expect(unreachable).toEqual([])
+  it('explicitly keeps every encrypted field out of provider-visible indexing', () => {
+    const policy = searchEntityFor(ENTITY_ID).fieldPolicy ?? {}
+    const withheld = new Set([...(policy.excluded ?? []), ...(policy.hashOnly ?? [])])
+    const implicitOnly = encryptedFieldsFor(ENTITY_ID).filter((field) => !withheld.has(field))
+    expect(implicitOnly).toEqual([])
+  })
+
+  it('claims a hash-only field only when the encryption map declares a hash sibling', () => {
+    const map = defaultEncryptionMaps.find((entry) => entry.entityId === ENTITY_ID)
+    const withHashField = new Set(
+      (map?.fields ?? []).filter((field) => Boolean(field.hashField)).map((field) => field.field),
+    )
+    const hashOnly = searchEntityFor(ENTITY_ID).fieldPolicy?.hashOnly ?? []
+    const unbacked = hashOnly.filter((field) => !withHashField.has(field))
+    expect(unbacked).toEqual([])
   })
 
   it('keeps the module encryption map scoped to entities this module owns', () => {
