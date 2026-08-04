@@ -1,0 +1,88 @@
+# Knowledge-Change Contract
+
+Load this reference before any harness edit. The class is machine-derived from the diff, never from intent.
+
+## Classification
+
+`knowledge-contract` — the change touches emitted/root agent instructions, authoritative skill/reference files,
+the source-link inventory or parity ledger, discovery/generator contracts, evaluator or oracle code,
+routing/context JSON in `cases.json`, the canonical example inventory, generated fact provenance/rendering, or
+any exact source mapped by an affected case. Its `changedContracts` are drawn from
+`routing`, `skill-link`, `source-link`, `example-source`, `installed-source`, `discovery`, `context-read`,
+`evaluator`, `oracle`.
+
+`asset-sync` — every changed path is a generated/materialized copy or a count/docs snapshot, every
+`sourcePath` authoritative SHA is unchanged from the base, and regenerated hashes match exactly. It still runs
+existing synchronization validation but needs no new behavior test.
+
+Unknown paths fail closed to `knowledge-contract`. A declared class that differs from the derived class fails.
+
+Moving, deleting, or semantically changing a linked file under `apps/mercato/src/modules/example/**`, its
+byte-identical template mirror, or its emitted runtime-source counterpart is `example-source`. Changing a linked
+package, package-relative target, version, export/publish set, or preset applicability is `installed-source`.
+`__tests__/` and `__integration__/` entries under the example tree derive `readStatus: "qa-only"`: they are QA
+evidence paths and cases may reference only `readable` source records.
+
+## The nine mandatory steps
+
+Every `knowledge-contract` change must complete all nine, in order:
+
+1. Name the changed knowledge contract and the affected case IDs/ranges.
+2. Inventory every emitted knowledge owner affected by the topic and classify it `source-required`,
+   `self-authoritative`, `generated-fact`, or `retained-normative-snippet`; when replacing prior examples,
+   update the finite `main` parity ledger.
+3. Render visible exact-file links in each `source-required` owner and update the source-link inventory. An
+   evaluator allowance, directory hint, wildcard, or manifest-only entry is not delivery.
+4. Add a focused evaluator/oracle/read-policy test that fails for the old behavior; retain sanitized
+   fail-before evidence.
+5. Update the authoritative case/context policy and the evaluator implementation together.
+6. Synchronize every mode-dependent surface: `cases.json`, validators, writable AST/runtime oracles, release
+   matrix, focused tests, catalog counts, README/RELEASE/spec documentation, source-link/example inventories,
+   generated facts, and emitted/generated copies.
+7. Generate fresh applicable presets from a coherent build, install packed artifacts, resolve every
+   local/installed link, and run every integration test declared by each added or materially changed example
+   extension surface.
+8. Prove the focused test passes and run the affected certified lane; reject completion when any
+   authoritative/generated/packed hash, link, owner, baseline disposition, or count is stale.
+9. Generate and pass the machine validation manifest; attach its sanitized result to the affected-lane evidence.
+
+When the change adds a missing ordinary module surface, route it to the canonical
+`apps/mercato/src/modules/example/**` authoring tree, materialize the byte-identical mirror with
+`yarn template:sync:fix`, update the surface/source-link inventories and exact case links, add a self-contained
+activated integration test, and run `yarn template:sync`. Never create a second teaching module and never
+satisfy the case through installed-source fallback.
+
+## Step 9 — the machine manifest
+
+Author the run manifest against `.ai/harness/knowledge-change.schema.json` (monorepo:
+`packages/create-app/agentic/shared/ai/harness/knowledge-change.schema.json`). Authored input MUST omit
+`resolvedBaseSha`, `headSha`, and `focusedExecutions` — they are controller-owned output, and author-supplied
+evidence fails validation.
+
+```text
+# monorepo
+yarn workspace create-mercato-app harness:validate-knowledge-change --manifest <path> --base <ref>
+
+# scaffolded standalone app
+yarn harness:validate-knowledge-change --manifest <path> --base <ref>
+```
+
+Both invoke the same implementation. In a scaffolded app the script is installed by
+`yarn mercato agentic:init`; before that it fails closed with exit code 2.
+
+The validator resolves `--base`, requires the authored `baseRef` to resolve to the same SHA, derives the class
+and contracts from the diff, and rejects a stale hash, a missing focused test, an unknown case ID or range, a
+wrong catalog count, an absent release lane, an unresolvable documentation path, and — for `example-source` — a
+moved/deleted linked file, a missing mirror, or mirror drift.
+
+## Current gate: CANON-C
+
+`source-link`, `example-source`, and `installed-source` runs require
+`packages/create-app/agentic/shared/ai/harness/source-link-inventory.json`. That inventory is owned by CANON-C
+and has not landed, so those runs derive their class normally and then fail closed with an explicit
+`not present — CANON-C` reason. Do not work around it by re-declaring the class; land CANON-C first.
+
+Controller-owned focused base/head execution (isolated worktrees, test-only diff applied to the base, argv
+without shell interpolation, fail-before/pass-after with output hashes) is Phase 2 of the governance spec. The
+validator therefore emits an empty `focusedExecutions` today and still requires the focused test itself to be
+present and in the diff.
