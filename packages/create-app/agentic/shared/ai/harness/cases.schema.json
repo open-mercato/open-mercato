@@ -102,6 +102,23 @@
         }
       },
       "decisionVocabulary": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
+      "expectedSpecRouting": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision", "requiredReasonCodes", "reasonCodeVocabulary"],
+        "properties": {
+          "decision": { "type": "string", "enum": ["spec-first", "direct", "reuse-spec", "ask"] },
+          "requiredReasonCodes": { "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/specReasonCode" } },
+          "reasonCodeVocabulary": { "type": "array", "minItems": 2, "maxItems": 12, "uniqueItems": true, "items": { "$ref": "#/$defs/specReasonCode" } },
+          "coveringSpecPath": { "$ref": "#/$defs/specPath" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "decision": { "const": "reuse-spec" } } },
+            "then": { "required": ["coveringSpecPath"] }
+          }
+        ]
+      },
       "requiredDecisions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" } },
       "forbiddenPatterns": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 2, "maxLength": 240 } },
       "validators": { "type": "array", "minItems": 5, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" } },
@@ -164,6 +181,8 @@
   "$defs": {
     "router": { "enum": ["architecture", "module-data", "backend-ui", "umes", "integration", "ai-workflow", "testing", "debugging", "spec-pr", "framework-context"] },
     "relativePath": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+    "specReasonCode": { "type": "string", "minLength": 3, "maxLength": 60, "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$" },
+    "specPath": { "type": "string", "minLength": 12, "maxLength": 300, "pattern": "^\\.ai/specs/(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*\\.md$" },
     "exampleRootRelativePath": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$" }
   }
 }

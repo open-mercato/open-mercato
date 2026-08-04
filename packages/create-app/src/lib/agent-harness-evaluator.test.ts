@@ -3451,3 +3451,504 @@ process.exit(9)
     fs.rmSync(target, { recursive: true, force: true })
   }
 })
+
+// ---------------------------------------------------------------------------
+// SPEC-P2 spec-first routing oracle
+//
+// The six planning decisions are scored as `{ decision, reasonCodes, coveringSpecPath? }`
+// so a result can separate "picked the wrong branch" from "picked the right branch for the
+// wrong reason". No catalog case declares the contract yet, so these tests also pin that
+// every shipped case stays completely unaffected.
+// ---------------------------------------------------------------------------
+
+const SPEC_ROUTING_VALIDATOR = 'routing.spec-decision'
+
+type SpecRoutingDeclaration = {
+  decision: string
+  requiredReasonCodes: string[]
+  reasonCodeVocabulary: string[]
+  coveringSpecPath?: string
+}
+
+type SpecRoutingEvaluator = {
+  validateSpecRoutingDeclaration: (record: unknown) => string[]
+  evaluateSpecRoutingDecision: (record: unknown, response: unknown, observedWrites?: string[]) => string[]
+  isSpecRoutingCase: (record: unknown) => boolean
+  specRoutingBaseline: (record: unknown, writable: boolean, root: string) => Map<string, string> | undefined
+  specRoutingObservedWrites: (
+    record: unknown,
+    writable: boolean,
+    baseline: Map<string, string> | undefined,
+    root: string,
+  ) => string[]
+}
+
+async function loadSpecRoutingEvaluator(): Promise<SpecRoutingEvaluator> {
+  return await import(pathToFileURL(sourceEvaluator).href) as SpecRoutingEvaluator
+}
+
+const specFirstDeclaration: SpecRoutingDeclaration = {
+  decision: 'spec-first',
+  requiredReasonCodes: ['NEW_CAPABILITY'],
+  reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX', 'EXPLICIT_SKIP_REQUESTED'],
+}
+
+function specRoutingCase(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'OMH-901',
+    evaluationKind: 'routing',
+    context: { required: ['AGENTS.md'], forbidden: ['.env*'] },
+    validators: ['catalog.schema', 'router.contract', 'context.budget', 'context.forbidden', SPEC_ROUTING_VALIDATOR],
+    expectedSpecRouting: specFirstDeclaration,
+    ...overrides,
+  }
+}
+
+function declareStagedSpecRoutingCase(root: string, caseId: string, declaration: unknown): void {
+  const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+  const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+    id: string
+    validators: string[]
+    expectedSpecRouting?: unknown
+  }>
+  const record = cases.find((entry) => entry.id === caseId)
+  assert.ok(record, `staged catalog is missing ${caseId}`)
+  record.expectedSpecRouting = declaration
+  if (!record.validators.includes(SPEC_ROUTING_VALIDATOR)) record.validators.push(SPEC_ROUTING_VALIDATOR)
+  fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+}
+
+// The runner runs inside the target sandbox with the app root bound read-only and no other
+// writable path the test can read afterwards, so prompt assertions are made by the fake
+// runner itself: a mismatch exits non-zero and the evaluated case fails.
+function installSpecRoutingRunner(
+  root: string,
+  prompt: { mustInclude?: string[]; mustExclude?: string[] },
+  structuredResponse: Record<string, unknown>,
+): string {
+  return installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+for (const needle of ${JSON.stringify(prompt.mustInclude ?? [])}) {
+  if (!prompt.includes(needle)) { console.error('prompt is missing: ' + needle); process.exit(9) }
+}
+for (const needle of ${JSON.stringify(prompt.mustExclude ?? [])}) {
+  if (prompt.includes(needle)) { console.error('prompt unexpectedly contains: ' + needle); process.exit(9) }
+}
+fs.writeFileSync(args[args.indexOf('-o') + 1], ${JSON.stringify(JSON.stringify(structuredResponse))})
+for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+  console.log(JSON.stringify({ type: 'item.completed', item: {
+    type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+  }}))
+}
+`)
+}
+
+const omh001Response = {
+  selectedRouter: ['architecture'],
+  selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: [],
+}
+
+test('the spec routing oracle separates a wrong decision from a wrong reason code', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const record = specRoutingCase()
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'] } }),
+    [],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'direct', reasonCodes: ['NEW_CAPABILITY'] } }),
+    ['wrong spec routing decision: expected spec-first, received direct'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'spec-first', reasonCodes: ['BOUNDED_FIX'] } }),
+    ['missing spec routing reason code NEW_CAPABILITY', 'unmandated spec routing reason code BOUNDED_FIX'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'spec-first', reasonCodes: ['SOUNDS_PLAUSIBLE'] } }),
+    ['missing spec routing reason code NEW_CAPABILITY', 'unexpected spec routing reason code SOUNDS_PLAUSIBLE'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { ...omh001Response }),
+    ['missing specRouting decision'],
+  )
+})
+
+test('the spec routing oracle binds coveringSpecPath to the reuse-spec branch only', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const reuse = specRoutingCase({
+    expectedSpecRouting: {
+      decision: 'reuse-spec',
+      requiredReasonCodes: ['COVERING_SPEC_EXISTS'],
+      reasonCodeVocabulary: ['COVERING_SPEC_EXISTS', 'NEW_CAPABILITY'],
+      coveringSpecPath: '.ai/specs/2026-07-24-standalone-ai-development-harness.md',
+    },
+  })
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(reuse, {
+      specRouting: {
+        decision: 'reuse-spec',
+        reasonCodes: ['COVERING_SPEC_EXISTS'],
+        coveringSpecPath: '.ai/specs/2026-07-24-standalone-ai-development-harness.md',
+      },
+    }),
+    [],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(reuse, {
+      specRouting: { decision: 'reuse-spec', reasonCodes: ['COVERING_SPEC_EXISTS'] },
+    }),
+    ['wrong covering spec path: expected .ai/specs/2026-07-24-standalone-ai-development-harness.md, received null'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(reuse, {
+      specRouting: {
+        decision: 'reuse-spec',
+        reasonCodes: ['COVERING_SPEC_EXISTS'],
+        coveringSpecPath: '.ai/specs/2026-08-01-something-else.md',
+      },
+    }),
+    ['wrong covering spec path: expected .ai/specs/2026-07-24-standalone-ai-development-harness.md, received .ai/specs/2026-08-01-something-else.md'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(specRoutingCase(), {
+      specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'], coveringSpecPath: '.ai/specs/anything.md' },
+    }),
+    ['covering spec path is valid only for a reuse-spec decision'],
+  )
+})
+
+test('the spec routing oracle rejects tool writes observed during a read-only planning case', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(
+      specRoutingCase(),
+      { specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'] } },
+      ['.ai/specs/2026-08-04-invented.md', 'src/modules/rentals/index.ts'],
+    ),
+    [
+      'spec routing case is read-only but changed .ai/specs/2026-08-04-invented.md',
+      'spec routing case is read-only but changed src/modules/rentals/index.ts',
+    ],
+  )
+})
+
+test('the read-only write baseline is taken for spec routing cases and skipped for every other routing case', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-spec-routing-writes-')))
+  try {
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), '# root\n')
+    const specCase = specRoutingCase()
+    const plainCase = { ...specRoutingCase(), expectedSpecRouting: undefined }
+
+    assert.equal(evaluator.specRoutingBaseline(plainCase, false, root), undefined)
+    assert.deepEqual(evaluator.specRoutingObservedWrites(plainCase, false, undefined, root), [])
+    // A writable case keeps its own pre-existing baseline; this one never doubles up.
+    assert.equal(evaluator.specRoutingBaseline(specCase, true, root), undefined)
+
+    const baseline = evaluator.specRoutingBaseline(specCase, false, root)
+    assert.ok(baseline instanceof Map, 'a spec routing case must take a filesystem baseline')
+    assert.deepEqual(evaluator.specRoutingObservedWrites(specCase, false, baseline, root), [])
+
+    fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+    fs.writeFileSync(path.join(root, '.ai', 'specs', 'leaked.md'), '# leaked\n')
+    assert.deepEqual(
+      evaluator.specRoutingObservedWrites(specCase, false, baseline, root),
+      ['.ai', '.ai/specs', '.ai/specs/leaked.md'],
+    )
+    assert.deepEqual(evaluator.specRoutingObservedWrites(specCase, true, baseline, root), [])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the spec routing declaration contract fails closed on every malformed shape', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  assert.deepEqual(evaluator.validateSpecRoutingDeclaration(specRoutingCase()), [])
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({ validators: ['catalog.schema'] })),
+    [`expectedSpecRouting requires the ${SPEC_ROUTING_VALIDATOR} validator`],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration({ ...specRoutingCase(), expectedSpecRouting: undefined }),
+    [`${SPEC_ROUTING_VALIDATOR} requires an expectedSpecRouting declaration`],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration({ ...specRoutingCase(), evaluationKind: 'implementation' }),
+    ['expectedSpecRouting is a read-only planning contract and cannot be declared on a writable case'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, decision: 'spec-later' },
+    })),
+    ['expectedSpecRouting.decision must be one of spec-first, direct, reuse-spec, ask'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, requiredReasonCodes: ['NOT_IN_VOCABULARY'] },
+    })),
+    ['expectedSpecRouting.requiredReasonCodes must be a non-empty unique subset of the declared vocabulary'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: {
+        decision: 'spec-first',
+        requiredReasonCodes: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+        reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+      },
+    })),
+    ['expectedSpecRouting.reasonCodeVocabulary must add at least one contrastive reason code'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, decision: 'reuse-spec' },
+    })),
+    ['expectedSpecRouting.coveringSpecPath must be a path-safe .ai/specs/ reference'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: {
+        ...specFirstDeclaration,
+        decision: 'reuse-spec',
+        coveringSpecPath: '.ai/specs/never-routed.md',
+      },
+    })),
+    ['expectedSpecRouting.coveringSpecPath must be declared as required or allowed-extra context'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, coveringSpecPath: '.ai/specs/anything.md' },
+    })),
+    ['expectedSpecRouting.coveringSpecPath is valid only for a reuse-spec decision'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, extra: true },
+    })),
+    ['unknown expectedSpecRouting property extra'],
+  )
+})
+
+test('the spec routing oracle is inert for every shipped catalog case', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
+  assert.equal(cases.length, 203)
+  for (const record of cases) {
+    const shaped = record as unknown as { expectedSpecRouting?: unknown; validators: string[] }
+    assert.equal(shaped.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting yet`)
+    assert.equal(
+      shaped.validators.includes(SPEC_ROUTING_VALIDATOR),
+      false,
+      `${record.id} must not register ${SPEC_ROUTING_VALIDATOR} yet`,
+    )
+    assert.equal(evaluator.isSpecRoutingCase(record), false, `${record.id} must not be a spec routing case`)
+    assert.deepEqual(evaluator.validateSpecRoutingDeclaration(record), [], `${record.id} declaration contract must stay silent`)
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        selectedRouter: [],
+        selectedSkills: [],
+        selectedContext: ['AGENTS.md'],
+        decisions: record.requiredDecisions ?? [],
+        violations: [],
+      }),
+      [],
+      `${record.id} must score no spec routing violation`,
+    )
+  }
+  // An answer that volunteers the contract without a case declaring it is still unmandated
+  // output, exactly like an unmandated decision label.
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(cases[0], {
+      ...omh001Response,
+      specRouting: { decision: 'direct', reasonCodes: ['BOUNDED_FIX'] },
+    }),
+    ['unexpected specRouting for a case with no spec-routing contract'],
+  )
+})
+
+test('catalog validation rejects a malformed spec routing declaration and an unregistered validator', () => {
+  const root = stageApp()
+  try {
+    declareStagedSpecRoutingCase(root, 'OMH-001', {
+      decision: 'reuse-spec',
+      requiredReasonCodes: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+      reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+    })
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{ id: string; validators: string[] }>
+    const second = cases.find((entry) => entry.id === 'OMH-002')
+    assert.ok(second)
+    second.validators.push(SPEC_ROUTING_VALIDATOR)
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /expectedSpecRouting\.reasonCodeVocabulary must add at least one contrastive reason code/)
+    assert.match(result.stderr, /expectedSpecRouting\.coveringSpecPath must be a path-safe \.ai\/specs\/ reference/)
+    assert.match(result.stderr, /routing\.spec-decision requires an expectedSpecRouting declaration/)
+    assert.match(result.stderr, /cases schema: \$\[0\]\.expectedSpecRouting\.coveringSpecPath is required/)
+    assert.doesNotMatch(result.stderr, /TypeError|ERR_INVALID_ARG_TYPE/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the shipped harness contracts declare the spec routing surfaces', () => {
+  const routingSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'routing-response.schema.json'), 'utf8')) as {
+    required: string[]
+    properties: {
+      specRouting: {
+        required: string[]
+        additionalProperties: boolean
+        properties: {
+          decision: { enum: string[] }
+          reasonCodes: { items: { pattern: string } }
+          coveringSpecPath: { type: string }
+        }
+      }
+    }
+  }
+  // Optional on the wire: every shipped case must stay able to answer without it.
+  assert.equal(routingSchema.required.includes('specRouting'), false)
+  assert.deepEqual(routingSchema.properties.specRouting.required, ['decision', 'reasonCodes'])
+  assert.equal(routingSchema.properties.specRouting.additionalProperties, false)
+  assert.deepEqual(routingSchema.properties.specRouting.properties.decision.enum, ['spec-first', 'direct', 'reuse-spec', 'ask'])
+  assert.equal(routingSchema.properties.specRouting.properties.reasonCodes.items.pattern, '^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$')
+  assert.equal(routingSchema.properties.specRouting.properties.coveringSpecPath.type, 'string')
+
+  const casesSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8')) as {
+    items: { required: string[]; properties: { expectedSpecRouting: { required: string[]; allOf: unknown[] } } }
+    $defs: { specReasonCode: { pattern: string }; specPath: { pattern: string } }
+  }
+  assert.equal(casesSchema.items.required.includes('expectedSpecRouting'), false)
+  assert.deepEqual(casesSchema.items.properties.expectedSpecRouting.required, ['decision', 'requiredReasonCodes', 'reasonCodeVocabulary'])
+  assert.deepEqual(casesSchema.items.properties.expectedSpecRouting.allOf, [
+    { if: { properties: { decision: { const: 'reuse-spec' } } }, then: { required: ['coveringSpecPath'] } },
+  ])
+  assert.equal(casesSchema.$defs.specReasonCode.pattern, '^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$')
+  assert.match('.ai/specs/2026-08-01-standalone-agent-spec-first-routing.md', new RegExp(casesSchema.$defs.specPath.pattern))
+  for (const rejected of ['.ai/specs/../secrets.md', 'specs/plan.md', '.ai/specs/plan.txt']) {
+    assert.doesNotMatch(rejected, new RegExp(casesSchema.$defs.specPath.pattern), rejected)
+  }
+
+  const registry = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
+    validators: Record<string, { kind: string; implementation: string }>
+  }
+  assert.deepEqual(registry.validators[SPEC_ROUTING_VALIDATOR], { kind: 'routing', implementation: 'validateSpecRoutingDecision' })
+})
+
+test('catalog validation requires the routing response schema to expose the spec routing contract', () => {
+  const root = stageApp()
+  try {
+    const schemaPath = path.join(root, '.ai', 'harness', 'routing-response.schema.json')
+    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8')) as {
+      properties: { specRouting: { properties: { decision: { enum: string[] }; reasonCodes: { items: { pattern: string } } } } }
+    }
+    schema.properties.specRouting.properties.decision.enum = ['spec-first', 'direct']
+    schema.properties.specRouting.properties.reasonCodes.items.pattern = '.*'
+    fs.writeFileSync(schemaPath, `${JSON.stringify(schema, null, 2)}\n`)
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /routing response schema must expose every spec routing decision in canonical order/)
+    assert.match(result.stderr, /routing response schema must constrain spec routing reason codes/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+const specRoutingPromptFragments = [
+  'specRouting.decision is exactly one of spec-first, direct, reuse-spec, ask',
+  'NEW_CAPABILITY, BOUNDED_FIX, EXPLICIT_SKIP_REQUESTED',
+  'only when the decision is reuse-spec',
+]
+
+test('live routing asks for a spec decision only when the case declares one', { skip: !targetSandboxAvailable }, () => {
+  const inertRoot = stageApp()
+  try {
+    const bin = installSpecRoutingRunner(inertRoot, { mustExclude: ['specRouting'] }, omh001Response)
+    const result = runEvaluator(inertRoot, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(
+      result.status,
+      0,
+      `a shipped case prompt must not mention the spec routing contract:\n${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(inertRoot), null, 2)}`,
+    )
+  } finally {
+    fs.rmSync(inertRoot, { recursive: true, force: true })
+  }
+
+  const specRoot = stageApp()
+  try {
+    declareStagedSpecRoutingCase(specRoot, 'OMH-001', specFirstDeclaration)
+    const bin = installSpecRoutingRunner(specRoot, { mustInclude: specRoutingPromptFragments }, {
+      ...omh001Response,
+      specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'] },
+    })
+    const result = runEvaluator(specRoot, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(specRoot), null, 2)}`)
+    assert.match(result.stdout, /PASS OMH-001/)
+  } finally {
+    fs.rmSync(specRoot, { recursive: true, force: true })
+  }
+})
+
+test('live routing fails a declared spec case whose emitted decision and reason code are wrong', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  try {
+    declareStagedSpecRoutingCase(root, 'OMH-001', specFirstDeclaration)
+    const bin = installSpecRoutingRunner(root, { mustInclude: specRoutingPromptFragments }, {
+      ...omh001Response,
+      specRouting: { decision: 'direct', reasonCodes: ['BOUNDED_FIX'] },
+    })
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const violations = storedResults(root)[0].violations
+    assert.ok(
+      violations.includes('wrong spec routing decision: expected spec-first, received direct'),
+      JSON.stringify(violations, null, 2),
+    )
+    assert.ok(violations.includes('missing spec routing reason code NEW_CAPABILITY'), JSON.stringify(violations, null, 2))
+    assert.ok(violations.includes('unmandated spec routing reason code BOUNDED_FIX'), JSON.stringify(violations, null, 2))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live routing rejects a structurally invalid spec routing payload before scoring it', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  try {
+    declareStagedSpecRoutingCase(root, 'OMH-001', specFirstDeclaration)
+    const bin = installSpecRoutingRunner(root, { mustInclude: specRoutingPromptFragments }, {
+      ...omh001Response,
+      specRouting: { decision: 'spec first, probably', reasonCodes: ['new capability: it is big'] },
+    })
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const violations = storedResults(root)[0].violations
+    assert.ok(
+      violations.some((entry) => entry.includes('specRouting.decision must be a known planning decision')),
+      JSON.stringify(violations, null, 2),
+    )
+    assert.ok(
+      violations.some((entry) => entry.includes('specRouting.reasonCodes must be unique upper-snake-case reason codes')),
+      JSON.stringify(violations, null, 2),
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
