@@ -2,11 +2,17 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import {
+  findEntityIdsBySearchTokens,
+  type SearchTokenDatabase,
+  type SearchTokenLookupResult,
+} from '@open-mercato/shared/lib/search/tokenLookup'
 import { Todo } from '../../data/entities'
 
 const ENTITY_ID = 'example:todo' as const
 const id = 'id'
 const title = 'title'
+const notes = 'notes'
 const tenant_id = 'tenant_id'
 const organization_id = 'organization_id'
 const is_done = 'is_done'
@@ -42,6 +48,8 @@ const querySchema = z
     sortField: z.string().optional().default('id'),
     sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
     title: z.string().optional(),
+    // Deliberately NOT a `notes` `$ilike` param — see `buildEncryptedSearchIdNarrowing`.
+    notesSearch: z.string().optional(),
     isDone: z.coerce.boolean().optional(),
     withDeleted: z.coerce.boolean().optional().default(false),
     organizationId: z.string().uuid().optional(),
@@ -70,7 +78,42 @@ const cfSel = buildCustomFieldSelectorsForEntity(ENTITY_ID, baseFieldSets)
 // `initialValues.updatedAt`, and the list-row delete builds the same header from
 // the row. Dropping it silently disables optimistic locking on this entity.
 const baseListFields = [id, title, tenant_id, organization_id, is_done, created_at, updated_at]
+
+// `notes` is encrypted at rest, and the query engine decrypts every selected
+// encrypted column once PER ROW. Selecting it on a 50-row grid page buys 50
+// decryptions nobody renders, so it is projected only when the request already
+// targets a single record — which is exactly how the edit form loads a todo
+// (`fetchCrudList('example/todos', { ids, pageSize: 1 })`).
+function isSingleRecordRequest(query: Pick<Query, 'id' | 'ids'>): boolean {
+  if (typeof query.id === 'string' && query.id.length > 0) return true
+  return typeof query.ids === 'string' && query.ids.trim().length > 0
+}
+
+// `notes` is absent on purpose. A CSV export is the one read path that copies the
+// column out of the database in bulk and into a file nobody re-encrypts, so an
+// encrypted field must not be exported by default.
 const baseCsvHeaders = ['id', 'title', 'is_done', 'organization_id', 'tenant_id']
+
+/**
+ * Turns a `search_tokens` lookup into the id set a list filter should narrow to.
+ *
+ * There is no usable fallback predicate for an encrypted column: `notes ilike
+ * '%x%'` compares a plaintext pattern against ciphertext and matches nothing, so
+ * the token index is the only thing that can answer the query. When the index was
+ * not consulted at all (`matched: false` — search disabled, or no tokens indexed
+ * for this entity and scope) the honest answer is an empty result, because
+ * dropping the filter would render every todo and look like the filter had been
+ * applied and satisfied.
+ */
+export function buildEncryptedSearchIdNarrowing(
+  lookup: SearchTokenLookupResult,
+  existingIds: readonly string[] | null,
+): string[] {
+  const matchedIds = lookup.matched ? lookup.ids : []
+  if (!existingIds) return matchedIds
+  const allowed = new Set(existingIds)
+  return matchedIds.filter((value) => allowed.has(value))
+}
 
 // Custom-field keys are discovered per request from tenant- and organization-scoped
 // definitions, so they MUST NOT live in module scope: a module-level array would be
@@ -86,6 +129,11 @@ function customFieldKeysFor(ctx: CrudCtx): string[] {
 
 // Sorting on `cf_<key>` needs no entry here: the CRUD factory normalizes any
 // unmapped `cf_` sort field to the `cf:` query-engine selector.
+//
+// `notes` is absent on purpose. `order by notes` would order by ciphertext, and
+// the query engine's in-memory fallback for encrypted sorts is capped at a row
+// limit — past it the ordering is silently partial. An encrypted column is not a
+// sortable column.
 const sortFieldMap: Record<string, string> = {
   id,
   title,
@@ -204,6 +252,8 @@ async function discoverCustomFieldKeys(ctx: CrudCtx): Promise<string[]> {
 type BaseFields = {
   id: string
   title: string
+  // Present only on single-record requests; the query engine decrypts it on read.
+  notes?: string | null
   is_done: boolean
   tenant_id: string | null
   organization_id: string | null
@@ -230,8 +280,9 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   list: {
     schema: querySchema,
     entityId: ENTITY_ID,
-    fields: (_query: Query, ctx: CrudCtx) => [
+    fields: (query: Query, ctx: CrudCtx) => [
       ...baseListFields,
+      ...(isSingleRecordRequest(query) ? [notes] : []),
       ...customFieldKeysFor(ctx).map((key) => `cf:${key}`),
     ],
     sortFieldMap,
@@ -248,6 +299,28 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       }
       if (q.id) F.id = q.id
       if (q.title) F.title = { $ilike: `%${escapeLikePattern(q.title)}%` }
+      // `notes` never gets an `$ilike`: the stored value is ciphertext. Text search
+      // over it goes through the hashed `search_tokens` index, which the query
+      // indexer builds from the DECRYPTED index doc, and narrows the result to ids.
+      if (q.notesSearch) {
+        const em = ctx.container.resolve<EntityManager>('em')
+        const scopedOrgIds = resolveScopedOrganizationIds(ctx)
+        const lookup = await findEntityIdsBySearchTokens({
+          db: em.getKysely<SearchTokenDatabase>(),
+          entityType: ENTITY_ID,
+          query: q.notesSearch,
+          fields: [notes],
+          scope: {
+            tenantId: ctx.auth?.tenantId ?? null,
+            ...(scopedOrgIds && scopedOrgIds.length > 0 ? { organizationIds: scopedOrgIds } : {}),
+          },
+        })
+        const existingIds = Array.isArray(F.id) ? null : (F.id as { $in?: string[] } | string | undefined)
+        const currentIds = typeof existingIds === 'string'
+          ? [existingIds]
+          : Array.isArray(existingIds?.$in) ? existingIds.$in : null
+        F.id = { $in: buildEncryptedSearchIdNarrowing(lookup, currentIds) }
+      }
       if (q.isDone !== undefined) F.is_done = q.isDone
       if (q.organizationId) F.organization_id = q.organizationId
       if (q.createdFrom || q.createdTo) {
@@ -272,6 +345,10 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     transformItem: (item: BaseFields): TodoListItem => ({
       id: String(item.id),
       title: String(item.title),
+      // Always serialized so the response shape stays stable, but only populated on
+      // a single-record request — grid rows do not project the column, so they
+      // always report `null` rather than a value the caller was not scoped to read.
+      notes: typeof item.notes === 'string' ? item.notes : null,
       tenant_id: item.tenant_id ?? null,
       organization_id: item.organization_id ?? null,
       is_done: Boolean(item.is_done),

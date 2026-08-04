@@ -4,6 +4,9 @@
 export type TodoListItem = {
   id: string
   title: string
+  // Encrypted at rest (see `encryption.ts`). Projected only on single-record
+  // requests, so grid rows always carry `null` — never treat it as "empty".
+  notes?: string | null
   is_done?: boolean
   tenant_id?: string | null
   organization_id?: string | null
