@@ -384,12 +384,26 @@ export default function MyTimesheetsPage() {
     })
   }, [clearCellError])
 
+  const dropDirtyCell = React.useCallback((projectId: string, dateKey: string) => {
+    setDirty((prev) => {
+      const projectEntries = prev[projectId]
+      if (!projectEntries || projectEntries[dateKey] === undefined) return prev
+      const nextProjectEntries = { ...projectEntries }
+      delete nextProjectEntries[dateKey]
+      const next = { ...prev }
+      if (Object.keys(nextProjectEntries).length > 0) next[projectId] = nextProjectEntries
+      else delete next[projectId]
+      return next
+    })
+  }, [])
+
   const handleCellBlur = React.useCallback((projectId: string, dateKey: string, currentValue: string) => {
     const editedText = rawText[projectId]?.[dateKey]
     const text = editedText ?? currentValue
     if (text === undefined) return
     const parsed = parseDurationInput(text)
     if (!parsed.ok) {
+      dropDirtyCell(projectId, dateKey)
       setCellErrors((prev) => {
         const projectErrors = { ...(prev[projectId] ?? {}) }
         projectErrors[dateKey] = parsed.reason
@@ -421,7 +435,7 @@ export default function MyTimesheetsPage() {
       }
       return { ...prev, [projectId]: projectTexts }
     })
-  }, [rawText, entries, clearCellError])
+  }, [rawText, entries, clearCellError, dropDirtyCell])
 
   const getCellValue = React.useCallback((projectId: string, dateKey: string): number => {
     const dirtyCell = dirty[projectId]?.[dateKey] as CellEntry | undefined
