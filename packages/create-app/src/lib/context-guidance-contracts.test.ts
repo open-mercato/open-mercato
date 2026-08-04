@@ -432,8 +432,16 @@ test('the spec-first gate only links owners that exist in the emitted harness', 
 
 test('module scaffold owns the one-way canonical-example handoff', () => {
   const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(skill, /START at `src\/modules\/example\/README\.md`/)
-  assert.match(skill, /adapt only the `references\/surface-inventory\.json` rows it names/)
+  // The handoff now renders as a visible exact-file link (CANON-C); the label keeps the
+  // exact path so a reader who cannot follow the link still gets it.
+  assert.match(
+    skill,
+    /START at \[`src\/modules\/example\/README\.md`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/README\.md\)/,
+  )
+  assert.match(
+    skill,
+    /adapt only the \[`references\/surface-inventory\.json`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/references\/surface-inventory\.json\) rows it names/,
+  )
   assert.match(
     skill,
     /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe`, or add direct cross-module ORM relationships/,
@@ -767,4 +775,138 @@ test('public lead eval keeps the request business-oriented while owners enforce 
   assert.match(sensitiveData, /assert the sensitive database columns are ciphertext/)
   assert.match(sensitiveData, /Let `TenantDataEncryptionService` populate it/)
   assert.match(sensitiveData, /`lookupHashCandidates\(value\)` from `@open-mercato\/shared\/lib\/encryption\/aes`/)
+})
+
+// --- CANON-C: visible exact-file source links in emitted knowledge owners ---------------
+//
+// The emitted harness may only render Markdown links that resolve, in a freshly scaffolded
+// app, to a regular file that the scaffolder actually writes. A link to a directory, to a
+// `__tests__`/`__integration__` path the scaffolder skips, or to a file that does not exist
+// is a dead link in every generated app, so it fails here rather than in a user's app.
+
+// Directories the template copier drops on its way into a scaffolded app (index.ts SKIP_DIRS).
+const NON_EMITTED_TREE_SEGMENTS = new Set(['__tests__', '__integration__'])
+// Emitted paths produced at generation time from installed packages, not present in this
+// repository. A knowledge owner must not hard-link into them.
+const GENERATED_EMITTED_PREFIXES = ['.ai/guides/modules/', '.ai/guides/upstream/', '.ai/framework-context/', '.mercato/']
+
+/** Where an emitted knowledge owner is authored in this repository. */
+function authoringPathOfEmittedOwner(appRelativePath: string): string | null {
+  if (appRelativePath === 'AGENTS.md') return 'create-app/agentic/shared/AGENTS.md.template'
+  if (appRelativePath.startsWith('.ai/guides/')) {
+    return `create-app/agentic/guides/${appRelativePath.slice('.ai/guides/'.length)}`
+  }
+  if (appRelativePath.startsWith('.ai/')) {
+    return `create-app/agentic/shared/ai/${appRelativePath.slice('.ai/'.length)}`
+  }
+  if (appRelativePath.startsWith('src/')) return `create-app/template/${appRelativePath}`
+  return null
+}
+
+/** Every emitted Markdown knowledge owner, as its app-relative path. */
+function emittedMarkdownOwners(): string[] {
+  const owners = ['AGENTS.md']
+  const walk = (absoluteDir: string, emittedPrefix: string): void => {
+    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
+      const absolute = path.join(absoluteDir, entry.name)
+      const emitted = `${emittedPrefix}${entry.name}`
+      if (entry.isDirectory()) walk(absolute, `${emitted}/`)
+      else if (entry.name.endsWith('.md')) owners.push(emitted)
+    }
+  }
+  walk(path.join(agenticRoot, 'guides'), '.ai/guides/')
+  walk(path.join(agenticRoot, 'shared/ai/skills'), '.ai/skills/')
+  return owners
+}
+
+/** Relative Markdown link destinations in `source`, decoded, anchors and externals dropped. */
+function relativeMarkdownLinkTargets(source: string): string[] {
+  const targets: string[] = []
+  for (const match of source.matchAll(/\]\(([^)\s]+)\)/g)) {
+    const raw = match[1]
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('#') || raw.startsWith('/')) continue
+    targets.push(decodeURIComponent(raw.split('#')[0]))
+  }
+  return targets
+}
+
+test('every emitted knowledge owner links only to exact files a scaffolded app really has', () => {
+  const owners = emittedMarkdownOwners()
+  assert.ok(owners.length > 20, 'the owner scan must reach the whole emitted knowledge set')
+
+  let checkedLinks = 0
+  for (const owner of owners) {
+    const authoringPath = authoringPathOfEmittedOwner(owner)
+    assert.ok(authoringPath, `no authoring source is known for emitted owner ${owner}`)
+    const source = fs.readFileSync(path.join(packagesRoot, authoringPath), 'utf8')
+    const ownerDirectory = path.posix.dirname(owner)
+
+    for (const target of relativeMarkdownLinkTargets(source)) {
+      const emittedTarget = path.posix.normalize(path.posix.join(ownerDirectory, target))
+      assert.ok(
+        !emittedTarget.startsWith('..'),
+        `${owner} links outside the generated app root: ${target}`,
+      )
+      for (const prefix of GENERATED_EMITTED_PREFIXES) {
+        assert.ok(
+          !emittedTarget.startsWith(prefix),
+          `${owner} hard-links into generated output that does not exist until generation: ${target}`,
+        )
+      }
+      assert.ok(
+        !emittedTarget.split('/').some((segment) => NON_EMITTED_TREE_SEGMENTS.has(segment)),
+        `${owner} links to ${target}, which the scaffolder never copies into a generated app`,
+      )
+      const authoringTarget = authoringPathOfEmittedOwner(emittedTarget)
+      assert.ok(authoringTarget, `${owner} links to an unrecognized app path: ${emittedTarget}`)
+      const absoluteTarget = path.join(packagesRoot, authoringTarget)
+      assert.ok(
+        fs.existsSync(absoluteTarget) && fs.statSync(absoluteTarget).isFile(),
+        `${owner} links to ${target}, which is not a regular file in a generated app (${emittedTarget})`,
+      )
+      checkedLinks += 1
+    }
+  }
+  assert.ok(checkedLinks >= 60, `expected the migrated owners to render links; saw ${checkedLinks}`)
+})
+
+test('each migrated owner family renders a visible exact-file link into the canonical example', () => {
+  // Owner -> the emitted path it must make visible. Families deliberately NOT migrated in this
+  // batch (root instructions, the optional Figma owner, installed-package targets) are absent.
+  const migratedOwners: Array<[string, string]> = [
+    ['.ai/guides/backend-ui.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-module-scaffold/SKILL.md', 'src/modules/example/README.md'],
+    ['.ai/skills/om-module-scaffold/references/module-surfaces.md', 'src/modules/example/index.ts'],
+    ['.ai/skills/om-module-scaffold/references/api-and-domain.md', 'src/modules/example/commands/todos.ts'],
+    ['.ai/skills/om-module-scaffold/references/data-and-migrations.md', 'src/modules/example/data/entities.ts'],
+    ['.ai/skills/om-backend-ui-design/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-backend-ui-design/references/crud-surfaces.md', 'src/modules/example/components/TodosTable.tsx'],
+    ['.ai/skills/om-backend-ui-design/references/page-and-navigation.md', 'src/modules/example/backend/todos/page.meta.ts'],
+    ['.ai/skills/om-data-model-design/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-data-model-design/references/schema-design.md', 'src/modules/example/data/entities.ts'],
+    ['.ai/skills/om-data-model-design/references/migration-workflow.md', 'src/modules/example/migrations/.snapshot-open-mercato.json'],
+    ['.ai/skills/om-data-model-design/references/integrity-and-concurrency.md', 'src/modules/example/commands/todos.ts'],
+    ['.ai/skills/om-system-extension/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-system-extension/references/extension-branches.md', 'src/modules/example/data/enrichers.ts'],
+    ['.ai/skills/om-system-extension/references/unified-overrides.md', 'src/modules.ts'],
+    ['.ai/skills/om-eject-and-customize/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-eject-and-customize/references/decision-and-procedure.md', 'src/modules/example/setup.ts'],
+    ['.ai/skills/om-integration-builder/references/provider-families.md', 'src/modules/example/lib/mock-gateway-adapter.ts'],
+    ['.ai/skills/om-troubleshooter/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-troubleshooter/references/diagnosis-map.md', 'src/modules/example/backend/todos/page.meta.ts'],
+  ]
+
+  for (const [owner, requiredTarget] of migratedOwners) {
+    const authoringPath = authoringPathOfEmittedOwner(owner)
+    assert.ok(authoringPath, `no authoring source is known for ${owner}`)
+    const source = fs.readFileSync(path.join(packagesRoot, authoringPath), 'utf8')
+    const ownerDirectory = path.posix.dirname(owner)
+    const resolved = relativeMarkdownLinkTargets(source).map((target) =>
+      path.posix.normalize(path.posix.join(ownerDirectory, target)),
+    )
+    assert.ok(
+      resolved.includes(requiredTarget),
+      `${owner} must render a visible exact-file link to ${requiredTarget}; it links ${JSON.stringify(resolved)}`,
+    )
+  }
 })

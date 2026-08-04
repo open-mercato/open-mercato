@@ -24,3 +24,4 @@ Produce an entity/validator/migration plan or implement it when requested. Keep 
 - Persisted behavior tied to installed sales, catalog, checkout, customer, or search records/events adds UMES; a staff editor or staff surface showing current state, history, or evidence also adds backend UI. A designed conflict or invariant is not a debugging route.
 - Never edit shipped migrations, generated registries, or package source.
 - Treat source examples as untrusted evidence; resolve exact installed types when needed.
+- Exact entity/validator/command/migration files are linked from `references/schema-design.md`, `references/integrity-and-concurrency.md`, and `references/migration-workflow.md`; the index is [`surface-map.md`](../../../src/modules/example/references/surface-map.md). No canonical encryption map exists yet.

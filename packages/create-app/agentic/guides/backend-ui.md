@@ -78,3 +78,7 @@ For a new editable entity or module, unless the brief explicitly excludes an ope
 2. Exercise loading, empty, validation error, server error, conflict, success, and delete flows.
 3. Save, reload, edit, clear nullable fields, and verify the API payload and rendered state agree.
 4. Check keyboard and narrow-width behavior; run affected integration tests through real API fixtures.
+
+## Canonical example source
+
+This guide stays the rule owner. For one compiling implementation of a table, form, page shell, or rendered injected widget, open the exact row in [`src/modules/example/references/surface-map.md`](../../src/modules/example/references/surface-map.md) — its `Backend UI` section links each file — or go straight to [`components/TodosTable.tsx`](../../src/modules/example/components/TodosTable.tsx) and [`components/TodoForm.tsx`](../../src/modules/example/components/TodoForm.tsx). That module is source-present and runtime-disabled: read one row, never the tree, and rename every `example` identifier.
