@@ -4,9 +4,24 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('scheduler').child({ component: 'local' })
 
 /**
- * PostgreSQL advisory lock strategy for single-instance or local development
+ * Mutual-exclusion strategy for single-instance or local development.
+ *
+ * Exclusion for the duration of the guarded run is IN-PROCESS (`heldKeys`).
+ * The PostgreSQL advisory lock only serialises concurrent *claims* — it is
+ * transaction-scoped and released as soon as the short claim transaction
+ * commits, before the guarded function runs. It therefore does NOT protect
+ * against two processes executing the same key concurrently; that matches the
+ * documented single-instance contract of the local scheduler strategy, and
+ * `LocalSchedulerService.start()` warns about it at startup.
  */
 export class LocalLockStrategy {
+  // Process-local by construction, so it only guards a single strategy
+  // instance. Invariant relied upon: exactly one LocalLockStrategy exists per
+  // process, because the only construction site is LocalSchedulerService
+  // (an Awilix singleton) and only the CLI entry points start the polling
+  // engine. A caller that resolves a second container would silently get an
+  // independent guard — see the single-instance warning in
+  // LocalSchedulerService.start().
   private heldKeys = new Set<string>()
 
   constructor(private em: () => EntityManager) {}

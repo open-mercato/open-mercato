@@ -97,13 +97,20 @@ type PoolLike = {
 // polling engine exited unexpectedly with exit code 1"). Swallow both: the pool
 // discards the dead client, and any in-flight transaction still fails normally
 // on its next query/commit against the dead connection.
+// The per-client listener is deliberately attached once on 'connect' and never
+// removed: it is a last-resort sink whose only job is to guarantee the 'error'
+// event always has a listener, in every client state. It is not error handling
+// and must not be "cleaned up" — removing it reintroduces the process crash.
+// A reaped IDLE client therefore logs twice (once here, once via the pool-level
+// handler that pg-pool's own idle listener re-emits); the pool-level line is the
+// one that identifies the client as idle.
 export function attachPoolErrorHandlers(pool: PoolLike): void {
   pool.on('error', (err: unknown) => {
     logger.warn('Idle pg pool client error (connection reaped/terminated)', { err })
   })
   pool.on('connect', (client) => {
     client.on('error', (err: unknown) => {
-      logger.warn('Checked-out pg client error (connection reaped/terminated)', { err })
+      logger.warn('pg client error (connection reaped/terminated)', { err })
     })
   })
 }
