@@ -397,6 +397,21 @@
       "ruleOwner": "om-system-extension"
     },
     {
+      "capabilityId": "events.portal-broadcast",
+      "title": "Portal Event Bridge broadcast with a live emit site",
+      "description": "The customer-facing twin of `clientBroadcast`: an event declared `portalBroadcast: true` plus the wildcard subscriber that produces it. The subscriber turns internal `example.todo.*` CRUD writes into one customer-addressable announcement, drops the payload to ids/scope/action so no staff-authored title or encrypted note reaches a customer transport, and returns without emitting when the write carries no tenant AND organization (the portal stream's `matchesAudience` would discard it anyway). The announcement uses its own `todo_announcement` entity segment, so the module's own `example.todo.*` subscribers cannot re-enter on it.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/events.ts",
+        "src/modules/example/subscribers/announce-todo-to-portal.ts"
+      ],
+      "integrationTestPaths": ["src/modules/example/__tests__/announce-todo-to-portal.test.ts"],
+      "dependencyModules": ["events", "customer_accounts"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
       "capabilityId": "ui.page-shell",
       "title": "Backend page shell and page metadata",
       "description": "Server-rendered `Page`/`PageHeader`/`PageBody` shells plus `page.meta.ts` declarative guards, navigation group/order, icon token, and breadcrumb with `labelKey` fallbacks.",
@@ -483,6 +498,18 @@
       "integrationTestPaths": [],
       "dependencyModules": [],
       "ruleOwner": "om-backend-ui-design"
+    },
+    {
+      "capabilityId": "ui.page-middleware",
+      "title": "Backend page middleware",
+      "description": "`backend/middleware.ts` auto-discovered into `backend-middleware.generated.ts` and executed by the backend catch-all page through `resolvePageMiddlewareRedirect`. Shows the two properties of that call site that decide what a page middleware can usefully do: it runs AFTER the route manifest matched and after the `requireAuth`/`requireFeatures` guards passed (so it is not an access gate, and a target naming an unrouted path can never fire), and BEFORE the page component loads (so a redirect costs nothing beyond the auth round-trip already paid). The decision is a pure exported pathname function; the middleware entry only maps it onto the `{ action: 'redirect' | 'continue' }` contract.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/backend/middleware.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/backend-middleware.test.ts"],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
     },
     {
       "capabilityId": "umes.mutation-guard",
@@ -746,6 +773,42 @@
       "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "ai.tool-pack",
+      "title": "AI tool pack (`ai-tools.ts`)",
+      "description": "Module-root tool pack folded into `ai-tools.generated.ts` and loaded into the MCP tool registry. Two read-only tools declared with `defineAiTool`, both gated on features that exist in `acl.ts`, and both resolving tenant/organization from the runtime-supplied `McpToolContext` through a fail-closed helper — never from tool input, which a prompt-injected model controls. `example.get_todo_summary` deliberately reads through this module's own DI service instead of counting rows itself, so the tool and `api/todos/summary/route.ts` cannot drift.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/ai-tools.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/ai-tools.test.ts"],
+      "dependencyModules": ["ai_assistant"],
+      "ruleOwner": "om-create-ai-agent"
+    },
+    {
+      "capabilityId": "ai.agent",
+      "title": "AI agent definition (`ai-agents.ts`)",
+      "description": "One read-only chat agent over this module's own tool pack. `readOnly: true` and `mutationPolicy: 'read-only'` agree because every declared tool is `isMutation: false`; `allowedTools` is a closed whitelist, so adding a tool to `ai-tools.ts` does not silently widen the agent. `systemPrompt` is compiled from the framework's seven named prompt sections rather than written as one literal, which is what lets the prompt-override system address a section by name.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/ai-agents.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/ai-agents.test.ts"],
+      "dependencyModules": ["ai_assistant"],
+      "ruleOwner": "om-create-ai-agent"
+    },
+    {
+      "capabilityId": "ai.agent-extension",
+      "title": "Additive AI agent extension",
+      "description": "`aiAgentExtensions` exported from the same `ai-agents.ts`, patching an agent another module owns (`customers.account_assistant`) instead of forking it. Purely additive — `appendAllowedTools` / `appendSystemPrompt` / `appendSuggestions`, no replace and no delete — and it lends only a tool this module declares. When the target agent is absent the registry logs `Skipping extension for unknown agent` and continues; an extension is never allowed to fail a boot.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/ai-agents.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/ai-agents.test.ts"],
+      "dependencyModules": ["ai_assistant", "customers"],
+      "ruleOwner": "om-create-ai-agent"
     },
     {
       "capabilityId": "testing.integration-coverage",
