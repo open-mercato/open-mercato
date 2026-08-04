@@ -80,6 +80,9 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 32 | **Wave 6 H4** — visible exact-file example links across 5 owner families + measured budget raises | CANON-C link migration | done | `2e9fd74cb` |
 | 33 | **Wave 6 E4** (retry) — encrypted `notes` column + migration + `encryption.ts` + `search.ts`, reworked onto the platform search path | CANON-B encryption/search | done | `f050e659a` |
 | 34 | Measure harness runner duration on a monotonic clock (kills the `durationMs < 0` flake) | flake root-cause | done | `4c72bdabc` |
+| 35 | **Wave 7 E5** — tenant-scoped cache + first real DI registration + all three setup hooks | CANON-B cache/DI/seeding | done | `0d130e01d` |
+| 36 | **Wave 7 H5** — OMH-209..212 declare `exampleRoots`; the read policy is reachable at last | READ-P1/P2 reachability | done | `75d02a6ff` |
+| 37 | **Wave 7 C4** — source-link baseline + topics registry + validator (D4) | CANON-C baseline | done | `904d9cf4d` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -643,3 +646,45 @@ before merging E3; findings change what E3 is allowed to do.
     fences rather than build on them — several recon claims have already proven stale.
 
   Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_d1439c4d-882'})`.
+
+  **Wave 7 merged (session 4). The milestone here is H5.** Until it landed, ZERO of the 208 shipped
+  cases declared `context.exampleRoots` — so every capability row six waves of work had added to the
+  example was **inert for the live harness**. OMH-209..212 now declare it across four disjoint
+  capability groups. 212 cases, contiguous. The verifier enumerated all **14** count/order pins from
+  scratch and confirmed none was missed.
+
+  - **E5 corrected two false premises in its own brief**, and both corrections improved the result.
+    (1) The brief framed seeding as `onTenantCreated` vs `seedDefaults`; `ModuleSetupConfig` declares
+    a THIRD hook, `seedExamples`, which the spec requires by name — the hooks now differ by
+    capability, not by a passed argument. (2) The brief claimed `Todo` is the only tenant-scoped
+    store, so scoped defaults needed the dead `ExampleItem` revived with a migration. `ce.ts` already
+    declares `example:calendar_entity`, a virtual custom entity in `custom_entities_storage` WITH
+    tenant/org columns — which removed Option A's entire motivation, so E5 shipped with **no schema
+    change**. Writing briefs from recon summaries is now demonstrably riskier than letting the agent
+    check; keep telling them to verify the brief.
+  - **E5's own negative control caught a hollow test**: breaking `recordId` left the idempotency
+    assertion green because it compared `[undefined, undefined, undefined]` to itself.
+  - **Closed on merge, H5's one MISSED probe**: appending a capability to a case's
+    `allowedCapabilityIds` silently widened its example-read scope with the whole suite green,
+    because the reachability test derived its expected allowlist FROM the case's own declaration —
+    widening both sides equally. Per-case capability sets are now pinned; re-running that probe fails.
+  - **Closed on merge, C4's emission asymmetry**: the slice put both JSON ledgers and the validator
+    under `agentic/shared/**`, which the scaffolder copies wholesale into every generated app. They
+    are monorepo-only (the baseline pins monorepo SHAs and validates monorepo files), so that shipped
+    ~148KB of dead weight per scaffold. Moved to `packages/create-app/scripts/`, outside the copied
+    tree. **Rule worth remembering: anything under `agentic/shared/{ai,scripts}` SHIPS.**
+  - C4 verified both recon claims rather than assuming: the 8 assets really are read from SHA
+    `f7c941570` via `git cat-file` (all 8 working-tree files have drifted), and the validator reports
+    **8 assets, 136/136 dispositions, 125 topics**.
+  - **Also addressed, and NOT an E5 defect:** `integrationTestPaths` holds both unit and integration
+    evidence by design, but the name reads as a promise of integration coverage — a verifier made
+    exactly that misreading and called it blocking. **20 rows predating E5 use the same convention.**
+    The inventory note now states the distinction outright and `inventory-evidence-honesty.test.ts`
+    pins it, including that every evidence path must resolve on disk.
+
+  **Gate after wave 7: FULLY GREEN.** `yarn test` exit 0 (25/25 tasks), create-mercato-app 546 (543
+  pass, 3 skipped), guards, budget, build:app.
+
+  **Next: wave 8** — E6 (remaining fact families: ai-tools, ai-agents, generators, page middleware,
+  portal broadcast) · H6 (SPEC-P2's two writable ordering proofs — **this unblocks H3's row 6**,
+  the `reuse-spec` case, because the writable proof seeds its own covering spec).
