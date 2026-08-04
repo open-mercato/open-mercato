@@ -91,6 +91,8 @@ Document the worker/CLI app-DI wiring in the IoC container docs and the shared p
 
 ## Progress
 
+PR: #4937
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Worker/CLI app-DI wiring
