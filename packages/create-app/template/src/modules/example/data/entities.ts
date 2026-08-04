@@ -24,6 +24,19 @@ export class Todo {
   @Property({ type: 'text' })
   title!: string
 
+  /**
+   * Free-text notes. Declared in `encryption.ts`, so the stored column holds
+   * ciphertext whenever tenant data encryption is on (the default).
+   *
+   * Consequences that shape the rest of the module — see `search.ts` and
+   * `api/todos/route.ts`:
+   * - never sorted on, never exported to CSV, never filtered with `$ilike`
+   * - selected only for single-record reads, so grid pages skip the per-row decrypt
+   * - reachable by text search only through the hashed `search_tokens` index
+   */
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
   tenantId?: string | null
 
