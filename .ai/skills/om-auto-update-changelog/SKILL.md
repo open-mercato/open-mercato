@@ -1,4 +1,4 @@
-> **Repo-local override.** This file extends the external `om-auto-update-changelog` skill for Open Mercato release preparation. The external workflow remains authoritative except where this override explicitly broadens the release artifact set.
+> **Repo-local override.** This file extends the external `om-auto-update-changelog` skill for Open Mercato release preparation. The external workflow remains authoritative except where this override explicitly broadens the release artifact set or corrects a release-window / credit-resolution default that is wrong for this repository.
 
 # Open Mercato release-upgrade companion contract
 
@@ -73,3 +73,100 @@ yarn workspace create-mercato-app test
 ```
 
 The delegated `om-auto-create-pr` run still owns the configured full validation and review gate. Do not claim the release artifacts are aligned until monorepo/standalone byte identity and both migration-tier registrations pass.
+
+---
+
+# Open Mercato release window and credit contract
+
+Two of the external skill's defaults are wrong for this repository, and both have already shipped a wrong changelog. Apply this part on every run, in addition to the upgrade-companion contract above.
+
+## Window: enumerate by reachability from `main`, not by base branch
+
+The release tag and the release entry describe what is on `main`. `develop` runs well ahead of it. Never build the window from a `baseRefName` filter.
+
+```bash
+LAST_TAG=$(git describe --tags --abbrev=0)          # e.g. v0.6.6
+git fetch origin main --tags
+git rev-list "$LAST_TAG..origin/main" > /tmp/window-commits.txt
+```
+
+Then enumerate merged PRs for the calendar window across **all** base branches (paginate — a single **list-prs** call caps at 250 and this repo routinely exceeds it; split the window into date chunks and dedupe by PR number), and keep only those whose `mergeCommit.oid` appears in `window-commits.txt`. Request `mergeCommit` in the JSON field list; it is not in the shared skill's default field set.
+
+Start the calendar window a few days **before** the previous release date. Develop PRs merged shortly before the release cut land on `main` with it, and a window that starts at the tag date silently drops them.
+
+Additional exclusions on top of the shared skill's (runs-only and prior changelog PRs):
+
+- Branch-sync and release plumbing — titles matching `^chore:\s*(sync back main|sync develop with main|prepare main for release)$`. The changelog has never listed these.
+- Any PR whose number already appears in an earlier `CHANGELOG.md` entry.
+- Sub-PRs merged into an intermediate feature branch are **not** excluded automatically — see the umbrella rule below.
+
+## Credit resolution — three additional paths and a verification pass
+
+Apply the shared skill's Supersede Credit Rule Paths A/B/C first. Then apply these. When several paths fire, the earliest-lettered one wins (A > B > C > D > E).
+
+### Path D — umbrella / feature-branch merge
+
+A PR that merges a long-lived feature branch is authored by whoever pressed the button, not by whoever wrote the code. Detect it from commit authorship:
+
+```bash
+gh pr view "$PR" --repo open-mercato/open-mercato --json number,author,title,commits
+```
+
+Tally commit authors, **excluding** AI and bot identities (see the exclusion list below). When the PR author wrote **zero** commits and a single other human authored the clear majority, that human is `primaryAuthor` and the PR author is **not** recorded as `viaAuthor` — a merge is not a carry-forward. Credit the author alone.
+
+An umbrella PR almost always ships alongside its sub-PRs, which also land on `main` through the same merge and describe the same work. When an umbrella PR and its sub-PRs both fall in the window, **coalesce them into one bullet** listing every number — `(#4566, #1701)` — rather than emitting the work twice.
+
+> Real failure this rule exists to prevent: `#4566` "implementation of WMS" was credited to the maintainer who merged `feat/wms`. Its 192 commits contained **zero** by that maintainer — 100 by `@mkadziolka` and 92 by an AI agent — and `#1701` listed the same work a second time.
+
+### Path E — free-text attribution in the PR body
+
+Contributors get handed off in prose that matches none of the `om-auto-review-pr` templates. Scan every PR body (case-insensitive) for:
+
+```
+Original author:? .*@([A-Za-z0-9][A-Za-z0-9-]{0,38})
+Carries (the )?.* from #(\d+)
+[Cc]redits? (to|goes to) @([A-Za-z0-9][A-Za-z0-9-]{0,38})
+(takes?|took) over .*@([A-Za-z0-9][A-Za-z0-9-]{0,38})
+[Bb]ased on (the )?work (of|by) @([A-Za-z0-9][A-Za-z0-9-]{0,38})
+```
+
+A captured handle becomes `primaryAuthor` with the merged PR author as `viaAuthor`. A captured PR number resolves its author via **get-pr** and additionally emits `(supersedes #N)` in the line text.
+
+> Real failures: `#4276` ("Original author: Maciej Gren (@matgren) — assigning for review/ownership") and `#4761` ("Carries the registry from #4727 (original commit preserved)") were both credited to the maintainer.
+
+### Mandatory verification pass — run before assembling the entry
+
+This is not optional and not a spot check. For **every** bullet, compare the credited `primaryAuthor` against the PR's commit authorship and review each mismatch by hand:
+
+| Signal | Verdict |
+|--------|---------|
+| Credited author wrote **0** commits **and** a `Credit:` / `Supersedes` template is present | ✅ correct — the original commits live on the closed PR; the template is authoritative over commit counts |
+| Credited author wrote **0** commits **and** no template | ❌ **wrong** — apply Path D or E, or investigate before shipping |
+| Credited author is a minority of commits, the rest by a maintainer | ✅ usually correct — normal review-fixup or rebase-and-fix carry |
+| Credited author is a minority and the majority commit is titled "address review findings" or similar | ✅ correct — a review fix is not authorship |
+| PR author differs from the dominant commit author on a >50-commit PR | ❌ investigate as an umbrella merge (Path D) |
+
+Also run **Path C** properly: list closed-unmerged PRs for the window (**list-prs**, `closed:>=${SINCE_DATE} is:unmerged`) and scan their bodies **and comments** for `Closing in favor of #(\d+)`. Replacements that merged to `develop` after the release was cut from `main` are correctly absent from the entry — confirm rather than assume.
+
+### Identities that are never credited
+
+Exclude from commit tallies, from `primaryAuthor`/`viaAuthor`, and from the Contributors block: any handle matching `\[bot\]`, `dependabot`, `renovate`, `^app/`, `^web-flow$`, and the AI coding agents `claude`, `cursoragent`, `copilot`, `codex`, `devin`. When a PR's only credit resolves to a bot, render the bullet with **no** `*(@…)*` suffix rather than crediting the bot or the merger.
+
+When carried-forward work originates from a bot (a Dependabot bump re-opened by a maintainer), the maintainer keeps the credit — there is no human original author to restore.
+
+## Line format specifics
+
+- This repo writes a closing-issue reference as a plain `(#N)` before the PR number — `Summary (#3860). (#4136) *(@author)*` — **not** the shared skill's `(fixes #N)`.
+- Strip a leading `NNN - ` issue number and a `Fix GitHub issue #N: ` prefix out of the summary; carry the number into the `(#N)` slot instead.
+- The conventional-commit prefix regex must accept digits so `i18n(customers):` is stripped: `^([a-z][a-z0-9_]*)(\([^)]*\))?!?:`.
+- Coalesce PRs that differ only by a trailing `(develop)` / `(main)` marker — the same fix carried to both branches is one bullet.
+
+## Highlights
+
+The shared skill leaves `## Highlights` as a TODO marker. In this repo a maintainer usually asks for a draft instead — write it in the voice of the previous three entries (bolded theme phrases, concrete specifics, closing `Enjoy!`), lead with the release's single biggest change, and flag any claim you inferred rather than read directly off a PR so the maintainer can check it.
+
+## Repo conventions the shared workflow already parameterizes
+
+- The changelog PR targets whichever branch the release is cut from — `main` for a release entry, not the config's `baseBranch`. State the target explicitly in the report.
+- Labels for the resulting PR: `documentation`, `skip-qa`, `review`, one `priority-*`, one `risk-*` (a docs-only changelog entry is `priority-medium` / `risk-low`).
+- Never bump `package.json` — the version bump belongs to the release step, not the changelog entry.
