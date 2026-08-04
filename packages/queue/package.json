@@ -34,10 +34,14 @@
     }
   },
   "peerDependencies": {
-    "bullmq": "^5.0.0"
+    "bullmq": "^5.0.0",
+    "bullmq-otel": "^1.3.0"
   },
   "peerDependenciesMeta": {
     "bullmq": {
+      "optional": true
+    },
+    "bullmq-otel": {
       "optional": true
     }
   },
@@ -52,7 +56,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/telemetry": "workspace:*"
   },
   "repository": {
     "type": "git",

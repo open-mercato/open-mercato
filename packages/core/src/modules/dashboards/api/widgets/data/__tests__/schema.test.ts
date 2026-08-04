@@ -1,58 +1,177 @@
 /**
  * @jest-environment node
  */
-import { widgetDataRequestSchema } from '../schema'
+import { MAX_SET_FILTER_VALUES, filterOperatorSchema, widgetDataRequestSchema } from '../schema'
 
-const baseRequest = {
-  entityType: 'sales:order',
-  metric: { field: 'id', aggregate: 'count' as const },
+function buildRequest(filters: Array<Record<string, unknown>>): Record<string, unknown> {
+  return {
+    entityType: 'sales:orders',
+    metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+    filters,
+  }
 }
 
-function parseWithFilter(filter: Record<string, unknown>) {
-  return widgetDataRequestSchema.safeParse({ ...baseRequest, filters: [filter] })
+function buildMembers(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `status-${index}`)
 }
 
-describe('widgetDataRequestSchema — set filter null members', () => {
-  /**
-   * A null member makes the rendered `IN` / `NOT IN` predicate evaluate to SQL NULL for every row,
-   * so the aggregation would silently return zero rows instead of failing. `undefined` cannot be
-   * expressed in JSON, so `{"value": null}` is the shape a real client sends — it must be rejected
-   * at the boundary rather than reinterpreted as the empty set.
-   */
-  it.each(['in', 'not_in'] as const)('rejects a null value for %s', (operator) => {
-    const result = parseWithFilter({ field: 'status', operator, value: null })
-    expect(result.success).toBe(false)
-    expect(result.error?.issues[0]?.path).toEqual(['filters', 0, 'value'])
+describe('widget data set filter bounds (#4852)', () => {
+  test.each(['in', 'not_in'] as const)('accepts a %s filter carrying exactly the maximum member count', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([{ field: 'status', operator, value: buildMembers(MAX_SET_FILTER_VALUES) }]),
+    )
+
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.filters?.[0]?.value).toHaveLength(MAX_SET_FILTER_VALUES)
   })
 
-  it.each(['in', 'not_in'] as const)('rejects an array containing null for %s', (operator) => {
-    const result = parseWithFilter({ field: 'status', operator, value: [null] })
-    expect(result.success).toBe(false)
-    expect(result.error?.issues[0]?.path).toEqual(['filters', 0, 'value'])
+  test.each(['in', 'not_in'] as const)('rejects a %s filter one member over the maximum', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([{ field: 'status', operator, value: buildMembers(MAX_SET_FILTER_VALUES + 1) }]),
+    )
+
+    expect(parsed.success).toBe(false)
+    const issue = parsed.success ? undefined : parsed.error.issues[0]
+    expect(issue?.path).toEqual(['filters', 0, 'value'])
+    expect(issue?.code).toBe('too_big')
+    expect(issue).toMatchObject({ maximum: MAX_SET_FILTER_VALUES })
   })
 
-  it('rejects a null member mixed with valid members', () => {
-    const result = parseWithFilter({ field: 'status', operator: 'not_in', value: ['completed', null, 'shipped'] })
-    expect(result.success).toBe(false)
+  test('names the offending filter when it is not the first one', () => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([
+        { field: 'status', operator: 'eq', value: 'open' },
+        { field: 'channel', operator: 'in', value: buildMembers(MAX_SET_FILTER_VALUES + 1) },
+      ]),
+    )
+
+    expect(parsed.success).toBe(false)
+    expect(parsed.success ? [] : parsed.error.issues.map((issue) => issue.path)).toEqual([
+      ['filters', 1, 'value'],
+    ])
   })
 
-  it('accepts an omitted value, which is the documented empty-set path', () => {
-    expect(parseWithFilter({ field: 'status', operator: 'in' }).success).toBe(true)
-    expect(parseWithFilter({ field: 'status', operator: 'not_in', value: [] }).success).toBe(true)
+  test.each(['in', 'not_in'] as const)('preserves the defined empty-set semantics for %s', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator, value: [] }]))
+
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.filters?.[0]?.value).toEqual([])
   })
 
-  it('accepts set filters whose members are all non-null', () => {
-    expect(parseWithFilter({ field: 'status', operator: 'in', value: ['completed', 'shipped'] }).success).toBe(true)
-    expect(parseWithFilter({ field: 'status', operator: 'in', value: 'completed' }).success).toBe(true)
-    expect(parseWithFilter({ field: 'grandTotal', operator: 'not_in', value: [0, 1] }).success).toBe(true)
+  test('rejects a set filter whose value is not an array at all', () => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator: 'in', value: 'open' }]))
+
+    expect(parsed.success).toBe(false)
+    expect(parsed.success ? undefined : parsed.error.issues[0]?.path).toEqual(['filters', 0, 'value'])
+  })
+
+  test('rejects a set filter with a missing value', () => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator: 'in' }]))
+
+    expect(parsed.success).toBe(false)
+  })
+
+  test.each([
+    ['null', null],
+    ['an object', { id: 'open' }],
+    ['a nested array', ['open']],
+  ])('rejects %s as a set member', (_label, member) => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([{ field: 'status', operator: 'in', value: ['open', member] }]),
+    )
+
+    expect(parsed.success).toBe(false)
+    expect(parsed.success ? undefined : parsed.error.issues[0]?.path).toEqual(['filters', 0, 'value', 1])
+  })
+
+  test('accepts the primitive member types a set filter is allowed to compare against', () => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([{ field: 'status', operator: 'in', value: ['open', 7, true] }]),
+    )
+
+    expect(parsed.success).toBe(true)
+  })
+})
+
+describe('widget data scalar filters are unaffected by the set bound', () => {
+  test.each(['eq', 'neq', 'gt', 'gte', 'lt', 'lte'] as const)('keeps %s accepting a bare scalar value', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator, value: 'open' }]))
+
+    expect(parsed.success).toBe(true)
+  })
+
+  test.each(['is_null', 'is_not_null'] as const)('keeps %s valid without a value', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'closureOutcome', operator }]))
+
+    expect(parsed.success).toBe(true)
+  })
+
+  test('does not apply the member bound to a scalar operator', () => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([{ field: 'status', operator: 'eq', value: buildMembers(MAX_SET_FILTER_VALUES + 1) }]),
+    )
+
+    expect(parsed.success).toBe(true)
+  })
+
+  test('still rejects an unknown operator', () => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator: 'like', value: 'a%' }]))
+
+    expect(parsed.success).toBe(false)
+  })
+})
+
+describe('filterOperatorSchema', () => {
+  test('preserves every supported operator and its published order', () => {
+    expect(filterOperatorSchema.options).toEqual([
+      'eq',
+      'neq',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'in',
+      'not_in',
+      'is_null',
+      'is_not_null',
+    ])
+  })
+})
+
+/**
+ * The bound tests above reject a null *member* (`['open', null]`). This block covers the shape a
+ * real client is far more likely to send: `value` itself set to `null`.
+ *
+ * It matters because the request arrives as JSON, where `undefined` is not expressible — so
+ * `{"value": null}` is the idiomatic way to say "no value", while omitting the key is the only
+ * way to reach the empty-set path. Before the boundary rejected it, a null value rendered as
+ * `column IN (NULL)`, which evaluates to SQL NULL for every row: the aggregation returned zero
+ * rows with no error, and a dashboard rendered that as a legitimate-looking zero (#4821 review).
+ */
+describe('widget data set filters reject a null value, not just a null member', () => {
+  test.each(['in', 'not_in'] as const)('rejects an explicit null value for %s', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator, value: null }]))
+
+    expect(parsed.success).toBe(false)
+    expect(parsed.success ? undefined : parsed.error.issues[0]?.path).toEqual(['filters', 0, 'value'])
+  })
+
+  test('rejects a null member mixed among otherwise valid members', () => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([{ field: 'status', operator: 'not_in', value: ['completed', null, 'shipped'] }]),
+    )
+
+    expect(parsed.success).toBe(false)
   })
 
   /**
    * `is_null` / `is_not_null` build their predicate from the operator alone and never read the
-   * value, so a caller sending an explicit `null` there is valid input today. The guard is
-   * operator-scoped rather than blanket so those callers keep working.
+   * value, so an explicit null there stays valid. The guard is scoped to the set operators rather
+   * than applied blanket, and this pins that distinction.
    */
-  it.each(['is_null', 'is_not_null'] as const)('accepts an explicit null value for %s', (operator) => {
-    expect(parseWithFilter({ field: 'status', operator, value: null }).success).toBe(true)
+  test.each(['is_null', 'is_not_null'] as const)('keeps an explicit null value valid for %s', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator, value: null }]))
+
+    expect(parsed.success).toBe(true)
   })
 })

@@ -61,6 +61,41 @@ describe('ConfirmDialog', () => {
     expect(dialog.parentElement).toBe(document.body)
   })
 
+  it('renders the destructive confirmation as the solid variant', () => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        variant="destructive"
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Delete customer?"
+        confirmText="Delete"
+        cancelText="Cancel"
+      />,
+    )
+
+    const classNames = screen.getByRole('button', { name: 'Delete' }).className.split(/\s+/)
+    expect(classNames).toContain('bg-destructive')
+    expect(classNames).toContain('text-white')
+  })
+
+  it('keeps the default confirmation on the primary variant', () => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Publish article?"
+        confirmText="Publish"
+        cancelText="Cancel"
+      />,
+    )
+
+    const classNames = screen.getByRole('button', { name: 'Publish' }).className.split(/\s+/)
+    expect(classNames).toContain('bg-primary')
+    expect(classNames).not.toContain('bg-destructive')
+  })
+
   it('closes only the confirmation that owns an Escape event', () => {
     const firstOpenChange = jest.fn()
     const secondOpenChange = jest.fn()
