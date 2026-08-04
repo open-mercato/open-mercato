@@ -104,34 +104,55 @@ function useAgentModels(agent: string): {
   allowRuntimeModelOverride: boolean
   defaultLabel: string | null
   loaded: boolean
+  failed: boolean
 } {
   const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
   const [allowRuntimeOverride, setAllowRuntimeOverride] = React.useState(false)
   const [defaultLabel, setDefaultLabel] = React.useState<string | null>(null)
   const [loaded, setLoaded] = React.useState(false)
+  const [failed, setFailed] = React.useState(false)
 
   React.useEffect(() => {
+    let cancelled = false
     const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
     setLoaded(false)
     setDefaultLabel(null)
-    void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
-      if (!result.ok || !result.result) {
+    setFailed(false)
+    apiCall<ModelsApiResponse>(modelsUrl)
+      .then((result) => {
+        if (cancelled) return
+        if (!result.ok || !result.result) {
+          logger.error('Failed to load AI agent models', { agent, status: result.status })
+          setFailed(true)
+          setLoaded(true)
+          return
+        }
+        const effectiveAllowRuntimeOverride =
+          result.result.allowRuntimeOverride ?? result.result.allowRuntimeModelOverride ?? false
+        setAllowRuntimeOverride(effectiveAllowRuntimeOverride)
+        setProviders(result.result.providers)
+        setDefaultLabel(
+          result.result.defaultProviderName && result.result.defaultModelName
+            ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
+            : result.result.defaultProviderId && result.result.defaultModelId
+              ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
+              : null,
+        )
         setLoaded(true)
-        return
-      }
-      const effectiveAllowRuntimeOverride =
-        result.result.allowRuntimeOverride ?? result.result.allowRuntimeModelOverride ?? false
-      setAllowRuntimeOverride(effectiveAllowRuntimeOverride)
-      setProviders(result.result.providers)
-      setDefaultLabel(
-        result.result.defaultProviderName && result.result.defaultModelName
-          ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
-          : result.result.defaultProviderId && result.result.defaultModelId
-            ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
-            : null,
-      )
-      setLoaded(true)
-    })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        // `apiCall` rejects on a network failure and on the 401/403 errors
+        // `apiFetch` throws. Without this handler the effect never settled:
+        // `loaded` stayed false for the component's lifetime and the
+        // rejection surfaced as an unhandled promise rejection.
+        logger.error('Failed to load AI agent models', { agent, err })
+        setFailed(true)
+        setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [agent])
 
   return {
@@ -140,6 +161,7 @@ function useAgentModels(agent: string): {
     allowRuntimeModelOverride: allowRuntimeOverride,
     defaultLabel,
     loaded,
+    failed,
   }
 }
 
@@ -1214,6 +1236,7 @@ export function AiChat({
     allowRuntimeModelOverride,
     defaultLabel: modelDefaultLabel,
     loaded: modelProvidersLoaded,
+    failed: modelProvidersFailed,
   } = useAgentModels(agent)
 
   const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
@@ -1241,6 +1264,10 @@ export function AiChat({
 
   React.useEffect(() => {
     if (!modelProvidersLoaded) return
+    // An unreachable models endpoint says nothing about which providers the
+    // agent allows, so the persisted selection is kept until a successful
+    // response proves it unavailable.
+    if (modelProvidersFailed) return
     if (!allowRuntimeModelOverride || modelProviders.length === 0) {
       if (modelPickerValue !== null) {
         setModelPickerValue(null)
@@ -1257,6 +1284,7 @@ export function AiChat({
     allowRuntimeModelOverride,
     modelPickerValue,
     modelProviders,
+    modelProvidersFailed,
     modelProvidersLoaded,
   ])
 

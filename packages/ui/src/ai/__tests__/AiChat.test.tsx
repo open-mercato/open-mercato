@@ -56,9 +56,26 @@ jest.mock('../../backend/utils/apiCall', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { apiFetch } from '../../backend/utils/api'
 import { apiCall } from '../../backend/utils/apiCall'
 import { AiChat } from '../AiChat'
+
+const loggerError = createLogger('ui').error as jest.Mock
+
+const MODEL_PICKER_STORAGE_KEY = 'om-ai-model-picker:customers.account_assistant'
 
 let lastResizeObserver: MockResizeObserver | null = null
 
@@ -256,6 +273,47 @@ describe('<AiChat>', () => {
     await waitFor(() => {
       expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
     })
+  })
+
+  it('logs and keeps the stored model picker value when the models endpoint errors', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({ ok: false, status: 500, result: null })
+    const storedValue = JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' })
+    window.localStorage.setItem(MODEL_PICKER_STORAGE_KEY, storedValue)
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(loggerError).toHaveBeenCalledWith('Failed to load AI agent models', {
+        agent: 'customers.account_assistant',
+        status: 500,
+      })
+    })
+    await act(async () => {})
+
+    expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBe(storedValue)
+    expect(screen.getByLabelText('Message composer')).toBeInTheDocument()
+  })
+
+  it('logs and keeps the stored model picker value when the models request rejects', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    const failure = new Error('[internal] models endpoint unreachable')
+    apiCallMock.mockRejectedValueOnce(failure)
+    const storedValue = JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' })
+    window.localStorage.setItem(MODEL_PICKER_STORAGE_KEY, storedValue)
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(loggerError).toHaveBeenCalledWith('Failed to load AI agent models', {
+        agent: 'customers.account_assistant',
+        err: failure,
+      })
+    })
+    await act(async () => {})
+
+    expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBe(storedValue)
+    expect(screen.getByLabelText('Message composer')).toBeInTheDocument()
   })
 
   it('does not send provider or model overrides while the model picker is on Default', async () => {
