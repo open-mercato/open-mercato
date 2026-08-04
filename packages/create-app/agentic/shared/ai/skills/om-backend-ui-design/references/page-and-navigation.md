@@ -11,3 +11,5 @@ Load this reference when adding/moving/hiding a page or navigation item.
 6. Run `yarn generate`; verify allowed/denied/wildcard navigation and direct-route access.
 
 Use Lucide components inside page UI. Avoid inline SVG and prefer serializable icon strings in metadata.
+
+Canonical example source — server-rendered `Page`/`PageHeader`/`PageBody` with a sibling `page.meta.ts` carrying guards, nav group/order, icon token and breadcrumb `labelKey`: [`backend/todos/page.tsx`](../../../../src/modules/example/backend/todos/page.tsx), [`backend/todos/page.meta.ts`](../../../../src/modules/example/backend/todos/page.meta.ts), [`backend/page.tsx`](../../../../src/modules/example/backend/page.tsx), [`backend/page.meta.ts`](../../../../src/modules/example/backend/page.meta.ts). A module-owned route outside `/backend`: [`frontend/example.tsx`](../../../../src/modules/example/frontend/example.tsx). The example ships no portal page or page middleware — follow steps 3–4 and the portal facts instead.

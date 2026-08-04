@@ -39,3 +39,5 @@ Load this reference when `src/modules.ts` must disable or replace an installed c
 - Verify host present/absent, wildcard ACL, direct URL/API access, registry uniqueness, cache/navigation cleanup, and rollback to the base contribution.
 
 For additive behavior use an enricher, interceptor, guard, widget/menu, extension entity, event subscriber, or component wrapper instead of replacing the whole contribution.
+
+Canonical example source: [`src/modules.ts`](../../../../src/modules.ts) carries typed, **inactive** `entry.overrides` examples for every wired override domain. It is the app registry, not the `example` module — read it for the exact shape, then write your own active entry.
