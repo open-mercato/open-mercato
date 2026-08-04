@@ -5,6 +5,7 @@ const putObjectMock = jest.fn()
 const getBucketMock = jest.fn(() => 'test-bucket')
 const listObjectsMock = jest.fn()
 const readMock = jest.fn()
+const translateMock = jest.fn((key: string, fallback?: string) => fallback ?? key)
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequestMock(...args),
@@ -12,10 +13,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
-    locale: 'en',
-    dict: {},
-    t: (_key: string, fallback?: string) => fallback ?? _key,
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (key: string, fallback?: string) => translateMock(key, fallback),
   }),
 }))
 
@@ -65,6 +63,7 @@ describe('storage_s3 upload/download routes', () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'Active content uploads are not allowed.' })
+    expect(translateMock).toHaveBeenCalledWith('storage_s3.errors.activeContentBlocked', expect.any(String))
     expect(putObjectMock).not.toHaveBeenCalled()
   })
 
@@ -109,6 +108,7 @@ describe('storage_s3 upload/download routes', () => {
 
     expect(response.status).toBe(413)
     await expect(response.json()).resolves.toEqual({ error: 'Attachment storage quota exceeded for this tenant.' })
+    expect(translateMock).toHaveBeenCalledWith('storage_s3.errors.quotaExceeded', expect.any(String))
     expect(putObjectMock).not.toHaveBeenCalled()
   })
 
