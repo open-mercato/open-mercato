@@ -1,4 +1,5 @@
 import type { BootstrapData } from './types'
+import type { AppDiRegistrar } from '../di/container'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
@@ -296,14 +297,26 @@ function cacheIsValid(
     && dependenciesAreValid(appRoot, metadata.dependencies)
 }
 
+type CompileAndImportOptions = {
+  /** App root the source belongs to. Defaults to the generated-file layout `<appRoot>/.mercato/generated/x.ts`. */
+  appRoot?: string
+  /** Where to write the compiled bundle. Defaults to a `.mjs` sibling of the source. */
+  outFile?: string
+  allowRecovery?: boolean
+}
+
 /**
  * Compile a TypeScript file to JavaScript using esbuild bundler.
  * This bundles the file and all its dependencies, handling JSON imports properly.
  * The compiled file is written next to the source file with a .mjs extension.
  */
-async function compileAndImport(tsPath: string, allowRecovery: boolean = true): Promise<Record<string, unknown>> {
-  const jsPath = tsPath.replace(/\.ts$/, '.mjs')
-  const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
+async function compileAndImport(
+  tsPath: string,
+  options: CompileAndImportOptions = {},
+): Promise<Record<string, unknown>> {
+  const { allowRecovery = true } = options
+  const appRoot = options.appRoot ?? path.dirname(path.dirname(path.dirname(tsPath)))
+  const jsPath = options.outFile ?? tsPath.replace(/\.ts$/, '.mjs')
   const appTsconfig = path.join(appRoot, 'tsconfig.json')
   const metadataPath = cacheMetadataPath(jsPath)
 
@@ -324,6 +337,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   if (needsCompile) {
     // Dynamically import esbuild only when needed
     const esbuild = await import('esbuild')
+    fs.mkdirSync(path.dirname(jsPath), { recursive: true })
 
     // Use esbuild.build with bundling to handle JSON imports
     const result = await esbuild.build({
@@ -367,7 +381,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
       throw error
     }
 
-    return compileAndImport(tsPath, false)
+    return compileAndImport(tsPath, { ...options, allowRecovery: false })
   }
 }
 
@@ -402,6 +416,46 @@ async function loadOptionalGeneratedModule(
       err: error,
     })
     return fallback
+  }
+}
+
+/**
+ * Load the app-level DI override module (`<appDir>/src/di.ts`, imported as `@/di`
+ * from bundled app code) for unbundled runtimes.
+ *
+ * Next.js resolves the `@/` alias through its bundler, so the request container's
+ * `import('@/di')` fallback only ever works in the web process. In CLI and queue
+ * worker processes that bare specifier is unresolvable, so app-level DI
+ * registrations silently never applied there — and Node's ERR_MODULE_NOT_FOUND
+ * stack was logged on every container creation. Compiling the module here
+ * (the esbuild alias plugin resolves `@/`) and handing it to `createBootstrap`
+ * gives worker/CLI processes the same app DI wiring the web process has.
+ *
+ * Apps without a `src/di.ts` are the supported case and resolve to `null` quietly.
+ */
+export async function loadAppDiRegistrar(appDir: string): Promise<AppDiRegistrar | null> {
+  const tsPath = path.join(appDir, 'src', 'di.ts')
+  if (!fs.existsSync(tsPath)) return null
+
+  try {
+    const module = await compileAndImport(tsPath, {
+      appRoot: appDir,
+      outFile: path.join(appDir, '.mercato', 'app-di.mjs'),
+    })
+    const register = module.register
+    if (typeof register !== 'function') {
+      logger.warn('App-level DI module has no register() export; its registrations are skipped', {
+        filePath: tsPath,
+      })
+      return null
+    }
+    return register as AppDiRegistrar
+  } catch (error) {
+    logger.error('Failed to load app-level DI module, continuing without its registrations', {
+      filePath: tsPath,
+      err: error,
+    })
+    return null
   }
 }
 
@@ -506,8 +560,10 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
  */
 export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapData> {
   const { createBootstrap, waitForAsyncRegistration } = await import('./factory.js')
-  const data = await loadBootstrapData(appRoot)
-  const bootstrap = createBootstrap(data)
+  const appDir = appRoot ?? findAppRoot()?.appDir
+  const data = await loadBootstrapData(appDir)
+  const appDiRegistrar = appDir ? await loadAppDiRegistrar(appDir) : null
+  const bootstrap = createBootstrap(data, appDiRegistrar ? { appDiRegistrar } : {})
   bootstrap()
   // In CLI context, wait for async registrations (UI widgets, search configs, etc.)
   await waitForAsyncRegistration()

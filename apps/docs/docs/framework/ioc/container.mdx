@@ -54,6 +54,8 @@ export const bootstrap = createBootstrap(data, {
 
 Explicit wiring keeps the app alias in the app's bundler context, so scaffolded apps do not rely on package code resolving `@/di` on their behalf. A package-level dynamic-import fallback remains only for compatibility with older app bootstraps. The registrar runs for each request container after core and module registrars; inline `modules.ts` DI overrides remain the final mutation tier.
 
+Unbundled runtimes (the CLI, queue workers, the scheduler) do not go through `src/bootstrap.ts` — they call `bootstrapFromAppRoot()`, which compiles `src/di.ts` from the app root and wires the same registrar. App-level registrations therefore apply to background jobs exactly as they do to requests. Apps that ship no `src/di.ts` are unaffected; a `src/di.ts` that fails to compile or import is reported at error level and skipped rather than failing the process.
+
 ## Best practices
 
 - **Naming** – use descriptive keys (`organizationInvitationService`). Keep module-specific prefixes to avoid collisions.

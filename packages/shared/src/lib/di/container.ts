@@ -286,7 +286,12 @@ export async function createRequestContainer(): Promise<AppContainer> {
       }
     } catch (err) {
       if (isAppDiModuleNotFound(err)) {
-        logger.debug('App-level DI override module (@/di) not resolvable; skipping', { err })
+        // Expected outside bundled app code (CLI/worker runtimes cannot resolve
+        // the `@/` alias); log the reason only, never the module-not-found stack
+        // — it reads as a crash in dev logs.
+        logger.debug('App-level DI override module (@/di) not resolvable; skipping', {
+          reason: err instanceof Error ? err.message.split('\n')[0] : String(err),
+        })
       } else {
         warnAppDiFailureOnce(
           APP_DI_LOAD_WARNING_KEY,
