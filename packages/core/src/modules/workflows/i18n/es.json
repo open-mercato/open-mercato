@@ -935,6 +935,7 @@
   "workflows.orderApproval.decisionLabel": "Decisión",
   "workflows.orderApproval.groupDescription": "Revise y apruebe o rechace este pedido.",
   "workflows.orderApproval.groupLabel": "Aprobación de pedido",
+  "workflows.orderApproval.missingOrderId": "No se puede iniciar el flujo de aprobación antes de que el pedido se haya cargado.",
   "workflows.orderApproval.missingStatuses": "Faltan entradas de estado del pedido. Asegúrese de que existan los estados pending_approval, approved y rejected.",
   "workflows.orderApproval.noWorkflowActive": "No hay un flujo de aprobación activo para este pedido.",
   "workflows.orderApproval.pendingDescription": "Este pedido requiere aprobación antes de procesarse.",
