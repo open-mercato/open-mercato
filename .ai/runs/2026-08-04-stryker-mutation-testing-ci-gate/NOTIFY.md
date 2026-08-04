@@ -32,3 +32,28 @@
   `done` (that is the cell `om-auto-continue-pr-loop` parses to find the resume point). The `Commit`
   cell is filled with the real short SHA in the next commit or at the checkpoint. No Step is ever
   left ambiguous: `Status` is authoritative, `Commit` is informational.
+
+## 2026-08-04T09:20:00Z — Phase 0b result: packages/core stays out of the allowlist
+
+- Measured three representative `core` files. Only the 75-LOC `auth/lib/rateLimitCheck.ts`
+  completed (1 m 45 s, 41 mutants, 58.5 %). `auth/commands/roles.ts` exceeded ten minutes twice
+  without producing a score. `customers/data/validators.ts` generated 403 mutants with Stryker's own
+  ETA at ~6 h 42 m and was aborted.
+- The spec's exit criterion ("3 representative core files complete under 10 min") is missed by about
+  two orders of magnitude, so the Phase 1 allowlist ships as `['shared']` only, per the operator's
+  Phase 0b instruction. Full numbers and reasoning appended to
+  `.ai/analysis/2026-07-31-stryker-mutation-testing-pilot.md`.
+- The throwaway `packages/core/stryker.conf.mjs` was deleted, not committed.
+
+## 2026-08-04T09:20:00Z — blocker encountered and resolved: interrupted inPlace runs
+
+- Two measurement runs were killed by the tooling's 10-minute cap while Stryker held real source
+  files mutated. Each left ~4 966 modified files in `packages/core`, because Stryker's
+  `disableTypeChecks` default prepends `// @ts-nocheck` before mutating and `inPlace: true` writes
+  that to disk. `git checkout -- packages/core` recovered fully both times.
+- Consequence for the design: the clean-tree guard in the local wrapper is a hard stop, not a
+  warning, and `disableTypeChecks` cannot be turned off to shrink the blast radius because this
+  repo's ts-jest transformer type-checks. Recorded in the analysis document.
+- Process note for future runs in this environment: background tasks are killed at the 10-minute
+  tool cap, and `ps` in this sandbox does not reliably show those processes — rely on task
+  notifications, and never run two `inPlace` Stryker runs against the same package concurrently.
