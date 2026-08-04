@@ -301,7 +301,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 46)
+  assert.equal(validators.catalog.writableCaseIds.length, 48)
   assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
     ['OMH-185', 600_000],
     ['OMH-188', 600_000],
@@ -310,6 +310,8 @@ test('the catalog count and release coverage are derived from the validator regi
     ['OMH-191', 420_000],
     ['OMH-192', 600_000],
     ['OMH-193', 600_000],
+    ['OMH-213', 600_000],
+    ['OMH-214', 600_000],
   ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
@@ -581,12 +583,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-212', () => {
+test('deterministic evaluation enforces the case schema through OMH-214', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-212')
+    assert.equal(cases.at(-1)?.id, 'OMH-214')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3755,7 +3757,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 212)
+  assert.equal(cases.length, 214)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
@@ -4053,6 +4055,400 @@ test('live routing rejects a structurally invalid spec routing payload before sc
       violations.some((entry) => entry.includes('specRouting.reasonCodes must be unique upper-snake-case reason codes')),
       JSON.stringify(violations, null, 2),
     )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------------------
+// SPEC-P2 writable planning proofs (OMH-213, OMH-214) and their fixed Markdown oracle.
+// ---------------------------------------------------------------------------------------
+
+const specOracle = path.join(sourceHarness, 'writable-spec-oracles.mjs')
+const emittedSpecRoot = path.join(sharedRoot, 'ai', 'specs')
+const newFeatureSpecPath = '.ai/specs/2026-08-04-warehouse-stock-transfers.md'
+const coveringSpecPath = '.ai/specs/2026-08-04-service-appointment-reminders.md'
+
+type SpecOracleReport = {
+  status: number | null
+  passed: boolean
+  failures: string[]
+  checks: Array<{ id: string; passed: boolean; requirement: string }>
+}
+
+function seededFixtureFiles(fixtureId: string): Record<string, string> {
+  const seeds = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'fixtures', 'seeds.json'), 'utf8')) as {
+    fixtures: Record<string, Record<string, string>>
+  }
+  const files = seeds.fixtures[fixtureId]
+  assert.ok(files, `fixture ${fixtureId} must ship a seed entry`)
+  return files
+}
+
+// A disposable stand-in for the prepared writable target: the emitted `.ai/specs` scaffolding,
+// a fresh module tree, and exactly the files the case fixture seeds.
+function stageSpecTarget(fixtureId: string): string {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-spec-')))
+  fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+  for (const name of ['README.md', 'SPEC-000-template.md']) {
+    fs.copyFileSync(path.join(emittedSpecRoot, name), path.join(root, '.ai', 'specs', name))
+  }
+  fs.mkdirSync(path.join(root, 'src', 'modules', 'example'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'src', 'modules.ts'), "export const enabledModules = ['example']\n")
+  for (const [relative, content] of Object.entries(seededFixtureFiles(fixtureId))) {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true })
+    fs.writeFileSync(path.join(root, relative), content)
+  }
+  return root
+}
+
+function runSpecOracle(root: string, caseId: string, phase: 'before' | 'after'): SpecOracleReport {
+  const result = spawnSync(process.execPath, [specOracle, '--root', root, '--case', caseId, '--phase', phase, '--json'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  })
+  return { status: result.status, ...(JSON.parse(result.stdout) as Omit<SpecOracleReport, 'status'>) }
+}
+
+function failedSpecCheckIds(report: SpecOracleReport): string[] {
+  return report.checks.filter((entry) => !entry.passed).map((entry) => entry.id).sort()
+}
+
+// A plausible complete answer for OMH-213. Every graded property is present exactly once, so a
+// single targeted mutation below can flip exactly one named check.
+const deliveredTransferSpec = `# Warehouse Stock Transfers
+
+**Date**: 2026-08-04
+**Status**: Ready for implementation
+
+## TLDR
+
+Branch managers move stock between warehouses on paper today. This slice records a transfer request, tracks it through packing and receipt, and moves stock levels only when the receiving warehouse confirms what actually arrived.
+
+## Problem Statement
+
+Stock moves between the two regional warehouses several times a week, and nothing in the app knows about it. A manager telephones the sending warehouse, someone writes the items on a delivery note, and the receiving warehouse corrects its own counts by hand days later. Because the app is told nothing, the sending warehouse still shows stock it no longer holds and the receiving warehouse cannot sell stock it already has on the shelf. When a case is short or refused nobody records why, so the same dispute repeats every quarter and the finance team cannot reconcile the two sets of counts. Managers have asked for the request, the dispatch, and the confirmed receipt to live in the app, with stock moving only on that confirmed receipt so a number is never adjusted twice.
+
+## Users, Permissions, and Scope
+
+| Actor | Allowed outcomes | Scope rule | Required feature IDs |
+|---|---|---|---|
+| Branch manager | raise a transfer request and read its history | own organization | stock_transfers.manage |
+| Warehouse operator | dispatch a request and confirm a receipt | own organization | stock_transfers.operate |
+
+Tenant and organization always come from the trusted request context, never from the request body, and every read and write filters on that scope so one organization can never see or move another organization's stock.
+
+## API, Command, and Error Contracts
+
+| Method / command | Path / ID | Auth and feature gate | Input | Success response / event | Errors and concurrency |
+|---|---|---|---|---|---|
+| GET | /api/stock-transfers | auth + stock_transfers.manage | status, page, pageSize | { items, totalCount } | 400 invalid query, 403 wrong feature |
+| POST | /api/stock-transfers | auth + stock_transfers.manage | source, destination, and requested lines | 201 and stock_transfers.transfer.requested | 400 invalid body, 403 wrong feature |
+| POST | /api/stock-transfers/dispatch | auth + stock_transfers.operate | transfer id, packed lines, version | 200 and stock_transfers.transfer.dispatched | 409 stale version, 422 line not requested |
+| POST | /api/stock-transfers/receive | auth + stock_transfers.operate | transfer id, received lines, version | 200 and stock_transfers.transfer.received | 409 stale version, 422 more received than dispatched |
+
+The list route uses the CRUD route factory. Dispatch and receive are guarded command routes because each one changes a lifecycle state and has downstream effects. Both carry the caller's record version and refuse a stale write with a conflict rather than overwriting a concurrent edit. The receive command is the only writer of stock levels: it applies the confirmed quantities inside one transaction, records a shortfall line for anything missing, and emits its event after the transaction commits so a failed adjustment never announces a receipt that did not happen.
+
+## Integration Coverage
+
+Each test creates its own tenant, organization, warehouses, users, and stock rows, and removes them in a finally block, so the suite is stable without seeded demonstration data.
+
+| Test ID | Level | Setup / fixture | Actions | Assertions |
+|---|---|---|---|---|
+| TEST-001 | integration | two warehouses and one stocked article | request, dispatch, and receive the full quantity | both stock rows match the moved quantity and three lifecycle events were emitted in order |
+| TEST-002 | integration | a dispatched transfer | receive less than was dispatched | a shortfall line is recorded, both warehouses are notified, and stock moves by the received quantity only |
+| TEST-003 | security | two organizations with one transfer each | read and dispatch across the organization boundary | both attempts fail closed and no identifier from the other organization is returned |
+| TEST-004 | integration | a dispatched transfer and two concurrent receipts | submit both receipts with the same record version | exactly one succeeds, the other returns a conflict, and stock moves once |
+
+## Implementation Phases
+
+Phases are dependency ordered; each one leaves the application working and closes with its own evidence.
+
+### Phase 1 — Transfer record and scoped read path
+
+- **Depends on:** none
+- **Outcome:** a manager can raise a transfer request and see its state.
+- **Deliverables:** the transfer and transfer-line entities with their scope columns and version column, the migration, the zod validators, the list and create routes on the CRUD route factory, the access-control features, and the module registration.
+- **Tests:** TEST-003
+- **Validation:** yarn generate, focused typecheck, and the named security test.
+- **Exit gate:** a request raised in one organization is invisible to another organization on every route.
+
+### Phase 2 — Dispatch, confirmed receipt, and stock movement
+
+- **Depends on:** Phase 1 exit gate
+- **Outcome:** stock levels move only when the receiving warehouse confirms what arrived.
+- **Deliverables:** the guarded dispatch and receive commands, the transactional stock adjustment, the shortfall line, the optimistic-lock conflict path, the typed events, and the notification to both warehouses.
+- **Tests:** TEST-001, TEST-002, TEST-004
+- **Validation:** focused command tests plus the three named integration tests.
+- **Exit gate:** a full receipt, a short receipt, and two concurrent receipts each leave the two stock counts correct exactly once.
+
+## Risks and Tradeoffs
+
+| Risk / tradeoff | Impact | Mitigation / detection | Residual risk |
+|---|---|---|---|
+| Two operators confirm the same receipt at once | stock moved twice | record version on the receive command, asserted by TEST-004 | an operator who edits from two windows still sees one conflict message |
+| A dispatch is never received | stock stranded between warehouses | ageing report on dispatched transfers | a physically lost consignment still needs a manual write-off |
+
+## Changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-04 | Initial covering specification for warehouse stock transfers. |
+`
+
+// The OMH-214 answer is the seeded covering spec plus the contract change the prompt asks for.
+// Each edit is anchored and asserted, so a silent no-op replacement cannot fake an amendment.
+function amendCoveringSpec(seeded: string): string {
+  const edits: Array<[string, string]> = [
+    [
+      '## Users, Permissions, and Scope',
+      [
+        'A reminder is now produced for three appointment moments rather than one. A confirmed appointment still',
+        'produces the original reminder. An appointment rescheduled into another slot produces its own reminder naming',
+        'the new day and time, and an appointment cancelled by either side produces a reminder telling the customer not',
+        'to travel. Reminders go out by e-mail and by SMS text message, and the app records a delivery outcome per',
+        'channel so a manager can see which channel actually reached the customer.',
+        '',
+        '## Users, Permissions, and Scope',
+      ].join('\n'),
+    ],
+    [
+      '| TEST-003 | integration |',
+      [
+        '| TEST-004 | integration | one appointment rescheduled into a later slot | run the reminder worker | a rescheduled reminder names the new slot and the original reminder is left intact |',
+        '| TEST-005 | integration | one appointment cancelled after it was agreed | run the reminder worker | a cancelled reminder exists and no further reminder is produced for that appointment |',
+        '| TEST-006 | integration | one agreed appointment with a refusing SMS sender | run the reminder worker | the e-mail outcome is accepted, the SMS outcome is refused, and both per-channel results are visible to a manager |',
+        '| TEST-003 | integration |',
+      ].join('\n'),
+    ],
+    [
+      '## Risks and Tradeoffs',
+      [
+        '### Phase 3 — Rescheduled and cancelled reminders across both channels',
+        '',
+        '- **Depends on:** Phase 2 exit gate',
+        '- **Outcome:** a moved or called-off appointment reaches the customer on both channels and the manager can see which one worked.',
+        '- **Deliverables:** the reminder-reason column and its migration, the SMS sender behind the same command seam, the per-channel outcome rows, the worker branches for a moved and a called-off appointment, and the manager view of each channel result.',
+        '- **Tests:** TEST-004, TEST-005, TEST-006',
+        '- **Validation:** focused worker and command tests plus the three named integration tests.',
+        '- **Exit gate:** rescheduling an appointment and cancelling one each produce exactly one reminder of the right reason on both channels, and a refused channel is visible without hiding the accepted one.',
+        '',
+        '## Risks and Tradeoffs',
+      ].join('\n'),
+    ],
+    [
+      '| 2026-08-04 | Initial covering specification for reminders on a confirmed appointment. |',
+      [
+        '| 2026-08-04 | Initial covering specification for reminders on a confirmed appointment. |',
+        '| 2026-08-05 | Extended the contract to a rescheduled and a cancelled appointment, added the SMS channel alongside e-mail, and required a per-channel delivery outcome with its own integration coverage. |',
+      ].join('\n'),
+    ],
+  ]
+  let amended = seeded
+  for (const [anchor, replacement] of edits) {
+    assert.equal(amended.split(anchor).length - 1, 1, `covering spec must contain exactly one ${anchor}`)
+    amended = amended.replace(anchor, replacement)
+  }
+  assert.notEqual(amended, seeded)
+  return amended
+}
+
+test('the new-feature planning proof fails on its seeded scaffold and passes on one complete covering spec', () => {
+  const root = stageSpecTarget('planning-new-feature')
+  try {
+    const before = runSpecOracle(root, 'OMH-213', 'before')
+    assert.equal(before.passed, false)
+    assert.equal(before.status, 1)
+    assert.deepEqual(failedSpecCheckIds(before), ['spec.single'])
+
+    fs.writeFileSync(path.join(root, newFeatureSpecPath), deliveredTransferSpec)
+    const after = runSpecOracle(root, 'OMH-213', 'after')
+    assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
+    assert.equal(after.status, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Each row breaks exactly one graded property of the passing answer and names the check that
+// must go red. Without these, a grader that silently stopped asserting would still look green.
+const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => void, string]> = [
+  ['a second authored spec', (root) => {
+    fs.writeFileSync(path.join(root, '.ai/specs/2026-08-04-warehouse-notes.md'), deliveredTransferSpec)
+  }, 'spec.single'],
+  ['a spec that ignores the naming convention', (root) => {
+    fs.renameSync(path.join(root, newFeatureSpecPath), path.join(root, '.ai/specs/warehouse-stock-transfers.md'))
+  }, 'spec.named'],
+  ['an implementation plan with a single phase', (root) => {
+    const file = path.join(root, newFeatureSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+      .replace('### Phase 2 — Dispatch, confirmed receipt, and stock movement', '#### Continued work'))
+  }, 'spec.phases.ordered'],
+  ['a contract section left as template slots', (root) => {
+    const file = path.join(root, newFeatureSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+      .replace('The list route uses the CRUD route factory.', 'The list route uses {the chosen route mechanism}.'))
+  }, 'spec.substantive.contracts'],
+  ['a test section with no named coverage', (root) => {
+    const file = path.join(root, newFeatureSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll(/TEST-00\d/g, 'the case'))
+  }, 'spec.tests.identified'],
+  ['an implementation started during planning', (root) => {
+    fs.mkdirSync(path.join(root, 'src', 'modules', 'warehouse_transfers'), { recursive: true })
+  }, 'planning.implementation-absent'],
+  ['the emitted README repurposed as the specification', (root) => {
+    fs.writeFileSync(path.join(root, '.ai/specs/README.md'), deliveredTransferSpec)
+  }, 'reserved.README.md'],
+]
+
+for (const [label, breakIt, expectedCheck] of newFeatureNegatives) {
+  test(`the new-feature planning proof rejects ${label}`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), deliveredTransferSpec)
+      assert.equal(runSpecOracle(root, 'OMH-213', 'after').passed, true)
+      breakIt(root)
+      const report = runSpecOracle(root, 'OMH-213', 'after')
+      assert.equal(report.passed, false)
+      assert.ok(failedSpecCheckIds(report).includes(expectedCheck), JSON.stringify(failedSpecCheckIds(report)))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+test('the existing-spec planning proof fails on the seeded covering spec and passes once it is amended', () => {
+  const root = stageSpecTarget('planning-existing-spec')
+  try {
+    const before = runSpecOracle(root, 'OMH-214', 'before')
+    assert.equal(before.passed, false)
+    assert.equal(before.status, 1)
+    // The seeded spec is already structurally complete: only the contract change the prompt
+    // introduces is missing, so a fail-before cannot be mistaken for a malformed seed.
+    assert.deepEqual(failedSpecCheckIds(before), [
+      'spec.amendment.per-channel-outcome',
+      'spec.amendment.rescheduled-and-cancelled',
+      'spec.changelog.amended',
+    ])
+
+    const seeded = fs.readFileSync(path.join(root, coveringSpecPath), 'utf8')
+    fs.writeFileSync(path.join(root, coveringSpecPath), amendCoveringSpec(seeded))
+    const after = runSpecOracle(root, 'OMH-214', 'after')
+    assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
+    assert.equal(after.status, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+const existingSpecNegatives: ReadonlyArray<readonly [string, (root: string) => void, string]> = [
+  ['a second specification alongside the covering one', (root) => {
+    fs.copyFileSync(path.join(root, coveringSpecPath), path.join(root, '.ai/specs/2026-08-05-appointment-reminders-v2.md'))
+  }, 'spec.single'],
+  ['an amendment that drops the contract it already promised', (root) => {
+    const file = path.join(root, coveringSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll('confirmed appointment', 'booked visit'))
+  }, 'spec.preserved.confirmed-reminder'],
+  ['an amendment that never reaches the changelog', (root) => {
+    const file = path.join(root, coveringSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').split('\n')
+      .filter((line) => !line.startsWith('| 2026-08-05 |')).join('\n'))
+  }, 'spec.changelog.amended'],
+  ['an amendment that omits the per-channel outcome', (root) => {
+    const file = path.join(root, coveringSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll('SMS', 'a second route'))
+  }, 'spec.amendment.per-channel-outcome'],
+  ['an implementation started during planning', (root) => {
+    fs.mkdirSync(path.join(root, 'src', 'modules', 'appointment_reminders'), { recursive: true })
+  }, 'planning.implementation-absent'],
+]
+
+for (const [label, breakIt, expectedCheck] of existingSpecNegatives) {
+  test(`the existing-spec planning proof rejects ${label}`, () => {
+    const root = stageSpecTarget('planning-existing-spec')
+    try {
+      const seeded = fs.readFileSync(path.join(root, coveringSpecPath), 'utf8')
+      fs.writeFileSync(path.join(root, coveringSpecPath), amendCoveringSpec(seeded))
+      assert.equal(runSpecOracle(root, 'OMH-214', 'after').passed, true)
+      breakIt(root)
+      const report = runSpecOracle(root, 'OMH-214', 'after')
+      assert.equal(report.passed, false)
+      assert.ok(failedSpecCheckIds(report).includes(expectedCheck), JSON.stringify(failedSpecCheckIds(report)))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+test('the spec oracle refuses an unknown case, an unknown phase, and a relative root', () => {
+  const root = stageSpecTarget('planning-new-feature')
+  try {
+    for (const args of [
+      ['--root', root, '--case', 'OMH-193', '--phase', 'after', '--json'],
+      ['--root', root, '--case', 'OMH-213', '--phase', 'midway', '--json'],
+      ['--root', '.', '--case', 'OMH-213', '--phase', 'after', '--json'],
+    ]) {
+      const result = spawnSync(process.execPath, [specOracle, ...args], { encoding: 'utf8', timeout: 30_000 })
+      assert.equal(result.status, 2, `${args.join(' ')} -> ${result.stdout}`)
+      const report = JSON.parse(result.stdout) as { passed: boolean; checks: unknown[] }
+      assert.equal(report.passed, false)
+      assert.deepEqual(report.checks, [])
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the two planning proofs are the only writable cases graded by the spec oracle', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as Array<{
+    id: string
+    evaluationKind: string
+    validators: string[]
+    tags: string[]
+    allowedWrites?: string[]
+    oracle?: { validatorIds: string[]; expectedArtifacts: string[] }
+    expectedSpecRouting?: unknown
+  }>
+  const registry = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
+    validators: Record<string, { runners?: string[] }>
+  }
+  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse']
+  for (const validatorId of planningOracles) {
+    assert.deepEqual(registry.validators[validatorId]?.runners, ['writable-spec-oracles.mjs'])
+  }
+  const declaring = cases.filter((record) => record.validators.some((entry) => planningOracles.includes(entry)))
+  assert.deepEqual(declaring.map((record) => record.id), ['OMH-213', 'OMH-214'])
+  for (const record of declaring) {
+    assert.equal(record.evaluationKind, 'implementation', `${record.id} must be a writable case`)
+    // The planning gate itself is scored by the read-only routing contract; a writable proof
+    // must never also declare it.
+    assert.equal(record.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting`)
+    assert.ok(record.tags.includes('writable'))
+    for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
+      assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+    }
+  }
+  assert.deepEqual(declaring[0].allowedWrites, ['.ai/specs/**'])
+  assert.deepEqual(declaring[1].allowedWrites, [coveringSpecPath])
+})
+
+test('catalog validation binds each semantic oracle to its own fixed runner', () => {
+  const root = stageApp()
+  try {
+    const registryPath = path.join(root, '.ai', 'harness', 'validators.json')
+    const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')) as {
+      validators: Record<string, { runners: string[] }>
+    }
+    // A planning oracle may not fall back to the TypeScript grader...
+    registry.validators['oracle.planning.spec-first'].runners = ['writable-ast-oracles.mjs']
+    // ...and a TypeScript oracle may not swap itself onto the Markdown grader.
+    registry.validators['oracle.module.entity'].runners = ['writable-spec-oracles.mjs']
+    fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /oracle validator oracle\.planning\.spec-first must include the fixed oracle writable-spec-oracles\.mjs/)
+    assert.match(result.stderr, /oracle validator oracle\.module\.entity must include the fixed oracle writable-ast-oracles\.mjs/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
