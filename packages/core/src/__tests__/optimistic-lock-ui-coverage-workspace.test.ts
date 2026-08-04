@@ -42,8 +42,17 @@ import { join, relative, sep } from 'node:path'
 
 const MUTATION = /\b(deleteCrud|updateCrud)\s*\(|method:\s*['"](PUT|PATCH|DELETE)['"]/
 // A lock primitive / CrudForm / inline exempt marker present in the file.
+//
+// `withScopedApiRequestHeaders` is deliberately NOT in this set. It is a generic
+// scoped-header helper — a file may import it to attach a tenant or locale header and
+// never send a version at all. Counting a bare mention as coverage let such a file read
+// as compliant, which is the same silent-pass the tokenless
+// `buildOptimisticLockHeader(undefined|null)` demotion already guards against. The
+// canonical wiring is `withScopedApiRequestHeaders(buildOptimisticLockHeader(v), …)`, so
+// a genuine call site still matches through `HEADER_WITH_TOKEN` below.
+// Measured when this was tightened: zero repo files relied on the bare mention.
 const COVERED_PRIMITIVE =
-  /buildOptimisticLockHeader|withScopedApiRequestHeaders|withOptimisticLockFor|optimisticLockUpdatedAt|disableOptimisticLock|<CrudForm|optimistic-lock-exempt/
+  /buildOptimisticLockHeader|withOptimisticLockFor|optimisticLockUpdatedAt|disableOptimisticLock|<CrudForm|optimistic-lock-exempt/
 // A tokenless `buildOptimisticLockHeader(undefined|null)` — sends no version.
 const TOKENLESS_HEADER = /buildOptimisticLockHeader\s*\(\s*(undefined|null)\s*\)/
 const INLINE_EXEMPT = /optimistic-lock-exempt/
