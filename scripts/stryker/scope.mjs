@@ -59,6 +59,17 @@ export function isInScopePath(relativePath) {
   return !OUT_OF_SCOPE_SEGMENTS.some((segment) => padded.includes(segment))
 }
 
+/**
+ * Code-point ordering, not `localeCompare`. The mutate list must be byte-identical
+ * across machines and CI runners so a re-run mutates the same files in the same
+ * order; a locale-sensitive collation would make that environment-dependent.
+ */
+export function compareByCodePoint(left, right) {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
 function splitPackagePath(changedPath) {
   const match = /^packages\/([^/]+)\/(.+)$/.exec(changedPath)
   if (match === null) return null
@@ -87,8 +98,8 @@ export function computeScope(changedFiles, options = {}) {
   const include = []
   const dropped = []
 
-  for (const packageName of [...byPackage.keys()].sort()) {
-    const files = [...new Set(byPackage.get(packageName))].sort()
+  for (const packageName of [...byPackage.keys()].sort(compareByCodePoint)) {
+    const files = [...new Set(byPackage.get(packageName))].sort(compareByCodePoint)
     const kept = files.slice(0, maxFiles)
     const truncated = files.slice(maxFiles)
 

@@ -26,6 +26,7 @@
 | 4 | 4.1 | `mixinJestEnvironment` wrapper for `perTest` coverage (conditional) | inline | done | 22614e6d3 |
 | 4 | 4.2 | `incremental` plus Actions cache (conditional) | inline | done | a7864dd25 |
 | 1 | 1.3-review-fix | Drop the dead `--json` flag from `scope.mjs` | inline | done | b7118d504 |
+| 1 | 1.3-ci-fix | Give every `.sort()` an explicit comparator (#3620 guard) | inline | done | — |
 
 ### Why Step 1.1 precedes Phase 0b
 

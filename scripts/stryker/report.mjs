@@ -27,6 +27,18 @@ export const ADVISORY_NOTE =
   'This check is **advisory** — it reports on the behaviour your tests do not pin down, ' +
   'and it does not block the merge.'
 
+/**
+ * Code-point ordering, not `localeCompare`: the survivor table must render in the same
+ * order on every runner, and a locale-sensitive collation would make it environment
+ * dependent. Kept local rather than imported from scope.mjs so this reporting module
+ * stays independent of the git-diff module.
+ */
+function compareByCodePoint(left, right) {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
 function sliceOriginal(source, location) {
   if (typeof source !== 'string' || location?.start === undefined) return ''
 
@@ -59,7 +71,7 @@ export function collectSurvivors(report) {
   const survivors = []
   const totals = { scored: 0, killed: 0, survived: 0, timeout: 0, errors: 0, ignored: 0 }
 
-  for (const filePath of Object.keys(files).sort()) {
+  for (const filePath of Object.keys(files).sort(compareByCodePoint)) {
     const file = files[filePath]
     for (const mutant of file?.mutants ?? []) {
       if (mutant.status === 'Ignored') {
