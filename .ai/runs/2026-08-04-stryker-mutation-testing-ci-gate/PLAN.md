@@ -13,7 +13,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add Stryker devDependencies and the `mutation:changed` script | inline | done | PENDING |
+| 1 | 1.1 | Add Stryker devDependencies and the `mutation:changed` script | inline | done | 723419941 |
 | 0 | 0b.1 | Measure `packages/core` and decide its allowlist status | inline | todo | — |
 | 1 | 1.2 | Config factory and `packages/shared/stryker.conf.mjs` | dispatch | todo | — |
 | 1 | 1.3 | `scripts/stryker/scope.mjs` — allowlist, globs, deletion filter, file cap | dispatch | todo | — |

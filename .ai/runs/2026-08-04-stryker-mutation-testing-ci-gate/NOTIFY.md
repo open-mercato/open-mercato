@@ -25,3 +25,10 @@
   explicit core-team decision, and `AGENTS.md` classifies pipeline changes as Ask First.
 - Phase 0b is a **measurement, not a deliverable**: the throwaway `packages/core` config is not
   committed; only the appended timings are.
+
+## 2026-08-04T07:16:00Z — convention: Commit-column SHAs are filled one commit later
+
+- A Step's commit cannot contain its own SHA, so each Step's commit flips only the `Status` cell to
+  `done` (that is the cell `om-auto-continue-pr-loop` parses to find the resume point). The `Commit`
+  cell is filled with the real short SHA in the next commit or at the checkpoint. No Step is ever
+  left ambiguous: `Status` is authoritative, `Commit` is informational.
