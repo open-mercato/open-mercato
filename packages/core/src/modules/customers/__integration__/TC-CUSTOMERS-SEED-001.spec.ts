@@ -88,6 +88,11 @@ function activateEncryptionMaps(tenantId: string, organizationId: string): void 
 }
 
 test.describe('customers seed-examples idempotency under encryption', () => {
+  // Every assertion here costs a `mercato` CLI subprocess. The two-run test measures
+  // 17.3s against the 20s default (three subprocesses, ~5.8s each), and the three-run
+  // test needs a fourth — roughly 23s — so it cannot pass at the default at all.
+  test.slow()
+
   test('declines to re-seed an organization that already has the example data', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
     const { tenantId } = getTokenScope(token);
