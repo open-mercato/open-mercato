@@ -576,12 +576,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-203', () => {
+test('deterministic evaluation enforces the case schema through OMH-208', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-203')
+    assert.equal(cases.at(-1)?.id, 'OMH-208')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3462,6 +3462,7 @@ process.exit(9)
 // ---------------------------------------------------------------------------
 
 const SPEC_ROUTING_VALIDATOR = 'routing.spec-decision'
+const SPEC_ROUTING_DECISIONS = ['spec-first', 'direct', 'reuse-spec', 'ask']
 
 type SpecRoutingDeclaration = {
   decision: string
@@ -3734,17 +3735,32 @@ test('the spec routing declaration contract fails closed on every malformed shap
   )
 })
 
-test('the spec routing oracle is inert for every shipped catalog case', async () => {
+// The SPEC-P2 decision table, one shipped read-only case per row. `reuse-spec` is absent on
+// purpose: its oracle requires an existing covering spec under `.ai/specs/`, and a fresh
+// scaffold ships only the folder README and the blank template, so no honest covering-spec
+// path exists to declare yet.
+const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
+  ['OMH-204', 'spec-first'],
+  ['OMH-205', 'direct'],
+  ['OMH-206', 'direct'],
+  ['OMH-207', 'direct'],
+  ['OMH-208', 'ask'],
+]
+
+test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 203)
-  for (const record of cases) {
+  assert.equal(cases.length, 208)
+  const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
+  const inert = cases.filter((record) => !declaring.has(record.id))
+  assert.equal(inert.length, cases.length - declaring.size)
+  for (const record of inert) {
     const shaped = record as unknown as { expectedSpecRouting?: unknown; validators: string[] }
-    assert.equal(shaped.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting yet`)
+    assert.equal(shaped.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting`)
     assert.equal(
       shaped.validators.includes(SPEC_ROUTING_VALIDATOR),
       false,
-      `${record.id} must not register ${SPEC_ROUTING_VALIDATOR} yet`,
+      `${record.id} must not register ${SPEC_ROUTING_VALIDATOR}`,
     )
     assert.equal(evaluator.isSpecRoutingCase(record), false, `${record.id} must not be a spec routing case`)
     assert.deepEqual(evaluator.validateSpecRoutingDeclaration(record), [], `${record.id} declaration contract must stay silent`)
@@ -3769,6 +3785,90 @@ test('the spec routing oracle is inert for every shipped catalog case', async ()
     }),
     ['unexpected specRouting for a case with no spec-routing contract'],
   )
+})
+
+test('every shipped spec-gate case scores its own decision table row and rejects the neighbouring rows', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
+  const byId = new Map(cases.map((record) => [record.id, record as unknown as {
+    id: string
+    evaluationKind: string
+    validators: string[]
+    requiredDecisions?: string[]
+    decisionVocabulary?: string[]
+    expectedSpecRouting?: SpecRoutingDeclaration
+  }]))
+
+  const declared = cases
+    .filter((record) => (record as unknown as { expectedSpecRouting?: unknown }).expectedSpecRouting !== undefined)
+    .map((record) => record.id)
+  assert.deepEqual(declared, shippedSpecRoutingDecisions.map(([id]) => id))
+
+  for (const [id, decision] of shippedSpecRoutingDecisions) {
+    const record = byId.get(id)
+    assert.ok(record, `${id} must ship in the catalog`)
+    const declaration = record.expectedSpecRouting
+    assert.ok(declaration, `${id} must declare expectedSpecRouting`)
+    assert.equal(declaration.decision, decision, `${id} must decide ${decision}`)
+    assert.equal(record.evaluationKind, 'routing', `${id} must stay a read-only routing case`)
+    assert.ok(record.validators.includes(SPEC_ROUTING_VALIDATOR), `${id} must register ${SPEC_ROUTING_VALIDATOR}`)
+    assert.equal(evaluator.isSpecRoutingCase(record), true, `${id} must be a spec routing case`)
+    assert.deepEqual(evaluator.validateSpecRoutingDeclaration(record), [], `${id} declaration must be well formed`)
+    // The structured branch label and the prose-free decision label are scored separately, so
+    // both must name the same branch or a right answer could pass one gate and fail the other.
+    assert.deepEqual(record.requiredDecisions, [decision], `${id} decision label must match its branch`)
+    assert.ok(
+      (record.decisionVocabulary ?? []).length > (record.requiredDecisions ?? []).length,
+      `${id} must offer a contrastive decision label`,
+    )
+
+    const correct = {
+      ...omh001Response,
+      specRouting: { decision: declaration.decision, reasonCodes: [...declaration.requiredReasonCodes] },
+    }
+    assert.deepEqual(evaluator.evaluateSpecRoutingDecision(record, correct), [], `${id} must accept its own answer`)
+
+    const wrongBranch = SPEC_ROUTING_DECISIONS.find((candidate) => candidate !== decision)
+    assert.ok(wrongBranch)
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        ...correct,
+        specRouting: { ...correct.specRouting, decision: wrongBranch },
+      }),
+      [`wrong spec routing decision: expected ${decision}, received ${wrongBranch}`],
+      `${id} must reject the neighbouring branch`,
+    )
+
+    const [firstRequired, ...restRequired] = declaration.requiredReasonCodes
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        ...correct,
+        specRouting: { ...correct.specRouting, reasonCodes: restRequired },
+      }),
+      [`missing spec routing reason code ${firstRequired}`],
+      `${id} must reject a right branch justified by too few reasons`,
+    )
+
+    const distractor = declaration.reasonCodeVocabulary
+      .find((code) => !declaration.requiredReasonCodes.includes(code))
+    assert.ok(distractor, `${id} must offer a contrastive reason code`)
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        ...correct,
+        specRouting: { ...correct.specRouting, reasonCodes: [...declaration.requiredReasonCodes, distractor] },
+      }),
+      [`unmandated spec routing reason code ${distractor}`],
+      `${id} must reject an offered distractor reason`,
+    )
+
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, correct, ['src/modules/orders/index.ts']),
+      ['spec routing case is read-only but changed src/modules/orders/index.ts'],
+      `${id} must reject a write observed during planning`,
+    )
+
+    assert.equal(declaration.coveringSpecPath, undefined, `${id} must not claim a covering spec`)
+  }
 })
 
 test('catalog validation rejects a malformed spec routing declaration and an unregistered validator', () => {

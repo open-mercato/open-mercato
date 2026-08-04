@@ -13676,5 +13676,458 @@
       "OMH-026",
       "OMH-027"
     ]
+  },
+  {
+    "id": "OMH-204",
+    "title": "Classify a multi-step returns capability before any implementation starts",
+    "family": "architecture",
+    "mode": "spec",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "A shop owner writes: customers should be able to start a return from their account, warehouse staff approve or reject the goods that come back, finance issues the refund, and the customer hears about every step. The owner adds that it feels like a small change and would like it this week. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
+    "tags": [
+      "spec-gate",
+      "planning-decision",
+      "spec-first",
+      "returns"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "spec-pr"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-spec-writing"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/spec-delivery.md"
+      ],
+      "allowedExtra": [
+        ".ai/specs/README.md",
+        ".ai/agentic.config.json"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "spec-first",
+      "direct",
+      "reuse-spec",
+      "ask"
+    ],
+    "expectedSpecRouting": {
+      "decision": "spec-first",
+      "requiredReasonCodes": [
+        "NEW_CAPABILITY",
+        "MULTI_PHASE_BEHAVIOR"
+      ],
+      "reasonCodeVocabulary": [
+        "NEW_CAPABILITY",
+        "MULTI_PHASE_BEHAVIOR",
+        "BOUNDED_FIX",
+        "REPRODUCIBLE_DEFECT",
+        "EXPLICIT_SKIP_REQUESTED",
+        "COVERING_SPEC_FOUND",
+        "AMBIGUOUS_CLASSIFICATION"
+      ]
+    },
+    "requiredDecisions": [
+      "spec-first"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "routing.spec-decision",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-005",
+      "OMH-207"
+    ]
+  },
+  {
+    "id": "OMH-205",
+    "title": "Classify a reproducible order due-date defect before changing any code",
+    "family": "bugfix",
+    "mode": "bugfix",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Staff report that an order placed on the last day of a month always shows a due date one day early in our own orders module, and they can reproduce it on demand. Nothing about the agreed behavior changes and no new capability is asked for; the shown date is simply wrong. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
+    "tags": [
+      "spec-gate",
+      "planning-decision",
+      "reproducible-defect"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "debugging"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "testing",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-troubleshooter"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-troubleshooter/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "direct",
+      "spec-first",
+      "reuse-spec",
+      "ask"
+    ],
+    "expectedSpecRouting": {
+      "decision": "direct",
+      "requiredReasonCodes": [
+        "BOUNDED_FIX",
+        "REPRODUCIBLE_DEFECT"
+      ],
+      "reasonCodeVocabulary": [
+        "BOUNDED_FIX",
+        "REPRODUCIBLE_DEFECT",
+        "NEW_CAPABILITY",
+        "MULTI_PHASE_BEHAVIOR",
+        "EXPLICIT_SKIP_REQUESTED",
+        "COVERING_SPEC_FOUND",
+        "AMBIGUOUS_CLASSIFICATION"
+      ]
+    },
+    "requiredDecisions": [
+      "direct"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "routing.spec-decision",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-204",
+      "OMH-206"
+    ]
+  },
+  {
+    "id": "OMH-206",
+    "title": "Classify a rename-only refactor and stale README wording as bounded maintenance",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "low",
+    "prompt": "Two small chores in our own application: an internal helper inside our orders module is still called calcTot and should read calculateOrderTotal at its four call sites, and the project README still names an environment variable we renamed months ago. Neither chore changes behavior, stored data, or anything another system can call. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
+    "tags": [
+      "spec-gate",
+      "planning-decision",
+      "bounded-maintenance"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "module-data"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "testing"
+      ]
+    },
+    "requiredSkills": [],
+    "context": {
+      "required": [
+        "AGENTS.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "direct",
+      "spec-first",
+      "reuse-spec",
+      "ask"
+    ],
+    "expectedSpecRouting": {
+      "decision": "direct",
+      "requiredReasonCodes": [
+        "BOUNDED_FIX",
+        "NO_CONTRACT_CHANGE"
+      ],
+      "reasonCodeVocabulary": [
+        "BOUNDED_FIX",
+        "NO_CONTRACT_CHANGE",
+        "NEW_CAPABILITY",
+        "MULTI_PHASE_BEHAVIOR",
+        "REPRODUCIBLE_DEFECT",
+        "EXPLICIT_SKIP_REQUESTED",
+        "COVERING_SPEC_FOUND",
+        "AMBIGUOUS_CLASSIFICATION"
+      ]
+    },
+    "requiredDecisions": [
+      "direct"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "routing.spec-decision",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-204",
+      "OMH-205"
+    ]
+  },
+  {
+    "id": "OMH-207",
+    "title": "Honor an explicit skip-the-spec instruction for a new pickup schedule page",
+    "family": "architecture",
+    "mode": "one-shot",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Add a staff page that lists this week's pickup appointments, soonest first, from the appointments our own module already stores. Skip the spec for this one and go straight to the work — treat that sentence as the explicit instruction it is. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
+    "tags": [
+      "spec-gate",
+      "planning-decision",
+      "explicit-skip"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "backend-ui"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "testing"
+      ]
+    },
+    "requiredSkills": [
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "direct",
+      "spec-first",
+      "reuse-spec",
+      "ask"
+    ],
+    "expectedSpecRouting": {
+      "decision": "direct",
+      "requiredReasonCodes": [
+        "NEW_CAPABILITY",
+        "EXPLICIT_SKIP_REQUESTED"
+      ],
+      "reasonCodeVocabulary": [
+        "NEW_CAPABILITY",
+        "EXPLICIT_SKIP_REQUESTED",
+        "BOUNDED_FIX",
+        "MULTI_PHASE_BEHAVIOR",
+        "REPRODUCIBLE_DEFECT",
+        "COVERING_SPEC_FOUND",
+        "AMBIGUOUS_CLASSIFICATION"
+      ]
+    },
+    "requiredDecisions": [
+      "direct"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "routing.spec-decision",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-204",
+      "OMH-208"
+    ]
+  },
+  {
+    "id": "OMH-208",
+    "title": "Ask one bounded question about an ambiguous order export improvement",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Finance says the order export could be better and asks for a quick improvement; in the same message they wonder whether their own reporting tool could pull the numbers directly instead. Nobody has said which of the two they mean, the second one would open something up for another system to call, and the answer changes the work materially. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
+    "tags": [
+      "spec-gate",
+      "planning-decision",
+      "ambiguous-request"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "integration",
+        "module-data",
+        "backend-ui",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "ask",
+      "spec-first",
+      "direct",
+      "reuse-spec"
+    ],
+    "expectedSpecRouting": {
+      "decision": "ask",
+      "requiredReasonCodes": [
+        "AMBIGUOUS_CLASSIFICATION",
+        "CONTRACT_SURFACE_UNCERTAIN"
+      ],
+      "reasonCodeVocabulary": [
+        "AMBIGUOUS_CLASSIFICATION",
+        "CONTRACT_SURFACE_UNCERTAIN",
+        "BOUNDED_FIX",
+        "NEW_CAPABILITY",
+        "MULTI_PHASE_BEHAVIOR",
+        "REPRODUCIBLE_DEFECT",
+        "EXPLICIT_SKIP_REQUESTED",
+        "COVERING_SPEC_FOUND"
+      ]
+    },
+    "requiredDecisions": [
+      "ask"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "routing.spec-decision",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-204",
+      "OMH-207"
+    ]
   }
 ]

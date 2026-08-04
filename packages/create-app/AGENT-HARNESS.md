@@ -138,6 +138,15 @@ The release gate wraps this in a larger ordered sequence.
       plus contrastive distractors. Selecting a distractor is recorded as an
       `unmandated decision`; cases without that field retain the prior exact
       `requiredDecisions` behavior.
+    - A read-only case may also declare `expectedSpecRouting` and register the
+      `routing.spec-decision` validator, which asks for the emitted spec gate's
+      planning branch. `evaluateSpecRoutingDecision` grades the branch and its
+      reason codes separately — so a right branch justified by a wrong reason is
+      distinguishable from a wrong branch — and rejects any filesystem change
+      observed during the case, since planning never writes. Five cases,
+      `OMH-204`…`OMH-208`, declare it today; a case that declares no contract
+      keeps a byte-identical prompt, and an answer that volunteers `specRouting`
+      anyway fails exactly like an unmandated decision label.
 
 ### Phase E — Trace / observation validation (fail-closed)
 13. `observedContext()` reconstructs exactly which files the model read from the
