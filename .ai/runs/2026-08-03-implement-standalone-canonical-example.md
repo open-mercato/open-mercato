@@ -624,3 +624,22 @@ before merging E3; findings change what E3 is allowed to do.
 
   **Next: wave 7** — E5 (cache + rich DI + setup seeding) · H5 (CANON-C harness case additions) ·
   C4 (source-link baseline, using the checked `source-link-topics.json` registry per decision D4).
+
+  **In flight (session 4):** wave 7 workflow `wf_d1439c4d-882` — `wave7/e5-cache-di-seeding`,
+  `wave7/h5-harness-example-roots`, `wave7/c4-source-link-baseline`.
+
+  - **H5 is the one that matters most for this whole program's honesty.** Zero of the 208 shipped
+    cases declare `context.exampleRoots`, so every capability row added so far is INERT for the live
+    harness — the read-policy machinery is fully built and fixture-covered but has never been
+    exercised by a real case. H5 also has to REWRITE (not delete) the compatibility tests that
+    currently assert "no shipped case declares the new fields", which become false the moment it
+    lands.
+  - **E5 carries an unresolved design question deliberately left open**: what `seedDefaults` actually
+    seeds. Option B (no schema change) is the default; Option A revives the dead `ExampleItem` with a
+    migration. The agent was told to settle it from the spec's wording and to say plainly if Option B
+    produces a hollow demonstration, rather than assume.
+  - **C4** implements decision D4 (a checked `source-link-topics.json` registry) to break CANON-C's
+    circular dependency, and was told to VERIFY the recon's claims about the 8 pinned assets and 136
+    fences rather than build on them — several recon claims have already proven stale.
+
+  Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_d1439c4d-882'})`.
