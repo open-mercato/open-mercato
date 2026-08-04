@@ -762,3 +762,22 @@ before merging E3; findings change what E3 is allowed to do.
   **Next: wave 9** — E7 (the DataTable bulk action + durable outbox + scheduler + CAS-leased worker
   + progress slice, the largest single runtime slice) · H7 (GOV-P2 controller-owned evidence
   contract). Decision D3 already binds E7 to a data-only `widget.ts`, not `widget.client.tsx`.
+
+  **In flight (session 4):** wave 9 workflow `wf_e6893a0f-915` — `wave9/e7-bulk-action-progress`,
+  `wave9/h7-gov-p2-evidence`, `wave9/c6-search-silent-zero`.
+
+  - **E7 is the largest single runtime slice in the program** (bulk action + durable outbox +
+    scheduler target + CAS-leased worker + operation progress). It was told explicitly that a
+    coherent SUBSET with real tests beats a complete-looking slice with vacuous ones, and to amend
+    the canonical spec's `widget.client.tsx` wording, which contradicts the code — decision D3 binds
+    it to a data-only `widget.ts`. Its verifier runs the migration sanity gate line by line and must
+    construct a probe that would breach tenant scope if the bulk guard were removed.
+  - **C6 chases the `search` silent zero** and, more usefully, sweeps `generator-plugin` / `worker` /
+    `vector` to classify each as legitimately-absent vs silently-unreadable. The verifier must
+    classify them independently rather than accept C6's answer — after `di-registration` turned out
+    to be a claimed capability scoring zero, that whole family of claims is suspect.
+  - The agent brief now carries an explicit **anti-vacuous-test section** listing all four real
+    examples from this program and the test "what value would make this fail?", because vacuous
+    tests are measurably the #1 failure mode here — more common than wrong behaviour.
+
+  Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_e6893a0f-915'})`.
