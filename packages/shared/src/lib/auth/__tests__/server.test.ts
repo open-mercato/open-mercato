@@ -161,4 +161,27 @@ describe('auth server integrity checks', () => {
 
     await expect(getAuthFromRequest(request)).resolves.toBeNull()
   })
+
+  it('reports a transient DB failure on the api-key path as "error" (retryable 503)', async () => {
+    const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+    // Distinct secret so the shared api-key auth cache does not serve a prior miss.
+    findApiKeyBySecret.mockRejectedValue(Object.assign(new Error('sorry, too many clients already'), { code: '53300' }))
+
+    const request = new Request('https://example.test/api/test', {
+      headers: { 'x-api-key': 'transient-key' },
+    })
+
+    await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'error' })
+  })
+
+  it('keeps a non-transient api-key failure as "missing" (unchanged 401 behavior)', async () => {
+    const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockRejectedValue(new Error('unexpected non-db failure'))
+
+    const request = new Request('https://example.test/api/test', {
+      headers: { 'x-api-key': 'non-transient-key' },
+    })
+
+    await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'missing' })
+  })
 })

@@ -4,6 +4,7 @@ type OnboardingStatus = 'pending' | 'processing' | 'completed' | 'expired'
 
 @Entity({ tableName: 'onboarding_requests' })
 @Unique({ properties: ['email'] })
+@Unique({ properties: ['emailHash'] })
 @Unique({ properties: ['tokenHash'] })
 export class OnboardingRequest {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -11,6 +12,9 @@ export class OnboardingRequest {
 
   @Property({ type: 'text' })
   email!: string
+
+  @Property({ name: 'email_hash', type: 'text', nullable: true })
+  emailHash?: string | null
 
   @Property({ name: 'token_hash', type: 'text' })
   tokenHash!: string

@@ -73,6 +73,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Query-index custom-field cardinality comes from definitions, not row count](lessons/query-index-custom-field-cardinality-comes-from.md) — area:module-data,umes,backend-ui; module:entities,query_index,search; topic:custom-fields,data-scoping,query-index
 - [Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files](lessons/standalone-generators-must-reuse-package-generated.md) — area:module-data,architecture,framework-context; module:entities,cli,create_app; topic:auto-discovery,build-output,data-scoping
 - [Store global event bus in `globalThis` to survive module duplication in dev](lessons/store-global-event-bus-in-globalthis-to-survive-module.md) — area:module-data,architecture,debugging; module:events,shared; topic:events,module-boundaries,package-runtime
+- [System encryption map discovery must fail closed](lessons/system-encryption-map-discovery-must-fail-closed.md) — area:module-data,architecture; module:onboarding,shared; topic:data-integrity,encryption,runtime-startup
 - [Sync progress must count source records, not emitted side-effect items](lessons/sync-progress-must-count-source-records-not-emitted.md) — area:module-data,integration; module:data_sync,progress,catalog; topic:data-import,events,testing
 - [Tool-scoped regeneration commands must not be blocked by unrelated existing files](lessons/tool-scoped-regeneration-commands-must-not-be-blocked.md) — area:module-data,architecture; module:cli; topic:command-pattern,data-scoping,regeneration
 - [Use canonical generated entity ids, not shortened ad-hoc aliases](lessons/use-canonical-generated-entity-ids-not-shortened-ad-hoc.md) — area:module-data,umes,architecture; module:checkout,entities,query_index; topic:auto-discovery,custom-fields,data-integrity
@@ -144,6 +145,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### debugging
 
+- [Anchor repeated route-handler edits to unique context](lessons/anchor-repeated-route-handler-edits-to-unique-context.md) — area:debugging,testing; module:messages; topic:route-coverage,testing
 - [Compose startup commands must not hard-depend on newly added image scripts](lessons/compose-startup-commands-must-not-hard-depend-on-newly.md) — area:debugging,module-data,architecture; module:create_app; topic:command-pattern,runtime-startup,template-sync
 - [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations
 - [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync

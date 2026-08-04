@@ -1,4 +1,5 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { POST } from '../route'
@@ -297,5 +298,81 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(response.status).toBe(403)
     const payload = await response.json()
     expect(payload.error).toBe('Invalid request host')
+  })
+
+  it('returns 201 when updateStatus rejects with concurrent_status_update (webhook won the race, payment succeeded)', async () => {
+    // The webhook already advanced the transaction to 'completed' before the
+    // submit route's updateStatus call — that 409 must be treated as benign
+    // and the route must still return 201 with the real terminal transaction.
+    const terminalTransaction = createTransaction({ status: 'completed', gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())        // link lookup
+      .mockResolvedValueOnce(null)               // no existing transaction (idempotency pre-check)
+      .mockResolvedValueOnce(createTransaction()) // transaction after create
+      .mockResolvedValueOnce(terminalTransaction) // refreshed transaction after conflict
+
+    const conflictError = new CrudHttpError(409, {
+      code: 'concurrent_status_update',
+      currentStatus: 'completed',
+      expectedStatus: 'processing',
+      requestedStatus: 'processing',
+      error: '[internal] concurrent update',
+    })
+    mockCommandExecute
+      .mockResolvedValueOnce({ result: { id: TRANSACTION_ID } }) // create
+      .mockRejectedValueOnce(conflictError)                      // updateStatus -> conflict
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'race-conflict-key-123',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.transactionId).toBe(TRANSACTION_ID)
+  })
+
+  it('returns 201 when updateStatus rejects with invalid_status_transition (terminal state already set)', async () => {
+    const terminalTransaction = createTransaction({ status: 'completed', gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(terminalTransaction)
+
+    const invalidTransitionError = new CrudHttpError(409, {
+      code: 'invalid_status_transition',
+      currentStatus: 'completed',
+      requestedStatus: 'processing',
+      error: '[internal] invalid transition',
+    })
+    mockCommandExecute
+      .mockResolvedValueOnce({ result: { id: TRANSACTION_ID } })
+      .mockRejectedValueOnce(invalidTransitionError)
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'invalid-transition-key1',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.transactionId).toBe(TRANSACTION_ID)
   })
 })

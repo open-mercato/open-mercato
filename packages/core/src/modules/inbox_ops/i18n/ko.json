@@ -192,5 +192,6 @@
   "inbox_ops.translate.show_original": "원문 보기",
   "inbox_ops.translate.translate": "번역",
   "inbox_ops.untitled_proposal": "제목 없는 제안",
-  "inbox_ops.view_in_messages": "메시지에서 보기"
+  "inbox_ops.view_in_messages": "메시지에서 보기",
+  "notifications.categories.inbox_ops": "Inbox"
 }

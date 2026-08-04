@@ -4,6 +4,7 @@
   "audit_logs.resource_kind.sales.payment": "결제",
   "audit_logs.resource_kind.sales.shipment": "배송",
   "customers~sales.nav.group": "영업",
+  "notifications.categories.sales": "Sales",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalGross": "반품 조정 금액(세포함)이 남은 총액을 초과합니다. 금액을 줄이거나 기존 반품을 먼저 삭제하세요.",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalNet": "반품 조정 금액(세제외)이 남은 총액을 초과합니다. 금액을 줄이거나 기존 반품을 먼저 삭제하세요.",
   "sales.audit.channels.create": "판매 채널 생성",
