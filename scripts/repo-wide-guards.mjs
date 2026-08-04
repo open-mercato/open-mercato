@@ -201,6 +201,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/standalone-portal-email-env-guard.test.ts',
+    reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
     path: 'packages/create-app/src/lib/agent-harness-evaluator.test.ts',
     reason: 'Already unfiltered — the same create-app parity step (#3779); its process.cwd() anchors sit inside fixture sources written into a sandbox, not repository reads.',
   },
