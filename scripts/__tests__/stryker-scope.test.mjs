@@ -135,10 +135,13 @@ test('isInScopePath rejects non-string and empty input instead of throwing', () 
   assert.equal(isInScopePath('src/lib/boolean.ts'), true)
 })
 
-test('parses the base ref and json flag, defaulting the base', () => {
-  assert.deepEqual(parseArgs([]), { base: DEFAULT_BASE_REF, json: false })
-  assert.deepEqual(parseArgs(['--base', 'origin/main']), { base: 'origin/main', json: false })
-  assert.deepEqual(parseArgs(['--json']), { base: DEFAULT_BASE_REF, json: true })
+test('parses the base ref and defaults it', () => {
+  assert.deepEqual(parseArgs([]), { base: DEFAULT_BASE_REF })
+  assert.deepEqual(parseArgs(['--base', 'origin/main']), { base: 'origin/main' })
+})
+
+test('exposes no flag it does not act on', () => {
+  assert.deepEqual(Object.keys(parseArgs([])), ['base'])
 })
 
 test('the shipped allowlist is explicit about which packages are measured', () => {
