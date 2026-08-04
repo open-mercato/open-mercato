@@ -89,15 +89,21 @@ type ResolveBackendChromePayloadArgs = {
   selectedTenantId?: string | null
 }
 
-const settingsSectionOrder: Record<string, number> = {
-  system: 1,
-  auth: 2,
-  'customer-portal': 3,
-  'data-designer': 4,
-  'module-configs': 5,
-  currencies: 6,
-  directory: 7,
-  'feature-toggles': 8,
+/**
+ * Settings section weights, keyed by the untranslated group id each page declares as `pageGroupKey`.
+ *
+ * Mirrors `defaultGroupOrder` above: an id, never a rendered label, so the panel keeps its intended
+ * order in every locale and an app-side module can place its own section deterministically (#4843).
+ */
+export const settingsSectionOrder: Record<string, number> = {
+  'settings.sections.system': 1,
+  'settings.sections.auth': 2,
+  'customer_accounts.settings.section': 3,
+  'settings.sections.dataDesigner': 4,
+  'settings.sections.moduleConfigs': 5,
+  'currencies.nav.group': 6,
+  'settings.sections.directory': 7,
+  'settings.sections.featureToggles': 8,
 }
 
 type NavGroupWithWeight = Omit<BackendChromeNavGroup, 'id' | 'defaultName' | 'items'> & {

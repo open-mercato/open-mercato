@@ -688,7 +688,7 @@ export default function VisualEditorPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowClearConfirm(false)}>{t('common.cancel', 'Cancel')}</Button>
-            <Button variant="destructive" onClick={confirmClear}>{t('common.clear', 'Clear')}</Button>
+            <Button variant="destructive-solid" onClick={confirmClear}>{t('common.clear', 'Clear')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
