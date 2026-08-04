@@ -17,7 +17,7 @@ Two consequences:
 `yarn agents:check-budget` enforces both, and runs in the CI quality job:
 
 - **Root hard limit** — `AGENTS.md` must stay under `rootMaxBytes` in
-  `scripts/agents-md-budget.baseline.json` (30,720 bytes: the 32 KiB budget minus a 2 KiB reserve
+  `scripts/agents-md-budget.baseline.json` (31,232 bytes: the 32 KiB budget minus a 1.5 KiB reserve
   so nested files still get some of it).
 - **Chain ratchet** — the representative root-to-module chains listed in that baseline are
   measured root-first. A chain still inside the budget may grow freely; once a chain exceeds the

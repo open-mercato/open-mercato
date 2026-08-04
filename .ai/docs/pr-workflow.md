@@ -9,7 +9,7 @@ readable taxonomy lives in `.ai/agentic.config.json` (`labels.*`, `qaGate`).
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
-- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `screenshots`.
+- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`.
 - Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`.
 
@@ -156,3 +156,44 @@ PR-automation tooling) treats any of these as not-mergeable.
   finished, even on failure.
 - When an auto-skill adds or changes a PR pipeline/meta label, it MUST also leave a short PR
   comment explaining why that label was applied.
+
+## `in-progress` vs `ci-monitoring`
+
+These two meta labels describe **different phases** of an automated run and must never be
+conflated. Both are meta labels: they are additive, they coexist with any pipeline label
+(`review`, `changes-requested`, `merge-queue`, …) exactly like `needs-qa` does, and neither
+participates in pipeline-label mutual exclusivity.
+
+- **`in-progress` — a work claim (a lock).** The agent is actively working the PR: editing code,
+  running the review, fixing findings, pushing commits. Its output is not yet on the PR. Other
+  auto-skills back off while it is present. It is one of the three claim signals alongside the
+  assignee and the claim comment.
+- **`ci-monitoring` — a follow-up marker, NOT a claim.** The agent's work is **done and already
+  fully reported**: pipeline labels applied, review submitted, comments posted. The only thing
+  left is watching CI results and posting the CI-result follow-up comment. The PR's state on
+  GitHub is already correct and complete without that comment.
+
+**A PR carrying only `ci-monitoring` is explicitly NOT "already in progress".** In-progress /
+concurrency detection MUST consider only the claim signals — the `in-progress` label, a non-self
+assignee, and a fresh claim comment. When none of those are present, a PR is free to claim and
+act on **even though `ci-monitoring` is on it**; another agent or a human may pick it up without
+waiting, and doing so is not a claim violation. Do not lump `ci-monitoring` in with the lock
+signals in any skip/back-off condition.
+
+**Lifecycle.** An agent claims with `in-progress`. The moment its work is complete and reported,
+it swaps the labels: remove `in-progress`, add `ci-monitoring`. When it posts the CI-result
+follow-up comment, it removes `ci-monitoring` — the label's whole meaning is "a CI-result comment
+is still owed on this PR". A skill that performs no CI follow-up simply removes `in-progress` as
+it always has and never adds `ci-monitoring`.
+
+**Why the split exists.** CI here runs for 20+ minutes to several hours (ephemeral integration
+shards). Skills used to hold the review, the labels and the comments back until CI went green,
+keeping `in-progress` applied the whole time. If that monitoring process died mid-wait, the PR was
+stranded: it still looked claimed by a live agent that no longer existed, so other automation kept
+skipping it — with no labels, no review, and no record that any work had happened at all. Reporting
+immediately and switching to `ci-monitoring` makes the stranded case honest and self-describing:
+the worst outcome is a missing CI-result comment on an otherwise fully processed PR that anyone
+is free to take over.
+
+`ci-monitoring` gates nothing. It does not affect the QA-approval merge gate, the priority/risk
+requirements, or any hard merge block.
