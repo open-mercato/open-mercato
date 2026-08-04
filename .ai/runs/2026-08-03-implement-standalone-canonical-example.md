@@ -73,6 +73,9 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 25 | **Wave 4 C3** — local-reference fact emission (`portableSourceRoot`, `sourceKind: "local-reference"`, reference bundle) | CANON-C local facts | done | (merge) |
 | 26 | **Wave 4 H2** — SPEC-P2 oracle plumbing (`specRouting`, `expectedSpecRouting`, `routing.spec-decision`) | SPEC-P2 (plumbing) | done | (merge) |
 | 27 | **Wave 4 E2** — translations / extension-points / notifications.client + the false-binding-claim fix | CANON-B gaps | done | `1bc2ce509` |
+| 28 | Close the `withScopedApiRequestHeaders` coverage loophole in the optimistic-lock workspace scan | CANON-B follow-up | done | `7865c6bc1` |
+| 29 | **Wave 5 E3** — both example registries statically readable (extractor 0 → 26/3); injection flag retired + dead refs cleaned | CANON-B registry readability | done | `34e349823` |
+| 30 | **Wave 5 H3** — SPEC-P2 routing cases OMH-204..208 (5 of 6 rows) | SPEC-P2 | done | `a8c06457a` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -501,3 +504,38 @@ before merging E3; findings change what E3 is allowed to do.
    Deprecate in place instead: leave it defined, documented as a no-op with a pointer to
    `metadata.requiredModules`, and skip the `UPGRADE_NOTES.md` removal entry. **If E3 deleted it,
    revert that part on merge and keep the rest.**
+
+  **Wave 5 merged (session 4).** Both slices landed; the injection-flag audit was applied at merge.
+
+  - **E3 achieved its actual purpose, measured:** the real extractor read **0** injection-table and
+    **0** component-override contributions from the example before, **26 and 3** after — and the
+    verifier reproduced the 0/0 baseline on a fresh detached worktree instead of taking it on trust.
+    Root cause confirmed by reading the code: `staticValue` folds a ConditionalExpression only when
+    both branches are deeply equal, and neither registry qualified.
+  - **The checkout flag survived**, moved inside each wrapper, as the safety audit required.
+    `TC-CHKT-031-wrappers` skip-gates on it while asserting the wrapper testids. The pass-through is
+    asserted by React component identity + `renderToStaticMarkup` byte-equality, not by grepping source.
+  - **E3's agent caught a false premise in maintainer decision D2.** D2 said cross-module entries
+    would be "gated only by `metadata.requiredModules`" — no example widget declares that field. The
+    agent verified and REFUSED to write the claim, documenting the gating that actually holds.
+    **Follow-up:** add `requiredModules` to the widgets that call other modules' APIs
+    (`catalog-seo-report` → `['catalog']`, the customer-priority widgets → `['customers']`).
+  - **Completed at merge what E3 could not reach:** four dead env exports (integration harness x2,
+    CI workflows x2) and `apps/docs/.../widget-injection.md`, which after E3 documented a live toggle
+    that no longer existed — a new false doc claim, caught before it shipped. Plus the UPGRADE_NOTES
+    sentence stating the real default change for scaffolded apps.
+  - **H3 shipped 5 of 6 rows. Row 6 (reuse-spec) is structurally blocked**, not omitted: the validator
+    requires `coveringSpecPath` to name a file that exists in the staged app, a fresh scaffold ships
+    only a README and a blank template under `.ai/specs/`, and `validateCatalog` forbids fixtures on
+    non-writable cases. **Unblocks when the writable existing-spec proof (wave 8, H6) lands** — it
+    seeds its own covering spec. Alternative: ship a real example spec in every scaffold (product
+    decision).
+  - H3 edited `cases.schema.json` and `validators.json` outside its allowlist — mechanically
+    unavoidable (schema pinned `maxItems: 203` and id pattern `20[0-3]`); merged cleanly with H2's
+    edits to the same files.
+
+  **Gate after wave 5: FULLY GREEN.** `yarn test` exit 0, create-mercato-app 537 (534 pass, 3
+  skipped), all guards, budget, build:app.
+
+  **Next: wave 6** — E4 (encryption + search) and H4 (CANON-C link migration; OMH-018 budget bump is
+  approved per the maintainer's budget guidance).
