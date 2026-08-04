@@ -95,10 +95,10 @@ Document the worker/CLI app-DI wiring in the IoC container docs and the shared p
 
 ### Phase 1: Worker/CLI app-DI wiring
 
-- [ ] 1.1 Parameterize `compileAndImport` with explicit app root and output path
-- [ ] 1.2 Mirror the tsconfig `@/*` mapping in the CLI bundle alias plugin
-- [ ] 1.3 Load `src/di.ts` and pass `appDiRegistrar` from `bootstrapFromAppRoot`
-- [ ] 1.4 Regression tests for the dynamic-loader app-DI path
+- [x] 1.1 Parameterize `compileAndImport` with explicit app root and output path — 6a5ec9a56
+- [x] 1.2 Mirror the tsconfig `@/*` mapping in the CLI bundle alias plugin — 6a5ec9a56
+- [x] 1.3 Load `src/di.ts` and pass `appDiRegistrar` from `bootstrapFromAppRoot` — 6a5ec9a56
+- [x] 1.4 Regression tests for the dynamic-loader app-DI path — 6a5ec9a56
 
 ### Phase 2: Fallback memoization
 
