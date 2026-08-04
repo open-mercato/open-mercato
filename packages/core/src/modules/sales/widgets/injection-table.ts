@@ -17,10 +17,6 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 50,
     },
   ],
-  'data-table:sales.payments:columns': {
-    widgetId: 'sales.injection.payment-gateway-status-column',
-    priority: 50,
-  },
   'crud-form:sales.payment_method:fields': {
     widgetId: 'sales.injection.payment-gateway-config-field',
     priority: 40,

@@ -1073,6 +1073,18 @@ function contributionBase(
   }
 }
 
+/**
+ * `ModuleInjectionTable` maps a spot to `ModuleInjectionSlot | ModuleInjectionSlot[]`,
+ * and a slot is either a bare widget-id string or a placement object. The runtime
+ * loader normalizes all three shapes (`injection-loader.ts` → `loadInjectionTable`);
+ * reading only the array form here silently dropped every string and single-object
+ * slot from the generated contribution facts.
+ */
+function injectionTableSlots(value: StaticValue | undefined): StaticValue[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
+
 function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): ModuleExtensionContributionFact[] {
   const filePath = conventionPath(options.moduleRoot, 'widgets/injection-table.ts')
   if (!filePath) return []
@@ -1081,12 +1093,12 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
   const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
   const facts: ModuleExtensionContributionFact[] = []
   for (const targetId of Object.keys(table).sort((left, right) => left.localeCompare(right))) {
-    const entries = table[targetId]
-    if (!Array.isArray(entries)) continue
-    for (const entry of entries) {
-      if (!isStaticObject(entry)) continue
-      const widgetId = stringValue(entry.widgetId)
+    for (const entry of injectionTableSlots(table[targetId])) {
+      const slot = isStaticObject(entry) ? entry : null
+      const widgetId = typeof entry === 'string' ? entry : slot ? stringValue(slot.widgetId) : undefined
       if (!widgetId) continue
+      const features = slot ? strings(slot.features) : []
+      const priority = slot ? numberValue(slot.priority) : undefined
       const payload = targetId.endsWith(':columns') ? 'column'
         : targetId.endsWith(':row-actions') ? 'row-action'
           : targetId.endsWith(':bulk-actions') ? 'bulk-action'
@@ -1097,8 +1109,8 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
       const shared = {
         ...base,
         targets: [target(targetId)],
-        features: strings(entry.features),
-        placement: numberValue(entry.priority) !== undefined ? { priority: numberValue(entry.priority) } : undefined,
+        features,
+        placement: priority !== undefined ? { priority } : undefined,
       }
       if (targetId.startsWith('data-table:')) {
         facts.push({
@@ -1107,7 +1119,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: payload === 'field' ? 'render' : payload,
             tableId: targetId.replace(/^data-table:/, '').replace(/:(?:columns|row-actions|bulk-actions|filters|toolbar|header|footer|search-trailing)$/, ''),
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       } else if (targetId.startsWith('crud-form:')) {
@@ -1127,7 +1139,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: 'render',
             registryKey: widgetId,
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       }
