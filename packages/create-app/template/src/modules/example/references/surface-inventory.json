@@ -29,30 +29,52 @@
     },
     {
       "capabilityId": "module.setup-role-features",
-      "title": "Tenant setup and default role feature grants",
-      "description": "`ModuleSetupConfig` mapping built-in roles to wildcard feature grants applied during tenant initialization.",
+      "title": "Tenant setup: role grants and all three seeding hooks",
+      "description": "`ModuleSetupConfig` mapping built-in roles to wildcard feature grants, plus the three hooks the framework calls at different moments with different capabilities: `onTenantCreated` (EntityManager only, no container, fires per new tenant) installs the module's custom-entity definitions; `seedDefaults` (container available, never skipped) writes scoped reference records through the DI-resolved data engine with deterministic upserting ids; `seedExamples` (skipped by `--no-examples`) delegates demo Todos to the same seeder the module CLI exposes.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/setup.ts"],
-      "integrationTestPaths": [],
-      "dependencyModules": [],
+      "sourcePaths": ["src/modules/example/setup.ts", "src/modules/example/lib/exampleSeeds.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/setup-seeding.test.ts"],
+      "dependencyModules": ["entities"],
       "ruleOwner": "om-module-scaffold"
     },
     {
       "capabilityId": "module.di-registration",
       "title": "Module DI registrar",
-      "description": "`register(container)` entrypoint. Demonstrates registering payment-gateway, shipping-carrier, and inbound-webhook adapters plus provider descriptors from a module.",
+      "description": "`register(container)` entrypoint. Registers the module's own scoped Awilix service (`asFunction(...).scoped()` under the `exampleTodoSummaryService` token, consumed by `api/todos/summary/route.ts`) alongside payment-gateway, shipping-carrier, and inbound-webhook adapters plus provider descriptors. The two halves are deliberately different: adapters go into module-external registries, the summary service goes into this container.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/di.ts"],
+      "sourcePaths": ["src/modules/example/di.ts", "src/modules/example/lib/todoSummaryService.ts"],
       "integrationTestPaths": [
+        "src/modules/example/__tests__/di-registration.test.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts"
       ],
       "dependencyModules": ["payment_gateways", "shipping_carriers", "webhooks"],
       "ruleOwner": "om-integration-builder"
+    },
+    {
+      "capabilityId": "runtime.tenant-scoped-cache",
+      "title": "DI-resolved cache with tenant/organization scoping and tag invalidation",
+      "description": "Cache-aside read of a Todo count summary. The logical key carries tenant AND organization, `runWithCacheTenant` enters the cache-tenant context around every backend call, the cached value re-asserts its own scope on read, and entries are tagged with the same `crud:example.todo:tenant:<id>:org:<id>:collection` tag `makeCrudRoute` derives — so the platform's own post-commit `invalidateCrudCache` drops them too. A wildcard `example.todo.*` subscriber invalidates after commit on every write path.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/lib/todoSummaryCache.ts",
+        "src/modules/example/lib/todoSummaryService.ts",
+        "src/modules/example/api/todos/summary/route.ts",
+        "src/modules/example/subscribers/invalidate-todo-summary.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/lib/__tests__/todoSummaryCache.test.ts",
+        "src/modules/example/__tests__/invalidate-todo-summary.test.ts",
+        "src/modules/example/api/__tests__/todos.summary.test.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-module-scaffold"
     },
     {
       "capabilityId": "module.cli-command",
