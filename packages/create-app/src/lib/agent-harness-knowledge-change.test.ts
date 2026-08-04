@@ -31,8 +31,18 @@ type ValidationResult = {
     sourceLinkInventoryRequired?: boolean
     sourceLinkInventoryStatus?: string
     exampleSourceMirrors?: Array<{ path: string; mirrorPath: string; state: string; readStatus: string }>
+    focusedExecutions?: FocusedExecution[]
   }
 }
+
+type ExecutionOutcome = { exitCode: number; stdoutSha256: string; stderrSha256: string }
+type FocusedExecution = {
+  testFile: string
+  command: string[]
+  baseWithTestPatch: ExecutionOutcome
+  head: ExecutionOutcome
+}
+type ExecutionEvidence = { executions: FocusedExecution[]; errors: string[] }
 
 type Validator = {
   CHANGED_CONTRACTS: readonly string[]
@@ -40,6 +50,16 @@ type Validator = {
   CONTROLLER_OWNED_FIELDS: readonly string[]
   CANON_C_REASON: string
   SOURCE_LINK_INVENTORY_PATH: string
+  STRIPPED_EXECUTION_ENV_KEYS: readonly string[]
+  DEFAULT_EXECUTION_TIMEOUT_MS: number
+  deriveFocusedCommand: (
+    testFile: string,
+    runnerFamily?: { family: string; declaredScript: string | null },
+  ) => { runner?: string; argv?: string[]; error?: string }
+  resolveTestRunnerFamily: (root: string, testFile: string) => { family: string; declaredScript: string | null }
+  sanitizeExecutionEnv: (sourceEnv: Record<string, string | undefined>) => Record<string, string | undefined>
+  runFocusedExecutions: (input: Record<string, unknown>) => ExecutionEvidence
+  assertFocusedExecutionEvidence: (declaredTests: string[], evidence: ExecutionEvidence | null) => string[]
   classifyChangedPath: (value: string) => Classification
   deriveChangeClassification: (paths: string[]) => {
     changeClass: string
@@ -109,9 +129,26 @@ function baseManifest(overrides: Record<string, unknown> = {}): Record<string, u
       baselineAssetCount: 8,
       baselineDispositionCount: 136,
       baselinePath: 'packages/create-app/scripts/source-links/source-link-baseline.json',
-      baselineSchemaPath: 'packages/create-app/agentic/shared/ai/harness/source-link-baseline.schema.json',
+      baselineSchemaPath: 'packages/create-app/scripts/source-links/source-link-baseline.schema.json',
     },
     ...overrides,
+  }
+}
+
+function passingOutcome(seed: string): ExecutionOutcome {
+  return { exitCode: 0, stdoutSha256: sha256(`${seed}-out`), stderrSha256: sha256(`${seed}-err`) }
+}
+
+function satisfiedEvidence(manifest: Record<string, unknown>): ExecutionEvidence {
+  const testFiles = (manifest.focusedTestFiles as string[] | undefined) ?? []
+  return {
+    errors: [],
+    executions: testFiles.map((testFile) => ({
+      testFile,
+      command: [process.execPath, '--test', testFile],
+      baseWithTestPatch: { ...passingOutcome(`${testFile}-base`), exitCode: 1 },
+      head: passingOutcome(`${testFile}-head`),
+    })),
   }
 }
 
@@ -127,6 +164,7 @@ function runValidation(
     schema,
     changedPaths,
     harnessRelativeDir: '.ai/harness',
+    executionEvidence: satisfiedEvidence(manifest),
     ...extra,
   })
 }
@@ -505,23 +543,21 @@ test('case ranges expand inclusively and reject a descending bound', () => {
 })
 
 test('the CLI derives the class from a real diff and refuses a mismatched baseRef', () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-knowledge-change-cli-')))
+  const root = initGitFixture('om-knowledge-change-cli-')
   const artifacts = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-knowledge-change-out-')))
-  spawnSync('git', ['init', '--quiet', root])
-  spawnSync('git', ['-C', root, 'config', 'user.email', 'harness@example.test'])
-  spawnSync('git', ['-C', root, 'config', 'user.name', 'Harness'])
+  const counterPath = path.join(artifacts, 'runs.log')
   fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
   fs.copyFileSync(schemaPath, path.join(root, '.ai', 'harness', 'knowledge-change.schema.json'))
   writeFixtureFile(root, '.ai/harness/cases.json', JSON.stringify([{ id: 'OMH-001' }, { id: 'OMH-002' }, { id: 'OMH-003' }]))
   writeFixtureFile(root, '.ai/harness/release-matrix.json', JSON.stringify({ deterministic: {}, routing: {} }))
   writeFixtureFile(root, 'AGENTS.md', '# routing v1\n')
-  writeFixtureFile(root, 'packages/create-app/src/lib/demo.test.ts', 'export const before = 1\n')
-  spawnSync('git', ['-C', root, 'add', '-A'])
-  spawnSync('git', ['-C', root, 'commit', '--quiet', '-m', 'base'])
-  const baseSha = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 1\n')
+  writeFixtureFile(root, 'pkg/lib.test.mjs', focusedTestSource(counterPath, 1))
+  const baseSha = commitAll(root, 'base')
 
   const agentsSha = writeFixtureFile(root, 'AGENTS.md', '# routing v2\n')
-  writeFixtureFile(root, 'packages/create-app/src/lib/demo.test.ts', 'export const after = 1\n')
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 2\n')
+  writeFixtureFile(root, 'pkg/lib.test.mjs', focusedTestSource(counterPath, 2))
 
   const manifestPath = path.join(artifacts, 'run.json')
   const outPath = path.join(artifacts, 'run.result.json')
@@ -530,16 +566,17 @@ test('the CLI derives the class from a real diff and refuses a mismatched baseRe
     affectedCaseIds: ['OMH-002'],
     affectedRanges: ['OMH-001..OMH-003'],
     changedContracts: ['routing', 'evaluator'],
+    focusedTestFiles: ['pkg/lib.test.mjs'],
     expectedCatalogCount: 3,
     authoritativeFiles: [{ path: 'AGENTS.md', sha256: agentsSha }],
   })
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
 
-  const pass = spawnSync(
-    process.execPath,
-    [validatorPath, '--manifest', manifestPath, '--base', baseSha, '--root', root, '--harness-dir', '.ai/harness', '--out', outPath],
-    { encoding: 'utf8' },
-  )
+  const argv = [
+    validatorPath, '--manifest', manifestPath, '--base', baseSha, '--root', root,
+    '--harness-dir', '.ai/harness', '--out', outPath, '--execution-timeout', '90000',
+  ]
+  const pass = spawnSync(process.execPath, argv, { encoding: 'utf8' })
   assert.equal(pass.status, 0, `${pass.stdout}\n${pass.stderr}`)
   const report = JSON.parse(fs.readFileSync(outPath, 'utf8')) as {
     status: string
@@ -550,21 +587,306 @@ test('the CLI derives the class from a real diff and refuses a mismatched baseRe
   assert.equal(report.status, 'pass')
   assert.equal(report.manifest.resolvedBaseSha, baseSha)
   assert.equal(typeof report.manifest.headSha, 'string')
-  assert.deepEqual(report.manifest.focusedExecutions, [])
   assert.equal(report.derived.changeClass, 'knowledge-contract')
-  assert.deepEqual(report.changedPaths, ['AGENTS.md', 'packages/create-app/src/lib/demo.test.ts'])
+  assert.deepEqual(report.changedPaths, ['AGENTS.md', 'pkg/lib.mjs', 'pkg/lib.test.mjs'])
 
   fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, baseRef: 'refs/heads/nonexistent' }, null, 2))
-  const fail = spawnSync(
-    process.execPath,
-    [validatorPath, '--manifest', manifestPath, '--base', baseSha, '--root', root, '--harness-dir', '.ai/harness', '--out', outPath],
-    { encoding: 'utf8' },
-  )
+  const runsBeforeBadRef = countRuns(counterPath)
+  const fail = spawnSync(process.execPath, argv, { encoding: 'utf8' })
   assert.equal(fail.status, 1, `${fail.stdout}\n${fail.stderr}`)
   assert.match(fail.stderr, /authored baseRef "refs\/heads\/nonexistent" does not resolve to the --base SHA/)
+  assert.equal(countRuns(counterPath), runsBeforeBadRef, 'an unresolvable baseRef must not run any focused command')
 
   const missingArgs = spawnSync(process.execPath, [validatorPath, '--root', root], { encoding: 'utf8' })
   assert.equal(missingArgs.status, 2)
+})
+
+function initGitFixture(prefix: string): string {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)))
+  spawnSync('git', ['init', '--quiet', root])
+  spawnSync('git', ['-C', root, 'config', 'user.email', 'harness@example.test'])
+  spawnSync('git', ['-C', root, 'config', 'user.name', 'Harness'])
+  spawnSync('git', ['-C', root, 'config', 'commit.gpgsign', 'false'])
+  return root
+}
+
+function commitAll(root: string, message: string): string {
+  spawnSync('git', ['-C', root, 'add', '-A'])
+  spawnSync('git', ['-C', root, 'commit', '--quiet', '-m', message])
+  return spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+}
+
+function focusedTestSource(counterPath: string, expected: number): string {
+  return [
+    "import assert from 'node:assert/strict'",
+    "import fs from 'node:fs'",
+    "import test from 'node:test'",
+    "import { value } from './lib.mjs'",
+    '',
+    `fs.appendFileSync(${JSON.stringify(counterPath)}, 'run\\n')`,
+    '',
+    `test('lib exposes the governed value', () => {`,
+    `  assert.equal(value, ${expected})`,
+    '})',
+    '',
+  ].join('\n')
+}
+
+// A deliberately vacuous regression: it passes at base and at head, so the controller must reject it.
+function baseAgnosticTestSource(counterPath: string): string {
+  return [
+    "import assert from 'node:assert/strict'",
+    "import fs from 'node:fs'",
+    "import test from 'node:test'",
+    "import { value } from './lib.mjs'",
+    '',
+    `fs.appendFileSync(${JSON.stringify(counterPath)}, 'run\\n')`,
+    '',
+    `test('lib exposes some value', () => {`,
+    "  assert.equal(typeof value, 'number')",
+    '})',
+    '',
+  ].join('\n')
+}
+
+function countRuns(counterPath: string): number {
+  if (!fs.existsSync(counterPath)) return 0
+  return fs.readFileSync(counterPath, 'utf8').split('\n').filter(Boolean).length
+}
+
+test('the controller derives the focused command instead of accepting one from the author', () => {
+  const mjs = validator.deriveFocusedCommand('packages/create-app/src/lib/demo.test.mjs')
+  assert.deepEqual(mjs.argv, [process.execPath, '--test', 'packages/create-app/src/lib/demo.test.mjs'])
+  assert.equal(mjs.runner, 'node-test')
+
+  const ts = validator.deriveFocusedCommand('packages/create-app/src/lib/demo.test.ts')
+  assert.deepEqual(ts.argv, [process.execPath, '--import', 'tsx', '--test', 'packages/create-app/src/lib/demo.test.ts'])
+  assert.equal(ts.runner, 'node-test-tsx')
+
+  const unsupported = validator.deriveFocusedCommand('packages/create-app/src/lib/demo.test.py')
+  assert.equal(unsupported.argv, undefined)
+  assert.match(String(unsupported.error), /no controller runner is registered/)
+
+  const jestRoot = makeFixtureRoot()
+  writeFixtureFile(jestRoot, 'package.json', JSON.stringify({ scripts: { test: 'jest --config jest.config.cjs' } }))
+  writeFixtureFile(jestRoot, 'pkg/package.json', JSON.stringify({ scripts: { test: 'node --test pkg' } }))
+  assert.deepEqual(
+    validator.resolveTestRunnerFamily(jestRoot, 'src/lib/demo.test.ts'),
+    { family: 'unsupported', declaredScript: 'jest --config jest.config.cjs' },
+  )
+  assert.deepEqual(
+    validator.resolveTestRunnerFamily(jestRoot, 'pkg/demo.test.ts'),
+    { family: 'node-test', declaredScript: 'node --test pkg' },
+  )
+  const refused = validator.deriveFocusedCommand(
+    'src/lib/demo.test.ts',
+    validator.resolveTestRunnerFamily(jestRoot, 'src/lib/demo.test.ts'),
+  )
+  assert.equal(refused.argv, undefined)
+  assert.match(String(refused.error), /declares the test script "jest --config jest\.config\.cjs", which the controller cannot drive/)
+
+  const createAppScript = (JSON.parse(
+    fs.readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
+  ) as { scripts: Record<string, string> }).scripts.test
+  assert.equal(validator.resolveTestRunnerFamily('/', 'x.test.ts').family, 'node-test')
+  assert.match(createAppScript, /--test\b/, 'this package must stay on a runner the controller can drive')
+
+  for (const derived of [mjs, ts]) {
+    for (const token of derived.argv ?? []) {
+      assert.doesNotMatch(token, /[`$;&|<>\n]/, `argv token ${token} must carry no shell metacharacter`)
+    }
+  }
+})
+
+test('focused execution evidence must show a fail-before and a pass-after for every declared test', () => {
+  const declared = ['packages/create-app/src/lib/demo.test.ts']
+  const outcome = { exitCode: 0, stdoutSha256: '0'.repeat(64), stderrSha256: '1'.repeat(64) }
+  const record = {
+    testFile: declared[0],
+    command: [process.execPath, '--test', declared[0]],
+    baseWithTestPatch: { ...outcome, exitCode: 1 },
+    head: outcome,
+  }
+
+  assert.deepEqual(validator.assertFocusedExecutionEvidence(declared, { executions: [record], errors: [] }), [])
+
+  const absent = validator.assertFocusedExecutionEvidence(declared, null)
+  assert.equal(absent.length, 1)
+  assert.match(absent[0], /produced no focused base\/head execution evidence/)
+
+  const missingRecord = validator.assertFocusedExecutionEvidence(declared, { executions: [], errors: [] })
+  assert.match(missingRecord.join('\n'), /has no base\/head execution record for declared focused test/)
+
+  const basePassed = validator.assertFocusedExecutionEvidence(declared, {
+    executions: [{ ...record, baseWithTestPatch: outcome }],
+    errors: [],
+  })
+  assert.match(basePassed.join('\n'), /exited 0 on base-plus-test-only; the focused test must fail for the old behavior/)
+
+  const headFailed = validator.assertFocusedExecutionEvidence(declared, {
+    executions: [{ ...record, head: { ...outcome, exitCode: 3 } }],
+    errors: [],
+  })
+  assert.match(headFailed.join('\n'), /exited 3 at head; the focused test must pass after the change/)
+
+  const undeclared = validator.assertFocusedExecutionEvidence(declared, {
+    executions: [record, { ...record, testFile: 'packages/create-app/src/lib/other.test.ts' }],
+    errors: [],
+  })
+  assert.match(undeclared.join('\n'), /carries an execution for packages\/create-app\/src\/lib\/other\.test\.ts, which the manifest does not declare/)
+
+  const carried = validator.assertFocusedExecutionEvidence(declared, {
+    executions: [record],
+    errors: ['focusedExecutions could not create an isolated worktree'],
+  })
+  assert.deepEqual(carried, ['focusedExecutions could not create an isolated worktree'])
+})
+
+test('a knowledge-contract manifest without controller execution evidence cannot pass', () => {
+  const root = makeFixtureRoot()
+  writeFixtureFile(root, 'packages/create-app/src/lib/demo.test.ts', 'export {}\n')
+  const authoritativeSha = writeFixtureFile(root, 'AGENTS.md', '# routing\n')
+  const manifest = baseManifest({
+    changedContracts: ['routing', 'evaluator'],
+    authoritativeFiles: [{ path: 'AGENTS.md', sha256: authoritativeSha }],
+  })
+  const changedPaths = ['AGENTS.md', 'packages/create-app/src/lib/demo.test.ts']
+
+  const withEvidence = runValidation(root, manifest, changedPaths)
+  assert.deepEqual(withEvidence.errors, [])
+
+  const withoutEvidence = runValidation(root, manifest, changedPaths, { executionEvidence: null })
+  assert.equal(withoutEvidence.ok, false)
+  assert.match(withoutEvidence.errors.join('\n'), /produced no focused base\/head execution evidence/)
+})
+
+test('the controller runs each focused test once on base-plus-test-only and once at head', () => {
+  const root = initGitFixture('om-knowledge-exec-')
+  const counterPath = path.join(root, '..', `${path.basename(root)}-runs.log`)
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 1\n')
+  writeFixtureFile(root, 'pkg/lib.test.mjs', focusedTestSource(counterPath, 1))
+  const baseSha = commitAll(root, 'base')
+
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 2\n')
+  writeFixtureFile(root, 'pkg/lib.test.mjs', focusedTestSource(counterPath, 2))
+  const dirtyBefore = spawnSync('git', ['-C', root, 'status', '--porcelain'], { encoding: 'utf8' }).stdout
+
+  const evidence = validator.runFocusedExecutions({
+    root,
+    baseSha,
+    headSha: baseSha,
+    changedPaths: ['pkg/lib.mjs', 'pkg/lib.test.mjs'],
+    testFiles: ['pkg/lib.test.mjs'],
+    timeoutMs: 90_000,
+  })
+
+  assert.deepEqual(evidence.errors, [])
+  assert.equal(evidence.executions.length, 1)
+  const [execution] = evidence.executions
+  assert.equal(execution.testFile, 'pkg/lib.test.mjs')
+  assert.deepEqual(execution.command, [process.execPath, '--test', 'pkg/lib.test.mjs'])
+  assert.notEqual(execution.baseWithTestPatch.exitCode, 0)
+  assert.equal(execution.head.exitCode, 0)
+  assert.notEqual(execution.baseWithTestPatch.stdoutSha256, execution.head.stdoutSha256)
+  for (const digest of [execution.baseWithTestPatch.stdoutSha256, execution.head.stdoutSha256]) {
+    assert.match(digest, /^[0-9a-f]{64}$/)
+  }
+
+  assert.equal(countRuns(counterPath), 2, 'the controller must run the command exactly once per side and never retry')
+  assert.deepEqual(
+    validator.sanitizeExecutionEnv({ PATH: '/usr/bin', NODE_TEST_CONTEXT: 'child-v8', NODE_OPTIONS: '--x' }),
+    { PATH: '/usr/bin' },
+  )
+  assert.deepEqual(validator.assertFocusedExecutionEvidence(['pkg/lib.test.mjs'], evidence), [])
+
+  const worktrees = spawnSync('git', ['-C', root, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' }).stdout
+  assert.equal(worktrees.split('\n').filter((line) => line.startsWith('worktree ')).length, 1)
+  assert.equal(spawnSync('git', ['-C', root, 'status', '--porcelain'], { encoding: 'utf8' }).stdout, dirtyBefore)
+  assert.equal(fs.readFileSync(path.join(root, 'pkg', 'lib.mjs'), 'utf8'), 'export const value = 2\n')
+})
+
+test('the controller rejects a focused test with no test-only diff against the base', () => {
+  const root = initGitFixture('om-knowledge-exec-nodiff-')
+  const counterPath = path.join(root, '..', `${path.basename(root)}-runs.log`)
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 1\n')
+  writeFixtureFile(root, 'pkg/lib.test.mjs', focusedTestSource(counterPath, 1))
+  const baseSha = commitAll(root, 'base')
+
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 2\n')
+
+  const evidence = validator.runFocusedExecutions({
+    root,
+    baseSha,
+    headSha: baseSha,
+    changedPaths: ['pkg/lib.mjs'],
+    testFiles: ['pkg/lib.test.mjs'],
+    timeoutMs: 90_000,
+  })
+
+  assert.deepEqual(evidence.executions, [])
+  assert.equal(evidence.errors.length, 1)
+  assert.match(evidence.errors[0], /pkg\/lib\.test\.mjs has no test-only diff against the base/)
+  assert.equal(countRuns(counterPath), 0, 'a run with no test-only diff must not execute anything')
+})
+
+test('the CLI writes controller-owned focused executions and refuses a test that already passes at base', () => {
+  const root = initGitFixture('om-knowledge-exec-cli-')
+  const artifacts = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-knowledge-exec-out-')))
+  const counterPath = path.join(artifacts, 'runs.log')
+  fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.copyFileSync(schemaPath, path.join(root, '.ai', 'harness', 'knowledge-change.schema.json'))
+  writeFixtureFile(root, '.ai/harness/cases.json', JSON.stringify([{ id: 'OMH-001' }, { id: 'OMH-002' }, { id: 'OMH-003' }]))
+  writeFixtureFile(root, '.ai/harness/release-matrix.json', JSON.stringify({ deterministic: {}, routing: {} }))
+  writeFixtureFile(root, 'AGENTS.md', '# routing v1\n')
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 1\n')
+  writeFixtureFile(root, 'pkg/lib.test.mjs', focusedTestSource(counterPath, 1))
+  const baseSha = commitAll(root, 'base')
+
+  const agentsSha = writeFixtureFile(root, 'AGENTS.md', '# routing v2\n')
+  writeFixtureFile(root, 'pkg/lib.mjs', 'export const value = 2\n')
+  writeFixtureFile(root, 'pkg/lib.test.mjs', focusedTestSource(counterPath, 2))
+
+  const manifestPath = path.join(artifacts, 'run.json')
+  const outPath = path.join(artifacts, 'run.result.json')
+  const manifest = baseManifest({
+    baseRef: baseSha,
+    changedContracts: ['routing', 'evaluator'],
+    focusedTestFiles: ['pkg/lib.test.mjs'],
+    expectedCatalogCount: 3,
+    authoritativeFiles: [{ path: 'AGENTS.md', sha256: agentsSha }],
+  })
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
+
+  const cli = (): ReturnType<typeof spawnSync> => spawnSync(
+    process.execPath,
+    [
+      validatorPath, '--manifest', manifestPath, '--base', baseSha, '--root', root,
+      '--harness-dir', '.ai/harness', '--out', outPath, '--execution-timeout', '90000',
+    ],
+    { encoding: 'utf8' },
+  )
+
+  const pass = cli()
+  assert.equal(pass.status, 0, `${pass.stdout}\n${pass.stderr}`)
+  const report = JSON.parse(fs.readFileSync(outPath, 'utf8')) as {
+    status: string
+    manifest: Record<string, unknown> & { focusedExecutions: FocusedExecution[] }
+  }
+  assert.equal(report.status, 'pass')
+  assert.equal(report.manifest.focusedExecutions.length, 1)
+  assert.equal(report.manifest.focusedExecutions[0].testFile, 'pkg/lib.test.mjs')
+  assert.notEqual(report.manifest.focusedExecutions[0].baseWithTestPatch.exitCode, 0)
+  assert.equal(report.manifest.focusedExecutions[0].head.exitCode, 0)
+  assert.deepEqual(
+    validator.validateJsonSchema(report.manifest, schema.$defs.completedManifest, '$', schema),
+    [],
+  )
+  assert.equal(countRuns(counterPath), 2)
+
+  writeFixtureFile(root, 'pkg/lib.test.mjs', baseAgnosticTestSource(counterPath))
+  const alreadyPassing = cli()
+  assert.equal(alreadyPassing.status, 1, `${alreadyPassing.stdout}\n${alreadyPassing.stderr}`)
+  assert.match(alreadyPassing.stderr, /exited 0 on base-plus-test-only/)
 })
 
 test('om-evolve-harness routes to the nine mandatory knowledge-change steps', () => {
@@ -597,6 +919,16 @@ test('om-evolve-harness routes to the nine mandatory knowledge-change steps', ()
   for (const field of validator.CONTROLLER_OWNED_FIELDS) {
     assert.ok(reference.includes(`\`${field}\``), `the reference must name the controller-owned field ${field}`)
   }
+
+  for (const key of validator.STRIPPED_EXECUTION_ENV_KEYS) {
+    assert.ok(reference.includes(`\`${key}\``), `the reference must name the stripped execution env key ${key}`)
+  }
+  assert.match(reference, /## Controller-owned base\/head execution/)
+  assert.match(reference, /exactly once per side/)
+  assert.match(reference, /it only drives a `node --test`\s+runner, and \*\*refuses by name\*\*/)
+  assert.match(reference, /base-plus-test-only to exit \*\*non-zero\*\* and head to exit \*\*zero\*\*/)
+  assert.match(reference, new RegExp(`--execution-timeout <ms>[^\\n]*default ${validator.DEFAULT_EXECUTION_TIMEOUT_MS}`))
+  assert.doesNotMatch(reference, /emits an empty `focusedExecutions` today/)
 })
 
 test('both package manifests expose the knowledge-change validator under the spec-named script', () => {

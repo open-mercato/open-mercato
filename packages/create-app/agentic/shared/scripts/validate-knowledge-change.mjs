@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -22,8 +23,13 @@ export const RELEASE_LANE_IDS = Object.freeze([
 export const CONTROLLER_OWNED_FIELDS = Object.freeze(['resolvedBaseSha', 'headSha', 'focusedExecutions'])
 export const SCHEMA_BASENAME = 'knowledge-change.schema.json'
 
+// Sibling of the baseline and topics registry, which live OUTSIDE the shipped
+// `agentic/shared/**` tree on purpose: that tree is copied wholesale into every generated
+// app, and these are monorepo-only assets (the baseline pins monorepo SHAs and validates
+// monorepo files). A forward reference to the old location would have sent the inventory
+// back into every scaffold when it lands.
 export const SOURCE_LINK_INVENTORY_PATH =
-  'packages/create-app/agentic/shared/ai/harness/source-link-inventory.json'
+  'packages/create-app/scripts/source-links/source-link-inventory.json'
 export const CANON_C_REASON =
   `${SOURCE_LINK_INVENTORY_PATH} not present — CANON-C (canonical-example source-link inventory) has not landed, ` +
   'so source-link, example-source, and installed-source contracts cannot be resolved and fail closed'
@@ -33,6 +39,19 @@ const EXAMPLE_TEMPLATE_ROOT = 'packages/create-app/template/src/modules/example'
 const EXAMPLE_QA_ONLY_SEGMENTS = Object.freeze(['__tests__', '__integration__'])
 
 const FOCUSED_TEST_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/
+
+// One argv token may not carry a shell metacharacter. The controller never interpolates a shell,
+// and the recorded evidence must stay reproducible as an exact argv vector.
+const SHELL_METACHARACTER_PATTERN = /[`$;&|<>\n]/
+
+export const DEFAULT_EXECUTION_TIMEOUT_MS = 600_000
+
+// Ordered; the first matching runner owns the focused test. Runner argv is controller-derived so an
+// author can never substitute a weaker command for the test they declared.
+const FOCUSED_RUNNERS = Object.freeze([
+  { runner: 'node-test', pattern: /\.(?:test|spec)\.[cm]?jsx?$/, args: (relativePath) => ['--test', relativePath] },
+  { runner: 'node-test-tsx', pattern: /\.(?:test|spec)\.[cm]?tsx?$/, args: (relativePath) => ['--import', 'tsx', '--test', relativePath] },
+])
 
 // Ordered; the first matching rule owns the path. `contract: null` marks a path that
 // carries no knowledge contract of its own — a generated/materialized copy or a docs
@@ -371,6 +390,244 @@ function baseFileHash(root, baseSha, relativePath) {
   return createHash('sha256').update(result.stdout).digest('hex')
 }
 
+function baseFileBuffer(root, baseSha, relativePath) {
+  const result = spawnSync('git', ['-C', root, 'show', `${baseSha}:${relativePath}`], { encoding: 'buffer' })
+  return result.status === 0 ? result.stdout : null
+}
+
+const NODE_TEST_SCRIPT_PATTERN = /(?:^|\s)--test(?:[=\s]|$)/
+
+/**
+ * The controller only drives an exact `node --test` argv. It reads the nearest owning package's
+ * declared test script so a project on another runner is refused with its real script name instead
+ * of being handed a command that would not run its suite.
+ */
+export function resolveTestRunnerFamily(root, testFile) {
+  const segments = normalizeRelativePath(testFile).split('/').slice(0, -1)
+  const directories = ['']
+  let accumulated = ''
+  for (const segment of segments) {
+    accumulated = accumulated ? `${accumulated}/${segment}` : segment
+    directories.push(accumulated)
+  }
+  for (const directory of directories.reverse()) {
+    const manifest = readJsonIfPresent(path.join(root, directory, 'package.json'))
+    const declared = manifest?.scripts?.test
+    if (typeof declared !== 'string' || !declared.trim()) continue
+    return NODE_TEST_SCRIPT_PATTERN.test(declared)
+      ? { family: 'node-test', declaredScript: declared }
+      : { family: 'unsupported', declaredScript: declared }
+  }
+  return { family: 'node-test', declaredScript: null }
+}
+
+export function deriveFocusedCommand(testFile, runnerFamily = { family: 'node-test', declaredScript: null }) {
+  const relativePath = normalizeRelativePath(testFile)
+  if (runnerFamily.family !== 'node-test') {
+    return {
+      error:
+        `the owning package of ${relativePath} declares the test script "${runnerFamily.declaredScript}", which the ` +
+        'controller cannot drive as an exact argv; it only drives a `node --test` runner today',
+    }
+  }
+  const runner = FOCUSED_RUNNERS.find((candidate) => candidate.pattern.test(relativePath))
+  if (!runner) return { error: `no controller runner is registered for ${relativePath}` }
+  const argv = [process.execPath, ...runner.args(relativePath)]
+  const offending = argv.find((token) => SHELL_METACHARACTER_PATTERN.test(token))
+  if (offending !== undefined) {
+    return { error: `the command derived for ${relativePath} carries the shell metacharacter token "${offending}"` }
+  }
+  return { runner: runner.runner, argv }
+}
+
+function isContainedRelativePath(relativePath) {
+  const normalized = normalizeRelativePath(relativePath)
+  if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) return false
+  return !normalized.split('/').includes('..')
+}
+
+function overlayWorkingTreePaths(root, worktree, relativePaths) {
+  for (const relativePath of relativePaths) {
+    if (!isContainedRelativePath(relativePath)) continue
+    const source = path.join(root, relativePath)
+    const target = path.join(worktree, relativePath)
+    if (isRegularFile(source)) {
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.copyFileSync(source, target)
+    } else if (fs.existsSync(target)) {
+      fs.rmSync(target, { force: true, recursive: true })
+    }
+  }
+}
+
+function linkResolutionRoots(root, worktree, relativePath) {
+  const segments = normalizeRelativePath(relativePath).split('/').slice(0, -1)
+  const directories = ['']
+  let accumulated = ''
+  for (const segment of segments) {
+    accumulated = accumulated ? `${accumulated}/${segment}` : segment
+    directories.push(accumulated)
+  }
+  for (const directory of directories) {
+    const target = path.join(root, directory, 'node_modules')
+    const link = path.join(worktree, directory, 'node_modules')
+    if (!fs.existsSync(target) || fs.existsSync(link)) continue
+    fs.mkdirSync(path.dirname(link), { recursive: true })
+    try { fs.symlinkSync(target, link, 'junction') } catch { /* resolution stays worktree-local */ }
+  }
+}
+
+// A controller invoked from inside a test runner would otherwise leak its runner context into the
+// child, which suppresses the child's own exit status and makes every focused run look like a pass.
+export const STRIPPED_EXECUTION_ENV_KEYS = Object.freeze([
+  'NODE_OPTIONS', 'NODE_TEST_CONTEXT', 'NODE_V8_COVERAGE', 'TEST_RUNNER_CONCURRENCY',
+])
+
+export function sanitizeExecutionEnv(sourceEnv) {
+  const env = { ...sourceEnv }
+  for (const key of STRIPPED_EXECUTION_ENV_KEYS) delete env[key]
+  return env
+}
+
+function runControlledCommand(cwd, argv, timeoutMs) {
+  const env = sanitizeExecutionEnv(process.env)
+  const result = spawnSync(argv[0], argv.slice(1), { cwd, env, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 })
+  if (result.error || result.signal || typeof result.status !== 'number') {
+    return { failed: true, reason: result.signal ? `terminated by signal ${result.signal}` : String(result.error ?? 'no exit status') }
+  }
+  return {
+    exitCode: result.status,
+    stdoutSha256: createHash('sha256').update(result.stdout ?? Buffer.alloc(0)).digest('hex'),
+    stderrSha256: createHash('sha256').update(result.stderr ?? Buffer.alloc(0)).digest('hex'),
+  }
+}
+
+function addWorktree(root, sha, directory) {
+  git(root, ['worktree', 'add', '--detach', '--quiet', directory, sha])
+}
+
+// Returns true when the clean removal failed and left an administrative entry behind. The caller
+// prunes only then: an unconditional prune would also drop sibling worktrees of the same repository
+// whose directories happen to be unavailable, which is not this controller's to decide.
+function removeWorktree(root, directory) {
+  try {
+    git(root, ['worktree', 'remove', '--force', directory])
+    return false
+  } catch {
+    fs.rmSync(directory, { recursive: true, force: true })
+    return true
+  }
+}
+
+/**
+ * Controller-owned focused execution. For each declared focused test the controller builds two
+ * isolated worktrees: the base commit with ONLY that test's own head content applied, and the head
+ * commit with the whole working-tree diff applied. It runs the derived argv exactly once per side —
+ * there is no retry — and records exit codes plus output hashes as evidence.
+ */
+export function runFocusedExecutions(input) {
+  const root = path.resolve(input.root)
+  const baseSha = input.baseSha
+  const changedPaths = [...new Set((input.changedPaths ?? []).map(normalizeRelativePath))]
+  const timeoutMs = input.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS
+  const executions = []
+  const errors = []
+  const testFiles = [...new Set((input.testFiles ?? []).map(normalizeRelativePath))]
+  if (!testFiles.length) return { executions, errors }
+
+  const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'om-knowledge-exec-'))
+  let removalFellBack = false
+  try {
+    for (const [index, testFile] of testFiles.entries()) {
+      const headAbsolute = path.join(root, testFile)
+      if (!isContainedRelativePath(testFile) || !isRegularFile(headAbsolute)) {
+        errors.push(`focusedExecutions ${testFile} is not an exact regular file inside the repository, so it cannot be executed`)
+        continue
+      }
+      const derivedCommand = deriveFocusedCommand(testFile, resolveTestRunnerFamily(root, testFile))
+      if (derivedCommand.error) { errors.push(`focusedExecutions ${derivedCommand.error}`); continue }
+
+      const headContents = fs.readFileSync(headAbsolute)
+      const baseContents = baseFileBuffer(root, baseSha, testFile)
+      if (baseContents !== null && baseContents.equals(headContents)) {
+        errors.push(
+          `focusedExecutions ${testFile} has no test-only diff against the base; a knowledge-contract change must add ` +
+          'or repair the regression that proves the new behavior',
+        )
+        continue
+      }
+
+      const baseWorktree = path.join(scratch, `base-${index}`)
+      const headWorktree = path.join(scratch, `head-${index}`)
+      let baseOutcome
+      let headOutcome
+      try {
+        addWorktree(root, baseSha, baseWorktree)
+        overlayWorkingTreePaths(root, baseWorktree, [testFile])
+        linkResolutionRoots(root, baseWorktree, testFile)
+        baseOutcome = runControlledCommand(baseWorktree, derivedCommand.argv, timeoutMs)
+
+        addWorktree(root, input.headSha, headWorktree)
+        overlayWorkingTreePaths(root, headWorktree, changedPaths)
+        linkResolutionRoots(root, headWorktree, testFile)
+        headOutcome = runControlledCommand(headWorktree, derivedCommand.argv, timeoutMs)
+      } catch (error) {
+        errors.push(`focusedExecutions ${testFile} could not be executed in an isolated worktree: ${error.message}`)
+        continue
+      } finally {
+        removalFellBack = removeWorktree(root, baseWorktree) || removalFellBack
+        removalFellBack = removeWorktree(root, headWorktree) || removalFellBack
+      }
+
+      if (baseOutcome.failed || headOutcome.failed) {
+        const failing = baseOutcome.failed ? `base-plus-test-only (${baseOutcome.reason})` : `head (${headOutcome.reason})`
+        errors.push(`focusedExecutions ${testFile} produced no usable ${failing} exit status`)
+        continue
+      }
+      executions.push({
+        testFile,
+        command: derivedCommand.argv,
+        baseWithTestPatch: baseOutcome,
+        head: headOutcome,
+      })
+    }
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true })
+    if (removalFellBack) { try { git(root, ['worktree', 'prune']) } catch { /* pruning is best effort */ } }
+  }
+  return { executions, errors }
+}
+
+export function assertFocusedExecutionEvidence(declaredTests, evidence) {
+  const errors = []
+  if (!evidence) {
+    return ['the controller produced no focused base/head execution evidence; a knowledge-contract change cannot be certified without it']
+  }
+  errors.push(...(evidence.errors ?? []))
+  const executions = evidence.executions ?? []
+  for (const testFile of declaredTests) {
+    const execution = executions.find((entry) => entry.testFile === normalizeRelativePath(testFile))
+    if (!execution) {
+      errors.push(`focusedExecutions has no base/head execution record for declared focused test ${testFile}`)
+      continue
+    }
+    if (execution.baseWithTestPatch.exitCode === 0) {
+      errors.push(
+        `focusedExecutions ${testFile} exited 0 on base-plus-test-only; the focused test must fail for the old behavior`,
+      )
+    }
+    if (execution.head.exitCode !== 0) {
+      errors.push(`focusedExecutions ${testFile} exited ${execution.head.exitCode} at head; the focused test must pass after the change`)
+    }
+  }
+  for (const execution of executions) {
+    if (!declaredTests.map(normalizeRelativePath).includes(execution.testFile)) {
+      errors.push(`focusedExecutions carries an execution for ${execution.testFile}, which the manifest does not declare`)
+    }
+  }
+  return errors
+}
+
 /**
  * Validates one knowledge-change run manifest against the derived classification of
  * its own diff. `changedPaths` is supplied by the caller so the derivation stays
@@ -489,6 +746,10 @@ export function validateKnowledgeChange(input) {
         errors.push('a knowledge-contract change must name at least one affected certified release lane')
       }
     }
+
+    const executionErrors = assertFocusedExecutionEvidence(declaredTests, input.executionEvidence)
+    derived.focusedExecutions = input.executionEvidence?.executions ?? []
+    errors.push(...executionErrors)
   }
 
   const linkedContracts = ['source-link', 'example-source', 'installed-source']
@@ -523,10 +784,13 @@ function writeJsonAtomic(absolutePath, value) {
 
 function usage() {
   return [
-    'Usage: validate-knowledge-change --manifest <path> --base <ref> [--root <dir>] [--harness-dir <dir>] [--out <path>]',
+    'Usage: validate-knowledge-change --manifest <path> --base <ref> [--root <dir>] [--harness-dir <dir>]',
+    '                                 [--out <path>] [--execution-timeout <ms>]',
     '',
     'Derives the knowledge-contract/asset-sync class from the diff between <ref> and the working tree,',
-    'validates the authored run manifest against knowledge-change.schema.json, and writes the result atomically.',
+    'validates the authored run manifest against knowledge-change.schema.json, and — for a knowledge-contract',
+    'change — runs each declared focused test once in an isolated base-plus-test-only worktree and once at head,',
+    'recording exit codes and output hashes as controller-owned evidence. The result is written atomically.',
   ].join('\n')
 }
 
@@ -541,6 +805,13 @@ function parseArgs(argv) {
     if (token === '--root') { options.root = value; index += 1; continue }
     if (token === '--harness-dir') { options.harnessDir = value; index += 1; continue }
     if (token === '--out') { options.out = value; index += 1; continue }
+    if (token === '--execution-timeout') {
+      const parsed = Number(value)
+      if (!Number.isInteger(parsed) || parsed <= 0) throw new Error('--execution-timeout must be a positive integer of milliseconds')
+      options.executionTimeoutMs = parsed
+      index += 1
+      continue
+    }
     throw new Error(`unknown argument: ${token}`)
   }
   return options
@@ -582,22 +853,45 @@ export function main(argv = process.argv.slice(2)) {
     changedPaths = deriveChangedPaths(root, baseSha)
   } catch (error) { console.error(error.message); return EXIT_INVALID }
 
-  const result = validateKnowledgeChange({ root, manifest, schema, changedPaths, baseSha, harnessRelativeDir })
-
+  let baseRefError = null
   if (manifest.baseRef !== options.base && manifest.baseRef !== baseSha) {
     let authoredSha = null
     try { authoredSha = resolveGitSha(root, manifest.baseRef) } catch { authoredSha = null }
     if (authoredSha !== baseSha) {
-      result.errors.unshift(`authored baseRef "${manifest.baseRef}" does not resolve to the --base SHA ${baseSha}`)
-      result.ok = false
+      baseRefError = `authored baseRef "${manifest.baseRef}" does not resolve to the --base SHA ${baseSha}`
     }
   }
+
+  const classification = deriveChangeClassification(changedPaths)
+  let executionEvidence = null
+  if (classification.changeClass === 'knowledge-contract') {
+    executionEvidence = baseRefError
+      ? { executions: [], errors: ['focused base/head execution was not attempted because the authored baseRef does not resolve to --base'] }
+      : runFocusedExecutions({
+        root,
+        baseSha,
+        headSha,
+        changedPaths,
+        testFiles: Array.isArray(manifest.focusedTestFiles) ? manifest.focusedTestFiles : [],
+        timeoutMs: options.executionTimeoutMs,
+      })
+  }
+
+  const result = validateKnowledgeChange({
+    root, manifest, schema, changedPaths, baseSha, harnessRelativeDir, executionEvidence,
+  })
+  if (baseRefError) { result.errors.unshift(baseRefError); result.ok = false }
 
   const completed = {
     ...manifest,
     resolvedBaseSha: baseSha,
     headSha,
-    focusedExecutions: [],
+    focusedExecutions: executionEvidence?.executions ?? [],
+  }
+  const completedErrors = validateJsonSchema(completed, schema.$defs.completedManifest, '$', schema)
+  if (completedErrors.length) {
+    result.errors.push(...completedErrors.map((error) => `completed manifest schema: ${error}`))
+    result.ok = false
   }
   const outputPath = path.resolve(root, options.out ?? `${options.manifest}.result.json`)
   writeJsonAtomic(outputPath, {

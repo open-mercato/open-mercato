@@ -75,14 +75,37 @@ and contracts from the diff, and rejects a stale hash, a missing focused test, a
 wrong catalog count, an absent release lane, an unresolvable documentation path, and — for `example-source` — a
 moved/deleted linked file, a missing mirror, or mirror drift.
 
+## Controller-owned base/head execution
+
+For a `knowledge-contract` change the controller then proves the regression itself. For every path in
+`focusedTestFiles` it:
+
+1. derives the argv from the file extension — `node --test <file>` for `.mjs`/`.cjs`/`.js`, `node --import tsx
+   --test <file>` for `.ts`/`.tsx`. The author never supplies a command, so a weaker one cannot be substituted.
+   The controller first reads the nearest owning `package.json` `scripts.test`; it only drives a `node --test`
+   runner, and **refuses by name** when the owning package declares another one (a scaffolded app on `jest` is
+   refused rather than handed a command that would not run its suite — drive those focused tests manually and
+   attach the evidence to step 8 until the controller learns that runner);
+2. requires a real test-only diff — a focused test whose base and head contents are identical is rejected;
+3. builds one throwaway `git worktree` at the base commit and copies in **only** that test's head content, and a
+   second throwaway worktree at head carrying the whole working-tree diff. Neither run touches your checkout;
+4. runs the argv **exactly once per side** — there is no retry and no shell — with the runner's own environment
+   stripped (`NODE_OPTIONS`, `NODE_TEST_CONTEXT`, `NODE_V8_COVERAGE`, `TEST_RUNNER_CONCURRENCY`), and records
+   `exitCode` plus `stdoutSha256`/`stderrSha256` for each side;
+5. requires base-plus-test-only to exit **non-zero** and head to exit **zero**. A test that already passes at
+   base proves nothing and fails the run, as does an execution record for a test the manifest never declared.
+
+Use `--execution-timeout <ms>` (default 600000) when a lane legitimately needs longer. The completed manifest
+written to the result file is re-validated against `#/$defs/completedManifest`, so its `focusedExecutions`,
+`resolvedBaseSha`, and `headSha` are part of the attached evidence.
+
 ## Current gate: CANON-C
 
 `source-link`, `example-source`, and `installed-source` runs require
-`packages/create-app/agentic/shared/ai/harness/source-link-inventory.json`. That inventory is owned by CANON-C
+`packages/create-app/scripts/source-links/source-link-inventory.json`. That inventory is owned by CANON-C
 and has not landed, so those runs derive their class normally and then fail closed with an explicit
 `not present — CANON-C` reason. Do not work around it by re-declaring the class; land CANON-C first.
 
-Controller-owned focused base/head execution (isolated worktrees, test-only diff applied to the base, argv
-without shell interpolation, fail-before/pass-after with output hashes) is Phase 2 of the governance spec. The
-validator therefore emits an empty `focusedExecutions` today and still requires the focused test itself to be
-present and in the diff.
+Because that gate would fail every `source-link`/`example-source`/`installed-source` PR, the validator is
+deliberately **not** in `.ai/agentic.config.json` `validation.commands` or CI. Run it by hand for step 9 until
+CANON-C lands.
