@@ -38,6 +38,7 @@
     "catalog.bc-coverage": { "kind": "catalog", "implementation": "validateBackwardCompatibilityCoverage" },
     "owner.reference": { "kind": "static", "implementation": "validateOwnerReference" },
     "router.contract": { "kind": "routing", "implementation": "validateRoutingResult" },
+    "routing.spec-decision": { "kind": "routing", "implementation": "validateSpecRoutingDecision" },
     "context.budget": { "kind": "routing", "implementation": "validateContextBudget" },
     "context.forbidden": { "kind": "routing", "implementation": "validateForbiddenContext" },
     "patterns.forbidden": { "kind": "routing", "implementation": "validateForbiddenPatterns" },
