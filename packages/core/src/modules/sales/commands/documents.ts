@@ -665,6 +665,41 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Persists document-level custom fields supplied on a create input.
+ *
+ * Order and quote creates used to accept `customFields` at the HTTP boundary
+ * (`splitCustomFieldPayload` folds `cf_*` keys into it) and then drop the values
+ * on the floor, because the create schemas never declared the key and the
+ * handlers never wrote it — only updates did. Callers therefore had to create,
+ * then immediately update, to get custom fields to stick.
+ */
+async function setDocumentCustomFieldsIfSupplied(
+  em: EntityManager,
+  params: {
+    entityId: string;
+    recordId: string;
+    organizationId: string;
+    tenantId: string;
+    customFields: unknown;
+  },
+): Promise<void> {
+  const { customFields } = params;
+  if (customFields === undefined || customFields === null) return;
+  const values =
+    typeof customFields === "object" && !Array.isArray(customFields)
+      ? (customFields as Record<string, unknown>)
+      : {};
+  if (!Object.keys(values).length) return;
+  await setRecordCustomFields(em, {
+    entityId: params.entityId,
+    recordId: params.recordId,
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+    values: normalizeCustomFieldValues(values),
+  });
+}
+
 async function resolveCustomerSnapshot(
   em: EntityManager,
   organizationId: string,
@@ -4782,6 +4817,13 @@ const createQuoteCommand: CommandHandler<
             tenantId: quote.tenantId,
             tagIds: parsed.tags,
           });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_quote,
+            recordId: quote.id,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            customFields: parsed.customFields,
+          });
         },
       ],
       { transaction: true },
@@ -5803,6 +5845,13 @@ const createOrderCommand: CommandHandler<
             organizationId: order.organizationId,
             tenantId: order.tenantId,
             tagIds: parsed.tags,
+          });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_order,
+            recordId: order.id,
+            organizationId: order.organizationId,
+            tenantId: order.tenantId,
+            customFields: parsed.customFields,
           });
         },
       ],

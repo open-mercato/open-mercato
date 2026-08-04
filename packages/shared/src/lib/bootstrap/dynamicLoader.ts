@@ -1,4 +1,5 @@
 import type { BootstrapData } from './types'
+import type { AppDiRegistrar } from '../di/container'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
@@ -41,22 +42,29 @@ class GeneratedFileNotFoundError extends Error {
  * list, which would silently reintroduce #4623.
  */
 export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugin[] {
-  // Plugin to resolve @/ alias to app root (works for @app modules)
+  // Plugin to resolve the @/ alias the way the app tsconfig maps it:
+  // `@/.mercato/*` to the app root, every other `@/*` to the app's src/ directory.
   const aliasPlugin: import('esbuild').Plugin = {
     name: 'alias-resolver',
     setup(build) {
-      // Resolve @/ alias to app root
       build.onResolve({ filter: /^@\// }, (args) => {
-        const resolved = path.join(appRoot, args.path.slice(2))
-        // Try with .ts extension if base path doesn't exist
-        if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
-          return { path: resolved + '.ts' }
+        const rest = args.path.slice('@/'.length)
+        const bases = rest.startsWith('.mercato/')
+          ? [path.join(appRoot, rest)]
+          : [path.join(appRoot, 'src', rest), path.join(appRoot, rest)]
+        for (const base of bases) {
+          if (fs.existsSync(base) && fs.statSync(base).isFile()) {
+            return { path: base }
+          }
+          for (const suffix of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
+            if (fs.existsSync(base + suffix)) {
+              return { path: base + suffix }
+            }
+          }
         }
-        // Also check for /index.ts if it's a directory
-        if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
-          return { path: path.join(resolved, 'index.ts') }
-        }
-        return { path: resolved }
+        // Nothing matched — hand esbuild the literal mapping so it reports the
+        // missing file against the path the app author actually wrote.
+        return { path: path.join(appRoot, rest) }
       })
     },
   }
@@ -297,13 +305,32 @@ function cacheIsValid(
 }
 
 /**
+ * Options for `compileAndImport`.
+ *
+ * Both paths default to the generated-registry layout (`<appRoot>/.mercato/generated/<file>.ts`
+ * compiled to a `.mjs` sibling). Sources that live elsewhere in the app — `src/di.ts` — MUST pass
+ * both explicitly: the default app root is derived by walking three directories up from the source,
+ * which only holds inside `.mercato/generated`.
+ */
+type CompileAndImportOptions = {
+  appRoot?: string
+  outFile?: string
+  allowRecovery?: boolean
+}
+
+/**
  * Compile a TypeScript file to JavaScript using esbuild bundler.
  * This bundles the file and all its dependencies, handling JSON imports properly.
- * The compiled file is written next to the source file with a .mjs extension.
+ * The compiled file is written next to the source file with a .mjs extension unless
+ * `outFile` says otherwise.
  */
-async function compileAndImport(tsPath: string, allowRecovery: boolean = true): Promise<Record<string, unknown>> {
-  const jsPath = tsPath.replace(/\.ts$/, '.mjs')
-  const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
+async function compileAndImport(
+  tsPath: string,
+  options: CompileAndImportOptions = {},
+): Promise<Record<string, unknown>> {
+  const allowRecovery = options.allowRecovery ?? true
+  const jsPath = options.outFile ?? tsPath.replace(/\.ts$/, '.mjs')
+  const appRoot = options.appRoot ?? path.dirname(path.dirname(path.dirname(tsPath)))
   const appTsconfig = path.join(appRoot, 'tsconfig.json')
   const metadataPath = cacheMetadataPath(jsPath)
 
@@ -322,6 +349,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
   const needsCompile = !cacheIsValid(appRoot, jsPath, metadataPath, expectedInputHash)
 
   if (needsCompile) {
+    fs.mkdirSync(path.dirname(jsPath), { recursive: true })
     // Dynamically import esbuild only when needed
     const esbuild = await import('esbuild')
 
@@ -367,7 +395,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
       throw error
     }
 
-    return compileAndImport(tsPath, false)
+    return compileAndImport(tsPath, { ...options, allowRecovery: false })
   }
 }
 
@@ -405,20 +433,7 @@ async function loadOptionalGeneratedModule(
   }
 }
 
-/**
- * Dynamically load bootstrap data from a resolved app directory.
- *
- * IMPORTANT: This only works in unbundled contexts (CLI, tsx).
- * Do NOT use this in Next.js bundled code - use static imports instead.
- *
- * For CLI context, we skip loading modules.generated.ts which has Next.js dependencies.
- * CLI commands are discovered separately via the CLI module system.
- *
- * @param appRoot - Optional explicit app root path. If not provided, will search from cwd.
- * @returns The loaded bootstrap data
- * @throws Error if app root cannot be found or generated files are missing
- */
-export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData> {
+function resolveAppRootOrThrow(appRoot?: string): AppRoot {
   const resolved: AppRoot | null = appRoot
     ? {
         generatedDir: path.join(appRoot, '.mercato', 'generated'),
@@ -434,6 +449,68 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
         'or run "yarn mercato generate" first to create the generated files.',
     )
   }
+
+  return resolved
+}
+
+/**
+ * Load the app-level DI registrar (`src/di.ts`) for the dynamic bootstrap path.
+ *
+ * The Next.js runtime imports `@/di` statically from its own `src/bootstrap.ts` and hands the
+ * registrar to `createBootstrap`. Worker, scheduler and CLI processes bootstrap through
+ * `bootstrapFromAppRoot` instead, where the `@/` alias does not exist — so without this the app's
+ * DI registrations silently never ran there, and every request container paid a failed
+ * `import('@/di')` resolution (the compatibility fallback in `lib/di/container.ts`).
+ *
+ * An absent `src/di.ts` is the supported case and resolves to `null` quietly. A file that exists
+ * but cannot be compiled, imported, or does not export `register` is reported at error level and
+ * still resolves to `null`, so a broken app DI module degrades the same way a broken generated
+ * registry does (#4327, #4491) instead of taking the whole process down.
+ */
+async function loadAppDiRegistrar(appDir: string): Promise<AppDiRegistrar | null> {
+  const tsPath = path.join(appDir, 'src', 'di.ts')
+  if (!fs.existsSync(tsPath)) {
+    logger.debug('App-level DI module not present, skipping its registrations', { filePath: tsPath })
+    return null
+  }
+
+  try {
+    const appDiModule = await compileAndImport(tsPath, {
+      appRoot: appDir,
+      outFile: path.join(appDir, '.mercato', 'generated', 'app-di.compiled.mjs'),
+    })
+    const register = appDiModule.register
+    if (typeof register !== 'function') {
+      logger.error('App-level DI module exports no register(); its registrations are skipped', {
+        filePath: tsPath,
+      })
+      return null
+    }
+    return register as AppDiRegistrar
+  } catch (error) {
+    logger.error('Failed to load the app-level DI module; its registrations are skipped', {
+      filePath: tsPath,
+      err: error,
+    })
+    return null
+  }
+}
+
+/**
+ * Dynamically load bootstrap data from a resolved app directory.
+ *
+ * IMPORTANT: This only works in unbundled contexts (CLI, tsx).
+ * Do NOT use this in Next.js bundled code - use static imports instead.
+ *
+ * For CLI context, we skip loading modules.generated.ts which has Next.js dependencies.
+ * CLI commands are discovered separately via the CLI module system.
+ *
+ * @param appRoot - Optional explicit app root path. If not provided, will search from cwd.
+ * @returns The loaded bootstrap data
+ * @throws Error if app root cannot be found or generated files are missing
+ */
+export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData> {
+  const resolved = resolveAppRootOrThrow(appRoot)
 
   const { generatedDir } = resolved
 
@@ -506,8 +583,10 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
  */
 export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapData> {
   const { createBootstrap, waitForAsyncRegistration } = await import('./factory.js')
-  const data = await loadBootstrapData(appRoot)
-  const bootstrap = createBootstrap(data)
+  const resolved = resolveAppRootOrThrow(appRoot)
+  const data = await loadBootstrapData(resolved.appDir)
+  const appDiRegistrar = await loadAppDiRegistrar(resolved.appDir)
+  const bootstrap = createBootstrap(data, appDiRegistrar ? { appDiRegistrar } : {})
   bootstrap()
   // In CLI context, wait for async registrations (UI widgets, search configs, etc.)
   await waitForAsyncRegistration()

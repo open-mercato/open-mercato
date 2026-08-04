@@ -123,10 +123,10 @@ function ContactPayloadEditor({
                   setLastName(event.target.value)
                   updatePersonName(firstName, event.target.value)
                 }}
-                className={lastNameMissing ? 'border-red-500' : ''}
+                className={lastNameMissing ? 'border-status-error-border' : ''}
               />
               {lastNameMissing && (
-                <p className="text-xs text-red-600 mt-1">{t('inbox_ops.contact.last_name_required', 'Last name is required')}</p>
+                <p className="text-xs text-status-error-text mt-1">{t('inbox_ops.contact.last_name_required', 'Last name is required')}</p>
               )}
             </div>
           </>
@@ -546,7 +546,7 @@ export function EditActionDialog({
                   setJsonError(null)
                 }}
               />
-              {jsonError && <p className="text-xs text-red-600">{t('inbox_ops.edit_dialog.invalid_json', 'Invalid JSON')}</p>}
+              {jsonError && <p className="text-xs text-status-error-text">{t('inbox_ops.edit_dialog.invalid_json', 'Invalid JSON')}</p>}
             </div>
           )}
 

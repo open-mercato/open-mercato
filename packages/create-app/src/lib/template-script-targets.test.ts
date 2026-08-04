@@ -38,6 +38,21 @@ function readDevDependencies(): Record<string, string> {
   return parsed.devDependencies ?? {}
 }
 
+function listTemplateScriptFiles(dir: string): string[] {
+  const found: string[] = []
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      found.push(...listTemplateScriptFiles(entryPath))
+    } else if (/\.mjs$/.test(entry.name)) {
+      found.push(entryPath)
+    }
+  }
+
+  return found
+}
+
 // #4328: `yarn test`, `yarn lint`, and `yarn install-skills` failed on a clean
 // scaffold because the template's package.json pointed at files it did not ship
 // (and at `next lint`, removed in Next 16). Keep those targets honest.
@@ -61,6 +76,22 @@ test('every file a template script references is shipped by the template', () =>
       fs.existsSync(new URL(file, TEMPLATE_DIR)),
       `template script "${script}" references ${file}, which the template does not ship`,
     )
+  }
+})
+
+test('every local ESM import in template scripts resolves inside the template', () => {
+  const scriptFiles = listTemplateScriptFiles(fileURLToPath(new URL('scripts/', TEMPLATE_DIR)))
+  const localImportPattern = /(?:from\s+|import\s*\()(['"])(\.\/[^'"]+)\1/g
+
+  for (const scriptFile of scriptFiles) {
+    const source = fs.readFileSync(scriptFile, 'utf8')
+    for (const match of source.matchAll(localImportPattern)) {
+      const importedPath = match[2]
+      assert.ok(
+        fs.existsSync(path.resolve(path.dirname(scriptFile), importedPath)),
+        `template script ${path.relative(fileURLToPath(TEMPLATE_DIR), scriptFile)} imports missing ${importedPath}`,
+      )
+    }
   }
 })
 
