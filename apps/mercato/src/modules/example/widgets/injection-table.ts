@@ -31,6 +31,13 @@ export const injectionTable: ModuleInjectionTable = {
     priority: 50,
   },
   'example:phase-c-handlers': 'example.injection.crud-validation',
+  // Selected-row bulk action on the module's own Todo table. The spot id is
+  // `data-table:<tableId>:bulk-actions` where `<tableId>` is the host's
+  // `extensionTableId`, which DataTable derives from `perspective.tableId`.
+  'data-table:example.todos.list:bulk-actions': {
+    widgetId: 'example.injection.todo-bulk-complete',
+    priority: 20,
+  },
   'menu:sidebar:main': {
     widgetId: 'example.injection.example-menus',
     priority: 50,

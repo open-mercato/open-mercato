@@ -616,7 +616,7 @@
     {
       "capabilityId": "umes.injection.datatable-bulk-action",
       "title": "Headless DataTable bulk-action injection",
-      "description": "`InjectionBulkActionWidget` operating on selected rows and returning `{ ok, affectedCount }` to the host table. This is the currently shipped bulk-action reference; it is synchronous and does not return a `progressJobId`.",
+      "description": "`InjectionBulkActionWidget` operating on selected rows and returning `{ ok, affectedCount }` to the host table. This is the synchronous in-request bulk-action reference; the queued variant that returns a `progressJobId` is `runtime.bulk-operation-progress`.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -624,6 +624,41 @@
       "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
       "dependencyModules": ["customers"],
       "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "runtime.bulk-operation-progress",
+      "title": "Durable bulk operation: outbox, leased worker, and operation progress",
+      "description": "Selected-row DataTable bulk action wired to a real `ProgressJob`. The injected data-only action POSTs `{ ids, idempotencyKey }`; the start route verifies every id inside the caller scope, claims a `(tenant, organization, user, idempotency_key)`-unique `ExampleTodoBulkOperation` row plus a progress job, and returns 202 with `progressJobId` — the value `DataTable.runBulkAction` tracks on the shared top progress bar. That same row is the transactional outbox: publication is deliberately at-least-once, and the scheduler-driven dispatcher republishes rows that were never delivered or whose execution lease expired. The queue worker takes a compare-and-swap lease, resumes from `nextItemIndex`, checks `isCancellationRequested()` before each item, and mutates through the `example.todos.update` command so audit, undo, events, cache and index invalidation stay intact.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/todo-bulk-complete/widget.ts",
+        "src/modules/example/api/todos/bulk-complete/route.ts",
+        "src/modules/example/lib/todoBulkComplete.ts",
+        "src/modules/example/workers/todos-bulk-complete.ts",
+        "src/modules/example/workers/todos-bulk-dispatch.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/lib/__tests__/todoBulkComplete.test.ts",
+        "src/modules/example/lib/__tests__/todoBulkComplete.loop.test.ts",
+        "src/modules/example/api/__tests__/todos.bulk-complete.test.ts",
+        "src/modules/example/widgets/__tests__/todo-bulk-complete.test.ts"
+      ],
+      "dependencyModules": ["progress", "queue", "scheduler"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "module.setup-scheduler-target",
+      "title": "Tenant setup: registering a module-owned scheduler target",
+      "description": "Idempotent organization-scoped `ScheduledJob` registered from `seedDefaults` — the only always-running hook that receives a container, because `onTenantCreated` gets an `EntityManager` and nothing else. The schedule id is a deterministic hash of `(module, tenant, organization)` so repeated setup runs upsert one row per scope. The call is wrapped so a `SchedulerService.register` rejection — notably the per-tenant active-schedule cap, which answers 422 — degrades to a logged warning instead of aborting tenant initialization.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/setup.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/setup-bulk-dispatch-schedule.test.ts"],
+      "dependencyModules": ["scheduler"],
+      "ruleOwner": "om-module-scaffold"
     },
     {
       "capabilityId": "umes.injection.menu-items",

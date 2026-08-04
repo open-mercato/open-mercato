@@ -191,6 +191,7 @@
   "example.portal.title": "Kundenportal",
   "example.priority.action.open": "Kunde öffnen",
   "example.priority.bulk.setNormal": "Priorität auf Normal setzen",
+  "example.todos.bulk.markDone": "Ausgewählte Aufgaben als erledigt markieren",
   "example.priority.column": "Beispielpriorität",
   "example.priority.critical": "Kritisch",
   "example.priority.detail.description": "Priorität für diesen Kundeneintrag festlegen.",
