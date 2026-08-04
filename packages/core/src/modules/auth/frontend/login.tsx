@@ -135,7 +135,13 @@ export default function LoginPage() {
       try {
         const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            // Probing for an already-active session: a 401 is the expected answer
+            // for an anonymous visitor, never a session that just expired.
+            'x-om-unauthorized-redirect': '0',
+            'x-om-forbidden-redirect': '0',
+          },
           body: JSON.stringify({ features: [] }),
           cache: 'no-store',
         })

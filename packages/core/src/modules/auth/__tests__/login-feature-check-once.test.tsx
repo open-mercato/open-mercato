@@ -114,3 +114,21 @@ describe('LoginPage — feature-check fires once (#3128)', () => {
     expect(featureCheckCalls()).toBe(1)
   })
 })
+
+describe('LoginPage — session probe opts out of the session-expired redirect', () => {
+  it('sends the unauthorized/forbidden opt-out headers so a late 401 cannot flash "Session expired"', async () => {
+    await act(async () => {
+      render(<LoginPage />)
+    })
+    await waitFor(() => expect(featureCheckCalls()).toBe(1))
+
+    const [, init] = mockApiCall.mock.calls.find(([url]) => url === '/api/auth/feature-check') as [
+      string,
+      { headers?: Record<string, string> },
+    ]
+    expect(init.headers).toMatchObject({
+      'x-om-unauthorized-redirect': '0',
+      'x-om-forbidden-redirect': '0',
+    })
+  })
+})
