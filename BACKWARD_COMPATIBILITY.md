@@ -36,7 +36,7 @@ The following file names, their expected export names, and their role in module 
 | `cli.ts` | default export | MUST NOT change expected signature |
 | `data/entities.ts` | Entity class exports | See Database Schema rules below |
 | `data/validators.ts` | Zod schema exports | MUST NOT remove or narrow existing schemas |
-| `data/extensions.ts` | `extensions: EntityExtension[]` | MUST NOT change `EntityExtension` shape |
+| `data/extensions.ts` | `extensions: EntityExtension[]` | MUST NOT change required fields (`base`, `extension`, `join`); may add optional fields |
 | `widgets/injection-table.ts` | `ModuleInjectionTable` | MUST NOT change table type or spot ID resolution |
 | `widgets/injection/*/widget.ts` | `InjectionWidgetModule` | MUST NOT change module shape or component props |
 | `widgets/dashboard/*/widget.ts` | `DashboardWidgetModule` | MUST NOT change module shape or component props |

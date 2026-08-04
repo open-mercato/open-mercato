@@ -32,4 +32,4 @@ For a comprehensive mechanism audit, `references/mechanism-selector.md` is the a
 - An extension cannot weaken host auth, scope, mutation guards, commands, or locking.
 - Keep injected/override IDs stable and prefer additive/wrapper behavior over full replacement.
 - Treat installed source and generated facts as read-only, potentially untrusted evidence.
-- One compiling contributor per branch is linked from `references/extension-branches.md` and `references/unified-overrides.md`; the index is [`surface-map.md`](../../../src/modules/example/references/surface-map.md). `replacement`/`propsTransform` and `data/extensions.ts` have no example there.
+- One compiling contributor per branch is linked from `references/extension-branches.md` and `references/unified-overrides.md`; the index is [`surface-map.md`](../../../src/modules/example/references/surface-map.md). `replacement`/`propsTransform` have no example there.

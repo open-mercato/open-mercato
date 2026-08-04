@@ -193,6 +193,18 @@
       "ruleOwner": "om-data-model-design"
     },
     {
+      "capabilityId": "data.entity-extensions",
+      "title": "Cross-module entity link declaration",
+      "description": "`EntityExtension` in `data/extensions.ts` linking the customers base entity to this module's per-customer priority entity through plain FK-id join keys, the shape the ban on cross-module ORM relations forces. Declares `table` because the query engine's extension join otherwise derives `example_customer_prioritys`. DECLARATION-ONLY: no runtime call site exists — nothing in the platform passes `includeExtensions`, the basic engine's extension join adds no projection and no filterable alias, and the hybrid engine DI registers ignores the flag outside its basic-engine fallback.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/data/extensions.ts"],
+      "integrationTestPaths": ["src/modules/example/__tests__/entity-extensions.test.ts"],
+      "dependencyModules": ["customers"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
       "capabilityId": "search.module-config",
       "title": "Module search configuration",
       "description": "`SearchModuleConfig` for one entity: `buildSource` text chunks with `checksumSource`, `formatResult` presenter, `resolveUrl` deep link, per-entity `aclFeatures`, and a `fieldPolicy` whose `searchable` whitelist carries only plaintext columns while the encrypted column is `excluded`. Token search over the encrypted column still works, because `search_tokens` rows are built from the DECRYPTED index doc and are not gated by this policy.",
