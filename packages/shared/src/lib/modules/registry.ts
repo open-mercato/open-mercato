@@ -69,3 +69,13 @@ export function getModules(): Module[] {
   }
   return modules
 }
+
+/**
+ * Non-throwing counterpart of `getModules()` for call sites that have a
+ * meaningful degraded behavior when bootstrap has not run — route unit tests
+ * exercise a single handler without `registerModules()`, and a hard throw there
+ * turns an unrelated assertion into a bootstrap error.
+ */
+export function tryGetModules(): Module[] | null {
+  return getGlobalModules()
+}
