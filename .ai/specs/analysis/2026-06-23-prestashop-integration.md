@@ -1,7 +1,7 @@
 # 2026-06-23 — PrestaShop Integration Feasibility
 
 > **Status:** Analysis / Feasibility study (not an implementation spec)
-> **Author:** TBD
+> **Author:** @KramarSellision (community contribution)
 > **Date:** 2026-06-23
 > **Related analyses:** ANALYSIS-009 (Magento 2), ANALYSIS-005 (Shopify), ANALYSIS-007 (Akeneo PIM)
 > **Target platform:** PrestaShop **8.x and 9.x** as primary targets; **PrestaShop 1.7.x as best-effort / requires validation** (Webservice API)
@@ -82,7 +82,7 @@ PrestaShop exposes the **Webservice API** — documented as a **CRUD API** (POST
 
 - API key generated in PrestaShop back office (Advanced Parameters → Webservice).
 - Sent as **HTTP Basic Auth username with no password** (`Authorization: Basic <base64(key:)>`), or as `?ws_key=` in the URL (less safe). Official docs recommend the Authorization header.
-- **No OAuth, no token refresh** — a single long-lived secret. Must be stored encrypted (same pattern as Akeneo credentials in `SyncMapping`).
+- **No OAuth, no token refresh** — a single long-lived secret. It must be declared as an `IntegrationDefinition` credential field and stored encrypted by the `integrations` module (`IntegrationCredentials`), exactly as Akeneo does — never in `SyncMapping`, which is an unencrypted mapping store (see §6.4).
 - Per-resource permissions are configurable in the back office; the integration should document the minimum read scopes it needs and fail the connection test clearly if a resource is forbidden.
 
 ### 2.3 Output format
@@ -138,7 +138,7 @@ PrestaShop has **two** distinct attribute systems: **Attributes** (drive combina
 
 ### 4.3 Multilingual fields (Partial, MEDIUM)
 
-Translatable fields (`name`, `description`, …) are returned as **per-language arrays keyed by `id_lang`**. The importer needs a locale-resolution strategy (a preferred language with fallback, analogous to Akeneo's `readPreferredValue`) plus a mapping from each PrestaShop language id to the corresponding Open Mercato locale, so that translated values land on the correct Open Mercato locale (via the Translation Manager) and a default locale is always chosen when a translation is missing.
+Translatable fields (`name`, `description`, …) are returned as **per-language arrays keyed by `id_lang`**. The importer needs a locale-resolution strategy (a preferred language with fallback, analogous to Akeneo's `readPreferredAkeneoValue` in `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts`) plus a mapping from each PrestaShop language id to the corresponding Open Mercato locale, so that translated values land on the correct Open Mercato locale (via the Translation Manager) and a default locale is always chosen when a translation is missing.
 
 ### 4.4 Price model differences (Partial, MEDIUM)
 
@@ -154,7 +154,7 @@ As described in §2.4/§2.5: no webhooks, no bulk API, unreliable `date_upd` fil
 
 ### 4.7 Deletion detection (MEDIUM)
 
-The API gives no "deleted since" signal. Detecting records removed in PrestaShop requires **full ID reconciliation** (compare imported external IDs against the current PrestaShop ID set, then deactivate the missing ones) — the same reconciliation pattern Akeneo uses.
+The API gives no "deleted since" signal. Detecting records removed in PrestaShop requires **full ID reconciliation** (compare imported external IDs against the current PrestaShop ID set, then deactivate the missing ones) — the same reconciliation pattern Akeneo uses. Because that pass is destructive, it is gated on a fully successful sync and bounded by a deactivation threshold; see §7.1 steps 5–6.
 
 ### 4.8 Version drift (MEDIUM)
 
@@ -188,14 +188,13 @@ packages/sync-prestashop/
     index.ts                 # module metadata; requires: integrations, data_sync, catalog, sales, customers
     di.ts                    # registerDataSyncAdapter(...), register health check
     integration.ts           # IntegrationDefinition: credentials (baseUrl, apiKey), category 'data_sync'
-    setup.ts                 # optional env preset, default mappings, ACL/feature seeding
-    acl.ts                   # data_sync.configure / data_sync.run scopes
+    setup.ts                 # optional env preset, default mappings
     lib/
       client.ts              # Webservice client: Basic auth, JSON reads, filter/limit/sort, backoff, host allowlist
       adapter.ts             # DataSyncAdapter implementation (entry point)
       importer.ts            # transform + upsert per entity (customers, categories, products, orders)
       mapping.ts             # load/resolve field + status mappings from SyncMapping
-      cursor.ts              # pagination/cursor serialization (offset-based)
+      cursor.ts              # offset serialization only; persistence uses core SyncCursor
       status-map.ts          # PrestaShop order_state -> SalesOrder.status
       first-import.ts        # orchestration: categories -> products -> customers -> orders
     workers/
@@ -207,13 +206,20 @@ packages/sync-prestashop/
     i18n/                    # en, pl, es, de
 ```
 
+**Reuse, not redeclaration.** Like `sync-akeneo`, the package ships **no `acl.ts`**: it consumes the existing `data_sync.view` / `data_sync.run` / `data_sync.configure` features owned by `packages/core/src/modules/data_sync/acl.ts`, and would only declare its own features if it needed a scope `data_sync` does not define. Run bookkeeping and cursor persistence likewise reuse the platform entities in `packages/core/src/modules/data_sync/data/entities.ts` — `SyncRun` (status plus `createdCount` / `updatedCount` / `skippedCount` / `failedCount` / `batchesCompleted` / `lastError` / `progressJobId`) and `SyncCursor` (per `{integrationId, entityType, direction, organizationId, tenantId}`) — rather than introducing a parallel sync-log or cursor table.
+
 ### 6.3 Connection test
 
 A discovery/health endpoint that calls a cheap authenticated GET (e.g. `/api/?output_format=JSON` or `/api/customers?limit=1`) to verify base URL + API key + resource permissions, returning a clear pass/fail with the failing resource named.
 
 ### 6.4 Tenant-aware, encrypted config
 
-Credentials (`baseUrl`, `apiKey`) and field/status mappings persisted per `{ tenantId, organizationId }` in `SyncMapping`, encrypted, loaded via DI — identical to the Akeneo pattern. All writes scoped by tenant/org; no cross-tenant data exposure.
+Two distinct stores, and they must not be conflated:
+
+- **Credentials** (`baseUrl`, `apiKey`) are declared as `credentials.fields` on the `IntegrationDefinition` (`integration.ts`) and persisted by the `integrations` module in `IntegrationCredentials` (table `integration_credentials`), per `{ tenantId, organizationId }`. That field is the one covered by an encryption map (`integrations/encryption.ts` registers `integrations:integration_credentials` → `credentials`), and the adapter receives the decrypted values as `input.credentials` — identical to `sync-akeneo`, which never reads a secret out of a mapping row.
+- **Field and status mappings** are persisted per `{ tenantId, organizationId }` in `SyncMapping` (table `sync_mappings`). Its `mapping` column is **plain JSON and is not encrypted** — the `data_sync` module ships no encryption map — so it must never hold an API key, password, or any other secret.
+
+All writes scoped by tenant/org; no cross-tenant data exposure.
 
 ### 6.5 Duplicate protection
 
@@ -227,11 +233,13 @@ Every imported record carries its **PrestaShop external id** (resource + id). Up
 2. **Order of operations (respect dependencies):** `categories → products (+ combinations, limited or deferred per review) → customers → orders`.
 3. **Read path:** JSON output, `display=[…]` to trim payloads, `limit` offset pagination, bounded concurrency + backoff.
 4. **Upsert:** transform → external-id keyed create/update; record every decision.
-5. **Reconciliation:** after a full pass, compare PrestaShop IDs vs imported IDs and deactivate records missing upstream (deletion detection).
+5. **Reconciliation — gated on a fully successful pass.** Compare PrestaShop IDs vs imported IDs and deactivate records missing upstream (deletion detection), **only when every page of every entity in the pass completed successfully**. On any partial failure — a timeout, a 5xx, an expired key, an unreadable page — reconciliation is **skipped entirely**, the run is marked incomplete (`SyncRun.status = 'failed'`, `failedCount > 0`), and the reason is surfaced in the sync log. Reconciling the output of an incomplete import would read the un-fetched remainder as "deleted upstream" and mass-deactivate live catalogue, customer, or order records; §7.4 makes the MVP manual-only, so nobody would be watching when it happened.
+6. **Blast-radius guard on deactivation.** Even after a successful pass, refuse to deactivate when the missing set exceeds a configurable share of the imported set (a conservative default — e.g. 10% — is enough for the MVP). Exceeding it fails the run with a clear error and deactivates nothing, so a silently truncated upstream response cannot empty a catalogue.
+7. **Resume semantics.** A run that fails midway is resumable from the stored `SyncCursor` offset for the entity it died on; entities already completed in that run are not re-fetched. A resumed run only qualifies as "fully successful" for step 5 once every entity has completed within it. Restarting from zero is always permitted and is the fallback when the stored offset is stale (e.g. the upstream page size or sort order changed), since offset pagination is not stable across upstream mutations.
 
 ### 7.2 Sync log / error log
 
-Persist a per-run record (counts created/updated/skipped/failed, per-entity progress, errors with the offending external id and reason). Unmapped order states and skipped/limited combinations are logged explicitly rather than silently dropped. Surface in the integration UI.
+Persist a per-run record on the platform's existing `SyncRun` entity (counts created/updated/skipped/failed, per-entity progress, errors with the offending external id and reason) — no bespoke sync-log table. Its `status` and `failedCount` are what §7.1 step 5 reads to decide whether reconciliation may run at all, so every partial failure MUST be recorded there rather than only logged. Unmapped order states and skipped/limited combinations are logged explicitly rather than silently dropped. Surface in the integration UI.
 
 ### 7.3 Incremental sync (follow-up, gated)
 
@@ -247,7 +255,7 @@ Estimates are rough, for sequencing only (not a task breakdown).
 
 | Phase | Scope | Rough effort |
 |---|---|---|
-| **Phase 1 — MVP (read-only)** | Package scaffold; Webservice client (auth, JSON reads, filter/limit/sort, backoff); connection test; manual full sync; **Customers + Categories + Products + Orders** with order status mapping; **Combinations/variants as a limited import or an explicit follow-up, per core-team review**; external-id dedupe; tenant-aware encrypted config; sync/error log; reconciliation/deletion detection. **Out of scope:** inventory/stock, write-back, invoices, returns, webhooks, advanced scheduler. | ~3–5 weeks |
+| **Phase 1 — MVP (read-only)** | Package scaffold; Webservice client (auth, JSON reads, filter/limit/sort, backoff); connection test; manual full sync; **Customers + Categories + Products + Orders** with order status mapping; **Combinations/variants as a limited import or an explicit follow-up, per core-team review**; external-id dedupe; tenant-aware encrypted config; sync/error log; success-gated reconciliation/deletion detection with a deactivation blast-radius guard. **Out of scope:** inventory/stock, write-back, invoices, returns, webhooks, advanced scheduler. | ~3–5 weeks |
 | **Phase 2 — Incremental & enrichment** | `date_upd`/`date_add` delta (after validation); specific prices; manufacturers/suppliers; product images → `Attachment`; multilingual field resolution polish; multistore → channels | ~2–4 weeks |
 | **Phase 3 — Advanced (optional)** | Scheduled sync; write-back (requires XML POST/PUT path); payments/invoices/returns once platform support exists; Inventory once a platform Inventory module exists | gated on platform work |
 
@@ -267,7 +275,9 @@ Estimates are rough, for sequencing only (not a task breakdown).
 | API key compromised (single long-lived secret) | Medium | Low | Encrypted storage, host allowlist, least-privilege resource scopes |
 | No rate limit → overload small shops | Medium | Medium | Self-throttle: bounded concurrency + exponential backoff |
 | Version drift (8.x/9.x primary, 1.7.x best-effort) | Medium | Medium | Declare supported versions; validate per version |
-| Deletion detection only via full reconciliation | Medium | High | Full ID reconciliation pass after each sync |
+| Deletion detection only via full reconciliation | Medium | High | Full ID reconciliation pass **only after a fully successful sync** (§7.1 step 5); skipped on any partial failure |
+| Reconciliation after a partial sync mass-deactivates live records | High | Medium | Gate reconciliation on a fully successful pass; blast-radius guard capping the deactivatable share; incomplete runs marked failed on `SyncRun` |
+| Long-lived API key persisted in an unencrypted store | High | Low | Credentials only in `IntegrationCredentials` (encrypted); `SyncMapping` holds mappings, never secrets (§6.4) |
 | Future write-back requires XML input (no JSON input) | Low (MVP) | Certain | Out of MVP scope; design XML POST/PUT path only if Phase 3 write-back is approved |
 
 ## 10. Verdict & Recommendations
@@ -283,7 +293,7 @@ Estimates are rough, for sequencing only (not a task breakdown).
 1. Build `@open-mercato/sync-prestashop` as a workspace package modeled on `sync-akeneo`.
 2. Ship Phase 1 (read-only, manual, full sync) with external-id dedupe, status mapping, reconciliation, and a sync/error log; decide combinations scope (limited vs follow-up) via core-team review.
 3. **Before** Phase 2, validate `date_upd` filtering against each supported PrestaShop version; only then build incremental sync.
-4. Keep this document as a feasibility analysis; create a separate implementation spec (`.ai/specs/{date}-prestashop-sync-mvp.md`) once the Review Questions below are resolved.
+4. Keep this document as a feasibility analysis; create a separate implementation spec (`.ai/specs/{date}-prestashop-sync-mvp.md`) once the Review Questions below are resolved. That spec MUST carry an **integration coverage** section naming the tests that ship with the implementation — per root `AGENTS.md`, at minimum both API routes defined in §6.2 (`api/first-import/route.ts`, `api/discovery/route.ts`) plus the reconciliation gate and blast-radius guard from §7.1, which are the failure paths most expensive to discover in production. Test strategy is deliberately out of scope for this analysis, but it is not optional for the spec that follows it.
 
 **Out of scope for the MVP (by design):** bidirectional/write-back sync, inventory/stock, invoices, payment gateway, returns, webhooks, advanced scheduler, full shop migration.
 
@@ -299,6 +309,7 @@ Estimates are rough, for sequencing only (not a task breakdown).
 8. **Inventory dependency:** Confirm stock stays out until a platform Inventory module exists, matching the Shopify/Magento decision.
 9. **Connection-test scope:** Minimum resource permissions the connection test must verify?
 10. **Module home:** Confirm this ships as `@open-mercato/sync-prestashop` (workspace package), consistent with the provider-package convention, rather than an app-level module.
+11. **Deactivation blast-radius threshold:** §7.1 step 6 proposes refusing reconciliation-driven deactivation above a configurable share of the imported set (default 10%). Confirm the default, and whether exceeding it should fail the run outright or deactivate nothing and warn.
 
 ## References
 
