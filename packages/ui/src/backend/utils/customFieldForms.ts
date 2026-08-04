@@ -85,6 +85,9 @@ export function buildFormFieldFromCustomFieldDef(
     case 'datetime':
       return { id, label, type: 'datetime', ...baseProps }
     case 'multiline': {
+      if (def.editor === 'plain') {
+        return { id, label, type: 'textarea', ...baseProps }
+      }
       let editor: 'simple' | 'uiw' | 'html' = 'html'
       if (def.editor === 'simpleMarkdown') editor = 'simple'
       else if (def.editor === 'htmlRichText') editor = 'html'
@@ -170,6 +173,9 @@ export function buildFormFieldFromCustomFieldDef(
         return base
       }
       if (def.kind === 'text' && typeof def.editor === 'string' && def.editor) {
+        if (def.editor === 'plain') {
+          return { id, label, type: 'textarea', ...baseProps }
+        }
         let editor: 'simple' | 'uiw' | 'html' = 'html'
         if (def.editor === 'simpleMarkdown') editor = 'simple'
         else if (def.editor === 'htmlRichText') editor = 'html'

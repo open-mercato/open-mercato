@@ -52,6 +52,7 @@ yarn workspace @open-mercato/shared build
 | `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
+| `string.ts` | When parsing comma-separated lists from CLI args/query params, or coercing a string to `undefined` when blank | `@open-mercato/shared/lib/string` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 
 ## Module Types (`src/modules/`)
@@ -92,6 +93,23 @@ const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organ
 
 ```typescript
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+```
+
+### Comma-Separated List Parsing — MUST use instead of ad-hoc splitting
+
+```typescript
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
+```
+
+`parseCommaSeparatedList(value)` splits on commas, trims each entry, and drops blanks. Non-string
+inputs (`null`/`undefined`) yield `[]`. MUST use it instead of hand-rolling
+`value.split(',').map((s) => s.trim()).filter(Boolean)` when reading CLI flags or query params.
+
+Keep the surrounding guard when a call site distinguishes "not supplied" (`undefined`) from
+"supplied but empty" (`[]`) — the helper always returns an array:
+
+```typescript
+const roleNames = rolesCsv ? parseCommaSeparatedList(rolesCsv) : undefined
 ```
 
 ### Browser Storage — use the shared helpers instead of raw `localStorage`
@@ -149,6 +167,30 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 - Use `hasFeature(granted, 'module.action')` for single-feature checks.
 - Use `hasAllFeatures(granted, required)` for arrays such as `features`, `requireFeatures`, or handler guard lists.
 - MUST NOT gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks in shared registries or runners; wildcard grants like `module.*` and `*` are part of the RBAC contract.
+
+### CRUD HTTP Errors — MUST use the shared helpers instead of hand-rolling `CrudHttpError`
+
+`@open-mercato/shared/lib/crud/errors` owns the standardized error shapes. Use the helper, not a raw `new CrudHttpError(...)`:
+
+```typescript
+import { assertFound, notFound, badRequest, forbidden, conflict } from '@open-mercato/shared/lib/crud/errors'
+
+const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))
+```
+
+| Status | Helper |
+|--------|--------|
+| 400 | `badRequest(message)` |
+| 403 | `forbidden(message?)` |
+| 404 | `notFound(message?)` — or `assertFound(value, message)` when guarding a lookup |
+| 409 | `conflict(message)` |
+
+MUST rules:
+- MUST NOT hand-roll `throw new CrudHttpError(404, { error: msg })`. Pick the helper that fits the call site:
+  - **Inline lookup** → `const deal = assertFound(await em.findOne(Deal, { id }), msg)`. It throws the standardized 404 and returns the value narrowed to `T`, so there is no nullable intermediate binding.
+  - **Guard statement** (multi-line lookup, or a compound condition such as `if (!entity || entity.tenantId !== auth.tenantId)`) → `throw notFound(msg)`. TypeScript already narrows the value after the throw, so this keeps tenant-scoping conditions explicit without losing type safety.
+- `message` is passed through verbatim and is never derived from an entity name — keep routing 404 copy through `translate(...)` so it stays translatable.
+- `assertFound` treats every falsy value as missing. Use it for entity/object lookups only, never to guard numbers or strings where `0`/`''` are valid results.
 
 ### CRUD Multi-ID Filtering
 

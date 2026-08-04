@@ -266,7 +266,10 @@ jobs:
           fi
 
   # ── Security audit ──────────────────────────────────────────────────────────
-  # Runs only when package manifests or lockfiles changed.
+  # Runs only when package manifests or lockfiles changed. Advisories published
+  # against an unchanged graph are covered by the daily
+  # `.github/workflows/audit.yml` instead — this job is the change-triggered
+  # half of the pair (#4479).
   audit:
     runs-on: ubuntu-latest
     needs: audit-scope
@@ -290,19 +293,14 @@ jobs:
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
           restore-keys: yarn-${{ runner.os }}-
 
-      - name: Cache audit result
-        # Keyed on package manifests and lockfiles — if none of these changed,
-        # a prior passing audit is still valid.
-        id: audit-cache
-        uses: actions/cache@v6
-        with:
-          path: .audit-passed
-          key: audit-${{ runner.os }}-${{ hashFiles('**/package.json', '**/yarn.lock', '**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml', '**/bun.lock', '**/bun.lockb') }}
-
+      # There is deliberately no cached `.audit-passed` marker here. It used to
+      # be keyed on manifest/lockfile content, but `yarn npm audit` output is a
+      # function of the dependency graph AND the advisory database at run time:
+      # a marker written before an advisory was published kept satisfying the
+      # key afterwards, so the scan silently did not execute and the job
+      # reported green on a graph that was by then vulnerable (#4479).
       - name: Cache node_modules
-        # Only needed when audit-cache misses (i.e. yarn.lock changed).
         # Shared key with other jobs — whichever runs first saves it.
-        if: steps.audit-cache.outputs.cache-hit != 'true'
         id: nm-cache
         uses: actions/cache@v6
         with:
@@ -313,20 +311,18 @@ jobs:
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
-        if: steps.audit-cache.outputs.cache-hit != 'true' && steps.nm-cache.outputs.cache-hit != 'true'
+        if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
       - name: Audit dependencies for known CVEs
-        if: steps.audit-cache.outputs.cache-hit != 'true'
-        run: |
-          yarn npm audit --all --recursive --severity high
-          echo "passed" > .audit-passed
+        run: yarn npm audit --all --recursive --severity high
 
   # ── Lint ─────────────────────────────────────────────────────────────────────
   # Fast static analysis — runs in parallel with prepare and audit.
   # ESLint does not need compiled packages, so it can fail fast before heavy jobs.
-  # @open-mercato/app is excluded: its next lint script requires an ESLint config
-  # that is not yet present in the repo.
+  # @open-mercato/app is the only workspace with a `lint` script, so it must stay
+  # in scope: excluding it left turbo with zero commands and a permanently green
+  # no-op job (issue #4472).
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -362,8 +358,13 @@ jobs:
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
+      - name: Guard against an empty lint task graph
+        # Fails when `turbo run lint` resolves to zero commands, so a future
+        # filter or script rename cannot silently disable the gate again.
+        run: yarn lint:check-graph
+
       - name: Lint
-        run: yarn turbo run lint --filter=!@open-mercato/app
+        run: yarn lint
 
       - name: Guard against raw console.* logging
         # Blocking since the application-wide migration to the structured
@@ -385,6 +386,10 @@ jobs:
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
+    env:
+      # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
+      # raise the heap so it does not OOM on cache-miss runs.
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -469,6 +474,11 @@ jobs:
 
       - name: Check for time-bomb test literals
         run: yarn check:time-bombs:fail
+
+      - name: Check agent instruction budget
+        # The root AGENTS.md must fit Codex's default 32 KiB project-instruction budget,
+        # and the already-oversized root-to-module chains may only shrink (#4484).
+        run: yarn agents:check-budget
 
       - name: Checking types
         # On PRs: scope to packages/app that changed since the base branch.

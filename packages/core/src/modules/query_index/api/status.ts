@@ -240,7 +240,7 @@ export async function GET(req: Request) {
           const stalled =
             !finishedDate && (!heartbeatDate || Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS)
           const state = finishedDate
-            ? 'completed'
+            ? (row.status === 'failed' ? 'failed' : 'completed')
             : stalled
               ? 'stalled'
               : (row.status as string) || 'reindexing'
@@ -261,22 +261,31 @@ export async function GET(req: Request) {
         (p) => p.status === 'reindexing' || p.status === 'purging',
       )
       const stalledPartitions = activePartitions.filter((p) => p.status === 'stalled')
-      let status: 'idle' | 'reindexing' | 'purging' | 'stalled' = 'idle'
+      const scopeCandidate = !preferOrg || !scopeRow || scopeRow.orgMatch ? scopeRow : null
+      let status: 'idle' | 'reindexing' | 'purging' | 'stalled' | 'failed' = 'idle'
       if (activePartitions.length) {
         if (runningPartitions.length) {
           status = runningPartitions.some((p) => p.status === 'purging') ? 'purging' : 'reindexing'
         } else if (stalledPartitions.length) {
           status = 'stalled'
         }
+      } else if (
+        partitions.some((p) => p.status === 'failed')
+        || (scopeCandidate?.row.finished_at && scopeCandidate.row.status === 'failed')
+      ) {
+        // The run finished but lost records; without this it reports "idle" and the only
+        // hint that anything went wrong is the coverage percentage.
+        status = 'failed'
       }
 
       const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
-      const finishedAt = status === 'idle' ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null) : null
+      const finishedAt = status === 'idle' || status === 'failed'
+        ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null)
+        : null
       const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
       const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
       const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
       const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
-      const scopeCandidate = !preferOrg || !scopeRow || scopeRow.orgMatch ? scopeRow : null
 
       return {
         status,
@@ -291,7 +300,7 @@ export async function GET(req: Request) {
               status: (() => {
                 const heartbeatDate = scopeCandidate!.row.heartbeat_at ? new Date(scopeCandidate!.row.heartbeat_at) : null
                 const finishedDate = scopeCandidate!.row.finished_at ? new Date(scopeCandidate!.row.finished_at) : null
-                if (finishedDate) return 'completed'
+                if (finishedDate) return scopeCandidate!.row.status === 'failed' ? 'failed' : 'completed'
                 if (
                   !heartbeatDate ||
                   Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS
@@ -415,10 +424,7 @@ export async function GET(req: Request) {
     errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    errorQuery = errorQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    errorQuery = errorQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     errorQuery = errorQuery.where('organization_id' as any, 'is', null as any)
   }
@@ -456,10 +462,7 @@ export async function GET(req: Request) {
     logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
   }
   if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-    logsQuery = logsQuery.where((eb: any) => eb.or([
-      eb('organization_id' as any, 'is', null),
-      eb('organization_id' as any, 'in', organizationScopeIds),
-    ]))
+    logsQuery = logsQuery.where('organization_id' as any, 'in', organizationScopeIds)
   } else {
     logsQuery = logsQuery.where('organization_id' as any, 'is', null as any)
   }

@@ -1,3 +1,5 @@
+import { TextDecoder } from 'util'
+
 export type CsvPreviewRow = Record<string, string | null>
 
 export type CsvPreview = {
@@ -16,9 +18,35 @@ export type CsvDocument = {
   encoding: 'utf-8'
 }
 
+export type CsvStreamMetadata = {
+  headers: string[]
+  totalRows: number
+  delimiter: ',' | ';'
+  encoding: 'utf-8'
+}
+
+export type CsvDocumentBatch = {
+  headers: string[]
+  rows: CsvPreviewRow[]
+  rowStart: number
+  nextOffset: number
+  delimiter: ',' | ';'
+  encoding: 'utf-8'
+}
+
 type ParseCsvPreviewOptions = {
   maxRows?: number
 }
+
+type ParseCsvBatchOptions = {
+  batchSize: number
+  startOffset?: number
+}
+
+type CsvInputChunk = Buffer | Uint8Array | string
+
+const CSV_DELIMITER_PROBE_ROWS = 5
+const CSV_DELIMITER_PROBE_MAX_CHARS = 64 * 1024
 
 function stripUtf8Bom(value: string): string {
   return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value
@@ -129,6 +157,223 @@ function rowsToObjects(headers: string[], rows: string[][], maxRows: number): Cs
     })
     return record
   })
+}
+
+async function createCsvRowStream(input: AsyncIterable<CsvInputChunk>): Promise<{
+  delimiter: ',' | ';'
+  rows: AsyncIterable<string[]>
+}> {
+  const iterator = input[Symbol.asyncIterator]()
+  const decoder = new TextDecoder('utf-8')
+  const prefixTexts: string[] = []
+  let probeText = ''
+
+  while (probeText.length < CSV_DELIMITER_PROBE_MAX_CHARS) {
+    const next = await iterator.next()
+    if (next.done) break
+
+    const text = typeof next.value === 'string' ? next.value : decoder.decode(next.value, { stream: true })
+    prefixTexts.push(text)
+    probeText += text
+
+    if (parseCsvText(probeText, ',').length >= CSV_DELIMITER_PROBE_ROWS) {
+      break
+    }
+  }
+
+  const delimiter = detectCsvDelimiter(probeText)
+
+  async function* decodedChunks(): AsyncIterable<string> {
+    for (const text of prefixTexts) {
+      yield text
+    }
+    while (true) {
+      const next = await iterator.next()
+      if (next.done) break
+      yield typeof next.value === 'string' ? next.value : decoder.decode(next.value, { stream: true })
+    }
+    const finalChunk = decoder.decode()
+    if (finalChunk.length > 0) {
+      yield finalChunk
+    }
+  }
+
+  return {
+    delimiter,
+    rows: parseCsvRowsFromTextChunks(decodedChunks(), delimiter),
+  }
+}
+
+async function* parseCsvRowsFromTextChunks(
+  chunks: AsyncIterable<string>,
+  delimiter: ',' | ';',
+): AsyncIterable<string[]> {
+  let currentRow: string[] = []
+  let currentValue = ''
+  let inQuotes = false
+  let isFirstChunk = true
+  let previousWasCarriageReturn = false
+  let pendingQuote = false
+  let pendingQuoteWasInQuotes = false
+
+  const completeRow = (): string[] | null => {
+    currentRow.push(currentValue)
+    const completedRow = currentRow
+    currentRow = []
+    currentValue = ''
+    return completedRow.some((value) => value.trim().length > 0) ? completedRow : null
+  }
+
+  for await (const chunk of chunks) {
+    const text = isFirstChunk ? stripUtf8Bom(chunk) : chunk
+    isFirstChunk = false
+
+    for (let index = 0; index < text.length; index += 1) {
+      const character = text[index]
+
+      if (pendingQuote) {
+        pendingQuote = false
+        if (pendingQuoteWasInQuotes && character === '"') {
+          currentValue += '"'
+          continue
+        }
+        inQuotes = !pendingQuoteWasInQuotes
+      }
+
+      if (previousWasCarriageReturn) {
+        previousWasCarriageReturn = false
+        if (character === '\n') {
+          continue
+        }
+      }
+
+      if (character === '"') {
+        if (index + 1 >= text.length) {
+          pendingQuote = true
+          pendingQuoteWasInQuotes = inQuotes
+          continue
+        }
+        if (inQuotes && text[index + 1] === '"') {
+          currentValue += '"'
+          index += 1
+          continue
+        }
+        inQuotes = !inQuotes
+        continue
+      }
+
+      if (!inQuotes && character === delimiter) {
+        currentRow.push(currentValue)
+        currentValue = ''
+        continue
+      }
+
+      if (character === '\r') {
+        previousWasCarriageReturn = true
+        if (inQuotes) {
+          currentValue += '\n'
+        } else {
+          const row = completeRow()
+          if (row) yield row
+        }
+        continue
+      }
+
+      if (character === '\n') {
+        if (inQuotes) {
+          currentValue += '\n'
+        } else {
+          const row = completeRow()
+          if (row) yield row
+        }
+        continue
+      }
+
+      currentValue += character
+    }
+  }
+
+  if (currentValue.length > 0 || currentRow.length > 0) {
+    const row = completeRow()
+    if (row) yield row
+  }
+}
+
+export async function parseCsvStreamMetadata(input: AsyncIterable<CsvInputChunk>): Promise<CsvStreamMetadata> {
+  const stream = await createCsvRowStream(input)
+  let headers: string[] = []
+  let hasHeaders = false
+  let totalRows = 0
+
+  for await (const row of stream.rows) {
+    if (!hasHeaders) {
+      headers = normalizeHeaders(row)
+      hasHeaders = true
+      continue
+    }
+    totalRows += 1
+  }
+
+  return {
+    headers,
+    totalRows,
+    delimiter: stream.delimiter,
+    encoding: 'utf-8',
+  }
+}
+
+export async function* parseCsvDocumentBatches(
+  input: AsyncIterable<CsvInputChunk>,
+  options: ParseCsvBatchOptions,
+): AsyncIterable<CsvDocumentBatch> {
+  const stream = await createCsvRowStream(input)
+  const batchSize = Math.max(1, Math.floor(options.batchSize))
+  const startOffset = Math.max(0, Math.floor(options.startOffset ?? 0))
+  let headers: string[] | null = null
+  let rowOffset = 0
+  let batchRows: string[][] = []
+  let batchStart = startOffset
+
+  for await (const row of stream.rows) {
+    if (!headers) {
+      headers = normalizeHeaders(row)
+      continue
+    }
+
+    if (rowOffset < startOffset) {
+      rowOffset += 1
+      continue
+    }
+
+    if (batchRows.length === 0) {
+      batchStart = rowOffset
+    }
+    batchRows.push(row)
+    rowOffset += 1
+
+    if (batchRows.length >= batchSize) {
+      yield {
+        headers,
+        rows: rowsToObjects(headers, batchRows, batchRows.length),
+        rowStart: batchStart,
+        nextOffset: rowOffset,
+        delimiter: stream.delimiter,
+        encoding: 'utf-8',
+      }
+      batchRows = []
+    }
+  }
+
+  if (headers && batchRows.length > 0) {
+    yield {
+      headers,
+      rows: rowsToObjects(headers, batchRows, batchRows.length),
+      rowStart: batchStart,
+      nextOffset: rowOffset,
+      delimiter: stream.delimiter,
+      encoding: 'utf-8',
+    }
+  }
 }
 
 export function parseCsvPreview(buffer: Buffer, options: ParseCsvPreviewOptions = {}): CsvPreview {

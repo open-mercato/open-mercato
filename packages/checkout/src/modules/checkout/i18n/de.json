@@ -326,6 +326,7 @@
   "checkout.payPage.errors.loadMessage": "Diese Zahlungsseite konnte nicht geladen werden. Bitte versuche es erneut.",
   "checkout.payPage.errors.loadTitle": "Zahlungslink konnte nicht geladen werden",
   "checkout.payPage.errors.password": "Das Passwort konnte nicht verifiziert werden. Bitte versuche es erneut.",
+  "checkout.payPage.errors.sessionStart": "Die Zahlungssitzung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "checkout.payPage.errors.submit": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "checkout.payPage.fields.booleanFalse": "Nein",
   "checkout.payPage.fields.booleanTrue": "Ja",

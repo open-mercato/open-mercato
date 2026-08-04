@@ -1,21 +1,34 @@
 #!/bin/sh
 set -eu
 
-# Skill installer for a standalone Open Mercato app (Claude Code + Codex).
-# Two sources are mixed in:
+# Skill installer for a standalone Open Mercato app. Skills live in ONE
+# canonical place — the cross-agent directory .agents/skills/ — and two sources
+# are mixed into it:
 #
-#   1. Local tiered skills: reads .ai/skills/tiers.json and creates per-skill
-#      symlinks under .claude/skills/ and .codex/skills/. If a legacy
-#      directory-level symlink (e.g. .claude/skills -> ../.ai/skills) is found,
-#      it is replaced with a real directory of per-skill symlinks.
+#   1. Local tiered skills: reads .ai/skills/tiers.json and symlinks each
+#      selected skill into .agents/skills/<name> -> ../../.ai/skills/<name>.
+#      Legacy directory-level symlinks (e.g. .claude/skills -> ../.ai/skills)
+#      left by an older scaffold are cleaned up.
 #   2. External shared skills: installs the subset this app ships from the
-#      open-mercato/skills collection via `npx skills add` into .agents/skills/
-#      (read natively by Codex; the CLI also symlinks .claude/skills/<name>),
-#      then `npx skills update` so a re-run refreshes them to the latest
-#      published versions. The external source + explicit skill list live under
-#      `external` in tiers.json. A folder under .ai/skills/ matching an external
-#      skill name is a repo-local override the external skill reads in place; it
-#      is never symlinked into the harness directories.
+#      open-mercato/skills collection via `npx skills add` into the same
+#      .agents/skills/ directory, then `npx skills update` so a re-run refreshes
+#      them to the latest published versions. The external source + explicit
+#      skill list live under `external` in tiers.json. A folder under .ai/skills/
+#      matching an external skill name is a repo-local override the external
+#      skill reads in place; it is never symlinked into the canonical or
+#      per-agent directories.
+#
+# Agent support matrix. Per-agent symlinks are created ONLY for agents that
+# cannot read the canonical project-level .agents/skills/ directory:
+#
+#   agent id     project directory   reads .agents/skills/   per-agent symlinks
+#   claude-code  .claude/skills      no                      yes (written by this script)
+#   codex        .codex/skills       yes                     no
+#   cursor       .cursor/skills      yes                     no
+#
+# The "reads .agents/skills/" column follows the universal-agent list of the
+# `skills` CLI (vercel-labs/skills). An agent that cannot read the canonical
+# directory MUST keep its symlinks, or its skills silently disappear.
 #
 # The scaffold is offline: `npx skills add`/`update` only run when you invoke
 # this script (yarn install-skills). Pass --no-external (or set
@@ -26,6 +39,8 @@ set -eu
 #   install-skills.sh --with <csv>              # default + extra tiers (additive)
 #   install-skills.sh --tiers <csv>             # exactly the listed tiers (replaces default)
 #   install-skills.sh --all                     # every tier
+#   install-skills.sh --legacy-links            # also symlink every skill into .claude/skills/ and .codex/skills/
+#   install-skills.sh --ignore-agents <csv>     # never write these agents' directories
 #   install-skills.sh --no-external             # skip the npx external-skills install/update step (offline)
 #   install-skills.sh --list                    # print tier table and exit
 #   install-skills.sh --clean                   # remove all skill symlinks and exit
@@ -37,10 +52,19 @@ Usage: install-skills.sh [options]
 
 Options:
   (no options)        Install the default tier set from .ai/skills/tiers.json
-                      plus the external open-mercato/skills subset this app ships.
+                      plus the external open-mercato/skills subset this app ships
+                      into the canonical .agents/skills/ directory. Agents that
+                      cannot read it (Claude Code) also get per-skill symlinks.
   --with <csv>        Install default tiers plus the given tier names (additive).
   --tiers <csv>       Install exactly the given tier names (replaces default).
   --all               Install every tier defined in tiers.json.
+  --legacy-links      Restore the pre-canonical layout: symlink every skill into
+                      .claude/skills/ AND .codex/skills/, even for agents that
+                      read .agents/skills/ natively.
+  --ignore-agents <csv>
+                      Never write these agents' directories (claude-code, codex,
+                      cursor). Defaults to `agents.ignore` in tiers.json; this
+                      flag overrides it.
   --no-external       Skip the external-collection step — `npx skills add` on
                       first run and `npx skills update` on re-runs (also:
                       OM_SKIP_EXTERNAL_SKILLS=1). Use when offline.
@@ -91,6 +115,9 @@ with_csv=""
 tiers_csv=""
 list_only=0
 clean_only=0
+legacy_links=0
+ignore_agents_csv=""
+ignore_agents_set=0
 # Any non-empty value other than "0" skips the external npx step.
 case "${OM_SKIP_EXTERNAL_SKILLS:-0}" in
   ""|0) no_external=0 ;;
@@ -123,6 +150,24 @@ while [ $# -gt 0 ]; do
       ;;
     --no-external)
       no_external=1
+      shift
+      ;;
+    --legacy-links)
+      legacy_links=1
+      shift
+      ;;
+    --ignore-agents)
+      if [ $# -lt 2 ]; then
+        echo "install-skills: --ignore-agents requires a comma-separated list of agent ids." >&2
+        exit 1
+      fi
+      ignore_agents_csv="$2"
+      ignore_agents_set=1
+      shift 2
+      ;;
+    --ignore-agents=*)
+      ignore_agents_csv="${1#--ignore-agents=}"
+      ignore_agents_set=1
       shift
       ;;
     --all)
@@ -206,6 +251,96 @@ dedup_lines() {
 
 agents_dir="${repo_root}/.agents/skills"
 
+# See the agent support matrix in the header comment.
+known_agents="claude-code codex cursor"
+legacy_agents="claude-code codex"
+
+agent_dir() {
+  case "$1" in
+    claude-code) printf '%s' "${repo_root}/.claude/skills" ;;
+    codex) printf '%s' "${repo_root}/.codex/skills" ;;
+    cursor) printf '%s' "${repo_root}/.cursor/skills" ;;
+  esac
+}
+
+agent_reads_canonical() {
+  case "$1" in
+    codex|cursor) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+agent_known() {
+  needle="$1"
+  for candidate in ${known_agents}; do
+    if [ "${candidate}" = "${needle}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_legacy_agent() {
+  needle="$1"
+  for candidate in ${legacy_agents}; do
+    if [ "${candidate}" = "${needle}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# The CLI flag overrides `agents.ignore` in tiers.json.
+if [ "${ignore_agents_set}" -eq 1 ]; then
+  ignored_agents=$(split_csv "${ignore_agents_csv}")
+else
+  ignored_agents=$(jq -r '.agents.ignore[]?' "${manifest}")
+fi
+
+for agent in ${ignored_agents}; do
+  if ! agent_known "${agent}"; then
+    echo "install-skills: unknown agent '${agent}'." >&2
+    echo "  Valid agents: $(printf '%s' "${known_agents}")" >&2
+    exit 1
+  fi
+done
+
+is_ignored_agent() {
+  needle="$1"
+  for candidate in ${ignored_agents}; do
+    if [ "${candidate}" = "${needle}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Agents that get their own per-skill symlinks: in the default layout only the
+# ones that cannot read .agents/skills/; with --legacy-links the historical pair.
+link_agents=""
+for agent in ${known_agents}; do
+  if is_ignored_agent "${agent}"; then
+    continue
+  fi
+  if [ "${legacy_links}" -eq 1 ]; then
+    if is_legacy_agent "${agent}"; then
+      link_agents="${link_agents} ${agent}"
+    fi
+  elif ! agent_reads_canonical "${agent}"; then
+    link_agents="${link_agents} ${agent}"
+  fi
+done
+
+is_link_agent() {
+  needle="$1"
+  for candidate in ${link_agents}; do
+    if [ "${candidate}" = "${needle}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 resolves_into_skills_dir() {
   link_path="$1"
   resolved=$(readlink -f -- "${link_path}" 2>/dev/null || true)
@@ -288,6 +423,18 @@ sweep_harness() {
   done
 }
 
+# Drop links to skills the external collection no longer ships: their target
+# under .agents/skills/ is gone, so the link dangles.
+prune_broken_links() {
+  harness_dir="$1"
+  [ -d "${harness_dir}" ] || return 0
+  for entry in "${harness_dir}"/*; do
+    [ -L "${entry}" ] || continue
+    [ -e "${entry}" ] && continue
+    rm -f "${entry}"
+  done
+}
+
 print_list() {
   for tier in ${all_tier_names}; do
     count=$(tier_skill_count "${tier}")
@@ -316,13 +463,16 @@ if [ "${list_only}" -eq 1 ]; then
 fi
 
 if [ "${clean_only}" -eq 1 ]; then
-  clean_harness "${repo_root}/.claude/skills"
-  clean_harness "${repo_root}/.codex/skills"
+  # Sweep every known agent directory (both the canonical link layer and any
+  # leftovers from the legacy per-agent layout), then the canonical directory.
+  for agent in ${known_agents}; do
+    clean_harness "$(agent_dir "${agent}")"
+  done
   if [ -d "${agents_dir}" ]; then
     rm -rf "${agents_dir}"
-    echo "info: removed external skill copies under .agents/skills/."
+    echo "info: removed skills under .agents/skills/."
   fi
-  echo "info: removed all skill symlinks under .claude/skills/ and .codex/skills/."
+  echo "info: removed all skill symlinks under .claude/skills/, .codex/skills/ and .cursor/skills/."
   exit 0
 fi
 
@@ -403,9 +553,9 @@ is_external_skill() {
   return 1
 }
 
-install_into_harness() {
-  harness_dir="$1"
-  prepare_harness_dir "${harness_dir}"
+# Local tier skills live once, in the canonical cross-agent directory.
+install_canonical() {
+  prepare_harness_dir "${agents_dir}"
   for skill in ${selected_skills}; do
     if is_external_skill "${skill}"; then
       # Owned by the external collection; a same-named .ai/skills/ folder is a
@@ -418,19 +568,59 @@ install_into_harness() {
       echo "install-skills: skill folder '${skill_target}' is missing on disk." >&2
       exit 1
     fi
-    link_path="${harness_dir}/${skill}"
-    ln -sfn "../../.ai/skills/${skill}" "${link_path}"
+    ln -sfn "../../.ai/skills/${skill}" "${agents_dir}/${skill}"
   done
-  sweep_harness "${harness_dir}" "${selected_skills}"
+  sweep_harness "${agents_dir}" "${selected_skills}"
 }
 
-install_into_harness "${repo_root}/.claude/skills"
-install_into_harness "${repo_root}/.codex/skills"
+# Link layer for agents that cannot read the canonical directory. External
+# skills are linked by the skills CLI itself (via the --agent args below), so
+# only the local tier skills are linked here.
+install_agent_links() {
+  agent="$1"
+  harness_dir=$(agent_dir "${agent}")
+  prepare_harness_dir "${harness_dir}"
+  for skill in ${selected_skills}; do
+    if is_external_skill "${skill}"; then
+      continue
+    fi
+    if [ "${legacy_links}" -eq 1 ]; then
+      ln -sfn "../../.ai/skills/${skill}" "${harness_dir}/${skill}"
+    else
+      ln -sfn "../../.agents/skills/${skill}" "${harness_dir}/${skill}"
+    fi
+  done
+  link_external_skills "${harness_dir}"
+  sweep_harness "${harness_dir}" "${selected_skills}"
+  prune_broken_links "${harness_dir}"
+}
+
+# Mirror every external skill (a real directory under the canonical dir) into an
+# agent's own directory. Local tier skills are symlinks and are skipped here.
+#
+# `npx skills add --agent <id>` is supposed to write these links itself, but it
+# only does so reliably for an agent directory that already exists (see
+# vercel-labs/skills#744) and the canonical layout no longer pre-creates one. So
+# the script owns this layer end to end: an agent that cannot read
+# .agents/skills/ would otherwise silently lose the whole shared collection.
+link_external_skills() {
+  harness_dir="$1"
+  [ -d "${agents_dir}" ] || return 0
+  for entry in "${agents_dir}"/*; do
+    [ -L "${entry}" ] && continue
+    [ -d "${entry}" ] || continue
+    external_name=$(basename "${entry}")
+    ln -sfn "../../.agents/skills/${external_name}" "${harness_dir}/${external_name}"
+  done
+}
 
 # Mix in the external shared collection (open-mercato/skills). Only the explicit
 # subset this app ships (external.skills) is installed — never the whole
-# collection. The npx CLI copies each skill into .agents/skills/ and symlinks
-# .claude/skills/<name> because that directory exists.
+# collection. The npx CLI copies each skill into .agents/skills/. This runs BEFORE
+# the link layer is written: `skills update --project` owns .agents/skills/ and
+# would otherwise prune entries it does not know about. The agent directories are
+# written afterwards by install_agent_links, which does not rely on the CLI's own
+# symlinking.
 external_source=$(jq -r '.external.source // empty' "${manifest}")
 external_status="none"
 # The skills CLI matches each --skill value against skill names verbatim (no
@@ -439,13 +629,21 @@ external_skill_args=""
 for external_skill in $(printf '%s\n' "${external_skills_list}" | dedup_lines); do
   external_skill_args="${external_skill_args} --skill ${external_skill}"
 done
+external_agent_args=""
+for agent in ${link_agents}; do
+  external_agent_args="${external_agent_args} --agent ${agent}"
+done
+if [ -z "${external_agent_args}" ]; then
+  # No agent needs its own directory — install into .agents/skills/ only.
+  external_agent_args=" --agent universal"
+fi
 if [ -n "${external_source}" ] && [ -n "${external_skill_args}" ]; then
   if [ "${no_external}" = "1" ]; then
     external_status="skipped (--no-external)"
   elif ! command -v npx >/dev/null 2>&1; then
     external_status="skipped (npx not found)"
     echo "install-skills: warning: npx not found; skipping external skills from ${external_source}." >&2
-  elif (cd "${repo_root}" && npx -y skills add "${external_source}" ${external_skill_args} --agent claude-code --agent codex -y); then
+  elif (cd "${repo_root}" && npx -y skills add "${external_source}" ${external_skill_args} ${external_agent_args} -y); then
     external_status="installed from ${external_source}"
     # `add` seeds the subset; a follow-up `update` bumps already-installed skills
     # to the latest published versions on a re-run. Non-fatal when offline mid-run.
@@ -455,21 +653,24 @@ if [ -n "${external_source}" ] && [ -n "${external_skill_args}" ]; then
       echo "install-skills: warning: could not update external skills to latest;" >&2
       echo "  the installed versions are kept. Re-run when online to refresh." >&2
     fi
-    # The npx CLI symlinks .claude/skills/<name> itself and expects Codex to read
-    # .agents/skills/ natively; mirror the symlinks into .codex/skills/ too.
-    if [ -d "${agents_dir}" ]; then
-      mkdir -p "${repo_root}/.codex/skills"
-      for external_entry in "${agents_dir}"/*; do
-        [ -d "${external_entry}" ] || continue
-        ln -sfn "../../.agents/skills/$(basename "${external_entry}")" "${repo_root}/.codex/skills/$(basename "${external_entry}")"
-      done
-    fi
   else
     external_status="FAILED"
     echo "install-skills: warning: installing external skills from ${external_source} failed;" >&2
     echo "  local tier skills are installed. Re-run when online, or pass --no-external to silence this." >&2
   fi
 fi
+
+install_canonical
+
+for agent in ${known_agents}; do
+  if is_link_agent "${agent}"; then
+    install_agent_links "${agent}"
+  else
+    # Not a link target (reads the canonical directory, or ignored): drop any
+    # stale symlinks left behind by the legacy per-agent layout.
+    clean_harness "$(agent_dir "${agent}")"
+  fi
+done
 
 skill_count=$(printf '%s\n' "${selected_skills}" | grep -c '.' || true)
 tier_count=$(printf '%s\n' "${selected_tiers}" | grep -c '.' || true)
@@ -478,6 +679,12 @@ tier_summary=$(printf '%s\n' "${selected_tiers}" | tr '\n' ',' | sed 's/,$//' | 
 printf 'Installed %s local skills across %s tiers: %s.\n' "${skill_count}" "${tier_count}" "${tier_summary}"
 if [ "${external_status}" != "none" ]; then
   printf 'External skills: %s.\n' "${external_status}"
+fi
+link_summary=$(printf '%s' "${link_agents}" | sed 's/^ *//; s/ /, /g')
+if [ -z "${link_summary}" ]; then
+  printf 'Layout: .agents/skills/ (canonical); no per-agent symlinks.\n'
+else
+  printf 'Layout: .agents/skills/ (canonical); per-agent symlinks: %s.\n' "${link_summary}"
 fi
 
 if [ -z "${mode}" ]; then

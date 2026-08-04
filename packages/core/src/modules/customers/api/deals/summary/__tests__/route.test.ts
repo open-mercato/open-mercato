@@ -133,11 +133,21 @@ describe('customers deals summary route', () => {
     jest.useRealTimers()
   })
 
-  it('returns 401 when auth lacks tenant or org', async () => {
-    getAuthFromRequestMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: null })
+  it('returns 401 when auth lacks a tenant', async () => {
+    getAuthFromRequestMock.mockResolvedValueOnce({ sub: userId, tenantId: null, orgId: null })
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
     expect(response.status).toBe(401)
     expect(executeMock).not.toHaveBeenCalled()
+  })
+
+  // A null `orgId` is how an all-organizations selection reaches this route (the super-admin
+  // org cookie override clears it), not a sign of a broken session. Answering 401 sent
+  // `apiFetch` into a session-refresh loop that reloaded the deals page forever.
+  it('does not treat an all-organizations selection as an auth failure', async () => {
+    getAuthFromRequestMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: null })
+    executeMock.mockResolvedValue([])
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+    expect(response.status).toBe(200)
   })
 
   it('computes KPI values, deltas, UTC quarter bucketing, multi-currency conversion and need-attention union', async () => {

@@ -1,4 +1,6 @@
 import React from 'react'
+import type { RouteVisibilityContext } from '@open-mercato/shared/modules/registry'
+import { isSalesChannelsEnabledForTenant } from '../../../../lib/salesChannelsToggle'
 
 const createIcon = React.createElement(
   'svg',
@@ -11,6 +13,7 @@ const createIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['sales.channels.manage'],
+  visible: (ctx: RouteVisibilityContext) => isSalesChannelsEnabledForTenant(ctx.auth?.tenantId ?? null),
   pageTitle: 'Create channel',
   pageTitleKey: 'sales.channels.form.createTitle',
   pageGroup: 'Sales',
