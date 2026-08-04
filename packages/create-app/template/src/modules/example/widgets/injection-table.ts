@@ -1,16 +1,22 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
-const exampleInjectionWidgetsEnabled = parseBooleanWithDefault(
-  process.env.NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED,
-  false,
-)
-const crudFormExtendedEventsEnabled = parseBooleanWithDefault(
-  process.env.NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED,
-  false,
-)
-
-const alwaysEnabledInjectionTable: ModuleInjectionTable = {
+/**
+ * Example module injection table
+ * Maps injection spot IDs to widget IDs for automatic widget injection
+ *
+ * Declared as ONE object literal with no env-flag branching on purpose: the
+ * fact extractor (`packages/cli/src/lib/generators/module-extension-facts.ts`
+ * → `readRootObject` → `staticValue`) can only fold a statically known value,
+ * so an export built by a ternary published ZERO contributions and every
+ * scaffolded app read this canonical module as contributing nothing.
+ *
+ * Cross-module entries (customers / catalog / sales) are therefore always
+ * present. They are inert when their host module is absent, because each one is
+ * keyed on a spot id only that module renders. Gate behavior inside the widget,
+ * or with `metadata.requiredModules` on the widget — never by branching the
+ * exported table value.
+ */
+export const injectionTable: ModuleInjectionTable = {
   // Portal dashboard widgets — showcase widget injection for customer portal
   'portal:dashboard:sections': [
     { widgetId: 'example.injection.portal-stats', priority: 5 },
@@ -18,7 +24,7 @@ const alwaysEnabledInjectionTable: ModuleInjectionTable = {
     { widgetId: 'example.injection.portal-quick-links', priority: 20 },
   ],
 
-  // Keep example module demo surfaces always available
+  // Example module demo surfaces
   'crud-form:example.todo': 'example.injection.crud-validation',
   'widget:example.injection.crud-validation:addon': {
     widgetId: 'example.injection.crud-validation-addon',
@@ -33,10 +39,8 @@ const alwaysEnabledInjectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.example-profile-menu',
     priority: 50,
   },
-}
 
-const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
-  // Customer page injections are opt-in via NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED.
+  // Customer page injections.
   // Backward-compatible aliasing: support both legacy and current customer form spot ids.
   'crud-form:customers.person:fields': {
     widgetId: 'example.injection.customer-priority-field',
@@ -84,7 +88,7 @@ const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
     priority: 30,
   },
 
-  // Inject the validation widget into catalog CRUD forms when enabled
+  // Inject the validation widget into catalog CRUD forms
   'crud-form:catalog.product': 'example.injection.crud-validation',
   'crud-form:catalog.catalog_product': 'example.injection.crud-validation',
   'crud-form:catalog.variant': 'example.injection.crud-validation',
@@ -115,14 +119,5 @@ const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
     priority: 5,
   },
 }
-
-/**
- * Example module injection table
- * Maps injection spot IDs to widget IDs for automatic widget injection
- */
-export const injectionTable: ModuleInjectionTable = (exampleInjectionWidgetsEnabled
-  || crudFormExtendedEventsEnabled)
-  ? { ...alwaysEnabledInjectionTable, ...optionalCrossModuleInjectionTable }
-  : alwaysEnabledInjectionTable
 
 export default injectionTable

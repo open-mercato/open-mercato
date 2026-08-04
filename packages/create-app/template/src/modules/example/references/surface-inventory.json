@@ -456,7 +456,7 @@
     {
       "capabilityId": "umes.injection-table",
       "title": "Widget injection table (spot id to widget id mapping)",
-      "description": "`ModuleInjectionTable` mapping every supported spot-id shape — portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menu spots, detail spots, tab groups, and a nested widget addon spot — to widget ids, with cross-module entries kept behind an env flag.",
+      "description": "`ModuleInjectionTable` mapping every supported spot-id shape — portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menu spots, detail spots, tab groups, and a nested widget addon spot — to widget ids. Exported as one unconditional object literal, which is what the fact extractor can fold: it reads 26 contributions from this file (it read 0 while the export was chosen by an env-flag ternary). Cross-module entries ship always-on and are inert without their host module.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -564,11 +564,11 @@
     {
       "capabilityId": "umes.component-replacement",
       "title": "Component replacement and wrapping (`widgets/components.ts`)",
-      "description": "`ComponentOverride` entries targeting `ComponentReplacementHandles.section(...)` handles in the `wrapper` mode.",
+      "description": "`ComponentOverride` entries targeting `ComponentReplacementHandles.section(...)` handles in the `wrapper` mode, exported as one unconditional array literal with a pass-through wrapper for the demo-only entries.",
       "coverageKind": "example",
       "referenceStatus": "qa-only",
       "readStatus": "qa-only",
-      "qaOnlyReason": "Gate 3 is clean: the wrapper class names use `status-info-*` / `status-warning-*` tokens. The row stays `qa-only` because the file still demonstrates only the `wrapper` mode - `replacement` and `propsTransform` are absent - and exports a conditionally spread array, so static fact extraction cannot read its entries. Tracked as the registry static-readability slice.",
+      "qaOnlyReason": "Gate 3 is clean: the wrapper class names use `status-info-*` / `status-warning-*` tokens. The static-readability ground is now resolved - the export is one array literal and the fact extractor reads all 3 entries in `wrapper` mode (it read 0 while the export was a conditional spread). The row stays `qa-only` on the single remaining structural ground: the file demonstrates only the `wrapper` mode, so `replacement` and `propsTransform` have no canonical example here. Route those two modes to `om-system-extension` instead of copying this file.",
       "sourcePaths": ["src/modules/example/widgets/components.ts"],
       "integrationTestPaths": [
         "src/modules/example/widgets/__tests__/components.test.ts",
