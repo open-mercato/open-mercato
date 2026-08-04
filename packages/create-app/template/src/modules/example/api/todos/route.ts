@@ -11,6 +11,7 @@ const tenant_id = 'tenant_id'
 const organization_id = 'organization_id'
 const is_done = 'is_done'
 const created_at = 'created_at'
+const updated_at = 'updated_at'
 import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TodoListItem } from '../../types'
 import ceEntities from '../../ce'
@@ -64,7 +65,11 @@ if (todoEntity?.fields?.length) {
 
 const cfSel = buildCustomFieldSelectorsForEntity(ENTITY_ID, baseFieldSets)
 
-const baseListFields = [id, title, tenant_id, organization_id, is_done, created_at]
+// `updated_at` is part of the projection because the optimistic-lock round-trip
+// needs it: `CrudForm` auto-derives the expected-version header from
+// `initialValues.updatedAt`, and the list-row delete builds the same header from
+// the row. Dropping it silently disables optimistic locking on this entity.
+const baseListFields = [id, title, tenant_id, organization_id, is_done, created_at, updated_at]
 const baseCsvHeaders = ['id', 'title', 'is_done', 'organization_id', 'tenant_id']
 
 // Custom-field keys are discovered per request from tenant- and organization-scoped
@@ -88,6 +93,17 @@ const sortFieldMap: Record<string, string> = {
   organization_id,
   is_done,
   created_at,
+  updated_at,
+  updatedAt: updated_at,
+}
+
+function toIsoTimestamp(value: unknown): string | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+  return null
 }
 
 type CustomFieldValuesTable = {
@@ -192,6 +208,7 @@ type BaseFields = {
   tenant_id: string | null
   organization_id: string | null
   created_at: Date
+  updated_at: Date | string | null
 } & Record<`cf:${string}` | `cf_${string}`, unknown>
 
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
@@ -258,6 +275,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       tenant_id: item.tenant_id ?? null,
       organization_id: item.organization_id ?? null,
       is_done: Boolean(item.is_done),
+      updatedAt: toIsoTimestamp(item.updated_at),
       ...extractAllCustomFieldEntries(item),
     }),
     allowCsv: true,

@@ -46,6 +46,7 @@ export const todoListItemSchema = z
     tenant_id: z.string().nullable().optional(),
     organization_id: z.string().nullable().optional(),
     is_done: z.boolean().optional(),
+    updatedAt: z.string().nullable().optional(),
   })
   .passthrough()
 

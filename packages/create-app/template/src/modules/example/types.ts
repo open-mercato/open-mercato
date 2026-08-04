@@ -7,6 +7,9 @@ export type TodoListItem = {
   is_done?: boolean
   tenant_id?: string | null
   organization_id?: string | null
+  // Optimistic-lock version token. `CrudForm` auto-derives the expected-version
+  // header from `initialValues.updatedAt`; list-row mutations build it directly.
+  updatedAt?: string | null
   cf_priority?: number | null
   cf_severity?: string | null
   cf_blocked?: boolean | null
