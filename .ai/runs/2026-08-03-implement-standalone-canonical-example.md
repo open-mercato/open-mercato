@@ -832,3 +832,24 @@ before merging E3; findings change what E3 is allowed to do.
   regenerate-and-diff gate; this is what unblocks H7's fail-closed branch and wires the CANON-C
   validators into CI) · H8 (harness source-selection assertions for the bulk-action and
   operation-progress capabilities).
+
+  **In flight (session 4):** wave 10 workflow `wf_a24df3d2-76b` — `wave10/c5-source-link-inventory`
+  and `wave10/h8-harness-source-selection`.
+
+  - **C5 is the CANON-C keystone.** The inventory's absence is why TWO things currently fail closed:
+    GOV-P2 refuses to resolve source-link/example-source/installed-source contracts, and the CANON-C
+    validators are deliberately unwired from `.ai/agentic.config.json` and CI because they would fail
+    every PR. C5 was told to re-evaluate both once the inventory exists — but NOT to wire anything
+    unless the full gate passes with it enabled, with a green local run as the evidence rather than
+    an argument. Its verifier must run the full gate itself if C5 wired anything, since a validator
+    that fails every PR is a blocking defect.
+  - **Per decision D4**, the generator must assert its derived topic set EQUALS the checked
+    `source-link-topics.json` registry exactly — the verifier must construct a probe that breaks that
+    equality, not just confirm the assertion exists.
+  - The anti-vacuous section of the brief now lists **six** real examples from this program, plus the
+    hard-won note that `@ts-expect-error` is NOT enforced by this repo's jest transform, so a
+    type-level test is vacuous unless proven otherwise. That one cost a fix-of-a-fix in wave 9.
+  - **H8** must check `packages/create-app/AGENT-HARNESS.md` by hand — it is not covered by the count
+    guard and has now rotted twice — and pin any new declaring case in `DECLARED_CAPABILITY_IDS`.
+
+  Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_a24df3d2-76b'})`.
