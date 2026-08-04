@@ -13,6 +13,7 @@ const createRequestContainerMock = jest.fn()
 const runAiAgentTextMock = jest.fn()
 const createOrGetConversationMock = jest.fn()
 const appendConversationMessageMock = jest.fn()
+const resolveTranslationsMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
@@ -20,6 +21,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: (...args: unknown[]) => resolveTranslationsMock(...args),
 }))
 
 jest.mock('../../../../lib/agent-runtime', () => {
@@ -126,6 +131,12 @@ describe('POST /api/ai/chat', () => {
       sub: 'user-1',
       tenantId: 'tenant-1',
       orgId: 'org-1',
+    })
+    resolveTranslationsMock.mockResolvedValue({
+      locale: 'pl',
+      dict: {},
+      t: (key: string, fallback?: string) => fallback ?? key,
+      translate: (key: string, fallback?: string) => fallback ?? key,
     })
     loadAclMock.mockResolvedValue({ features: ['ai_assistant.view'], isSuperAdmin: false })
     createRequestContainerMock.mockResolvedValue({
@@ -303,7 +314,7 @@ describe('POST /api/ai/chat', () => {
       messages: unknown
       debug?: boolean
       pageContext?: { pageId?: string }
-      authContext: { tenantId: string | null; organizationId: string | null; userId: string }
+      authContext: { tenantId: string | null; organizationId: string | null; userId: string; locale?: string | null }
       container: unknown
     }
     expect(callArg.agentId).toBe('customers.assistant')
@@ -312,6 +323,7 @@ describe('POST /api/ai/chat', () => {
     expect(callArg.authContext.userId).toBe('user-1')
     expect(callArg.authContext.tenantId).toBe('tenant-1')
     expect(callArg.authContext.organizationId).toBe('org-1')
+    expect(callArg.authContext.locale).toBe('pl')
     expect(callArg.container).toBeDefined()
   })
 

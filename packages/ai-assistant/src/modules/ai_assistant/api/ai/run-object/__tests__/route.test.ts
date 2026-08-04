@@ -11,6 +11,7 @@ const authMock = jest.fn()
 const loadAclMock = jest.fn()
 const createRequestContainerMock = jest.fn()
 const runAiAgentObjectMock = jest.fn()
+const resolveTranslationsMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
@@ -18,6 +19,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: (...args: unknown[]) => resolveTranslationsMock(...args),
 }))
 
 jest.mock('../../../../lib/agent-runtime', () => ({
@@ -69,6 +74,12 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
       sub: 'user-1',
       tenantId: 'tenant-1',
       orgId: 'org-1',
+    })
+    resolveTranslationsMock.mockResolvedValue({
+      locale: 'pl',
+      dict: {},
+      t: (key: string, fallback?: string) => fallback ?? key,
+      translate: (key: string, fallback?: string) => fallback ?? key,
     })
     loadAclMock.mockResolvedValue({ features: ['ai_assistant.view'], isSuperAdmin: false })
     createRequestContainerMock.mockResolvedValue({
@@ -217,13 +228,14 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
       agentId: string
       input: unknown
       pageContext?: { pageId?: string }
-      authContext: { userId: string; tenantId: string | null; organizationId: string | null }
+      authContext: { userId: string; tenantId: string | null; organizationId: string | null; locale?: string | null }
     }
     expect(callArg.agentId).toBe('catalog.extract')
     expect(callArg.pageContext).toEqual({ pageId: 'ai_assistant.playground' })
     expect(callArg.authContext.userId).toBe('user-1')
     expect(callArg.authContext.tenantId).toBe('tenant-1')
     expect(callArg.authContext.organizationId).toBe('org-1')
+    expect(callArg.authContext.locale).toBe('pl')
   })
 
   it('returns 422 when the helper resolves to stream mode', async () => {

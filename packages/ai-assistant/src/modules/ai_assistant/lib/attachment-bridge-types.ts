@@ -21,4 +21,5 @@ export interface AiChatRequestContext {
   userId: string
   features: string[]
   isSuperAdmin: boolean
+  locale?: string | null
 }

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
@@ -144,6 +145,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     await loadAgentRegistry()
 
     const container = await createRequestContainer()
+    const { locale } = await resolveTranslations()
     const rbacService = container.resolve<RbacService>('rbacService')
     const acl = await rbacService.loadAcl(auth.sub, {
       tenantId: auth.tenantId,
@@ -176,6 +178,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         userId: auth.sub,
         features: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
+        locale,
       },
       container,
     })
