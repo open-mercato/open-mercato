@@ -57,3 +57,16 @@
 - Process note for future runs in this environment: background tasks are killed at the 10-minute
   tool cap, and `ps` in this sandbox does not reliably show those processes — rely on task
   notifications, and never run two `inPlace` Stryker runs against the same package concurrently.
+
+## 2026-08-04T07:33:00Z — checkpoint 1: Phase 1 and Phase 0b complete (6 Steps)
+
+- `yarn test:scripts`: 463 passed / 0 failed, including 44 new tests across five files.
+- Step 1.2's headline criterion verified: `packages/shared` `boolean.ts` scores **93.33 %** through
+  the new factory, reproducing the Phase 0 pilot's 93.3 % (28 killed / 2 survived / 2 errors,
+  1 m 27 s, 615.92 tests per mutant). Details in `checkpoint-1-checks.md`.
+- Blocker found and fixed: a fresh worktree fails Stryker's dry run with
+  `Cannot find module '@open-mercato/cache'` because package suites resolve siblings through
+  `dist/`. The workflow now builds packages before mutating.
+- Environment hazard recorded: a detached measurement survived repeated `pkill` (the sandbox
+  dropped the signals) and re-instrumented `packages/core` mid-run. Killing it required
+  `dangerouslyDisableSandbox`; `pgrep` sees such processes when `ps` does not.
