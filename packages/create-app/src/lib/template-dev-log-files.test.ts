@@ -27,21 +27,13 @@ function runTemplateDevWrapper({
   envFiles?: Record<string, string>
   shellOverride?: string
 } = {}) {
-  const templateScriptsDir = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-  const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+  const devScriptPath = fileURLToPath(new URL('../../template/scripts/dev.mjs', import.meta.url))
   const tempDir = makeTempDir('template-module-resource-usage-dir-')
-  const scriptsDir = path.join(tempDir, 'scripts')
-  const runtimeScriptPath = path.join(scriptsDir, 'dev-runtime.mjs')
-  fs.cpSync(templateScriptsDir, scriptsDir, { recursive: true })
-  fs.copyFileSync(
-    path.join(repoRoot, 'scripts', 'dev-memory-sampler.mjs'),
-    path.join(scriptsDir, 'dev-memory-sampler.mjs'),
-  )
-  fs.symlinkSync(path.join(repoRoot, 'node_modules'), path.join(tempDir, 'node_modules'), 'dir')
+  const runtimeScriptPath = path.join(tempDir, 'scripts', 'dev-runtime.mjs')
+  fs.mkdirSync(path.dirname(runtimeScriptPath), { recursive: true })
   fs.writeFileSync(runtimeScriptPath, [
     `console.log('${moduleResourceUsageOutputPrefix}' + JSON.stringify(process.env.OM_MODULE_RESOURCE_USAGE_DIR ?? null))`,
   ].join('\n'))
-  const devScriptPath = path.join(scriptsDir, 'dev.mjs')
   for (const [fileName, contents] of Object.entries(envFiles)) {
     fs.writeFileSync(path.join(tempDir, fileName), contents)
   }
