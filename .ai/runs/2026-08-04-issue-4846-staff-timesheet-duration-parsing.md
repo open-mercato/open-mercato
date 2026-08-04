@@ -64,12 +64,12 @@ Every duration typed into the weekly timesheet grid is either understood exactly
 
 ### Phase 2: Browser verification (the step the chain stopped in)
 
-- [ ] 2.1 Boot the ephemeral test environment and classify the crashed run's failing assertion (persisted 90-minute entry rendering as `""`) as either a regression from this PR or pre-existing behavior on `develop`
-- [ ] 2.2 Act on the classification: if it is a regression, fix it with a regression test and re-run the validation gate; if it is pre-existing, file a follow-up issue and record the finding on the PR
-- [ ] 2.3 Complete the duration-entry QA scenario end to end and capture screenshots for the P0 and P1 steps
-- [ ] 2.4 Post the QA evidence comment with the attached screenshots on PR #4966
+- [x] 2.1 Boot the ephemeral test environment and classify the crashed run's failing assertion (persisted 90-minute entry rendering as `""`) as either a regression from this PR or pre-existing behavior on `develop` — **pre-existing**, no code change: two throwaway diagnostics settled it. A 90-minute entry written through the ordinary single-entry route renders as `1.5` on a cold load, so this PR's render path is correct; priming the grid's week-list URL, posting a bulk save, and re-reading the same URL returns the pre-save payload, so the bulk route leaves the cached list stale
+- [x] 2.2 Act on the classification: if it is a regression, fix it with a regression test and re-run the validation gate; if it is pre-existing, file a follow-up issue and record the finding on the PR — filed as **#4970** (the bulk route never calls `invalidateCrudCache`, which `makeCrudRoute` does on its own writes); no change to this PR's scope
+- [x] 2.3 Complete the duration-entry QA scenario end to end and capture screenshots for the P0 and P1 steps — 12/12 steps green, 12 screenshots captured; the revisit assertion now flushes the stale cache through a single-entry write and asserts both the bulk-saved and the fixture-written cell, and the totals step asserts the row total falls back to the persisted value
+- [x] 2.4 Post the QA evidence comment with the attached screenshots on PR #4966
 
 ### Phase 3: Finalize
 
-- [ ] 3.1 Re-run `om-auto-review-pr --autofix` if Phase 2 landed any code change, otherwise record that the existing review of record still covers the head
-- [ ] 3.2 Post the resume-summary comment, normalize the labels with rationale, and report the CI state
+- [x] 3.1 Re-run `om-auto-review-pr --autofix` if Phase 2 landed any code change, otherwise record that the existing review of record still covers the head — no product code changed in this resume (the only commits are this plan file), so the review of record on `975f59dc` still covers every code line in the diff; recorded rather than re-run
+- [x] 3.2 Post the resume-summary comment, normalize the labels with rationale, and report the CI state
