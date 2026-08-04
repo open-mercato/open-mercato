@@ -333,6 +333,11 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     let removed: User | null = null
     await withAtomicFlush(em, [
       async () => {
+        // Undoing a create hard-deletes the user, so it can strip a tenant's last active
+        // admin exactly like `auth.users.delete` can — promote a second admin, delete the
+        // first, then undo the promotion's create. Same guard applies.
+        await enforceProtectedRoleFloor(em, snapshot?.tenantId ?? null, userId, { deleting: true }, ctx)
+
         await em.nativeDelete(UserAcl, { user: userId })
         await em.nativeDelete(UserRole, { user: userId })
         await em.nativeDelete(Session, { user: userId })
@@ -574,19 +579,20 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
           deactivating: parsed.isConfirmed === false || isTenantChanging,
           newRoles: parsed.roles,
-        })
+        }, ctx)
 
+        // Email is unique per-tenant, not globally (see Migration20260610120000:
+        // users_tenant_email_hash_uniq) — a matching email in another tenant must not block
+        // the update or leak cross-tenant account existence (#2934). `targetTenantId` is the
+        // tenant the user will belong to after this update, so the check follows a move.
         if (parsed.email !== undefined) {
-          const targetTenantIdCheck = tenantId !== undefined
-            ? tenantId
-            : await resolveUserTenantId(em, parsed.id)
           const duplicate = await findOneWithDecryption(
             em,
             User,
             {
               $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
               deletedAt: null,
-              tenantId: targetTenantIdCheck,
+              tenantId: targetTenantId,
               id: { $ne: parsed.id } as any,
             } as FilterQuery<User>,
             {},
@@ -729,23 +735,41 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const userId = before.id
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const updated = await de.updateOrmEntity({
-      entity: User,
-      where: { id: userId, deletedAt: null } as FilterQuery<User>,
-      apply: (entity) => {
-        entity.email = before.email
-        entity.organizationId = before.organizationId ?? null
-        entity.tenantId = before.tenantId ?? null
-        entity.passwordHash = before.passwordHash ?? null
-        entity.name = before.name ?? null
-        entity.isConfirmed = before.isConfirmed
-      },
-    })
 
-    if (updated) {
-      await syncUserRoles(em, updated, before.roles, before.tenantId)
-      await em.flush()
-    }
+    // Reverting an update can drop the tenant below a protected role's floor just as the
+    // forward path can — restoring an empty `before.roles` on what is now the last admin,
+    // or restoring `isConfirmed: false`. Undo is reachable from the audit-log UI, so the
+    // guard has to run here too, inside a transaction so the row lock is valid.
+    const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    const currentTenantId = current?.tenantId ? String(current.tenantId) : null
+    const restoredTenantId = before.tenantId ? String(before.tenantId) : null
+
+    let updated: User | null = null
+    await withAtomicFlush(em, [
+      async () => {
+        await enforceProtectedRoleFloor(em, currentTenantId, userId, {
+          deactivating: before.isConfirmed === false || restoredTenantId !== currentTenantId,
+          newRoles: before.roles,
+        }, ctx)
+
+        updated = await de.updateOrmEntity({
+          entity: User,
+          where: { id: userId, deletedAt: null } as FilterQuery<User>,
+          apply: (entity) => {
+            entity.email = before.email
+            entity.organizationId = before.organizationId ?? null
+            entity.tenantId = before.tenantId ?? null
+            entity.passwordHash = before.passwordHash ?? null
+            entity.name = before.name ?? null
+            entity.isConfirmed = before.isConfirmed
+          },
+        })
+
+        if (updated) {
+          await syncUserRoles(em, updated, before.roles, before.tenantId)
+        }
+      },
+    ], { transaction: true, label: 'auth.users.update.undo' })
 
     const reset = buildCustomFieldResetMap(before.custom, after?.custom)
     if (Object.keys(reset).length) {
@@ -818,7 +842,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     await withAtomicFlush(em, [
       async () => {
         const userTenantId = existing.tenantId ? String(existing.tenantId) : null
-        await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true })
+        await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true }, ctx)
 
         await em.nativeDelete(UserAcl, { user: id })
         await em.nativeDelete(UserRole, { user: id })
@@ -1118,11 +1142,6 @@ function arrayEquals(left: string[] | undefined, right: string[]): boolean {
   return left.every((value, idx) => value === right[idx])
 }
 
-async function resolveUserTenantId(em: EntityManager, id: string): Promise<string | null> {
-  const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
-  return existing?.tenantId ? String(existing.tenantId) : null
-}
-
 async function throwDuplicateEmailError(): Promise<never> {
   const { translate } = await resolveTranslations()
   const message = translate('auth.users.errors.emailExists', 'Email already in use')
@@ -1133,16 +1152,34 @@ async function throwDuplicateEmailError(): Promise<never> {
   })
 }
 
+type ProtectedRoleFloorOptions = {
+  deactivating?: boolean
+  newRoles?: string[]
+  deleting?: boolean
+}
+
+/**
+ * True when the requested mutation can lower a role's active holder count. Guards the
+ * floor check so that ordinary edits (display name, password, email) never take the
+ * tenant-wide role lock — `PUT /api/auth/profile` routes every self-service password
+ * change through `auth.users.update`, so an unconditional lock would serialize them.
+ */
+function couldReduceActiveHolders(options: ProtectedRoleFloorOptions): boolean {
+  return options.deleting === true || options.deactivating === true || options.newRoles !== undefined
+}
+
 async function enforceProtectedRoleFloor(
   em: EntityManager,
   tenantId: string | null,
   userId: string,
-  options: {
-    deactivating?: boolean
-    newRoles?: string[]
-    deleting?: boolean
-  }
+  options: ProtectedRoleFloorOptions,
+  ctx?: CommandRuntimeContext,
 ): Promise<void> {
+  // Internal automation (CLI, migrations, tenant teardown) must never be blocked by the
+  // floor. Superadmins are deliberately NOT exempt — see the spec's Risks section.
+  if (ctx?.systemActor === true) return
+  if (!couldReduceActiveHolders(options)) return
+
   const normalizedTenantId = normalizeTenantId(tenantId) ?? null
   if (!normalizedTenantId) return
 
@@ -1151,7 +1188,7 @@ async function enforceProtectedRoleFloor(
     tenantId: normalizedTenantId,
     minActiveHolders: { $gt: 0 },
     deletedAt: null
-  }, { 
+  }, {
     lockMode: LockMode.PESSIMISTIC_WRITE,
     orderBy: { id: 'ASC' }
   }, { tenantId: normalizedTenantId, organizationId: null })
@@ -1164,7 +1201,10 @@ async function enforceProtectedRoleFloor(
     const minFloor = role.minActiveHolders ?? 0
     if (minFloor <= 0) continue
 
-    // Find all active links for this role, strictly scoping the user to this tenant
+    // Active links for this role, scoped to the tenant by the nested user filter so the
+    // database — not a post-filter — enforces isolation. Deliberately NOT populated:
+    // `findWithDecryption` runs `decryptEntityGraph` over loaded relations, which would
+    // decrypt every admin's email and name on each check just to read their ids.
     const activeLinks = await findWithDecryption(em, UserRole, {
       role: role.id,
       deletedAt: null,
@@ -1173,13 +1213,17 @@ async function enforceProtectedRoleFloor(
         isConfirmed: true,
         tenantId: normalizedTenantId
       }
-    }, { populate: ['user'] }, { tenantId: null, organizationId: null })
+    }, {}, { tenantId: null, organizationId: null })
 
     // Count distinct user IDs in the tenant holding this role to prevent overcounting due to duplicate links
     const activeUserIds = Array.from(
       new Set(
         activeLinks
-          .map(link => (link.user && String(link.user.tenantId) === normalizedTenantId ? String(link.user.id) : null))
+          .map((link) => {
+            const userRef = link.user as unknown as { id?: string } | string | null | undefined
+            const linkedUserId = typeof userRef === 'string' ? userRef : userRef?.id
+            return linkedUserId ? String(linkedUserId) : null
+          })
           .filter((id): id is string => !!id)
       )
     )
@@ -1205,7 +1249,7 @@ async function enforceProtectedRoleFloor(
         const remaining = activeUserIds.length - 1
         if (remaining < minFloor) {
           throw new CrudHttpError(400, {
-            error: translate('auth.users.errors.last_holder_critical_role', 'Cannot remove the last active holder of role "{roleName}"', { roleName: role.name })
+            error: translate('auth.users.errors.lastHolderOfCriticalRole', 'Cannot remove the last active holder of role "{roleName}"', { roleName: role.name })
           })
         }
       }

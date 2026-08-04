@@ -71,9 +71,12 @@ export interface CommandInterceptorBeforeResult {
   modifiedInput?: Record<string, unknown>
   /**
    * Metadata passed to the corresponding after hook.
-   * Additive audit log context: if this object contains a `context` record (e.g. `{ context: { ip: '...' } }`),
-   * its keys are shallow-merged into the final ActionLog.context_json at persist time.
-   * Interceptor-contributed context keys take precedence over options.metadata.context but yield to logMeta.context where there are conflicts.
+   *
+   * Reserved key — `logContext`: a record here (e.g. `{ logContext: { ip: '...' } }`) is
+   * shallow-merged into the persisted `ActionLog.context_json`. Every other key stays
+   * private to the after hook. Contributed keys take precedence over
+   * `options.metadata.context` but yield to `buildLog().context` on conflicts; when two
+   * interceptors contribute the same key, the higher `priority` (later-running) one wins.
    */
   metadata?: Record<string, unknown>
 }

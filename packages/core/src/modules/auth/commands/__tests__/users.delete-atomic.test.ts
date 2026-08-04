@@ -29,6 +29,7 @@ import '@open-mercato/core/modules/auth/commands/users'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { User } from '../../data/entities'
 
 /**
  * Regression coverage for issue #2339 — the auth.users.delete cascade deleted
@@ -67,7 +68,9 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
         return 0
       },
       find: async () => [],
-      findOne: async () => ({ id: userId, organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null }),
+      findOne: async (entity: unknown) => (entity === User
+        ? { id: userId, organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null }
+        : null),
       remove: () => undefined,
       persist: () => ({ flush: async () => undefined }),
       create: (_entity: unknown, data: unknown) => data,

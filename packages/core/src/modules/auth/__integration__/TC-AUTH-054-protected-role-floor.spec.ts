@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { randomInt } from 'node:crypto';
-import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/helpers/integration/api';
+import { apiRequest, clearAuthTokenCache, getAuthToken, postForm } from '@open-mercato/core/helpers/integration/api';
 import {
   deleteGeneralEntityIfExists,
   expectId,
@@ -14,7 +14,10 @@ import {
   deleteUserIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures';
 
-const LAST_HOLDER_ERROR = 'Cannot remove the last active holder of role "admin"';
+// The protected-role message is localized, so assert on the interpolated role name
+// instead of the English sentence — `"admin"` appears in every locale's rendering and
+// still distinguishes this 400 from a validation or duplicate-email 400.
+const LAST_HOLDER_ERROR = '"admin"';
 
 async function expectError(response: APIResponse, status: number, message: string): Promise<void> {
   expect(response.status()).toBe(status);
@@ -92,6 +95,15 @@ test.describe('TC-AUTH-054: Protected Role Floors and Deactivation Semantics', (
 
       expect((await updateConfirmation(request, adminToken, secondAdminId, false)).status()).toBe(200);
 
+      // Deactivation must be observable, not just settable — otherwise an operator can
+      // lock an account out with no surface that reports it.
+      const listResponse = await apiRequest(request, 'GET', `/api/auth/users?id=${encodeURIComponent(secondAdminId)}`, {
+        token: adminToken,
+      });
+      expect(listResponse.status()).toBe(200);
+      const listBody = await readJsonSafe<{ items?: Array<{ id?: string; isConfirmed?: boolean }> }>(listResponse);
+      expect(listBody?.items?.find((item) => item.id === secondAdminId)?.isConfirmed).toBe(false);
+
       const existingSessionResponse = await apiRequest(request, 'GET', '/api/auth/profile', {
         token: secondAdminToken,
       });
@@ -133,6 +145,11 @@ test.describe('TC-AUTH-054: Protected Role Floors and Deactivation Semantics', (
       });
       expect(crossTenantUpdateResponse.status()).toBe(404);
 
+      // Two contenders for the tenant's last admin slot. Exactly one must win: the
+      // PESSIMISTIC_WRITE lock on the role row serializes them, so the loser re-reads
+      // the holder count after the winner commits and sees the floor breached.
+      // Whichever loses, one of these two accounts ends up deactivated with its sessions
+      // purged — the finally block repairs both the flag and the token cache.
       const concurrentResponses = await Promise.all([
         updateConfirmation(request, superadminToken, adminUserId, false),
         updateConfirmation(request, superadminToken, secondAdminId, false),
@@ -146,6 +163,11 @@ test.describe('TC-AUTH-054: Protected Role Floors and Deactivation Semantics', (
       if (secondAdminId) {
         await updateConfirmation(request, superadminToken, secondAdminId, true).catch(() => undefined);
       }
+      // Deactivating a user deletes its `sessions` rows, so the seeded admin's cached
+      // token is dead for the remaining 45 min of the TTL and `apiRequest` never
+      // re-mints. Drop the cache and warm a fresh session before the next spec runs.
+      clearAuthTokenCache();
+      await getAuthToken(request, 'admin').catch(() => undefined);
       await deleteUserIfExists(request, superadminToken, foreignUserId);
       await deleteOrganizationIfExists(request, superadminToken, foreignOrganizationId);
       await deleteGeneralEntityIfExists(

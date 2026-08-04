@@ -162,7 +162,7 @@
   "auth.users.consents.loading": "Cargando consentimientos...",
   "auth.users.consents.withdrawn": "Retirado",
   "auth.users.errors.emailExists": "El correo ya está en uso",
-  "auth.users.errors.last_holder_critical_role": "No se puede eliminar al último titular activo del rol \"{roleName}\"",
+  "auth.users.errors.lastHolderOfCriticalRole": "No se puede eliminar al último titular activo del rol \"{roleName}\"",
   "auth.users.flash.created": "Usuario creado",
   "auth.users.flash.createdEmailFailed": "Usuario creado pero no se pudo enviar el correo de invitación. Puede reenviarlo desde la página del usuario.",
   "auth.users.flash.createdWithInvite": "Usuario creado e invitación enviada",

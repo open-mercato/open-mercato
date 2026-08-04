@@ -86,6 +86,7 @@ const userListItemSchema = z.object({
   roles: z.array(z.string()),
   roleIds: z.array(z.string().uuid()).optional(),
   hasPassword: z.boolean().optional(),
+  isConfirmed: z.boolean(),
   updatedAt: z.string().nullable().optional(),
 })
 
@@ -452,6 +453,7 @@ export async function GET(req: Request) {
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
       ...(id ? { hasPassword: !!u.passwordHash } : {}),
+      isConfirmed: u.isConfirmed !== false,
       updatedAt: u.updatedAt instanceof Date ? u.updatedAt.toISOString() : null,
       ...(cfByUser[uid] || {}),
     }
@@ -638,7 +640,8 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user',
-      description: 'Updates profile fields including display name, organization assignment, credentials, or role memberships.',
+      description:
+        'Updates profile fields including display name, organization assignment, credentials, or role memberships. Setting isConfirmed=false deactivates the account: the user can no longer sign in and every active session is revoked; isConfirmed=true reactivates it. A tenant cannot drop below a protected role\'s minimum active holder count, so revoking the role from, deactivating, moving, or deleting the last active administrator is rejected.',
       requestBody: {
         contentType: 'application/json',
         schema: userUpdateSchema,
@@ -647,7 +650,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'User updated', schema: okResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
+        { status: 400, description: 'Invalid payload, duplicate email, or the update would remove the last active holder of a protected role', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
         { status: 404, description: 'User not found', schema: errorResponseSchema },
@@ -655,13 +658,13 @@ export const openApi: OpenApiRouteDoc = {
     },
     DELETE: {
       summary: 'Delete user',
-      description: 'Deletes a user by identifier. Undo support is provided via the command bus.',
+      description: 'Deletes a user by identifier. Rejected when the target is the last active holder of a protected role in the tenant. Undo support is provided via the command bus.',
       query: z.object({ id: z.string().uuid().describe('User identifier') }),
       responses: [
         { status: 200, description: 'User deleted', schema: okResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'User cannot be deleted', schema: errorResponseSchema },
+        { status: 400, description: 'User cannot be deleted, or is the last active holder of a protected role', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 404, description: 'User not found', schema: errorResponseSchema },
       ],

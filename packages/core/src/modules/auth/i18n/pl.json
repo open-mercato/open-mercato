@@ -162,7 +162,7 @@
   "auth.users.consents.loading": "Ładowanie zgód...",
   "auth.users.consents.withdrawn": "Wycofana",
   "auth.users.errors.emailExists": "Adres e-mail jest już używany",
-  "auth.users.errors.last_holder_critical_role": "Nie można usunąć ostatniego aktywnego posiadacza roli \"{roleName}\"",
+  "auth.users.errors.lastHolderOfCriticalRole": "Nie można usunąć ostatniego aktywnego posiadacza roli \"{roleName}\"",
   "auth.users.flash.created": "Użytkownik utworzony",
   "auth.users.flash.createdEmailFailed": "Użytkownik utworzony, ale nie udało się wysłać e-maila z zaproszeniem. Możesz wysłać go ponownie ze strony użytkownika.",
   "auth.users.flash.createdWithInvite": "Użytkownik utworzony i zaproszenie wysłane",

@@ -122,7 +122,7 @@ describe('CommandBus', () => {
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
-  it('merges command interceptor beforeExecute returned metadata.context into logged context with correct precedence', async () => {
+  it('merges command interceptor beforeExecute returned metadata.logContext into logged context with correct precedence', async () => {
     const logMock = jest.fn(async () => ({ id: 'log-entry' }))
     registerCommand({
       id: 'test.command.interceptor-context',
@@ -149,7 +149,7 @@ describe('CommandBus', () => {
             beforeExecute: async () => ({
               ok: true,
               metadata: {
-                context: {
+                logContext: {
                   ip: '127.0.0.1',
                   requestId: 'req-second',
                   interceptorOverlap: 'second-wins',
@@ -164,7 +164,7 @@ describe('CommandBus', () => {
             beforeExecute: async () => ({
               ok: true,
               metadata: {
-                context: {
+                logContext: {
                   requestId: 'req-first',
                   interceptorOverlap: 'first-loss',
                   baseOverridden: 'interceptor-wins-over-base',
@@ -213,6 +213,55 @@ describe('CommandBus', () => {
           interceptorOverridden: 'buildlog-takes-precedence',
         },
       })
+    )
+  })
+
+  it('does not promote a generic interceptor metadata.context key into the logged context', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-entry' }))
+    registerCommand({
+      id: 'test.command.private-metadata',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({
+        actionLabel: 'Test',
+        resourceKind: 'test',
+        resourceId: '123',
+      })),
+    })
+
+    registerCommandInterceptors([
+      {
+        moduleId: 'test-module',
+        interceptors: [
+          {
+            id: 'test-interceptor-private-metadata',
+            targetCommand: 'test.command.*',
+            beforeExecute: async () => ({
+              ok: true,
+              // `context` here is the interceptor's own after-hook state, not audit input.
+              metadata: { context: { internalHandle: 'must-stay-private' } },
+            }),
+          },
+        ],
+      },
+    ])
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    await new CommandBus().execute('test.command.private-metadata', {
+      input: {},
+      ctx: {
+        container,
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+      },
+      metadata: { context: { untouched: 'base-untouched' } },
+    })
+
+    expect(logMock).toHaveBeenCalledWith(
+      expect.objectContaining({ context: { untouched: 'base-untouched' } })
     )
   })
 })
