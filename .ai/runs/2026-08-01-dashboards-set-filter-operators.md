@@ -47,9 +47,28 @@ is escaped by its own JavaScript type, and handles the empty set explicitly (`FA
 
 ## Non-goals
 
-- No change to the operator union, the request schema, or any other operator.
+- No change to the operator union or to any operator other than `in` / `not_in`.
 - No change to how `organization_id = ANY(?::uuid[])` binds — that path already passes a PostgreSQL
   array literal with an explicit cast and works.
+- No bound on the number of set-filter members — tracked separately as #4855.
+
+## Review follow-up — `null` members (major finding, @MStaniaszek1998)
+
+`api/widgets/data/schema.ts` typed the filter value as `z.unknown().optional()`, so `{"value": null}`
+and arrays containing `null` were accepted. `normalizeSetFilterValues` treats `null` as an ordinary
+member, so the predicate rendered as `column IN (NULL)` / `column NOT IN (NULL)`, which evaluates to
+SQL NULL for every row: zero rows, no error, a plausible-looking zero on a dashboard.
+
+`undefined` is not expressible in JSON, so the documented empty-set path is reachable only by omitting
+the `value` key, while `{"value": null}` — the shape a client naturally sends — landed on the
+undocumented `[null]` path.
+
+Of the three remedies the review offered, this takes the third: reject `null` and null-containing
+arrays for `in` / `not_in` at `widgetDataRequestSchema`, so the failure stays loud and moves to the
+boundary. Partitioning nulls into `IS NULL` / `IS NOT NULL` (option 1) would guess at intent the API
+never expressed, and silently folding `null` into the empty set (option 2) keeps a silent wrong answer.
+The guard is operator-scoped: `is_null` / `is_not_null` build their predicate from the operator alone
+and never read the value, so callers passing an explicit `null` there keep working.
 
 ## Progress
 
@@ -62,7 +81,10 @@ is escaped by its own JavaScript type, and handles the empty set explicitly (`FA
       — the exact text the server receives — plus a regression record of the rejected old form.
 - [x] Integration spec driving both operators through the widget-data route to PostgreSQL.
 - [x] Validation gate.
-- [ ] PR opened, labels requested from a maintainer.
+- [x] PR opened, labels requested from a maintainer.
+- [x] Review round 1 (@MStaniaszek1998): reject `null` and null-containing arrays for `in` / `not_in`
+      at `widgetDataRequestSchema`, with unit coverage for `value: null`, `value: [null]`, a null
+      member mixed with valid ones, and the `is_null` / `is_not_null` carve-out.
 
 ## Verification notes
 

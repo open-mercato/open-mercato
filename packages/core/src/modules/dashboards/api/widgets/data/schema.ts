@@ -31,6 +31,37 @@ export const filterOperatorSchema = z.enum([
   'is_not_null',
 ])
 
+const setFilterOperators = new Set<z.infer<typeof filterOperatorSchema>>(['in', 'not_in'])
+
+function containsNullMember(value: unknown): boolean {
+  return Array.isArray(value) ? value.some((member) => member === null) : value === null
+}
+
+/**
+ * `in` / `not_in` render one SQL placeholder per member, so a `null` member turns the whole
+ * `IN` / `NOT IN` predicate into SQL NULL for every row: the aggregation would return zero rows
+ * with no error, which on a dashboard reads as a legitimate zero rather than a failure.
+ *
+ * `undefined` is not expressible in JSON, so `{"value": null}` is how a client naturally sends
+ * "no value". It is rejected here rather than reinterpreted, keeping the failure loud and at the
+ * boundary; the documented empty-set path is reached by omitting the `value` key entirely.
+ */
+const widgetDataFilterSchema = z
+  .object({
+    field: z.string().min(1),
+    operator: filterOperatorSchema,
+    value: z.unknown().optional(),
+  })
+  .superRefine((filter, ctx) => {
+    if (!setFilterOperators.has(filter.operator)) return
+    if (!containsNullMember(filter.value)) return
+    ctx.addIssue({
+      code: 'custom',
+      path: ['value'],
+      message: 'Set filters (in, not_in) reject null members; omit "value" to select an empty set.',
+    })
+  })
+
 export const widgetDataRequestSchema = z.object({
   entityType: z.string().min(1),
   metric: z.object({
@@ -45,15 +76,7 @@ export const widgetDataRequestSchema = z.object({
       resolveLabels: z.boolean().optional(),
     })
     .optional(),
-  filters: z
-    .array(
-      z.object({
-        field: z.string().min(1),
-        operator: filterOperatorSchema,
-        value: z.unknown().optional(),
-      }),
-    )
-    .optional(),
+  filters: z.array(widgetDataFilterSchema).optional(),
   dateRange: z
     .object({
       field: z.string().min(1),
