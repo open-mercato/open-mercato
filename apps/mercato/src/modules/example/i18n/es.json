@@ -191,6 +191,7 @@
   "example.portal.title": "Portal del Cliente",
   "example.priority.action.open": "Open customer",
   "example.priority.bulk.setNormal": "Set normal priority",
+  "example.todos.bulk.markDone": "Marcar las tareas seleccionadas como completadas",
   "example.priority.column": "Example priority",
   "example.priority.critical": "Critical",
   "example.priority.detail.description": "Set priority for this customer record.",
