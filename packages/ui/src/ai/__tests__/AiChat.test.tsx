@@ -258,7 +258,7 @@ describe('<AiChat>', () => {
       },
     })
     window.localStorage.setItem(
-      'om-ai-model-picker:customers.account_assistant',
+      MODEL_PICKER_STORAGE_KEY,
       JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' }),
     )
 
@@ -271,7 +271,7 @@ describe('<AiChat>', () => {
       )
     })
     await waitFor(() => {
-      expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
+      expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBeNull()
     })
   })
 

@@ -230,6 +230,9 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
   })
 
   it('warns when the server conversation list is unavailable', async () => {
+    listMock.mockReset()
+    listMock.mockResolvedValue(null)
+
     renderWithProviders(<Harness agentId="assistant" />)
 
     await waitFor(() => {
