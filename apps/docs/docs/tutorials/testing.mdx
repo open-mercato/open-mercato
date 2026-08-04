@@ -125,6 +125,53 @@ Our module generator explicitly ignores tests so dev/runtime doesn’t import th
 
 If you introduce new patterns, ensure they don’t live under module `api/` unless named with `.test.ts`.
 
+## Mutation Testing
+
+Coverage says a line was executed. It does not say the test would notice if that line were wrong.
+Mutation testing closes that gap: StrykerJS rewrites your source (flipping `<` to `<=`, `&&` to
+`||`, removing a `return`) and reports every mutant the test suite failed to catch.
+
+The gate is **diff-scoped and advisory**. Only the business-logic files your pull request changes
+are mutated, only in allowlisted packages, and a low score never blocks a merge — it produces a
+shortlist of behaviour worth a second look.
+
+Run it locally against your own changes:
+
+```bash
+yarn mutation:changed
+```
+
+The run mutates real files on disk (Stryker's sandbox is incompatible with our per-package Jest
+configs), so it refuses to start on a dirty working tree. If a run is ever killed mid-flight,
+`git checkout -- .` restores everything.
+
+### A surviving mutant is a question, not a verdict
+
+Three different findings look identical in the report, and only the first one means "write a test":
+
+1. **A genuine coverage gap.** The mutant changes behaviour and nothing fails. Add the missing
+   assertion.
+2. **An equivalent mutant.** The mutant is behaviourally identical to the original, so no test could
+   ever kill it. Suppress it (below).
+3. **A redundant source path.** Two checks guard the same condition, so each masks mutations of the
+   other. The fix is in the source, not the tests.
+
+Never chase the score by asserting exact log strings, error copy, or object shapes — the
+`StringLiteral` and `Regex` mutators are excluded precisely so that tactic earns nothing.
+
+### Suppressing an equivalent mutant
+
+When — and only when — a mutant is genuinely unkillable, suppress it at the source. Every
+suppression MUST carry a one-line justification, and it is reviewed like any other code change:
+
+```ts
+// Stryker disable next-line BooleanLiteral: empty input is in neither value set, so both branches return null
+if (!trimmed) return null
+```
+
+A suppression without a justification is a review blocker. If you cannot articulate why no test
+could kill the mutant, it is probably a coverage gap rather than an equivalent mutant.
+
 ## Troubleshooting
 
 - “jest is not defined” during `yarn dev`: means a test leaked into the runtime. Ensure tests are under `__tests__` and the generator filters apply.
