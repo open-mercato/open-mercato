@@ -76,6 +76,8 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 28 | Close the `withScopedApiRequestHeaders` coverage loophole in the optimistic-lock workspace scan | CANON-B follow-up | done | `7865c6bc1` |
 | 29 | **Wave 5 E3** — both example registries statically readable (extractor 0 → 26/3); injection flag retired + dead refs cleaned | CANON-B registry readability | done | `34e349823` |
 | 30 | **Wave 5 H3** — SPEC-P2 routing cases OMH-204..208 (5 of 6 rows) | SPEC-P2 | done | `a8c06457a` |
+| 31 | Gate cross-module example injection widgets on their host module (`requiredModules`) | CANON-B / D2 follow-up | done | `8cd970087` |
+| 32 | **Wave 6 H4** — visible exact-file example links across 5 owner families + measured budget raises | CANON-C link migration | done | `2e9fd74cb` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -549,3 +551,32 @@ before merging E3; findings change what E3 is allowed to do.
   `maxInitialContextBytes` per the maintainer's budget guidance rather than relocating prose, and is
   restricted to budget VALUES in `cases.json` — it must not add or remove cases (H3 owns the case set).
   Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_8b7a6a12-7d7'})`.
+
+  **Wave 6, part 1 (session 4).** H4 merged; **E4's implementer died mid-response and produced ZERO
+  commits**, so it was relaunched as `wf_acf7085b-c56` on branch
+  `wave6/e4-encryption-and-search-retry` with an explicit instruction to **commit incrementally** —
+  the first attempt lost ~2.4h of work to one dropped connection. That instruction is worth keeping
+  in every future long slice.
+
+  - **H4's verification was the strongest in this program so far:** rather than trusting the unit
+    test, the verifier **scaffolded three real apps** (classic, empty, crm) with full agentic setup
+    and resolved all 102 relative links across all 93 emitted Markdown owners against each generated
+    root — 0 dead, 0 directory targets. One probe pointed at a file that EXISTS in the repo but that
+    `SKIP_DIRS` never copies into a generated app, proving the check tests emitted-app reality rather
+    than repo existence.
+  - **H4's own negative control caught a self-inflicted bug**: a first/last-occurrence restore had
+    silently moved OMH-018's budget raise onto a DIFFERENT case. The full suite caught it; eyeballing
+    the diff would not have. Worth remembering when scripting edits across a large JSON catalog.
+  - **Two honest findings from H4 carried forward:** (1) the canonical spec says "the eight owner
+    families" while its table has NINE data rows — used the table as written, discrepancy recorded in
+    the spec changelog rather than silently renumbered; (2) **MEDIUM, pre-existing and disclosed:**
+    the initial-context budget arithmetic is computed against REPO AUTHORING SOURCES, not the emitted
+    app tree, and the two differ — so every budget number in the harness is a close proxy rather than
+    an exact measure. Deepened by this slice, not introduced. **New backlog row.**
+  - **CANON-C is NOT complete.** H4 migrated 5 owner families fully, 2 partially (their installed-
+    package targets need a packed artifact to prove resolution, which no gate in that slice provides),
+    and 2 not at all — the root-instruction pair (`AGENTS.md.template` and `template/AGENTS.md` are
+    byte-identical apart from the H1 and must move together; the second was outside the allowlist) and
+    the optional Figma owner, **which the slice verified does not exist as an emitted owner at all**
+    rather than repeating the spec's assumption. `source-link-inventory.json` /
+    `source-link-baseline.json` and the 136-fence ledger remain outstanding.
