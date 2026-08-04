@@ -81,7 +81,14 @@ describe('module-facts BC resolve guard (T2)', () => {
     // framework-host activations (dashboard/menu/notification contributions now
     // resolve as bound instead of silently falling back to capability-only).
     expect(extractionCpuDurationMs).toBeLessThan(30_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    // JSON cap raised a fourth time by the injection-table slot normalization:
+    // `extractInjectionTable` previously did `if (!Array.isArray(entries)) continue`,
+    // silently dropping every string and single-object slot form that
+    // `ModuleInjectionTable` allows. Twelve real contributions across catalog, sales,
+    // wms, staff, integrations and checkout were therefore invisible to every fact
+    // consumer — `integrations` published no contributions at all. Reading them costs
+    // ~28KB, which is the fix working, not drift.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_560_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES

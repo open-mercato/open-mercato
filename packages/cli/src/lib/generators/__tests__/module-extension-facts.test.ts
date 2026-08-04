@@ -455,6 +455,62 @@ describe('module extension facts', () => {
     ]))
   })
 
+  it('reads every injection-table slot form the runtime loader accepts', () => {
+    write(moduleRoot, 'extension-points.ts', `
+      export const extensionPoints = defineModuleExtensionPoints({
+        moduleId: 'alpha',
+        hosts: {
+          records: dataTableExtensionHost({ tableId: 'alpha.records', source: 'Records.tsx' }),
+          editor: crudFormExtensionHost({ entityId: 'alpha.record', source: 'Edit.tsx' }),
+        },
+      })
+    `)
+    write(moduleRoot, 'Records.tsx', 'export const tableId = extensionPoints.hosts.records.tableId')
+    write(moduleRoot, 'Edit.tsx', 'export const entityId = extensionPoints.hosts.editor.entityId')
+    write(moduleRoot, 'widgets/injection-table.ts', `
+      export const injectionTable = {
+        'crud-form:alpha.record': 'alpha.bare-string',
+        'data-table:alpha.records:bulk-actions': { widgetId: 'alpha.single-object', priority: 40, features: ['alpha.manage'] },
+        'data-table:alpha.records:columns': [{ widgetId: 'alpha.array-entry', priority: 20 }],
+      }
+    `)
+
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+    const injected = facts.contributions.filter((contribution) => contribution.source.symbol === 'injectionTable')
+
+    expect(injected).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'alpha.bare-string@crud-form:alpha.record',
+        kind: 'crud-form',
+        features: [],
+        placement: undefined,
+        details: expect.objectContaining({ entityId: 'alpha.record', payload: 'render' }),
+      }),
+      expect.objectContaining({
+        id: 'alpha.single-object@data-table:alpha.records:bulk-actions',
+        kind: 'data-table',
+        features: ['alpha.manage'],
+        placement: { priority: 40 },
+        details: expect.objectContaining({ payload: 'bulk-action', tableId: 'alpha.records', executionGuard: 'both' }),
+      }),
+      expect.objectContaining({
+        id: 'alpha.array-entry@data-table:alpha.records:columns',
+        kind: 'data-table',
+        placement: { priority: 20 },
+        details: expect.objectContaining({ payload: 'column', executionGuard: 'host' }),
+      }),
+    ]))
+    expect(injected).toHaveLength(3)
+  })
+
   it('reports declarations whose authoritative source no longer binds the host key', () => {
     write(moduleRoot, 'extension-points.ts', `
       export const extensionPoints = defineModuleExtensionPoints({
