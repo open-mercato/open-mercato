@@ -583,12 +583,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-214', () => {
+test('deterministic evaluation enforces the case schema through OMH-216', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-214')
+    assert.equal(cases.at(-1)?.id, 'OMH-216')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3757,7 +3757,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 214)
+  assert.equal(cases.length, 216)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)

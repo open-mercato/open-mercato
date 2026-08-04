@@ -14819,5 +14819,232 @@
         ".ai/specs/2026-08-01-standalone-agent-spec-first-routing.md"
       ]
     }
+  },
+  {
+    "id": "OMH-215",
+    "title": "Select the canonical example operation-progress sources for a durable bulk job",
+    "family": "module",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "An app must complete hundreds of selected rows in one action without blocking the request: the action enqueues a durable job, a dispatch worker fans the selection into batches, a batch worker applies each batch, and the operator watches the operation finish in the top progress bar. Decide which routed instructions own that work, then name the exact sources of the shipped source-present example module you would open for the bulk-action widget that starts the job, the progress-reporting bulk route, the shared job library the route and both workers delegate to, and each of the two durable workers. Begin at the example entry document and its surface index. The generic DataTable injection seams - added column, server-strategy filter, single-row action, and the standalone bulk-action widget - are a separate seam with their own sources and are not part of this request. Do not open unrelated example surfaces, do not list or glob the example worker, api, or widget directories, and do not change anything inside the example root.",
+    "tags": [
+      "module",
+      "canonical-example",
+      "operation-progress",
+      "durable-worker",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+      "ruleIds": [
+        "BC-03",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "module-data"
+      ],
+      "allowedExtra": [
+        "umes",
+        "backend-ui",
+        "architecture",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-module-scaffold"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/progress.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "runtime.bulk-operation-progress"
+          ],
+          "maxFiles": 10,
+          "maxBytes": 131072
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "bulk-progress-widget-reference-source",
+      "progress-reporting-route-reference-source",
+      "shared-bulk-job-library-reference-source",
+      "durable-worker-reference-source",
+      "example-root-read-only",
+      "datatable-injection-seam-reference-source",
+      "synchronous-bulk-request",
+      "whole-example-tree-read"
+    ],
+    "requiredDecisions": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "bulk-progress-widget-reference-source",
+      "progress-reporting-route-reference-source",
+      "shared-bulk-job-library-reference-source",
+      "durable-worker-reference-source",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 180224,
+    "relatedCases": [
+      "OMH-187",
+      "OMH-210"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-216",
+    "title": "Ground a new AI tool pack, agent, and agent extension on the canonical example sources",
+    "family": "ai-workflow",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "An app needs its own assistant surface: a typed tool pack whose mutating tool goes through the approval contract before it writes, a chat agent that owns those tools with its own loop budget, and an extension that patches an already installed agent instead of replacing it. Decide which routed instructions own that work, then name the exact sources of the shipped source-present example module you would open for the tool pack, for the agent declaration, and for the agent extension - report honestly when two of those surfaces are declared in the same file rather than inventing a second path. Begin at the example entry document and its surface index. The example command, notification, widget, and integration surfaces are unrelated to this request. Do not open unrelated example surfaces, do not list, glob, or dump the example tree, and do not change anything inside the example root.",
+    "tags": [
+      "ai-workflow",
+      "canonical-example",
+      "ai-tool-pack",
+      "agent-extension",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-create-ai-agent/SKILL.md",
+      "ruleIds": [
+        "BC-03",
+        "BC-12"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "ai-workflow"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "architecture",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-create-ai-agent"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/ai-workflows.md",
+        ".ai/skills/om-create-ai-agent/SKILL.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/ai_assistant.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "ai.tool-pack",
+            "ai.agent",
+            "ai.agent-extension"
+          ],
+          "maxFiles": 6,
+          "maxBytes": 131072
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "ai-tool-pack-reference-source",
+      "ai-agent-reference-source",
+      "ai-agent-extension-reference-source",
+      "shared-agent-declaration-file",
+      "example-root-read-only",
+      "replace-installed-agent-wholesale",
+      "whole-example-tree-read"
+    ],
+    "requiredDecisions": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "ai-tool-pack-reference-source",
+      "ai-agent-reference-source",
+      "ai-agent-extension-reference-source",
+      "shared-agent-declaration-file",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 180224,
+    "relatedCases": [
+      "OMH-050",
+      "OMH-209"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
+      ]
+    }
   }
 ]
