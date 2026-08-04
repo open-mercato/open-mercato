@@ -107,4 +107,4 @@ Document the worker/CLI app-DI wiring in the IoC container docs and the shared p
 
 ### Phase 3: Docs
 
-- [ ] 3.1 Document worker/CLI app-DI wiring (IoC docs + shared AGENTS.md)
+- [x] 3.1 Document worker/CLI app-DI wiring (IoC docs + shared AGENTS.md) — ca83ed203
