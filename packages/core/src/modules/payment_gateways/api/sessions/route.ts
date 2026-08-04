@@ -102,9 +102,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    const message = err instanceof Error ? err.message : 'Failed to create payment session'
-    const status = message.includes('No gateway adapter') ? 422 : 502
-    return NextResponse.json({ error: message }, { status })
+    return NextResponse.json({ error: 'Failed to create payment session' }, { status: 502 })
   }
 }
 
