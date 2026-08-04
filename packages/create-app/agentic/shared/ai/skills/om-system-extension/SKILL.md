@@ -13,7 +13,7 @@ Route before reading: choose routes from the request and mechanism selector, the
 
 1. Read `.ai/guides/extensions.md` and `references/mechanism-selector.md`; choose UMES, supported override, package, or eject.
 2. Resolve host entity/route/spot/component/event IDs from generated facts. Invoke `om-framework-context` only when facts omit the needed contract.
-3. Follow the selected branch in `references/extension-branches.md` for enricher, API/command interceptor, guard, widget/menu, extension entity, subscriber, or component replacement. For `entry.overrides`, load `references/unified-overrides.md` and select the exact domain/key.
+3. Follow the matching `references/extension-branches.md` branch. UI widgets live in `src/modules/<id>/widgets/injection/**` and register an exact facts- or context-resolved spot in `src/modules/<id>/widgets/injection-table.ts`. For `entry.overrides`, load `references/unified-overrides.md` and select the exact domain/key.
 4. Invoke `om-data-model-design` only when the extension adds app-owned persistence; an enricher/interceptor/widget-only round trip does not need it.
 5. For editable additions, follow `references/read-write-roundtrip.md`; implement input, authenticated write, stored data, list/detail read, UI hydration, clear-to-null, and conflict behavior. An editable addition that must survive reload is necessarily a persisted field: select `module-data`, read contracts, and invoke `om-data-model-design`.
 6. Run `yarn generate`; verify host-present/absent, authorized/denied/wildcard, cache/search, and failure fallback using `references/verification.md`.

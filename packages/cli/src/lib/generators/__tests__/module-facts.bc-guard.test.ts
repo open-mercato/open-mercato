@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractAllModuleFacts } from '../module-facts'
+import { extractAllModuleFacts, renderModuleFactsJson } from '../module-facts'
 import { discoverPackageModuleSources } from '../module-facts-discovery'
 import { createResolver } from '../../resolver'
 
@@ -20,7 +20,69 @@ function isUnique(values: string[]): boolean {
 describe('module-facts BC resolve guard (T2)', () => {
   const repoRoot = findRepoRoot()
   const sources = discoverPackageModuleSources(createResolver(repoRoot))
-  const { factsByModule } = extractAllModuleFacts({ sources })
+  const extractionStartedAt = process.cpuUsage()
+  const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
+  const extractionCpuUsage = process.cpuUsage(extractionStartedAt)
+  const extractionCpuDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
+
+  it('emits complete, deterministic extension catalogs for every resolved module', () => {
+    const repeated = extractAllModuleFacts({ sources })
+    expect(renderModuleFactsJson(repeated.factsByModule)).toBe(renderModuleFactsJson(factsByModule))
+    expect(repeated.markdownByModule).toEqual(markdownByModule)
+    expect(repeated.frameworkMarkdown).toBe(frameworkMarkdown)
+    for (const facts of Object.values(factsByModule)) {
+      expect(facts.extensionSurfaces).toBeDefined()
+      expect(facts.extensionSurfaces?.unresolved).toEqual([])
+    }
+  })
+
+  it('keeps generated extension facts within bounded build-time and context budgets', () => {
+    const completeJson = renderModuleFactsJson(factsByModule)
+    const legacyJson = renderModuleFactsJson(Object.fromEntries(
+      Object.entries(factsByModule).map(([moduleId, facts]) => [moduleId, { ...facts, extensionSurfaces: undefined }]),
+    ))
+    const markdownBytes = Object.values(markdownByModule)
+      .reduce((total, markdown) => total + Buffer.byteLength(markdown), Buffer.byteLength(frameworkMarkdown))
+
+    // Budget raised by the bidirectional-topology spec
+    // (2026-08-02-module-facts-extension-activation-and-incoming-index): the
+    // additive `activations`, cross-module `incoming`, and per-contribution
+    // `contributionResolutions` layers add ~210KB of compact references (no
+    // contribution payloads are duplicated). Incoming rows are cross-module only;
+    // resolution rows are required one-per-contribution by the spec's acceptance
+    // criteria and are the dominant term.
+    //
+    // JSON cap raised again by the exact-override-targets spec
+    // (2026-08-02-module-facts-exact-override-targets): the additive per-module
+    // `overrideTargets` project one exact key per real override entry (acl
+    // features, di tokens, subscribers, pages, workers, encryption, widgets,
+    // notifications, cli, setup, ai, interceptors/enrichers, page guards). These
+    // are required exhaustively by the spec's acceptance criteria; targets carry
+    // only compact structured path/key/factRef/source refs (no runtime values or
+    // contribution payloads). The delta cap is unchanged because `overrideTargets`
+    // live in both the complete and legacy renders (only `extensionSurfaces` is
+    // stripped for the legacy comparison).
+    //
+    // JSON cap raised a third time by the uniform provenance index
+    // (2026-08-02-module-facts-source-provenance-and-contract-inventory): every
+    // proven `(kind, id)` now reaches `factSources` (~630KB across the repo), so a
+    // consumer resolves any fact's origin through one lookup. Entries whose
+    // declaration site is already serialized inline (routes, pages, CLI commands,
+    // AI tools/agents, owned contracts, hosts, contributions) emit a typed
+    // `factRef` pointer instead of a duplicated source ref, and `factKey` is
+    // omitted when it equals the entry `id` — so the index costs references, never
+    // copied provenance payloads. The cap also covers the newly reachable
+    // framework-host activations (dashboard/menu/notification contributions now
+    // resolve as bound instead of silently falling back to capability-only).
+    expect(extractionCpuDurationMs).toBeLessThan(30_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
+    // Markdown cap raised with the source-link contract: entities, events, ACL
+    // features, DI tokens, search entities, notifications, UMES hosts and UMES
+    // contributions all render a resolved Source cell, and contribution
+    // resolutions render as their own source-linked section.
+    expect(markdownBytes).toBeLessThan(1_550_000)
+  })
 
   it('discovers a superset of the historical core modules', () => {
     const discovered = new Set(Object.keys(factsByModule))
@@ -28,6 +90,16 @@ describe('module-facts BC resolve guard (T2)', () => {
       expect(discovered.has(moduleId)).toBe(true)
     }
     expect(discovered.size).toBeGreaterThan(9)
+  })
+
+  it('keeps factory-built and generated-registry enricher contributions visible', () => {
+    expect(factsByModule.sales.extensionSurfaces?.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'sales.catalog-image:sales:sales_quote_line', kind: 'response-enricher' }),
+      expect.objectContaining({ id: 'sales.catalog-image:sales:sales_order_line', kind: 'response-enricher' }),
+    ]))
+    expect(factsByModule.wms.extensionSurfaces?.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'wms.sales-order-inventory', kind: 'response-enricher' }),
+    ]))
   })
 
   for (const source of sources) {

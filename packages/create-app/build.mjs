@@ -99,7 +99,7 @@ if (guidesFound > 0) {
 // scaffold links only its enabled subset (packages/create-app/src/setup/tools/shared.ts).
 // Auth comes from the generated module registry (`apis[].metadata`); a missing registry
 // yields warnings, never a crash. Discovery goes through the resolver, never a hardcoded
-// packages/* path (.ai/lessons.md §161-169).
+// packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
 const { extractAllModuleFacts, renderModuleFactsJson } = await import(
   '@open-mercato/cli/lib/generators/module-facts'
 )
@@ -118,7 +118,7 @@ if (sources.length > 0) {
     coreVersion = null
   }
 
-  const { factsByModule, markdownByModule, warnings } = extractAllModuleFacts({
+  const { factsByModule, markdownByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
     sources,
     registryPath: existsSync(registryPath) ? registryPath : null,
     coreVersion,
@@ -130,6 +130,7 @@ if (sources.length > 0) {
     writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
   }
   writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+  writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
   for (const warning of warnings) console.warn(warning)
   console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)

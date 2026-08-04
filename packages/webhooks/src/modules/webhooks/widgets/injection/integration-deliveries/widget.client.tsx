@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
 import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
@@ -227,7 +228,7 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
             </Button>
           </div>
         )}
-        perspective={{ tableId: 'webhooks.integration-deliveries' }}
+        perspective={{ tableId: extensionPoints.hosts.integrationDeliveriesTable.tableId }}
         pagination={{
           page,
           pageSize: 20,

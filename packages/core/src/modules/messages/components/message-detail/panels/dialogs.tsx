@@ -93,7 +93,7 @@ export function MessageDetailDialogs(props: DialogsProps) {
             </Button>
             <Button
               type="button"
-              variant="destructive"
+              variant="destructive-solid"
               onClick={() => void props.handleDelete()}
               disabled={props.updatingState}
             >

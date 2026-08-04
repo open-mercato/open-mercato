@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -469,7 +470,7 @@ export default function ProfileCommunicationChannelsPage() {
           {/* Provider connect entry points injected by each channel-* package
               (channel-gmail, channel-imap) via UMES. */}
           <InjectionSpot
-            spotId="profile:communication-channels:connect"
+            spotId={extensionPoints.hosts.profileConnect.spotId}
             context={{ reload: () => setReloadKey((k) => k + 1) }}
             data={{}}
           />
@@ -489,7 +490,7 @@ export default function ProfileCommunicationChannelsPage() {
 
         <DataTable<ChannelRow>
           title={t('communication_channels.profile.tableTitle', 'Your channels')}
-          extensionTableId="communication_channels.profile.channels"
+          extensionTableId={extensionPoints.hosts.profileChannelsTable.tableId}
           columns={columns}
           data={rows}
           isLoading={isLoading}
@@ -870,7 +871,7 @@ function DisconnectChannelDialog({
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {t('communication_channels.profile.disconnect.cancel', 'Cancel')}
           </Button>
-          <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={submitting}>
+          <Button type="button" variant="destructive-solid" onClick={() => void handleConfirm()} disabled={submitting}>
             {submitting
               ? t('communication_channels.profile.disconnect.submitting', 'Disconnecting…')
               : t('communication_channels.profile.disconnect.confirm', 'Disconnect')}

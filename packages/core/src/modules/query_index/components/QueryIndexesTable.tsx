@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/query_index/extension-points'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -563,7 +564,7 @@ export default function QueryIndexesTable() {
           setSorting(next)
           setPage(1)
         }}
-        perspective={{ tableId: 'query_index.status.list' }}
+        perspective={{ tableId: extensionPoints.hosts.statusTable.tableId }}
         rowActions={(row) => {
           const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = [
             { id: 'reindex', label: t('query_index.table.actions.reindex'), onSelect: () => void trigger('reindex', row.entityId) },

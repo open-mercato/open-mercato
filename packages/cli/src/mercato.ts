@@ -867,7 +867,10 @@ async function buildAllModules(): Promise<Module[]> {
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
-  await ensureEnvLoaded({ createIfMissing: first !== 'deploy', quiet: first === 'deploy' })
+  await ensureEnvLoaded({
+    createIfMissing: first !== 'deploy' && first !== 'telemetry',
+    quiet: first === 'deploy' || first === 'telemetry',
+  })
   
   // Handle init command directly
   if (first === 'init') {
@@ -1332,6 +1335,20 @@ export async function run(argv = process.argv) {
     return exitCode
   }
 
+  // Handle telemetry command (bootstrap-free) — wires @open-mercato/telemetry
+  // into an app scaffolded before telemetry existed.
+  if (first === 'telemetry') {
+    if (second === 'init') {
+      const { runTelemetryInit } = await import('./lib/telemetry-init')
+      return runTelemetryInit(remaining.filter(Boolean))
+    }
+    console.log('Usage: yarn mercato telemetry init [--dry-run]')
+    console.log('  Wires @open-mercato/telemetry into this app (package.json, .env,')
+    console.log('  instrumentation.ts, next.config.ts, and the API dispatcher).')
+    console.log('  Idempotent and safe to re-run. Use --dry-run to preview changes.')
+    return second && second !== 'help' && second !== '--help' && second !== '-h' ? 1 : 0
+  }
+
   if (first === 'module') {
     try {
       const subcommand = second
@@ -1654,6 +1671,8 @@ export async function run(argv = process.argv) {
                 effectiveByQueue.get(queue) ??
                 concurrencyOverride ??
                 Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
+              const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1662,6 +1681,8 @@ export async function run(argv = process.argv) {
                 queueName: queue,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
+                lockDuration,
+                maxStalledCount,
                 background: true,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
@@ -1705,6 +1726,8 @@ export async function run(argv = process.argv) {
               // never check out more pooled connections than the worker pool holds.
               const budgetPlan = await resolveWorkerBudgetPlan([{ queue: queueName!, concurrency: requested }])
               const concurrency = budgetPlan.entries[0]?.effective ?? requested
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
+              const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1713,6 +1736,8 @@ export async function run(argv = process.argv) {
                 queueName: queueName!,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
+                lockDuration,
+                maxStalledCount,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {

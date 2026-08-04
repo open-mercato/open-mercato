@@ -665,6 +665,41 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Persists document-level custom fields supplied on a create input.
+ *
+ * Order and quote creates used to accept `customFields` at the HTTP boundary
+ * (`splitCustomFieldPayload` folds `cf_*` keys into it) and then drop the values
+ * on the floor, because the create schemas never declared the key and the
+ * handlers never wrote it — only updates did. Callers therefore had to create,
+ * then immediately update, to get custom fields to stick.
+ */
+async function setDocumentCustomFieldsIfSupplied(
+  em: EntityManager,
+  params: {
+    entityId: string;
+    recordId: string;
+    organizationId: string;
+    tenantId: string;
+    customFields: unknown;
+  },
+): Promise<void> {
+  const { customFields } = params;
+  if (customFields === undefined || customFields === null) return;
+  const values =
+    typeof customFields === "object" && !Array.isArray(customFields)
+      ? (customFields as Record<string, unknown>)
+      : {};
+  if (!Object.keys(values).length) return;
+  await setRecordCustomFields(em, {
+    entityId: params.entityId,
+    recordId: params.recordId,
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+    values: normalizeCustomFieldValues(values),
+  });
+}
+
 async function resolveCustomerSnapshot(
   em: EntityManager,
   organizationId: string,
@@ -4782,6 +4817,13 @@ const createQuoteCommand: CommandHandler<
             tenantId: quote.tenantId,
             tagIds: parsed.tags,
           });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_quote,
+            recordId: quote.id,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            customFields: parsed.customFields,
+          });
         },
       ],
       { transaction: true },
@@ -5804,6 +5846,13 @@ const createOrderCommand: CommandHandler<
             tenantId: order.tenantId,
             tagIds: parsed.tags,
           });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_order,
+            recordId: order.id,
+            organizationId: order.organizationId,
+            tenantId: order.tenantId,
+            customFields: parsed.customFields,
+          });
         },
       ],
       { transaction: true },
@@ -6686,6 +6735,32 @@ async function assertShippedOrderLineEditable(
   }
 }
 
+const FULFILLED_ORDER_STATUS = "fulfilled";
+
+const isFulfilledOrder = (order: SalesOrder): boolean => {
+  const normalize = (value: string | null | undefined): string =>
+    (value ?? "").trim().toLowerCase();
+  return (
+    normalize(order.status) === FULFILLED_ORDER_STATUS ||
+    normalize(order.fulfillmentStatus) === FULFILLED_ORDER_STATUS
+  );
+};
+
+async function assertOrderAcceptsNewLine(
+  order: SalesOrder,
+  existingSnapshot: SalesLineSnapshot | null,
+): Promise<void> {
+  if (existingSnapshot) return;
+  if (!isFulfilledOrder(order)) return;
+  const { translate } = await resolveTranslations();
+  throw new CrudHttpError(409, {
+    error: translate(
+      "sales.documents.items.errorAddToFulfilled",
+      "You cannot add a new item to a fulfilled order. Change the order status first.",
+    ),
+  });
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -6730,6 +6805,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    await assertOrderAcceptsNewLine(order, existingSnapshot);
     await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"
@@ -7065,6 +7141,14 @@ const orderLineDeleteCommand: CommandHandler<
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
         ));
+    }
+    if (filtered.length === 0) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          "sales.documents.items.errorDeleteLast",
+          "An order must contain at least one line item.",
+        ),
+      });
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapOrderLineEntityToSnapshot(line),
