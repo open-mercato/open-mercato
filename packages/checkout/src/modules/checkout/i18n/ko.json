@@ -460,5 +460,5 @@
   "checkout.widgets.gatewayTransactionLink.labels.transactionId": "거래 ID",
   "checkout.widgets.gatewayTransactionLink.title": "체크아웃 거래",
   "checkout.widgets.paymentGatewayToolbarLink.action": "결제 링크 생성",
-  "notifications.categories.checkout": "Checkout"
+  "notifications.categories.checkout": "체크아웃"
 }

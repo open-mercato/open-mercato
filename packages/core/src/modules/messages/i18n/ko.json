@@ -260,5 +260,5 @@
   "messages.visibilityInternalHint": "내부 메시지는 선택한 시스템 사용자에게 전송됩니다.",
   "messages.visibilityPublic": "공개",
   "messages.visibilityPublicHint": "공개 메시지는 외부 이메일로만 전송됩니다.",
-  "notifications.categories.messages": "Messages"
+  "notifications.categories.messages": "메시지"
 }

@@ -1,5 +1,5 @@
 {
-  "notifications.categories.webhooks": "Webhooks",
+  "notifications.categories.webhooks": "웹훅",
   "webhooks.deliveries.actions.retry": "재시도",
   "webhooks.deliveries.actions.viewDetails": "상세 정보 보기",
   "webhooks.deliveries.autoRefreshHint": "이 페이지가 열려 있는 동안 전달 로그가 자동으로 새로고침됩니다.",

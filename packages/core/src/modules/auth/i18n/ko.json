@@ -216,7 +216,7 @@
   "backend.nav.externalSystems": "외부 시스템",
   "backend.nav.settings": "설정",
   "backend.nav.settingsAdmin": "관리",
-  "notifications.categories.auth": "Security",
+  "notifications.categories.auth": "보안",
   "profile.page.description": "계정 설정을 관리합니다",
   "profile.page.selectItem": "메뉴에서 항목을 선택하여 계정을 관리하세요.",
   "profile.page.title": "프로필",
