@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import { parseEnv } from 'node:util'
 import spawn from 'cross-spawn'
 import {
   attachLoggedProcessStreams,
@@ -592,31 +593,12 @@ const localDevEnvFileNames = [
   '.env.development.local',
 ]
 
-function parseEnvFileValue(source, key) {
-  const linePattern = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg
-  let resolvedValue
-
-  for (const match of String(source).replace(/\r\n?/mg, '\n').matchAll(linePattern)) {
-    if (match[1] !== key) continue
-
-    let value = (match[2] ?? '').trim()
-    const quote = value[0]
-    value = value.replace(/^(['"`])([\s\S]*)\1$/mg, '$2')
-    if (quote === '"') {
-      value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r')
-    }
-    resolvedValue = value
-  }
-
-  return resolvedValue
-}
-
 function resolveLocalDevEnvFileValue(appDir, key) {
   let resolvedValue
 
   for (const fileName of localDevEnvFileNames) {
     try {
-      const fileValue = parseEnvFileValue(fs.readFileSync(path.join(appDir, fileName), 'utf8'), key)
+      const fileValue = parseEnv(fs.readFileSync(path.join(appDir, fileName), 'utf8'))[key]
       if (fileValue !== undefined) {
         resolvedValue = fileValue
       }
