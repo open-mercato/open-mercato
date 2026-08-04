@@ -475,3 +475,29 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
   case count in 6 documents + 2 hard-coded literals and the writable-id order in 5 places.
   Verifiers now also mechanically re-check every factual claim in any doc the slice touched, after
   wave 4 shipped a provably false one. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_30380b88-690'})`.
+
+## Injection-flag safety audit (maintainer-raised, session 4) — BINDING ON E3
+
+The maintainer flagged that the injection-widget flags could impact integration tests. Audited
+before merging E3; findings change what E3 is allowed to do.
+
+**Two DIFFERENT flags, with opposite risk profiles. Do not conflate them.**
+
+| Flag | Who sets it | Effect of "always-on" | Verdict |
+|---|---|---|---|
+| `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` (injection table) | `packages/cli/src/lib/testing/integration.ts` sets `'true'` at **two** call sites (:1989, :3341); `.github/workflows/snapshot.yml:249` and `npm-snapshot-preview.yml:331` set it too | Integration tests **already run with it on**, so making entries unconditional is a **no-op for every integration spec** (incl. `TC-UMES-004`, `todo-priority-validation`) | **SAFE** |
+| `NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED` (component wrappers) | Defaults **false** in both `.env.example`s; the harness does **NOT** set it | `TC-CHKT-031-wrappers.spec.ts:13` **skip-gates on it** and asserts `example-checkout-summary-wrapper` / `example-checkout-help-wrapper` testids are visible | **MUST SURVIVE** |
+
+**Binding consequences for E3:**
+
+1. The checkout flag is **NOT** retired. D2's pass-through design is only correct if the flag check
+   moves INSIDE each wrapper and the wrapper still renders its `data-testid` div when the flag is
+   `true` — otherwise TC-CHKT-031 fails the moment anyone runs it with the flag on. Verify by
+   running that spec's DOM assertions, not by reasoning about them.
+2. **Do NOT delete `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` from the `.env.example` files
+   or CI.** Per the maintainer's "make it safe or keep it just a side note": deleting it makes four
+   live references (2 harness call sites, 2 CI workflows) dead, for no functional gain — the static
+   readability E3 actually needs comes from the unconditional export, not from removing the var.
+   Deprecate in place instead: leave it defined, documented as a no-op with a pointer to
+   `metadata.requiredModules`, and skip the `UPGRADE_NOTES.md` removal entry. **If E3 deleted it,
+   revert that part on merge and keep the rest.**
