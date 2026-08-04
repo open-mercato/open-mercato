@@ -1,0 +1,4701 @@
+{
+  "version": 1,
+  "generatedNote": "Derived asset — regenerate with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit; `source-link-inventory.test.ts` fails on any drift between this file and a fresh derivation.",
+  "inputs": {
+    "topics": "packages/create-app/scripts/source-links/source-link-topics.json",
+    "baseline": "packages/create-app/scripts/source-links/source-link-baseline.json",
+    "surfaceInventory": "packages/create-app/template/src/modules/example/references/surface-inventory.json",
+    "cases": "packages/create-app/agentic/shared/ai/harness/cases.json"
+  },
+  "derived": {
+    "ownerCount": 28,
+    "recordCount": 125,
+    "sourceRequiredCount": 100,
+    "renderedLinkCount": 102,
+    "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
+  },
+  "notCovered": [
+    "installed-package targets: no emitted owner renders one yet, so no record carries an installed version or content hash.",
+    "design-system gallery and Code Connect envelopes: PR #4301 / #4277 assets are not packed in this repository.",
+    "preset and tier applicability: every emitted owner ships in every preset, so no record narrows it."
+  ],
+  "records": [
+    {
+      "topicId": "guides/backend-ui:components/TodoForm.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "originAuthoringPath": "agentic/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodoForm.tsx",
+      "targetAuthoringPath": "template/src/modules/example/components/TodoForm.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-create",
+        "ui.form-edit"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-014",
+        "OMH-015",
+        "OMH-016",
+        "OMH-020",
+        "OMH-023",
+        "OMH-024",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-030",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-055",
+        "OMH-058",
+        "OMH-061",
+        "OMH-062",
+        "OMH-067",
+        "OMH-068",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-103",
+        "OMH-104",
+        "OMH-105",
+        "OMH-108",
+        "OMH-111",
+        "OMH-112",
+        "OMH-114",
+        "OMH-115",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-123",
+        "OMH-124",
+        "OMH-128",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-133",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-138",
+        "OMH-141",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-172",
+        "OMH-175",
+        "OMH-176",
+        "OMH-180",
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-203",
+        "OMH-207",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/components/TodoForm.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "guides/backend-ui:components/TodosTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "originAuthoringPath": "agentic/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx",
+      "targetAuthoringPath": "template/src/modules/example/components/TodosTable.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.datatable",
+        "ui.datatable-perspectives-filters"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-014",
+        "OMH-015",
+        "OMH-016",
+        "OMH-020",
+        "OMH-023",
+        "OMH-024",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-030",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-055",
+        "OMH-058",
+        "OMH-061",
+        "OMH-062",
+        "OMH-067",
+        "OMH-068",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-103",
+        "OMH-104",
+        "OMH-105",
+        "OMH-108",
+        "OMH-111",
+        "OMH-112",
+        "OMH-114",
+        "OMH-115",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-123",
+        "OMH-124",
+        "OMH-128",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-133",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-138",
+        "OMH-141",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-172",
+        "OMH-175",
+        "OMH-176",
+        "OMH-180",
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-203",
+        "OMH-207",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/components/TodosTable.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "guides/backend-ui:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "originAuthoringPath": "agentic/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-014",
+        "OMH-015",
+        "OMH-016",
+        "OMH-020",
+        "OMH-023",
+        "OMH-024",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-030",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-055",
+        "OMH-058",
+        "OMH-061",
+        "OMH-062",
+        "OMH-067",
+        "OMH-068",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-103",
+        "OMH-104",
+        "OMH-105",
+        "OMH-108",
+        "OMH-111",
+        "OMH-112",
+        "OMH-114",
+        "OMH-115",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-123",
+        "OMH-124",
+        "OMH-128",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-133",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-138",
+        "OMH-141",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-172",
+        "OMH-175",
+        "OMH-176",
+        "OMH-180",
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-203",
+        "OMH-207",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:README.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/README.md",
+      "targetAuthoringPath": "template/src/modules/example/README.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/README.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "targetAuthoringPath": "template/src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-edit"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:8"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:8"
+      ],
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/create/page.tsx",
+      "targetAuthoringPath": "template/src/modules/example/backend/todos/create/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-create"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:7"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:7"
+      ],
+      "href": "../../../../src/modules/example/backend/todos/create/page.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodoForm.tsx",
+      "targetAuthoringPath": "template/src/modules/example/components/TodoForm.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-create",
+        "ui.form-edit"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:10",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:12",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:7"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:10",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:12",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:7"
+      ],
+      "href": "../../../../src/modules/example/components/TodoForm.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx",
+      "targetAuthoringPath": "template/src/modules/example/components/TodosTable.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.datatable",
+        "ui.datatable-perspectives-filters"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:13",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:2",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:9",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:6"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:13",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:2",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:9",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:6"
+      ],
+      "href": "../../../../src/modules/example/components/TodosTable.tsx",
+      "renderedLinkCount": 2
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:widgets/components.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/components.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/components.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.component-replacement"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/widgets/__tests__/components.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/widgets/components.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-bulk-action"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.rendered-widget"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:8",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:24",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:10"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:8",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:24",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:10"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/page.meta.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/page.meta.ts",
+      "targetAuthoringPath": "template/src/modules/example/backend/page.meta.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/backend/page.meta.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/page.tsx",
+      "targetAuthoringPath": "template/src/modules/example/backend/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/backend/page.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/page.meta.ts",
+      "targetAuthoringPath": "template/src/modules/example/backend/todos/page.meta.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:5"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:5"
+      ],
+      "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/page.tsx",
+      "targetAuthoringPath": "template/src/modules/example/backend/todos/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:6"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:6"
+      ],
+      "href": "../../../../src/modules/example/backend/todos/page.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:frontend/example.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/frontend/example.tsx",
+      "targetAuthoringPath": "template/src/modules/example/frontend/example.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.frontend-page"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/frontend/example.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-backend-ui-design:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "heading": "Rules",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-014",
+        "OMH-015",
+        "OMH-016",
+        "OMH-020",
+        "OMH-023",
+        "OMH-024",
+        "OMH-026",
+        "OMH-028",
+        "OMH-036",
+        "OMH-055",
+        "OMH-068",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-103",
+        "OMH-104",
+        "OMH-105",
+        "OMH-108",
+        "OMH-111",
+        "OMH-112",
+        "OMH-114",
+        "OMH-115",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-123",
+        "OMH-124",
+        "OMH-128",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-133",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-138",
+        "OMH-141",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-176",
+        "OMH-180",
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-203",
+        "OMH-207",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/integrity-and-concurrency:backend/todos/[id]/edit/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "heading": "Integrity and Concurrency",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "targetAuthoringPath": "template/src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-edit"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/integrity-and-concurrency:commands/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "heading": "Integrity and Concurrency",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts",
+      "targetAuthoringPath": "template/src/modules/example/commands/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.interceptors"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/commands/interceptors.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/integrity-and-concurrency:commands/todos.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "heading": "Integrity and Concurrency",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/todos.ts",
+      "targetAuthoringPath": "template/src/modules/example/commands/todos.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.undo-redo",
+        "commands.write",
+        "data.encryption-map",
+        "events.crud-indexer-bridge"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
+        "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
+        "src/modules/example/commands/__tests__/todos.undo.test.ts",
+        "src/modules/example/commands/__tests__/todos.update.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:2"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:2"
+      ],
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/migration-workflow:migrations/.snapshot-open-mercato.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": "Migration Workflow",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json",
+      "targetAuthoringPath": "template/src/modules/example/migrations/.snapshot-open-mercato.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-188"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/migration-workflow:migrations/Migration20251030150038.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": "Migration Workflow",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/Migration20251030150038.ts",
+      "targetAuthoringPath": "template/src/modules/example/migrations/Migration20251030150038.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-188"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/migrations/Migration20251030150038.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/migration-workflow:migrations/Migration20260226161000_example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": "Migration Workflow",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/Migration20260226161000_example.ts",
+      "targetAuthoringPath": "template/src/modules/example/migrations/Migration20260226161000_example.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-188"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/schema-design:ce.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/schema-design.md",
+      "heading": "Schema Design",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/ce.ts",
+      "targetAuthoringPath": "template/src/modules/example/ce.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.custom-fields"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-188",
+        "OMH-209"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:13"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:13"
+      ],
+      "href": "../../../../src/modules/example/ce.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/schema-design:data/entities.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/schema-design.md",
+      "heading": "Schema Design",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/entities.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/entities.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map",
+        "data.entities"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-188",
+        "OMH-209"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:13",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:14",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:15",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:16",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:2",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:7",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:8"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:13",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:14",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:15",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:16",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:2",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:7",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:8"
+      ],
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design/schema-design:data/validators.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/schema-design.md",
+      "heading": "Schema Design",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/validators.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/validators.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.validators"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-188",
+        "OMH-209"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6"
+      ],
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-data-model-design:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/SKILL.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "heading": "Rules",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-009",
+        "OMH-010",
+        "OMH-024",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-096",
+        "OMH-099",
+        "OMH-101",
+        "OMH-102",
+        "OMH-105",
+        "OMH-108",
+        "OMH-109",
+        "OMH-110",
+        "OMH-111",
+        "OMH-112",
+        "OMH-113",
+        "OMH-114",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-121",
+        "OMH-122",
+        "OMH-123",
+        "OMH-124",
+        "OMH-125",
+        "OMH-126",
+        "OMH-128",
+        "OMH-130",
+        "OMH-137",
+        "OMH-140",
+        "OMH-152",
+        "OMH-169",
+        "OMH-177",
+        "OMH-180",
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:acl.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/acl.ts",
+      "targetAuthoringPath": "template/src/modules/example/acl.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.acl-features"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/acl-dependencies.test.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "href": "../../../../src/modules/example/acl.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/entities.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/entities.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map",
+        "data.entities"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6"
+      ],
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:index.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/index.ts",
+      "targetAuthoringPath": "template/src/modules/example/index.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.metadata"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "href": "../../../../src/modules/example/index.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json",
+      "targetAuthoringPath": "template/src/modules/example/migrations/.snapshot-open-mercato.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:setup.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/setup.ts",
+      "targetAuthoringPath": "template/src/modules/example/setup.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.setup-role-features",
+        "module.setup-scheduler-target"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/setup-bulk-dispatch-schedule.test.ts",
+        "src/modules/example/__tests__/setup-seeding.test.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "href": "../../../../src/modules/example/setup.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:src/modules.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules.ts",
+      "targetAuthoringPath": "template/src/modules.ts",
+      "moduleId": null,
+      "capabilityIds": [
+        "overrides.unified-registry"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
+      ],
+      "href": "../../../../src/modules.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-eject-and-customize:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/SKILL.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "heading": "Rules",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:di.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/di.ts",
+      "targetAuthoringPath": "template/src/modules/example/di.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.di-registration"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts",
+        "src/modules/example/__tests__/di-registration.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:13"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:13"
+      ],
+      "href": "../../../../src/modules/example/di.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/mock-gateway-adapter.ts",
+      "targetAuthoringPath": "template/src/modules/example/lib/mock-gateway-adapter.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.mock-adapters"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts",
+        "src/modules/example/lib/__tests__/mock-gateway-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-shipping-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-webhook-endpoint-adapter.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:12",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:13"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:12",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:13"
+      ],
+      "href": "../../../../src/modules/example/lib/mock-gateway-adapter.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/mock-shipping-adapter.ts",
+      "targetAuthoringPath": "template/src/modules/example/lib/mock-shipping-adapter.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.mock-adapters"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts",
+        "src/modules/example/lib/__tests__/mock-gateway-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-shipping-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-webhook-endpoint-adapter.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:14"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:14"
+      ],
+      "href": "../../../../src/modules/example/lib/mock-shipping-adapter.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/mock-webhook-endpoint-adapter.ts",
+      "targetAuthoringPath": "template/src/modules/example/lib/mock-webhook-endpoint-adapter.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.mock-adapters"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts",
+        "src/modules/example/lib/__tests__/mock-gateway-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-shipping-adapter.test.ts",
+        "src/modules/example/lib/__tests__/mock-webhook-endpoint-adapter.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:18"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:18"
+      ],
+      "href": "../../../../src/modules/example/lib/mock-webhook-endpoint-adapter.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:README.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/README.md",
+      "targetAuthoringPath": "template/src/modules/example/README.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/README.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/assignees/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/assignees/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/assignees/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.option-source-routes"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/api/__tests__/tags.tenant-scope.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/api/assignees/route.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/customer-priorities/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/customer-priorities/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/customer-priorities/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-factory"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-021.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/openapi.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/openapi.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/openapi.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.openapi"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:10"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:10"
+      ],
+      "href": "../../../../src/modules/example/api/openapi.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/organizations/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/organizations/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/organizations/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.custom-route"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/api/organizations/route.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/tags/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/tags/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/tags/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.option-source-routes"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/api/__tests__/tags.tenant-scope.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/api/tags/route.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/todos/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/todos/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-query-engine-custom-fields",
+        "search.encrypted-column-list-filter"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts",
+        "src/modules/example/api/__tests__/todos.encrypted-search.test.ts",
+        "src/modules/example/api/__tests__/todos.request-scope.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:4"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:4"
+      ],
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:commands/todos.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/todos.ts",
+      "targetAuthoringPath": "template/src/modules/example/commands/todos.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.undo-redo",
+        "commands.write",
+        "data.encryption-map",
+        "events.crud-indexer-bridge"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
+        "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
+        "src/modules/example/commands/__tests__/todos.undo.test.ts",
+        "src/modules/example/commands/__tests__/todos.update.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:ce.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/ce.ts",
+      "targetAuthoringPath": "template/src/modules/example/ce.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.custom-fields"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/ce.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:data/entities.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/entities.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/entities.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map",
+        "data.entities"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:2"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:2"
+      ],
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:data/validators.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/validators.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/validators.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.validators"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:3"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:3"
+      ],
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:migrations/.snapshot-open-mercato.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json",
+      "targetAuthoringPath": "template/src/modules/example/migrations/.snapshot-open-mercato.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:migrations/Migration20260226161000_example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/Migration20260226161000_example.ts",
+      "targetAuthoringPath": "template/src/modules/example/migrations/Migration20260226161000_example.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:acl.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/acl.ts",
+      "targetAuthoringPath": "template/src/modules/example/acl.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.acl-features"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/acl-dependencies.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:9",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:10"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:9",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:10"
+      ],
+      "href": "../../../../src/modules/example/acl.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:ce.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/ce.ts",
+      "targetAuthoringPath": "template/src/modules/example/ce.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.custom-fields"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/ce.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:cli.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/cli.ts",
+      "targetAuthoringPath": "template/src/modules/example/cli.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.cli-command"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-011.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:16"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:16"
+      ],
+      "href": "../../../../src/modules/example/cli.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:di.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/di.ts",
+      "targetAuthoringPath": "template/src/modules/example/di.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.di-registration"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-005.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts",
+        "src/modules/example/__tests__/di-registration.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:12"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:12"
+      ],
+      "href": "../../../../src/modules/example/di.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:events.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/events.ts",
+      "targetAuthoringPath": "template/src/modules/example/events.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.portal-broadcast",
+        "events.typed-definitions"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-003.spec.ts",
+        "src/modules/example/__tests__/announce-todo-to-portal.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:13"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:13"
+      ],
+      "href": "../../../../src/modules/example/events.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:extension-points.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/extension-points.ts",
+      "targetAuthoringPath": "template/src/modules/example/extension-points.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.extension-points"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/extension-points.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/extension-points.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:i18n/en.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/i18n/en.json",
+      "targetAuthoringPath": "template/src/modules/example/i18n/en.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.i18n-catalogs"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-APP-001-metadata.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:26",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:15"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:26",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:15"
+      ],
+      "href": "../../../../src/modules/example/i18n/en.json",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:index.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/index.ts",
+      "targetAuthoringPath": "template/src/modules/example/index.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.metadata"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:8",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:9"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:8",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:9"
+      ],
+      "href": "../../../../src/modules/example/index.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:notifications.client.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.client.ts",
+      "targetAuthoringPath": "template/src/modules/example/notifications.client.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.client-renderer"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/notifications.client.test.tsx"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/notifications.client.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:notifications.handlers.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.handlers.ts",
+      "targetAuthoringPath": "template/src/modules/example/notifications.handlers.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.reactive-handler"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-008.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/notifications.handlers.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:notifications.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.ts",
+      "targetAuthoringPath": "template/src/modules/example/notifications.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.type"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-008.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/notifications.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:1"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:1"
+      ],
+      "href": "../../../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:setup.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/setup.ts",
+      "targetAuthoringPath": "template/src/modules/example/setup.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.setup-role-features",
+        "module.setup-scheduler-target"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/setup-bulk-dispatch-schedule.test.ts",
+        "src/modules/example/__tests__/setup-seeding.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:10",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:11"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:10",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:11"
+      ],
+      "href": "../../../../src/modules/example/setup.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:translations.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/translations.ts",
+      "targetAuthoringPath": "template/src/modules/example/translations.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.translatable-fields"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/translations.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:26",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:15"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:26",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:15"
+      ],
+      "href": "../../../../src/modules/example/translations.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold:README.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "heading": "Scaffold a Complete Module",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/README.md",
+      "targetAuthoringPath": "template/src/modules/example/README.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-004",
+        "OMH-011",
+        "OMH-012",
+        "OMH-013",
+        "OMH-017",
+        "OMH-018",
+        "OMH-019",
+        "OMH-020",
+        "OMH-021",
+        "OMH-022",
+        "OMH-055",
+        "OMH-063",
+        "OMH-068",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-087",
+        "OMH-093",
+        "OMH-096",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-102",
+        "OMH-103",
+        "OMH-105",
+        "OMH-106",
+        "OMH-107",
+        "OMH-108",
+        "OMH-109",
+        "OMH-110",
+        "OMH-111",
+        "OMH-112",
+        "OMH-113",
+        "OMH-114",
+        "OMH-116",
+        "OMH-117",
+        "OMH-119",
+        "OMH-120",
+        "OMH-121",
+        "OMH-122",
+        "OMH-123",
+        "OMH-124",
+        "OMH-125",
+        "OMH-126",
+        "OMH-127",
+        "OMH-128",
+        "OMH-130",
+        "OMH-131",
+        "OMH-133",
+        "OMH-137",
+        "OMH-139",
+        "OMH-140",
+        "OMH-141",
+        "OMH-142",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-183",
+        "OMH-185",
+        "OMH-186",
+        "OMH-187",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:1"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:1"
+      ],
+      "href": "../../../src/modules/example/README.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-module-scaffold:references/surface-inventory.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "heading": "Scaffold a Complete Module",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-inventory.json",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-inventory.json",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-004",
+        "OMH-011",
+        "OMH-012",
+        "OMH-013",
+        "OMH-017",
+        "OMH-018",
+        "OMH-019",
+        "OMH-020",
+        "OMH-021",
+        "OMH-022",
+        "OMH-055",
+        "OMH-063",
+        "OMH-068",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-087",
+        "OMH-093",
+        "OMH-096",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-102",
+        "OMH-103",
+        "OMH-105",
+        "OMH-106",
+        "OMH-107",
+        "OMH-108",
+        "OMH-109",
+        "OMH-110",
+        "OMH-111",
+        "OMH-112",
+        "OMH-113",
+        "OMH-114",
+        "OMH-116",
+        "OMH-117",
+        "OMH-119",
+        "OMH-120",
+        "OMH-121",
+        "OMH-122",
+        "OMH-123",
+        "OMH-124",
+        "OMH-125",
+        "OMH-126",
+        "OMH-127",
+        "OMH-128",
+        "OMH-130",
+        "OMH-131",
+        "OMH-133",
+        "OMH-137",
+        "OMH-139",
+        "OMH-140",
+        "OMH-141",
+        "OMH-142",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-183",
+        "OMH-185",
+        "OMH-186",
+        "OMH-187",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-209",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../src/modules/example/references/surface-inventory.json",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:api/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/interceptors.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.interceptors"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:12",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:15"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:12",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:15"
+      ],
+      "href": "../../../../src/modules/example/api/interceptors.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:commands/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts",
+      "targetAuthoringPath": "template/src/modules/example/commands/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.interceptors"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/commands/interceptors.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:data/enrichers.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/enrichers.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/enrichers.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.response-enricher"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-002.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-012.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:9",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:18",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:2",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:12"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:9",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:1",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:18",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:2",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:12"
+      ],
+      "href": "../../../../src/modules/example/data/enrichers.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:data/guards.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/guards.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/guards.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.mutation-guard"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:13"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:13"
+      ],
+      "href": "../../../../src/modules/example/data/guards.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:extension-points.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/extension-points.ts",
+      "targetAuthoringPath": "template/src/modules/example/extension-points.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.extension-points"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/extension-points.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/extension-points.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:notifications.client.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.client.ts",
+      "targetAuthoringPath": "template/src/modules/example/notifications.client.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.client-renderer"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/notifications.client.test.tsx"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/notifications.client.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:notifications.handlers.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.handlers.ts",
+      "targetAuthoringPath": "template/src/modules/example/notifications.handlers.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.reactive-handler"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-008.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/notifications.handlers.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/audit-delete.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/audit-delete.ts",
+      "targetAuthoringPath": "template/src/modules/example/subscribers/audit-delete.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.sync-subscribers"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:16"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:16"
+      ],
+      "href": "../../../../src/modules/example/subscribers/audit-delete.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/auto-default-priority.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/auto-default-priority.ts",
+      "targetAuthoringPath": "template/src/modules/example/subscribers/auto-default-priority.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.sync-subscribers"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:15"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:15"
+      ],
+      "href": "../../../../src/modules/example/subscribers/auto-default-priority.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/example-event.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/example-event.ts",
+      "targetAuthoringPath": "template/src/modules/example/subscribers/example-event.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.ephemeral-subscriber"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/subscribers/example-event.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/prevent-uncomplete.ts",
+      "targetAuthoringPath": "template/src/modules/example/subscribers/prevent-uncomplete.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.sync-subscribers"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:16"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:16"
+      ],
+      "href": "../../../../src/modules/example/subscribers/prevent-uncomplete.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/components.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/components.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/components.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.component-replacement"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/widgets/__tests__/components.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:14"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:14"
+      ],
+      "href": "../../../../src/modules/example/widgets/components.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection-table.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection-table.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection-table"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts",
+        "src/modules/example/widgets/__tests__/injection-table.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:25",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:20"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:25",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:20"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection-table.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-bulk-action"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:8"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:8"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-column/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-column/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-column"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:4"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:4"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-column/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.rendered-widget"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:23",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:9"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:23",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:9"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-field/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-field/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.crud-form-field"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:19",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:14"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:19",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:14"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-field/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-filter"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:6"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:6"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-row-action/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/customer-priority-row-action/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-row-action"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:7"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:7"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-row-action/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/example-menus/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/example-menus/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.menu-items"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-003.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:11"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:11"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection/example-menus/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/example-profile-menu/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/example-profile-menu/widget.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection/example-profile-menu/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.menu-items"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-003.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-088",
+        "OMH-177",
+        "OMH-190",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/widgets/injection/example-profile-menu/widget.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension/unified-overrides:src/modules.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/unified-overrides.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/unified-overrides.md",
+      "heading": "Rules",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules.ts",
+      "targetAuthoringPath": "template/src/modules.ts",
+      "moduleId": null,
+      "capabilityIds": [
+        "overrides.unified-registry"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-089"
+      ],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:28",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:21"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:28",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:21"
+      ],
+      "href": "../../../../src/modules.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-system-extension:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/SKILL.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "heading": "Rules",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-029",
+        "OMH-030",
+        "OMH-031",
+        "OMH-032",
+        "OMH-033",
+        "OMH-034",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-038",
+        "OMH-055",
+        "OMH-056",
+        "OMH-058",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-088",
+        "OMH-089",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-096",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-102",
+        "OMH-103",
+        "OMH-105",
+        "OMH-106",
+        "OMH-107",
+        "OMH-108",
+        "OMH-109",
+        "OMH-110",
+        "OMH-111",
+        "OMH-112",
+        "OMH-113",
+        "OMH-114",
+        "OMH-115",
+        "OMH-116",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-122",
+        "OMH-124",
+        "OMH-126",
+        "OMH-127",
+        "OMH-128",
+        "OMH-130",
+        "OMH-131",
+        "OMH-132",
+        "OMH-133",
+        "OMH-134",
+        "OMH-138",
+        "OMH-139",
+        "OMH-140",
+        "OMH-141",
+        "OMH-147",
+        "OMH-152",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-177",
+        "OMH-179",
+        "OMH-180",
+        "OMH-181",
+        "OMH-182",
+        "OMH-183",
+        "OMH-185",
+        "OMH-190",
+        "OMH-192",
+        "OMH-193",
+        "OMH-203",
+        "OMH-210"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/customer-priorities/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/customer-priorities/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-factory"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/__integration__/TC-UMES-021.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:10",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:9"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:10",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:9"
+      ],
+      "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:backend/todos/[id]/edit/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "targetAuthoringPath": "template/src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-edit"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/page.meta.ts",
+      "targetAuthoringPath": "template/src/modules/example/backend/todos/page.meta.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:5"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:11",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:5"
+      ],
+      "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:commands/todos.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/todos.ts",
+      "targetAuthoringPath": "template/src/modules/example/commands/todos.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.undo-redo",
+        "commands.write",
+        "data.encryption-map",
+        "events.crud-indexer-bridge"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
+        "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
+        "src/modules/example/commands/__tests__/todos.undo.test.ts",
+        "src/modules/example/commands/__tests__/todos.update.test.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "renderedLinkCount": 2
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:components/TodosTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx",
+      "targetAuthoringPath": "template/src/modules/example/components/TodosTable.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.datatable",
+        "ui.datatable-perspectives-filters"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/components/TodosTable.tsx",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:data/validators.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/validators.ts",
+      "targetAuthoringPath": "template/src/modules/example/data/validators.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.validators"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:index.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/index.ts",
+      "targetAuthoringPath": "template/src/modules/example/index.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.metadata"
+      ],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:4"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:4"
+      ],
+      "href": "../../../../src/modules/example/index.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:src/modules.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules.ts",
+      "targetAuthoringPath": "template/src/modules.ts",
+      "moduleId": null,
+      "capabilityIds": [
+        "overrides.unified-registry"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:3"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:3"
+      ],
+      "href": "../../../../src/modules.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:widgets/injection-table.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts",
+      "targetAuthoringPath": "template/src/modules/example/widgets/injection-table.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection-table"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-001.spec.ts",
+        "src/modules/example/widgets/__tests__/injection-table.test.ts"
+      ],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:13"
+      ],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:13"
+      ],
+      "href": "../../../../src/modules/example/widgets/injection-table.ts",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "om-troubleshooter:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/SKILL.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "heading": "Rules",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "targetAuthoringPath": "template/src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-007",
+        "OMH-057",
+        "OMH-058",
+        "OMH-059",
+        "OMH-060",
+        "OMH-061",
+        "OMH-062",
+        "OMH-063",
+        "OMH-064",
+        "OMH-065",
+        "OMH-066",
+        "OMH-067",
+        "OMH-068",
+        "OMH-069",
+        "OMH-070",
+        "OMH-132",
+        "OMH-171",
+        "OMH-172",
+        "OMH-173",
+        "OMH-174",
+        "OMH-175",
+        "OMH-176",
+        "OMH-205"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "renderedLinkCount": 1
+    },
+    {
+      "topicId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/testing-debugging.md",
+      "originAuthoringPath": "agentic/guides/testing-debugging.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/testing-debugging.md",
+      "targetAuthoringPath": "agentic/guides/testing-debugging.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-007",
+        "OMH-019",
+        "OMH-024",
+        "OMH-046",
+        "OMH-057",
+        "OMH-058",
+        "OMH-059",
+        "OMH-060",
+        "OMH-061",
+        "OMH-062",
+        "OMH-063",
+        "OMH-064",
+        "OMH-065",
+        "OMH-066",
+        "OMH-067",
+        "OMH-068",
+        "OMH-069",
+        "OMH-070",
+        "OMH-071",
+        "OMH-083",
+        "OMH-084",
+        "OMH-085",
+        "OMH-086",
+        "OMH-092",
+        "OMH-110",
+        "OMH-115",
+        "OMH-120",
+        "OMH-127",
+        "OMH-132",
+        "OMH-135",
+        "OMH-149",
+        "OMH-150",
+        "OMH-151",
+        "OMH-161",
+        "OMH-163",
+        "OMH-164",
+        "OMH-165",
+        "OMH-166",
+        "OMH-169",
+        "OMH-171",
+        "OMH-172",
+        "OMH-173",
+        "OMH-174",
+        "OMH-175",
+        "OMH-176",
+        "OMH-184",
+        "OMH-192",
+        "OMH-205"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "evidence": "Never edit generated output to prove a theory."
+    },
+    {
+      "topicId": "rule:guides/testing-debugging#validation-gate",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/testing-debugging.md",
+      "originAuthoringPath": "agentic/guides/testing-debugging.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/testing-debugging.md",
+      "targetAuthoringPath": "agentic/guides/testing-debugging.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-007",
+        "OMH-019",
+        "OMH-024",
+        "OMH-046",
+        "OMH-057",
+        "OMH-058",
+        "OMH-059",
+        "OMH-060",
+        "OMH-061",
+        "OMH-062",
+        "OMH-063",
+        "OMH-064",
+        "OMH-065",
+        "OMH-066",
+        "OMH-067",
+        "OMH-068",
+        "OMH-069",
+        "OMH-070",
+        "OMH-071",
+        "OMH-083",
+        "OMH-084",
+        "OMH-085",
+        "OMH-086",
+        "OMH-092",
+        "OMH-110",
+        "OMH-115",
+        "OMH-120",
+        "OMH-127",
+        "OMH-132",
+        "OMH-135",
+        "OMH-149",
+        "OMH-150",
+        "OMH-151",
+        "OMH-161",
+        "OMH-163",
+        "OMH-164",
+        "OMH-165",
+        "OMH-166",
+        "OMH-169",
+        "OMH-171",
+        "OMH-172",
+        "OMH-173",
+        "OMH-174",
+        "OMH-175",
+        "OMH-176",
+        "OMH-184",
+        "OMH-192",
+        "OMH-205"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:18",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:2"
+      ],
+      "evidence": "`yarn typecheck`, `yarn lint`, `yarn test`, `yarn build` for broad/contract changes."
+    },
+    {
+      "topicId": "rule:om-data-model-design/migration-workflow#migration-procedure",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-188"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:10",
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:12",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:7"
+      ],
+      "evidence": "Run `yarn db:generate` as a probe; inspect all SQL and snapshot changes."
+    },
+    {
+      "topicId": "rule:om-data-model-design/sensitive-data#decrypted-reads",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:18",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:19"
+      ],
+      "evidence": "Import `findWithDecryption`, `findOneWithDecryption`, or `findAndCountWithDecryption` from `@open-mercato/shared/lib/encryption/find`"
+    },
+    {
+      "topicId": "rule:om-data-model-design/sensitive-data#encryption-map-declaration",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:17",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:18"
+      ],
+      "evidence": "In module `encryption.ts`, import `ModuleEncryptionMap` from `@open-mercato/shared/modules/encryption`"
+    },
+    {
+      "topicId": "rule:om-data-model-design/sensitive-data#encryption-seeding",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:19",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:20"
+      ],
+      "evidence": "Seed/update encryption configuration through the supported command; never hand-roll KMS/AES."
+    },
+    {
+      "topicId": "rule:om-eject-and-customize/decision-and-procedure#eject-command",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:3"
+      ],
+      "evidence": "Run supported `yarn mercato eject <module>` from app root."
+    },
+    {
+      "topicId": "rule:om-eject-and-customize/decision-and-procedure#installed-module-identification",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:1"
+      ],
+      "evidence": "State the required behavior and exact installed module/version."
+    },
+    {
+      "topicId": "rule:om-eject-and-customize/decision-and-procedure#post-eject-verification",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:4",
+        "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:8"
+      ],
+      "evidence": "run `yarn generate`, focused/integration/build tests, and record upstream version for future merges."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#credential-and-state-ownership",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:17"
+      ],
+      "evidence": "Persist credentials/state/logs/mappings through generic integration/data-sync services; do not duplicate host tables."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#degraded-provider-tests",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:27"
+      ],
+      "evidence": "Test missing provider configuration as `unconfigured`/degraded, not a crash or secret leak."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#generation-proof",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:30"
+      ],
+      "evidence": "Run `yarn generate` and `yarn typecheck` so the generated registry proves that exact export shape."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#integration-descriptor-exports",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:5",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:6",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:7"
+      ],
+      "evidence": "An app-owned `integration.ts` may export singular `integration`/`bundle` definitions or plural `integrations`/`bundles` arrays."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#reusable-package-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:2",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:29",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:3",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:4"
+      ],
+      "evidence": "create a separate publishable package/repository with compatible peer/runtime dependencies, public exports, build/prepack, and compiled discovery output"
+    },
+    {
+      "topicId": "rule:om-integration-builder/provider-families#data-sync-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:15"
+      ],
+      "evidence": "**Data sync:** `DataSyncAdapter`; entity mappings/presets; external IDs; streaming batches/cursors; overlap, progress, cancellation, reconciliation."
+    },
+    {
+      "topicId": "rule:om-integration-builder/provider-families#payment-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:16"
+      ],
+      "evidence": "**Payment:** installed `GatewayAdapter` plus `registerGatewayAdapter`"
+    },
+    {
+      "topicId": "rule:om-integration-builder/provider-families#webhooks-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:19",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:20"
+      ],
+      "evidence": "**Webhooks:** inbound verification/replay; outbound Standard Webhooks signing; queued deliveries, retries, logs, status."
+    },
+    {
+      "topicId": "rule:om-integration-builder/security-and-reliability#health-check-redaction",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-189"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:21",
+        "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:22"
+      ],
+      "evidence": "Health checks and OAuth refresh retries redact credentials and provider details"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/module-surfaces#search-configuration",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193",
+        "OMH-212"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:14"
+      ],
+      "evidence": "`search.ts` imports `SearchModuleConfig`"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/verification#post-scaffold-gate",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/verification.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/verification.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/verification.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/verification.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-192",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:22",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:23",
+        "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:24"
+      ],
+      "evidence": "Run `yarn generate`; inspect warnings and the affected module/API/page/entity/event/search/agent registrations."
+    },
+    {
+      "topicId": "rule:om-system-extension/verification#extension-gate",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-system-extension/references/verification.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/verification.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-system-extension/references/verification.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/verification.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "evidence": "Run `yarn generate`, focused tests, typecheck, and affected integration flow."
+    },
+    {
+      "topicId": "rule:om-troubleshooter/diagnosis-map#symptom-routing",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "evidence": "Trace from the public call site to the first broken invariant."
+    },
+    {
+      "topicId": "rule:om-troubleshooter/regression-oracles#pre-fix-failure",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-troubleshooter/references/regression-oracles.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/regression-oracles.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-troubleshooter/references/regression-oracles.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/regression-oracles.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "evidence": "The oracle must fail on the pre-fix code for the intended reason"
+    },
+    {
+      "topicId": "rule:root#generation-after-discovery-change",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "originAuthoringPath": "agentic/shared/AGENTS.md.template",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "targetAuthoringPath": "agentic/shared/AGENTS.md.template",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-001",
+        "OMH-002",
+        "OMH-003",
+        "OMH-004",
+        "OMH-005",
+        "OMH-006",
+        "OMH-007",
+        "OMH-008",
+        "OMH-009",
+        "OMH-010",
+        "OMH-011",
+        "OMH-012",
+        "OMH-013",
+        "OMH-014",
+        "OMH-015",
+        "OMH-016",
+        "OMH-017",
+        "OMH-018",
+        "OMH-019",
+        "OMH-020",
+        "OMH-021",
+        "OMH-022",
+        "OMH-023",
+        "OMH-024",
+        "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-029",
+        "OMH-030",
+        "OMH-031",
+        "OMH-032",
+        "OMH-033",
+        "OMH-034",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-038",
+        "OMH-039",
+        "OMH-040",
+        "OMH-041",
+        "OMH-042",
+        "OMH-043",
+        "OMH-044",
+        "OMH-045",
+        "OMH-046",
+        "OMH-047",
+        "OMH-048",
+        "OMH-049",
+        "OMH-050",
+        "OMH-051",
+        "OMH-052",
+        "OMH-053",
+        "OMH-054",
+        "OMH-055",
+        "OMH-056",
+        "OMH-057",
+        "OMH-058",
+        "OMH-059",
+        "OMH-060",
+        "OMH-061",
+        "OMH-062",
+        "OMH-063",
+        "OMH-064",
+        "OMH-065",
+        "OMH-066",
+        "OMH-067",
+        "OMH-068",
+        "OMH-069",
+        "OMH-070",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-083",
+        "OMH-084",
+        "OMH-085",
+        "OMH-086",
+        "OMH-087",
+        "OMH-088",
+        "OMH-089",
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-096",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-102",
+        "OMH-103",
+        "OMH-104",
+        "OMH-105",
+        "OMH-106",
+        "OMH-107",
+        "OMH-108",
+        "OMH-109",
+        "OMH-110",
+        "OMH-111",
+        "OMH-112",
+        "OMH-113",
+        "OMH-114",
+        "OMH-115",
+        "OMH-116",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-121",
+        "OMH-122",
+        "OMH-123",
+        "OMH-124",
+        "OMH-125",
+        "OMH-126",
+        "OMH-127",
+        "OMH-128",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-132",
+        "OMH-133",
+        "OMH-134",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-138",
+        "OMH-139",
+        "OMH-140",
+        "OMH-141",
+        "OMH-142",
+        "OMH-143",
+        "OMH-144",
+        "OMH-145",
+        "OMH-146",
+        "OMH-147",
+        "OMH-148",
+        "OMH-149",
+        "OMH-150",
+        "OMH-151",
+        "OMH-152",
+        "OMH-153",
+        "OMH-154",
+        "OMH-155",
+        "OMH-156",
+        "OMH-157",
+        "OMH-158",
+        "OMH-159",
+        "OMH-160",
+        "OMH-161",
+        "OMH-162",
+        "OMH-163",
+        "OMH-164",
+        "OMH-165",
+        "OMH-166",
+        "OMH-167",
+        "OMH-168",
+        "OMH-169",
+        "OMH-170",
+        "OMH-171",
+        "OMH-172",
+        "OMH-173",
+        "OMH-174",
+        "OMH-175",
+        "OMH-176",
+        "OMH-177",
+        "OMH-178",
+        "OMH-179",
+        "OMH-180",
+        "OMH-181",
+        "OMH-182",
+        "OMH-183",
+        "OMH-184",
+        "OMH-185",
+        "OMH-186",
+        "OMH-187",
+        "OMH-188",
+        "OMH-189",
+        "OMH-190",
+        "OMH-191",
+        "OMH-192",
+        "OMH-193",
+        "OMH-194",
+        "OMH-195",
+        "OMH-196",
+        "OMH-197",
+        "OMH-198",
+        "OMH-199",
+        "OMH-200",
+        "OMH-201",
+        "OMH-202",
+        "OMH-203",
+        "OMH-204",
+        "OMH-205",
+        "OMH-206",
+        "OMH-207",
+        "OMH-208",
+        "OMH-209",
+        "OMH-210",
+        "OMH-211",
+        "OMH-212",
+        "OMH-213",
+        "OMH-214"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:1"
+      ],
+      "evidence": "Run `yarn generate` after discovery files"
+    },
+    {
+      "topicId": "rule:root#migration-probe-and-approval",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "originAuthoringPath": "agentic/shared/AGENTS.md.template",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "targetAuthoringPath": "agentic/shared/AGENTS.md.template",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-001",
+        "OMH-002",
+        "OMH-003",
+        "OMH-004",
+        "OMH-005",
+        "OMH-006",
+        "OMH-007",
+        "OMH-008",
+        "OMH-009",
+        "OMH-010",
+        "OMH-011",
+        "OMH-012",
+        "OMH-013",
+        "OMH-014",
+        "OMH-015",
+        "OMH-016",
+        "OMH-017",
+        "OMH-018",
+        "OMH-019",
+        "OMH-020",
+        "OMH-021",
+        "OMH-022",
+        "OMH-023",
+        "OMH-024",
+        "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-029",
+        "OMH-030",
+        "OMH-031",
+        "OMH-032",
+        "OMH-033",
+        "OMH-034",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-038",
+        "OMH-039",
+        "OMH-040",
+        "OMH-041",
+        "OMH-042",
+        "OMH-043",
+        "OMH-044",
+        "OMH-045",
+        "OMH-046",
+        "OMH-047",
+        "OMH-048",
+        "OMH-049",
+        "OMH-050",
+        "OMH-051",
+        "OMH-052",
+        "OMH-053",
+        "OMH-054",
+        "OMH-055",
+        "OMH-056",
+        "OMH-057",
+        "OMH-058",
+        "OMH-059",
+        "OMH-060",
+        "OMH-061",
+        "OMH-062",
+        "OMH-063",
+        "OMH-064",
+        "OMH-065",
+        "OMH-066",
+        "OMH-067",
+        "OMH-068",
+        "OMH-069",
+        "OMH-070",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-083",
+        "OMH-084",
+        "OMH-085",
+        "OMH-086",
+        "OMH-087",
+        "OMH-088",
+        "OMH-089",
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-096",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-102",
+        "OMH-103",
+        "OMH-104",
+        "OMH-105",
+        "OMH-106",
+        "OMH-107",
+        "OMH-108",
+        "OMH-109",
+        "OMH-110",
+        "OMH-111",
+        "OMH-112",
+        "OMH-113",
+        "OMH-114",
+        "OMH-115",
+        "OMH-116",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-121",
+        "OMH-122",
+        "OMH-123",
+        "OMH-124",
+        "OMH-125",
+        "OMH-126",
+        "OMH-127",
+        "OMH-128",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-132",
+        "OMH-133",
+        "OMH-134",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-138",
+        "OMH-139",
+        "OMH-140",
+        "OMH-141",
+        "OMH-142",
+        "OMH-143",
+        "OMH-144",
+        "OMH-145",
+        "OMH-146",
+        "OMH-147",
+        "OMH-148",
+        "OMH-149",
+        "OMH-150",
+        "OMH-151",
+        "OMH-152",
+        "OMH-153",
+        "OMH-154",
+        "OMH-155",
+        "OMH-156",
+        "OMH-157",
+        "OMH-158",
+        "OMH-159",
+        "OMH-160",
+        "OMH-161",
+        "OMH-162",
+        "OMH-163",
+        "OMH-164",
+        "OMH-165",
+        "OMH-166",
+        "OMH-167",
+        "OMH-168",
+        "OMH-169",
+        "OMH-170",
+        "OMH-171",
+        "OMH-172",
+        "OMH-173",
+        "OMH-174",
+        "OMH-175",
+        "OMH-176",
+        "OMH-177",
+        "OMH-178",
+        "OMH-179",
+        "OMH-180",
+        "OMH-181",
+        "OMH-182",
+        "OMH-183",
+        "OMH-184",
+        "OMH-185",
+        "OMH-186",
+        "OMH-187",
+        "OMH-188",
+        "OMH-189",
+        "OMH-190",
+        "OMH-191",
+        "OMH-192",
+        "OMH-193",
+        "OMH-194",
+        "OMH-195",
+        "OMH-196",
+        "OMH-197",
+        "OMH-198",
+        "OMH-199",
+        "OMH-200",
+        "OMH-201",
+        "OMH-202",
+        "OMH-203",
+        "OMH-204",
+        "OMH-205",
+        "OMH-206",
+        "OMH-207",
+        "OMH-208",
+        "OMH-209",
+        "OMH-210",
+        "OMH-211",
+        "OMH-212",
+        "OMH-213",
+        "OMH-214"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [
+        "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:8"
+      ],
+      "evidence": "Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it."
+    }
+  ]
+}
