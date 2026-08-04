@@ -12,6 +12,8 @@ export type SalesLineRecord = {
   currencyCode: string | null
   unitPriceNet: number
   unitPriceGross: number
+  discountAmount: number
+  discountPercent: number
   taxRate: number
   totalNet: number
   totalGross: number

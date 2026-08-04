@@ -23,7 +23,11 @@ import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
 import type { SalesLineRecord } from "./lineItemTypes";
-import { formatMoney, normalizeNumber } from "./lineItemUtils";
+import {
+  formatMoney,
+  normalizeNumber,
+  resolveLineDiscountDisplay,
+} from "./lineItemUtils";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
@@ -321,6 +325,14 @@ export function SalesDocumentItemsSection({
                     : null,
               unitPriceNet,
               unitPriceGross,
+              discountAmount: normalizeNumber(
+                item.discount_amount ?? item.discountAmount,
+                0,
+              ),
+              discountPercent: normalizeNumber(
+                item.discount_percent ?? item.discountPercent,
+                0,
+              ),
               taxRate,
               totalNet,
               totalGross,
@@ -560,6 +572,11 @@ export function SalesDocumentItemsSection({
     [lineStatusMap, t],
   );
 
+  const showDiscountColumn = React.useMemo(
+    () => items.some((item) => resolveLineDiscountDisplay(item) !== null),
+    [items],
+  );
+
   const renderImage = (record: SalesLineRecord) => {
     const meta =
       (record.metadata as Record<string, unknown> | null | undefined) ?? {};
@@ -646,6 +663,11 @@ export function SalesDocumentItemsSection({
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.unit", "Unit price")}
                 </th>
+                {showDiscountColumn ? (
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    {t("sales.documents.items.table.discount", "Discount")}
+                  </th>
+                ) : null}
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.total", "Total")}
                 </th>
@@ -699,6 +721,7 @@ export function SalesDocumentItemsSection({
                 const unitPriceReference = resolveUnitPriceReference(
                   item.uomSnapshot,
                 );
+                const discount = resolveLineDiscountDisplay(item);
 
                 return (
                   <tr
@@ -792,6 +815,45 @@ export function SalesDocumentItemsSection({
                         ) : null}
                       </div>
                     </td>
+                    {showDiscountColumn ? (
+                      <td className="px-3 py-3">
+                        {discount ? (
+                          <div className="flex flex-col gap-0.5">
+                            {discount.amount !== null ? (
+                              <span className="font-mono text-sm">
+                                {t(
+                                  "sales.documents.items.table.discountAmount",
+                                  "−{{value}}",
+                                  {
+                                    value: formatMoney(
+                                      discount.amount,
+                                      item.currencyCode ??
+                                        currencyCode ??
+                                        undefined,
+                                    ),
+                                  },
+                                )}
+                              </span>
+                            ) : null}
+                            {discount.percent !== null ? (
+                              <span
+                                className={
+                                  discount.amount !== null
+                                    ? "font-mono text-xs text-muted-foreground"
+                                    : "font-mono text-sm"
+                                }
+                              >
+                                {t(
+                                  "sales.documents.items.table.discountPercent",
+                                  "{{value}}%",
+                                  { value: discount.percent },
+                                )}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-3 font-semibold">
                       <div className="flex flex-col gap-0.5">
                         <span>
