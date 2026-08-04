@@ -67,6 +67,9 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 19 | **Wave 2 C1** — component-override reader defects (props→propsTransform, function-valued props, ComponentReplacementHandles) + fail-closed test | CANON-B / 4883 readers | done | `b4aad8c3e`, `a1c0f7d05` |
 | 20 | **Wave 2 F1** — cache DI token/method doc correction + drift guard | CANON-B cache | done | (merge) |
 | 21 | **Wave 2 F2** — read-policy redaction/immutability/ledger fixtures + the fix that makes redaction actually tested | READ-P2 | done | `0d9b84b16` |
+| 22 | **Wave 3 E1** — optimistic locking on the Todo surface + shared form leaf + workspace scan reaches `apps/` | CANON-B optimistic locking | done | `cb5546797` |
+| 23 | **Wave 3 H1** — GOV-P1 knowledge-change schema, classifier, nine workflow steps | GOV-P1 | done | `8b887f7f7` |
+| 24 | **Wave 3 C1b** — injection-table slot normalization + two dead bindings removed + budget cap raised | CANON-B / 4883 readers | done | `0fe58373b` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -354,3 +357,35 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
   run leaves the PR branch untouched. Resume with
   `Workflow({scriptPath, resumeFromRunId: 'wf_3141c54d-2b1'})`; every commit SHA is in that run's
   `journal.jsonl`.
+
+  **Wave 3 merged (session 3→4).** Three slices; **E1's verifier died mid-response**, so E1 was
+  verified by hand instead of merged on trust — which is how its hole was found.
+
+  - **E1 hole (found and closed).** Neutering the form's version threading (`updatedAt: null`
+    instead of `item.updatedAt`), which fully disables optimistic locking on the edit surface, was
+    caught by NOTHING: 76 app tests and 201 core optimistic-lock tests all stayed green. The
+    API-projection test covers only the route; the workspace scan only greps for the presence of the
+    helper primitives. Fixed by extracting the mapping as the pure `toTodoFormValues()` and pinning
+    it in `components/__tests__/todo-form-values.test.ts` — that probe now fails 3 tests.
+  - **Pre-existing classifier weakness (follow-up).** The scan's `COVERED_PRIMITIVE` regex counts a
+    bare mention of `withScopedApiRequestHeaders` as coverage even with no version passed, unlike the
+    tokenless `buildOptimisticLockHeader` case which it explicitly demotes. Fixing it means auditing
+    every currently-"covered" file repo-wide. **New backlog row.**
+  - **C1b was RED as delivered** — the generated-facts JSON budget guard failed at 3,506,266 against
+    a 3,500,000 cap. Per maintainer guidance ("you can adjust the budgets in such cases"), raised to
+    3,560,000 with a rationale comment matching the file's three previous raises; the ~28KB is the
+    twelve recovered contributions. **This also resolves the H4 decision**: OMH-018's 3-byte slack is
+    to be handled by raising `maxInitialContextBytes`, not by relocating prose.
+  - **`sales.injection.payment-gateway-status-column` is now an UNBOUND registered widget.** Its
+    binding could never resolve (PaymentsSection's DataTable has no tableId), so removing it broke
+    nothing, but giving that table a real tableId so the column finally renders is a sales feature
+    gap. Recorded in place. **New backlog row.**
+
+  **Gate after wave 3 (local):** `template:sync`, `build:packages`, `generate`, `i18n:check-sync`,
+  `typecheck`, `build:app`, `repo-wide-guards` (24 files), `agents:check-budget` green.
+  create-mercato-app 515 (512 pass, 3 skipped) · core 8993 · shared 1724 · cli 1446 · ui 1758 ·
+  cache 72. `yarn test` still carries only the pre-existing `storage-s3-routes.test.ts` failure
+  (5 tests), re-verified against a stashed tree.
+
+  **Next session starts at wave 4** (E2 translations/extension-points/notifications.client · H2
+  SPEC-P2 evaluator plumbing · C3 local-reference fact emission), plus the two new backlog rows above.
