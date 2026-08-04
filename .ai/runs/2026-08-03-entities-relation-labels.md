@@ -34,7 +34,7 @@ Recreate the useful intent of closed PR #4300 on a fresh `develop` base so relat
 - Relation definitions created outside the current editor may omit `optionsUrl`; synthesizing it from `relatedEntityId` preserves compatibility with those definitions.
 - Multiple relation fields can contain the same raw ID for different targets; display maps must remain field-scoped to avoid cross-entity label collisions.
 - Relation lookup failures must not make the list unusable; raw IDs remain the stable fallback.
-- The repository-wide gate currently fails on 21 missing translation keys and seven customer-invitation test assertions in files unchanged from `develop`; the scoped relation tests, typecheck, builds, client-boundary check, and template parity check pass.
+- Relation display resolution must not feed the record-list column definitions: doing so closes a render cycle (columns -> searchable fields -> record fetch -> relation resolve -> columns) that refetches without end. Displays are published through `RelationDisplaysProvider` so column identity depends on the field definitions alone.
 
 ## Progress
 
@@ -50,4 +50,4 @@ PR: #4904
 ### Phase 2: Regression coverage and delivery
 
 - [x] 2.1 Add focused tests for metadata exposure, single/multi values, batched chunks, synthesized URLs, and failed lookups. — 85de7cf645
-- [ ] 2.2 Run the configured validation gate, complete the authoritative autofix review, and finalize the PR for review.
+- [x] 2.2 Run the configured validation gate, complete the authoritative autofix review, and finalize the PR for review. — merged `develop` forward, fixed the record-list render loop, and ran the full gate green except one pre-existing flaky bootstrap suite.

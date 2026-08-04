@@ -710,6 +710,7 @@ const customFieldDefinitionSchema = z.object({
   label: z.string(),
   description: z.string().optional(),
   multi: z.boolean().optional(),
+  relatedEntityId: z.string().optional(),
   options: z.array(customFieldOptionValueSchema).optional(),
   optionsUrl: z.string().optional(),
   filterable: z.boolean().optional(),

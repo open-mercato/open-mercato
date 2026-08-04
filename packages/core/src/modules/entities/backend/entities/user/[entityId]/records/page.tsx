@@ -24,11 +24,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useRecordsEntityGuard } from '@open-mercato/core/modules/entities/components/useRecordsEntityGuard'
 import {
-  getRecordListRelationDisplays,
-  resolveRecordListRelationDisplays,
-  type RelationDisplaysByField,
-} from '@open-mercato/core/modules/entities/components/recordListRelationDisplays'
-import type { ResolvedValueDisplay } from '@open-mercato/ui/backend/utils/customFieldRelationDisplay'
+  RelationCell,
+  RelationDisplaysProvider,
+  useRecordListRelationDisplays,
+} from '@open-mercato/core/modules/entities/components/RecordListRelationCell'
 
 type RecordsResponse = {
   items: any[]
@@ -53,40 +52,6 @@ function normalizeCell(v: any): string {
   if (v == null) return ''
   if (v instanceof Date) return v.toISOString()
   return String(v)
-}
-
-function RelationCell({
-  value,
-  displays,
-}: {
-  value: unknown
-  displays?: Record<string, ResolvedValueDisplay>
-}) {
-  const resolvedDisplays = getRecordListRelationDisplays(value, displays)
-  const rawValue = resolvedDisplays.map((display) => display.id).join(', ') || normalizeCell(value)
-  if (!resolvedDisplays.length) {
-    return <span className="inline-block max-w-60 truncate align-top" title={rawValue}>{rawValue}</span>
-  }
-
-  return (
-    <span className="inline-block max-w-60 truncate align-top" title={rawValue}>
-      {resolvedDisplays.map((display, index) => (
-        <React.Fragment key={`${display.id}-${index}`}>
-          {index > 0 ? ', ' : null}
-          {display.href ? (
-            <Link
-              href={display.href}
-              className="font-medium text-primary underline-offset-2 hover:underline focus-visible:underline"
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
-              {display.label}
-            </Link>
-          ) : display.label}
-        </React.Fragment>
-      ))}
-    </span>
-  )
 }
 
 export default function RecordsPage({ params }: { params: { entityId?: string } }) {
@@ -144,7 +109,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     ),
     [cfDefs],
   )
-  const [relationDisplaysByField, setRelationDisplaysByField] = React.useState<RelationDisplaysByField>({})
+  const relationDisplaysByField = useRecordListRelationDisplays(relationDefinitions, rawData)
 
   // Fields searched server-side: every visible column plus the base `id`.
   const searchableFields = React.useMemo(() => {
@@ -219,24 +184,6 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     return () => { cancelled = true }
   }, [entityId, page, pageSize, sorting, filterValues, scopeVersion, search, searchableFields])
 
-  React.useEffect(() => {
-    const abortController = new AbortController()
-    setRelationDisplaysByField((current) => Object.keys(current).length ? {} : current)
-    if (!relationDefinitions.length || !rawData.length) {
-      return () => abortController.abort()
-    }
-
-    void resolveRecordListRelationDisplays(relationDefinitions, rawData, abortController.signal)
-      .then((resolvedDisplays) => {
-        if (!abortController.signal.aborted) setRelationDisplaysByField(resolvedDisplays)
-      })
-      .catch(() => {
-        if (!abortController.signal.aborted) setRelationDisplaysByField({})
-      })
-
-    return () => abortController.abort()
-  }, [rawData, relationDefinitions])
-
   // Build columns from custom field definitions only (no data round-trip)
   React.useEffect(() => {
     const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
@@ -248,7 +195,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
       cell: ({ getValue }: { getValue: () => unknown }) => {
         const v = getValue() as any
         if (d.kind === 'relation') {
-          return <RelationCell value={v} displays={relationDisplaysByField[d.key]} />
+          return <RelationCell fieldKey={d.key} value={v} fallbackText={normalizeCell(v)} />
         }
         return <span className="inline-block max-w-60 truncate align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
       },
@@ -257,7 +204,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
     if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
     setColumns(cols)
-  }, [cfDefs, relationDisplaysByField])
+  }, [cfDefs])
 
   // Search is server-side (see fetch effect); render the fetched page as-is so
   // pagination totals and exports stay consistent with the active search (#3229).
@@ -446,81 +393,83 @@ export RECORD_ID="<record uuid>"`}</code></pre>
             </div>
           </div>
         </ContextHelp>
-        <DataTable
-          stickyActionsColumn
-          title={`Records: ${entityId}`}
-          entityId={entityId}
-          actions={actions}
-          columns={columns}
-          data={data}
-          perspective={{
-            tableId: resolveExtensionPointPattern(extensionPoints.hosts.userRecordsTable.pattern, { entityId }),
-          }}
-          exporter={exportConfig}
-          filters={baseFilters}
-          filterValues={filterValues}
-          rowActions={(row) => (
-            <RowActions
-              items={[
-                { id: 'edit', label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
-                { id: 'delete', label: 'Delete', destructive: true, onSelect: async () => {
-                  const recordId = String((row as any).id)
-                  try {
-                    const confirmed = await confirm({
-                      title: 'Delete this record?',
-                      variant: 'destructive',
-                    })
-                    if (!confirmed) return
-                    await runDeleteMutation({
-                      operation: async () => {
-                        const deleteCall = await withScopedApiRequestHeaders(
-                          buildOptimisticLockHeader((row as any).updatedAt),
-                          () => apiCall(
-                            `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
-                            { method: 'DELETE' },
-                          ),
-                        )
-                        if (!deleteCall.ok) {
-                          await raiseCrudError(deleteCall.response, 'Failed to delete record')
-                        }
-                      },
-                      context: {
-                        formId: deleteMutationContextId,
-                        resourceKind: 'entities.record',
-                        resourceId: recordId,
-                        retryLastMutation: retryDeleteMutation,
-                      },
-                    })
-                    const j = await readApiResultOrThrow<RecordsResponse>(
-                      `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`,
-                      undefined,
-                      {
-                        errorMessage: 'Failed to reload records',
-                        fallback: { items: [], total: 0, page, pageSize, totalPages: 1 },
-                      },
-                    )
-                    setRawData(j.items || [])
-                    setTotal(j.total || 0)
-                    setTotalPages(j.totalPages || 1)
-                    flash('Record has been removed', 'success')
-                  } catch (error) {
-                    const message = error instanceof Error ? error.message : 'Failed to delete record'
-                    flash(message, 'error')
-                  }
-                } },
-              ]}
-            />
-          )}
-          sortable
-          sorting={sorting}
-          onSortingChange={setSorting}
-          searchValue={search}
-          onSearchChange={(v) => { setSearch(v); setPage(1) }}
-          onFiltersApply={(vals) => { setFilterValues(vals); setPage(1) }}
-          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
-          isLoading={loading}
-        />
+        <RelationDisplaysProvider displaysByField={relationDisplaysByField}>
+          <DataTable
+            stickyActionsColumn
+            title={`Records: ${entityId}`}
+            entityId={entityId}
+            actions={actions}
+            columns={columns}
+            data={data}
+            perspective={{
+              tableId: resolveExtensionPointPattern(extensionPoints.hosts.userRecordsTable.pattern, { entityId }),
+            }}
+            exporter={exportConfig}
+            filters={baseFilters}
+            filterValues={filterValues}
+            rowActions={(row) => (
+              <RowActions
+                items={[
+                  { id: 'edit', label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
+                  { id: 'delete', label: 'Delete', destructive: true, onSelect: async () => {
+                    const recordId = String((row as any).id)
+                    try {
+                      const confirmed = await confirm({
+                        title: 'Delete this record?',
+                        variant: 'destructive',
+                      })
+                      if (!confirmed) return
+                      await runDeleteMutation({
+                        operation: async () => {
+                          const deleteCall = await withScopedApiRequestHeaders(
+                            buildOptimisticLockHeader((row as any).updatedAt),
+                            () => apiCall(
+                              `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+                              { method: 'DELETE' },
+                            ),
+                          )
+                          if (!deleteCall.ok) {
+                            await raiseCrudError(deleteCall.response, 'Failed to delete record')
+                          }
+                        },
+                        context: {
+                          formId: deleteMutationContextId,
+                          resourceKind: 'entities.record',
+                          resourceId: recordId,
+                          retryLastMutation: retryDeleteMutation,
+                        },
+                      })
+                      const j = await readApiResultOrThrow<RecordsResponse>(
+                        `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`,
+                        undefined,
+                        {
+                          errorMessage: 'Failed to reload records',
+                          fallback: { items: [], total: 0, page, pageSize, totalPages: 1 },
+                        },
+                      )
+                      setRawData(j.items || [])
+                      setTotal(j.total || 0)
+                      setTotalPages(j.totalPages || 1)
+                      flash('Record has been removed', 'success')
+                    } catch (error) {
+                      const message = error instanceof Error ? error.message : 'Failed to delete record'
+                      flash(message, 'error')
+                    }
+                  } },
+                ]}
+              />
+            )}
+            sortable
+            sorting={sorting}
+            onSortingChange={setSorting}
+            searchValue={search}
+            onSearchChange={(v) => { setSearch(v); setPage(1) }}
+            onFiltersApply={(vals) => { setFilterValues(vals); setPage(1) }}
+            onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+            pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+            isLoading={loading}
+          />
+        </RelationDisplaysProvider>
       </PageBody>
       {ConfirmDialogElement}
     </Page>
