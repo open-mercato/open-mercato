@@ -539,3 +539,13 @@ before merging E3; findings change what E3 is allowed to do.
 
   **Next: wave 6** — E4 (encryption + search) and H4 (CANON-C link migration; OMH-018 budget bump is
   approved per the maintainer's budget guidance).
+
+  **In flight (session 4):** wave 6 workflow `wf_8b7a6a12-7d7` — `wave6/e4-encryption-and-search`
+  and `wave6/h4-canon-c-link-migration`. E4 is the first slice in this program to touch the DATABASE
+  (a nullable encrypted column on `todos` + migration + snapshot), so its verifier has an extra
+  blocker-level check: inspect the generated SQL and snapshot diff for unrelated churn, confirm
+  `findWithDecryption` is used instead of raw `em.find`, and confirm the encrypted column does not
+  break search/sort/CSV (an `$ilike` over ciphertext matches nothing). H4 raises
+  `maxInitialContextBytes` per the maintainer's budget guidance rather than relocating prose, and is
+  restricted to budget VALUES in `cases.json` — it must not add or remove cases (H3 owns the case set).
+  Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_8b7a6a12-7d7'})`.
