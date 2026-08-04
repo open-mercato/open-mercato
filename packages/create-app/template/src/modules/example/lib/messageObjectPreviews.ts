@@ -4,7 +4,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ObjectPreviewData } from '@open-mercato/shared/modules/messages/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Todo } from '../data/entities'
-import { buildTodoPreviewMetadata } from './todoPreviewFields'
 
 type PreviewContext = {
   tenantId: string
@@ -49,11 +48,6 @@ export async function loadTodoPreview(entityId: string, ctx: PreviewContext): Pr
   return {
     title: todo.title,
     metadata: {
-      // Rows contributed by any enabled module through the `example.todo-preview-fields`
-      // generator plugin (see `../generators.ts`). Spread FIRST so the built-in rows
-      // below win a label collision: a contribution may extend this preview, never
-      // silently replace what this module states itself.
-      ...buildTodoPreviewMetadata(todo, { translate: (key) => t(key) }),
       [doneLabel]: todo.isDone ? t('common.yes', 'Yes') : t('common.no', 'No'),
     },
   }
