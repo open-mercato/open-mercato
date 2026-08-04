@@ -1285,3 +1285,65 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
     })
   })
 })
+
+describe('doc-field null equality (issue #4841)', () => {
+  const serializeWheres = (db: any, table: string): string[] =>
+    (db._chains as ChainLog[])
+      .filter((chain) => chain.table === table)
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) =>
+        JSON.stringify(entry, (_key, inner) =>
+          inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+        ),
+      )
+      .filter((serialized: string) => serialized.includes('->>'))
+
+  // `started_at` / `ended_at` are absent from the base table, so the running-timer
+  // filter shape resolves against entity_indexes.doc instead of a real column.
+  const runFilters = async (filters: Record<string, unknown>) => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+      ],
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters,
+    })
+
+    return serializeWheres(db, 'todos')
+  }
+
+  test('the running-timer filter shape compiles to null-safe doc predicates', async () => {
+    const predicates = await runFilters({ started_at: { $ne: null }, ended_at: null })
+
+    expect(predicates.length).toBeGreaterThan(0)
+    const combined = predicates.join('\n')
+    // `(doc ->> 'ended_at') = NULL` and `<> NULL` are never TRUE, which silently
+    // emptied the active-timer lookup instead of narrowing it.
+    expect(combined).toContain('is null')
+    expect(combined).toContain('is not null')
+    expect(combined).not.toContain('<>')
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(false)
+  })
+
+  test('non-null doc comparisons keep using the equality operators', async () => {
+    const predicates = await runFilters({ ended_at: '2026-01-01' })
+
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(true)
+    expect(predicates.join('\n')).not.toContain('is null')
+  })
+})

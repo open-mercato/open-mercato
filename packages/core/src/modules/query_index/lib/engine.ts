@@ -1589,9 +1589,13 @@ export class HybridQueryEngine implements QueryEngine {
     }
     switch (op) {
       case 'eq':
-        return q.where(sql<boolean>`${textExpr} = ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is null`)
+          : q.where(sql<boolean>`${textExpr} = ${value}`)
       case 'ne':
-        return q.where(sql<boolean>`${textExpr} <> ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is not null`)
+          : q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
@@ -1709,8 +1713,8 @@ export class HybridQueryEngine implements QueryEngine {
   ): any {
     const textExpr = sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${key})`
     switch (op) {
-      case 'eq': return sql<boolean>`${textExpr} = ${value}`
-      case 'ne': return sql<boolean>`${textExpr} <> ${value}`
+      case 'eq': return value === null ? sql<boolean>`${textExpr} is null` : sql<boolean>`${textExpr} = ${value}`
+      case 'ne': return value === null ? sql<boolean>`${textExpr} is not null` : sql<boolean>`${textExpr} <> ${value}`
       case 'gt':
       case 'gte':
       case 'lt':
