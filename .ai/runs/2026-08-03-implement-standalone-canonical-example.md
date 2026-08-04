@@ -89,6 +89,8 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 41 | **Wave 9 C6** — fix the `search` silent zero + add the missing diagnostic (0 → 6 ids) | CANON-B / reader | done | (merge) |
 | 42 | **Wave 9 E7 (PARTIAL)** — durable Todo bulk-complete: outbox, CAS worker, progress route, bulk widget | CANON-B bulk/progress | partial | `d5fa51253` |
 | 43 | **Wave 9 H7** — GOV-P2 controller-owned base/head evidence contract | GOV-P2 | done | `e8eb259b0` |
+| 44 | **Wave 10 H8** — harness source-selection assertions (family 11, OMH-215/216) | CANON-C harness cases | done | `34b199657` |
+| 45 | **Wave 10 C5** — derived source-link inventory + D4 equality + drift gate + anti-staleness fix | CANON-C keystone | done | `c5db477fa` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -853,3 +855,41 @@ before merging E3; findings change what E3 is allowed to do.
     guard and has now rotted twice — and pin any new declaring case in `DECLARED_CAPABILITY_IDS`.
 
   Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_a24df3d2-76b'})`.
+
+  **Wave 10 merged (session 4). CANON-C's keystone is in.**
+
+  - **C5 defeated an existing anti-staleness gate — caught and fixed on merge.**
+    `MISSING_SURFACES['source-link-inventory.json']` probed the OLD
+    `agentic/shared/ai/harness/` path, which the inventory will never occupy because wave 7
+    deliberately moved these monorepo-only ledgers out of the tree that ships into every generated
+    app. The probe would have said "still missing" forever and the three ledger rows naming it as a
+    blocker could never go stale — exactly what that gate exists to catch. Repointed; the three rows
+    updated (`source-link-inventory.json` is no longer a blocker, `context.sourceReferenceIds` still
+    is). **Removing the inventory now fails 23 tests instead of passing silently.**
+  - **The drift gate proved itself immediately**: after merging H8's new cases, C5's
+    regenerate-and-diff caught the checked inventory as stale (`citedByCaseIds` missing OMH-215).
+    Two slices' guards catching each other is the outcome this structure is for.
+  - **D4 is a real equality, not a subset.** Two symmetric loops reject both a derived topic the
+    registry does not declare and a registry topic nobody renders; `buildInventory` returns null on
+    any error so a drifted registry cannot silently regenerate. The verifier broke it in BOTH
+    directions through real files. The 25 retained-normative-snippet topics are carried from the
+    registry with each literal `evidence` re-verified per run — asymmetry documented, not hidden.
+  - **TWO MORE FALSE PREMISES IN MY BRIEF (now SEVEN across ten waves).** (1) I asked for `topicId`
+    on surface-inventory rows; the spec does not ask for it — it appears only on the
+    source-link-inventory RECORD and on baseline blocks. (2) I described a fail-closed BRANCH to flip
+    in the knowledge-change validator; there is none — its CANON-C guard is a file-existence check,
+    so the manifest's existence resolves the contracts by itself.
+  - **C5 declined to wire the validators into `.ai/agentic.config.json`, with a better reason than
+    mine**: they are ALREADY inside the config's `yarn test` step via turbo, so a separate entry
+    would duplicate an existing gate and add a second failure surface.
+  - It also found that **the wave-7 changelog entry I wrote reports paths that do not exist**, and
+    recorded the correction rather than rewriting history.
+  - **H8** landed family-11 source-selection coverage; the verifier enumerated 21 catalog-count pins
+    plus 6 declaring-set pins with none missed, hand-checking `AGENT-HARNESS.md` as instructed. One
+    tautological assertion (`notDeepEqual` between two values already pinned to distinct literals)
+    was replaced on merge with the property it was reaching for.
+
+  **FLAKE (new, recorded):** `@open-mercato/core` → `Module Decoupling › resolveDefaultPartitionCode`
+  failed once under the full parallel `yarn test`, passed in isolation and on a clean re-run. Not a
+  regression. **Gate after wave 10: FULLY GREEN** — `yarn test` exit 0 (25/25), create-mercato-app
+  605 pass, guards, budget, build:app.
