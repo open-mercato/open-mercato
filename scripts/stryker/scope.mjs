@@ -12,7 +12,10 @@
  * every `.tsx` file (rendering, covered by UI tests rather than mutation scoring).
  *
  * Usage:
- *   node scripts/stryker/scope.mjs [--base <ref>] [--json]
+ *   node scripts/stryker/scope.mjs [--base <ref>]
+ *
+ * Output is always the matrix JSON on stdout; dropped-file warnings go to stderr so
+ * they never pollute it.
  *
  * Always exits 0. An empty matrix means "nothing in scope", which the workflow treats
  * as a skip — never as a failure and never as a synthetic score.
@@ -109,14 +112,12 @@ function defaultRunGit(args) {
 }
 
 export function parseArgs(argv) {
-  const args = { base: DEFAULT_BASE_REF, json: false }
+  const args = { base: DEFAULT_BASE_REF }
 
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--base' && index + 1 < argv.length) {
       args.base = argv[index + 1]
       index += 1
-    } else if (argv[index] === '--json') {
-      args.json = true
     }
   }
 

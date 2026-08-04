@@ -195,7 +195,7 @@ only surfaces other tooling should depend on:
 
 | Surface | Contract |
 |---------|----------|
-| `node scripts/stryker/scope.mjs [--base <ref>] [--json]` | stdout: GH Actions matrix JSON; exit 0 with an empty matrix when nothing is in scope |
+| `node scripts/stryker/scope.mjs [--base <ref>]` | stdout: GH Actions matrix JSON (always — the `--json` flag from the draft was dropped as a no-op); stderr: dropped-file warnings; exit 0 with an empty matrix when nothing is in scope |
 | `node scripts/stryker/report.mjs <mutation.json>` | stdout: markdown survivor table; exit 0 always |
 | `yarn mutation:changed` | local wrapper: clean-tree guard → `scope.mjs` → Stryker per package |
 
