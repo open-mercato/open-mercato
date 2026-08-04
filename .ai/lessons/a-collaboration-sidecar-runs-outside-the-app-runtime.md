@@ -1,11 +1,11 @@
 ---
-title: "Realtime collaboration runtime: sidecar, shares, reconnects"
-modules: ["documents"]
-areas: ["integration","backend-ui","debugging"]
-topics: ["realtime","package-runtime","access-control"]
+title: "Documents module: collaboration runtime and data exposure"
+modules: ["documents","search","auth"]
+areas: ["integration","backend-ui","module-data"]
+topics: ["realtime","access-control","data-scoping"]
 ---
 
-# Realtime collaboration runtime: sidecar, shares, reconnects
+# Documents module: collaboration runtime and data exposure
 
 ## The sidecar runs outside the app runtime
 
@@ -28,3 +28,21 @@ topics: ["realtime","package-runtime","access-control"]
 - A share **downgrade** (editor→viewer via `PUT /shares`) is not a revoke — it emits `documents.document.shared`, not `unshared`. A Hocuspocus `connection.readOnly` is set once at `onAuthenticate` and the token TTL is only re-checked on reconnect, so a demoted editor keeps a writable live socket. Make `documents.document.shared` `clientBroadcast: true` and force-close its room too.
 - Because a share/downgrade/restore force-closes the collab room, a client that drops to a permanent read-only fallback on `provider.on('disconnect'|'close')` gets kicked to read-only after ANY share made while editing. HocuspocusProvider auto-reconnects and re-mints the token (picking up the current tier); the client must only fall back on a genuine INITIAL-connect timeout or `authenticationFailed`, and treat a mid-session disconnect as transient (`hasConnected` guard) rather than tearing the provider down.
 - `@tiptap/extension-collaboration-caret` ships NO stylesheet — its default `render` only sets inline `border-color`/`background-color` on `.collaboration-carets__caret` / `__label`, so with no app CSS the caret is an invisible zero-width span and the name renders as a plain inline colored block. Its default `selectionRender` uses `${color}70` (~44% alpha) → a heavy solid highlight. Fix in TWO places: (1) supply structural CSS (`border-left-width:2px`, an absolute-positioned label pill that fades via keyframes and shows on `:hover`) scoped under a wrapper class, injected as a `<style>` in the client editor — colors stay data-driven from the inline styles; (2) pass a custom `selectionRender` returning `${color}33` (~20%) for a Google-Docs-style wash. Verify with TWO tabs (same login = distinct Yjs clientIDs, so each sees the other's caret) — a single session shows no remote caret.
+
+## Global search has no per-record ACL hook
+
+**Context**: Documents are visible per record via explicit shares, not per organization.
+
+**Problem**: OM global search has NO per-record ACL hook — only the `search.view` feature gate — so indexing a share-scoped/private entity via `search.ts` leaks its title and content to any org user holding the module feature.
+
+**Rule**: For per-doc-shared modules, ship the search entity `enabled: false` until a per-record visibility hook exists; let users discover records through the permission-filtered list route instead.
+
+**Applies to**: any entity whose read authorization is finer-grained than tenant/organization scope.
+
+## Resolve principal names server-side, never raw UUIDs
+
+**Context**: The share dialog rendered GUIDs because `GET /api/documents/[id]/shares` stores only `principalId`.
+
+**Rule**: Resolve names server-side in the GET route (it already imports `User`/`Role` from auth): batch `findWithDecryption(em, User, { id: { $in }, tenantId, $or: [{ organizationId: null }, { organizationId }] })` — email is encrypted, so it must be decrypted — plus `em.find(Role, { id: { $in }, tenantId })`, and return `principalLabel`/`principalSecondary` (the client `normalizeShare` already prefers `principalLabel`). Never surface a bare UUID as a person's identity in UI.
+
+**Applies to**: any picker or list that renders principals. For long values, wrap flex children in `min-w-0 flex-1` with `truncate` and `shrink-0` the trailing controls — an `Input` next to a clear button overflows its grid cell without a `min-w-0 flex-1` wrapper.
