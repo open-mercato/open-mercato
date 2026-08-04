@@ -23,15 +23,33 @@ Rule owners named per row own the *normative* rule. This module owns only *one c
 |---|---|---|---|
 | `module.metadata` | `ModuleInfo` export; everything else is found by file convention | [`../index.ts`](../index.ts) | readable |
 | `module.acl-features` | Feature ids with `dependsOn` chains | [`../acl.ts`](../acl.ts) | readable |
-| `module.setup-role-features` | `ModuleSetupConfig` default role grants applied at tenant init | [`../setup.ts`](../setup.ts) | readable |
-| `module.di-registration` | `register(container)` registering gateway / carrier / webhook adapters and provider descriptors | [`../di.ts`](../di.ts) | readable |
+| `module.setup-role-features` | `ModuleSetupConfig` default role grants, plus all three seeding hooks used for the job only each one can do — `onTenantCreated` (no container: pure-`em` custom-entity install), `seedDefaults` (container: scoped reference records via `dataEngine`, deterministic upserting ids), `seedExamples` (skipped by `--no-examples`: demo Todos through the shared CLI seeder) | [`../setup.ts`](../setup.ts), [`../lib/exampleSeeds.ts`](../lib/exampleSeeds.ts) | readable |
+| `module.di-registration` | `register(container)` doing both halves of module DI: the module's own scoped Awilix service (`asFunction(...).scoped()`) into *this* container, and gateway / carrier / webhook adapters into module-external registries | [`../di.ts`](../di.ts), [`../lib/todoSummaryService.ts`](../lib/todoSummaryService.ts) | readable |
 | `module.cli-command` | Module CLI entrypoint, custom-entity install, idempotent seeding | [`../cli.ts`](../cli.ts) | readable |
 | `module.i18n-catalogs` | Per-module locale catalogs for `useT()` / `resolveTranslations()` | [`../i18n/en.json`](../i18n/en.json), [`../i18n/de.json`](../i18n/de.json), [`../i18n/es.json`](../i18n/es.json), [`../i18n/pl.json`](../i18n/pl.json) | readable |
 | `module.translatable-fields` | `<module>:<entity>` → translatable field names; declaring the file injects the Translation Manager into that entity's CrudForm header spot | [`../translations.ts`](../translations.ts) | readable |
 
-Evidence: `__tests__/acl-dependencies.test.ts`, `__tests__/translations.test.ts`.
+Evidence: `__tests__/acl-dependencies.test.ts`, `__tests__/translations.test.ts`, `__tests__/setup-seeding.test.ts`, `__tests__/di-registration.test.ts`.
 
 Rule owners: `om-module-scaffold`, `om-integration-builder` (DI adapters).
+
+## Cache
+
+| Capability | Demonstrates | Source | Status |
+|---|---|---|---|
+| `runtime.tenant-scoped-cache` | Cache-aside read whose logical key carries tenant **and** organization, `runWithCacheTenant` around every backend call, a cached value that re-asserts its own scope on read, a bounded TTL, and tag invalidation | [`../lib/todoSummaryCache.ts`](../lib/todoSummaryCache.ts), [`../lib/todoSummaryService.ts`](../lib/todoSummaryService.ts), [`../api/todos/summary/route.ts`](../api/todos/summary/route.ts), [`../subscribers/invalidate-todo-summary.ts`](../subscribers/invalidate-todo-summary.ts) | readable |
+
+Three things are worth copying and one is worth understanding.
+
+**Copy**: the scope never comes from the request — a caller-supplied tenant or organization would become part of the cache key and let one caller both populate and read another scope's entry. The subscriber uses the wildcard `example.todo.*`, so a fourth write path cannot be added without invalidating. And it runs from `flushOrmEntityChanges`, which fires **after** the domain write commits, which is the ordering the cache package's own consistency rule requires.
+
+**Understand**: the entry is tagged `crud:example.todo:tenant:<id>:org:<id>:collection`, which is not a name this module invented. `makeCrudRoute` derives its cache resource from `events: { module, entity }`, so the Todo route's resource is exactly `example.todo`, and `buildCollectionTags` from `@open-mercato/shared/lib/crud/cache` builds the tag. Reusing it means the platform's own post-commit `invalidateCrudCache` drops this entry too whenever `ENABLE_CRUD_API_CACHE` is on, without the module reimplementing tag naming. `lib/__tests__/todoSummaryCache.test.ts` pins that derivation rather than trusting the comment.
+
+The subscriber is `persistent: false`, so under the default process-local memory strategy peers converge on the TTL; a shared backend (`CACHE_STRATEGY=redis`) makes the single `deleteByTags` authoritative for the deployment.
+
+Evidence: `lib/__tests__/todoSummaryCache.test.ts`, `__tests__/invalidate-todo-summary.test.ts`, `api/__tests__/todos.summary.test.ts`.
+
+Rule owner: `om-module-scaffold`.
 
 ## Data model
 
@@ -175,10 +193,12 @@ Recorded so the gate stays honest; none of these demote the row.
 - `components/TodosTable.tsx` — two localized `(col as any)` property probes on the TanStack `ColumnDef` union; both are immediately runtime-checked, so they are notes rather than gate-4 failures.
 - `notifications.client.ts` — the renderer component is declared inline instead of in `widgets/notifications/<Name>.tsx`, so the convention file stays `.ts` and the component is built with `React.createElement` rather than JSX. Its action-selection decision is exported as a pure function so it stays testable. Copy the file's structure, not its component location.
 - `widgets/injection-table.ts`, `widgets/components.ts` — conditionally spread exports; static module-fact extraction cannot read their entries.
-- `di.ts` — registers adapters through external registries; it contains no Awilix `container.register` call, so it emits no rich DI registration fact.
+- `di.ts` — the Awilix `container.register` call and the external adapter-registry calls sit in one function. Only the former emits a rich DI registration fact; the latter register into registries this container never sees.
 - `data/guards.ts`, `subscribers/prevent-uncomplete.ts` — English rejection messages are inline object properties rather than translation keys.
 - `widgets/dashboard/todos/widget.client.tsx`, `widgets/dashboard/notes/widget.client.tsx`, `widgets/dashboard/welcome/widget.client.tsx` — arbitrary Tailwind values (`min-h-[120px]`, `min-h-[160px]`); the widget registration and settings files linked above are unaffected.
 
 ## Capabilities this module does not cover yet
 
-Not present in the tree today, so there is no row and no link: encryption of a module field, `search.ts` registration, DI-resolved caching with tag invalidation, queued bulk operations with operation progress, `data/extensions.ts`, `generators.ts`, `ai-tools.ts` / `ai-agents.ts`, page middleware, portal broadcast, and `setup.ts` seed hooks. Follow the owning skill; do not infer a pattern from an adjacent `example` file.
+Not present in the tree today, so there is no row and no link: queued bulk operations with operation progress (no `workers/`), `data/extensions.ts`, `generators.ts`, `ai-tools.ts` / `ai-agents.ts`, page middleware (`backend/middleware.ts` / `frontend/middleware.ts`), and portal broadcast (no `portalBroadcast` event). Follow the owning skill; do not infer a pattern from an adjacent `example` file.
+
+Present but not yet proven by the module-local integration suite the canonical spec names: the cache row is covered by unit tests here, not by `__integration__/TC-EXAMPLE-007-cache.spec.ts`, and the setup row by `__tests__/setup-seeding.test.ts` rather than `__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts`. Both specs are still outstanding.
