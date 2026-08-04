@@ -10,8 +10,13 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import type { TodoListItem } from '../types'
+import extensionPoints from '../extension-points'
 
-const ENTITY_ID = 'example:todo'
+// Derived from the declared host rather than duplicated: `hasDeclarationBinding`
+// (packages/cli/src/lib/generators/module-extension-facts.ts) only treats a host as
+// BOUND when its declared source file references `extensionPoints.hosts.<key>`, and
+// `CrudForm` normalizes the colon form back to the host's dotted `entityId`.
+const ENTITY_ID = extensionPoints.hosts.todoForm.entityId.replace('.', ':')
 const LIST_HREF = '/backend/todos'
 
 type Translate = ReturnType<typeof useT>

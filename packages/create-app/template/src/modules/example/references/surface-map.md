@@ -27,6 +27,9 @@ Rule owners named per row own the *normative* rule. This module owns only *one c
 | `module.di-registration` | `register(container)` registering gateway / carrier / webhook adapters and provider descriptors | [`../di.ts`](../di.ts) | readable |
 | `module.cli-command` | Module CLI entrypoint, custom-entity install, idempotent seeding | [`../cli.ts`](../cli.ts) | readable |
 | `module.i18n-catalogs` | Per-module locale catalogs for `useT()` / `resolveTranslations()` | [`../i18n/en.json`](../i18n/en.json), [`../i18n/de.json`](../i18n/de.json), [`../i18n/es.json`](../i18n/es.json), [`../i18n/pl.json`](../i18n/pl.json) | readable |
+| `module.translatable-fields` | `<module>:<entity>` → translatable field names; declaring the file injects the Translation Manager into that entity's CrudForm header spot | [`../translations.ts`](../translations.ts) | readable |
+
+Evidence: `__tests__/acl-dependencies.test.ts`, `__tests__/translations.test.ts`.
 
 Rule owners: `om-module-scaffold`, `om-integration-builder` (DI adapters).
 
@@ -94,6 +97,7 @@ Rule owner: `om-backend-ui-design`.
 |---|---|---|---|
 | `umes.mutation-guard` | `MutationGuard` bound to an entity kind + operations, returning `{ ok: false, message, status }` | [`../data/guards.ts`](../data/guards.ts) | readable |
 | `umes.response-enricher` | `ResponseEnricher` adding a namespaced `_example` block to another module's list/detail responses, with `enrichMany` batching, `fallback`, timeout, explicit `cacheableOnListHit` | [`../data/enrichers.ts`](../data/enrichers.ts) | readable |
+| `umes.extension-points` | `defineModuleExtensionPoints` declaring the hosts this module exposes: the Todo DataTable and the Todo CrudForm, each consumed by its declared source via `extensionPoints.hosts.<key>`, the form the framework's binding detector requires | [`../extension-points.ts`](../extension-points.ts) | readable |
 | `umes.injection-table` | Every supported spot-id shape mapped to widget ids: portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menus, detail spots, tab groups, nested widget addon | [`../widgets/injection-table.ts`](../widgets/injection-table.ts) | readable |
 | `umes.injection.crud-form-field` | Headless field contribution into another module's CrudForm plus an `onSave` upsert handler | [`../widgets/injection/customer-priority-field/widget.ts`](../widgets/injection/customer-priority-field/widget.ts) | readable |
 | `umes.injection.datatable-column` | Headless column reading an enricher-provided accessor path | [`../widgets/injection/customer-priority-column/widget.ts`](../widgets/injection/customer-priority-column/widget.ts) | readable |
@@ -105,7 +109,7 @@ Rule owner: `om-backend-ui-design`.
 | `umes.component-replacement` | `ComponentOverride` against `ComponentReplacementHandles.section(...)` in `wrapper` mode | [`../widgets/components.ts`](../widgets/components.ts) | **qa-only** |
 | `overrides.unified-registry` | Typed, inactive `entry.overrides` examples for every wired override domain (app registry, not the module) | [`../../../modules.ts`](../../../modules.ts) | readable |
 
-Evidence: `widgets/__tests__/injection-table.test.ts`, `widgets/__tests__/components.test.ts`, `__integration__/TC-UMES-001.spec.ts`, `__integration__/TC-UMES-002.spec.ts`, `__integration__/TC-UMES-004.spec.ts`, `__integration__/TC-UMES-012.spec.ts`, `__integration__/TC-UMES-022-overrides.spec.ts`.
+Evidence: `__tests__/extension-points.test.ts`, `widgets/__tests__/injection-table.test.ts`, `widgets/__tests__/components.test.ts`, `__integration__/TC-UMES-001.spec.ts`, `__integration__/TC-UMES-002.spec.ts`, `__integration__/TC-UMES-004.spec.ts`, `__integration__/TC-UMES-012.spec.ts`, `__integration__/TC-UMES-022-overrides.spec.ts`.
 
 Rule owner: `om-system-extension` (`om-backend-ui-design` for the rendered widget leaf).
 
@@ -115,10 +119,11 @@ Rule owner: `om-system-extension` (`om-backend-ui-design` for the rendered widge
 |---|---|---|---|
 | `notifications.type` | `NotificationTypeDefinition`: translation keys, severity, icon token, actions with variants/hrefs, primary action, expiry | [`../notifications.ts`](../notifications.ts) | readable |
 | `notifications.reactive-handler` | `NotificationHandler` bound to a type, feature-gated, raising a toast and re-emitting a DOM event | [`../notifications.handlers.ts`](../notifications.handlers.ts) | readable |
+| `notifications.client-renderer` | Client re-declaration of the server notification types with a custom `Renderer` attached, mapped over `notifications.ts` so the frozen id and keys stay single-sourced | [`../notifications.client.ts`](../notifications.client.ts) | readable |
 | `messages.object-type` | Message object registration plus a server-only preview loader using `findOneWithDecryption` with explicit scope and translated fallbacks | [`../message-objects.ts`](../message-objects.ts), [`../lib/messageObjectPreviews.ts`](../lib/messageObjectPreviews.ts) | readable |
 | `integrations.mock-adapters` | Credential-free gateway, carrier, and webhook-endpoint adapters incl. signature verification | [`../lib/mock-gateway-adapter.ts`](../lib/mock-gateway-adapter.ts), [`../lib/mock-shipping-adapter.ts`](../lib/mock-shipping-adapter.ts), [`../lib/mock-webhook-endpoint-adapter.ts`](../lib/mock-webhook-endpoint-adapter.ts) | readable |
 
-Evidence: `__integration__/TC-UMES-003.spec.ts`, `__integration__/TC-UMES-005.spec.ts`, `__integration__/TC-UMES-008.spec.ts`, `__integration__/TC-UMES-020.spec.ts`, `lib/__tests__/mock-gateway-adapter.test.ts`, `lib/__tests__/mock-shipping-adapter.test.ts`, `lib/__tests__/mock-webhook-endpoint-adapter.test.ts`.
+Evidence: `__tests__/notifications.client.test.tsx`, `__integration__/TC-UMES-003.spec.ts`, `__integration__/TC-UMES-005.spec.ts`, `__integration__/TC-UMES-008.spec.ts`, `__integration__/TC-UMES-020.spec.ts`, `lib/__tests__/mock-gateway-adapter.test.ts`, `lib/__tests__/mock-shipping-adapter.test.ts`, `lib/__tests__/mock-webhook-endpoint-adapter.test.ts`.
 
 Rule owners: `om-system-extension`, `om-integration-builder`.
 
@@ -150,7 +155,7 @@ Recorded so the gate stays honest; none of these demote the row.
 - `commands/interceptors.ts`, `subscribers/audit-delete.ts` — raw `console.log` behind an eslint disable instead of the `createLogger` facade (advisory `yarn logger:check-console`).
 - `api/todos/route.ts` — imports `todoCrudEvents` / `todoCrudIndexer` from `commands/todos.ts` but configures `events` / `indexer` inline; the imports are unused. Left in place because the two shapes are not equivalent (the command-side configs carry `buildPayload` builders) and reconciling them changes emitted payloads.
 - `components/TodosTable.tsx` — two localized `(col as any)` property probes on the TanStack `ColumnDef` union; both are immediately runtime-checked, so they are notes rather than gate-4 failures.
-- `references/surface-inventory.json` — the `ui.form-create` / `ui.form-edit` rows do not yet list `src/modules/example/components/TodoForm.tsx` in their `sourcePaths`, so the harness read allowlist for those capabilities is narrower than the map above.
+- `notifications.client.ts` — the renderer component is declared inline instead of in `widgets/notifications/<Name>.tsx`, so the convention file stays `.ts` and the component is built with `React.createElement` rather than JSX. Its action-selection decision is exported as a pure function so it stays testable. Copy the file's structure, not its component location.
 - `widgets/injection-table.ts`, `widgets/components.ts` — conditionally spread exports; static module-fact extraction cannot read their entries.
 - `di.ts` — registers adapters through external registries; it contains no Awilix `container.register` call, so it emits no rich DI registration fact.
 - `data/guards.ts`, `subscribers/prevent-uncomplete.ts` — English rejection messages are inline object properties rather than translation keys.
@@ -158,4 +163,4 @@ Recorded so the gate stays honest; none of these demote the row.
 
 ## Capabilities this module does not cover yet
 
-Not present in the tree today, so there is no row and no link: encryption of a module field, `search.ts` registration, DI-resolved caching with tag invalidation, queued bulk operations with operation progress, `notifications.client.ts` renderers, `translations.ts`, `extension-points.ts`, `data/extensions.ts`, `generators.ts`, `ai-tools.ts` / `ai-agents.ts`, page middleware, portal broadcast, and `setup.ts` seed hooks. Follow the owning skill; do not infer a pattern from an adjacent `example` file.
+Not present in the tree today, so there is no row and no link: encryption of a module field, `search.ts` registration, DI-resolved caching with tag invalidation, queued bulk operations with operation progress, `data/extensions.ts`, `generators.ts`, `ai-tools.ts` / `ai-agents.ts`, page middleware, portal broadcast, and `setup.ts` seed hooks. Follow the owning skill; do not infer a pattern from an adjacent `example` file.

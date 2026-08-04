@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '../types'
+import extensionPoints from '../extension-points'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -291,7 +292,7 @@ export default function TodosTable() {
         sortable
         sorting={sorting}
         onSortingChange={handleSortingChange}
-        perspective={{ tableId: 'example.todos.list' }}
+        perspective={{ tableId: extensionPoints.hosts.todosTable.tableId }}
         rowActions={(row) => (
           <RowActions
             items={[
