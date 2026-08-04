@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
@@ -28,6 +29,7 @@ import {
   type ModuleOverrideTargetDiagnostic,
 } from './module-override-targets'
 import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
+import { appendLocalReferenceModuleSource } from './module-facts-discovery'
 
 export interface ModuleEntityFact {
   id: string
@@ -208,6 +210,15 @@ export type ModuleDiRegistrationFact = {
   source: ModuleFactSourceRef
 }
 
+/**
+ * How the extracted module reached the batch. `package` is the implicit default for
+ * every installed `@open-mercato/*` module and never appears in emitted output, so the
+ * package sidecar contract stays byte-identical. `local-reference` marks an app-local
+ * module projected into the explicit reference bundle; it is an independent discriminator
+ * from `sourcePackage`, which keeps its legacy "null means core package" meaning.
+ */
+export type ModuleFactProjectionSourceKind = 'package' | 'local-reference'
+
 export interface ModuleFacts {
   module: string
   title: string | null
@@ -216,6 +227,8 @@ export interface ModuleFacts {
   sourcePackage: string | null
   sourceVersion: string | null
   sourceRoot: string
+  /** Present only for `local-reference` projections; package modules omit it entirely. */
+  sourceKind?: ModuleFactProjectionSourceKind
   entities: ModuleEntityFact[]
   events: ModuleEventFact[]
   aclFeatures: string[]
@@ -255,6 +268,13 @@ export interface ExtractModuleFactsOptions {
   sourceVersion?: string | null
   registryPath?: string | null
   registrySource?: string | null
+  /**
+   * App-root-relative POSIX root written into every emitted source path. Overrides the
+   * default `node_modules/<package>/src/modules/<moduleId>` layout so an app-local module
+   * emits `src/modules/<moduleId>` instead of a package path it does not live in.
+   */
+  portableSourceRoot?: string
+  sourceKind?: ModuleFactProjectionSourceKind
 }
 
 /** A discovered module and the source directory its facts are extracted from. */
@@ -263,6 +283,8 @@ export interface ModuleFactSource {
   moduleRoot: string
   from?: string
   packageVersion?: string | null
+  portableSourceRoot?: string
+  sourceKind?: ModuleFactProjectionSourceKind
 }
 
 function readSourceFile(filePath: string): ts.SourceFile | null {
@@ -909,6 +931,26 @@ function listSourceFilesRecursive(directory: string): string[] {
 
 function toPortableSourceRoot(moduleId: string, sourcePackage: string | null): string {
   return path.posix.join('node_modules', sourcePackage ?? '@open-mercato/core', 'src', 'modules', moduleId)
+}
+
+/**
+ * An explicit portable root must stay app-root-relative and POSIX-shaped: every emitted
+ * fact path and markdown link is resolved against the generated app root, so an absolute
+ * path, a Windows separator, or a traversal segment would emit an unclickable or
+ * machine-specific reference into a distributed artifact.
+ */
+export function assertPortableSourceRoot(moduleId: string, portableSourceRoot: string): string {
+  const invalid = portableSourceRoot.length === 0
+    || path.posix.isAbsolute(portableSourceRoot)
+    || /^[A-Za-z]:/.test(portableSourceRoot)
+    || portableSourceRoot.includes('\\')
+    || portableSourceRoot.split('/').includes('..')
+  if (invalid) {
+    throw new Error(
+      `[module-facts] portableSourceRoot for module "${moduleId}" must be a relative POSIX app path, received "${portableSourceRoot}"`,
+    )
+  }
+  return portableSourceRoot
 }
 
 function toPortableSourcePath(moduleRoot: string, sourceRoot: string, filePath: string): string {
@@ -1897,7 +1939,9 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   if (!moduleRoot) {
     throw new Error(`[internal] extractModuleFacts requires moduleRoot or coreSrcRoot for module "${moduleId}"`)
   }
-  const sourceRoot = toPortableSourceRoot(moduleId, sourcePackage)
+  const sourceRoot = options.portableSourceRoot
+    ? assertPortableSourceRoot(moduleId, options.portableSourceRoot)
+    : toPortableSourceRoot(moduleId, sourcePackage)
 
   const entitiesFilePath =
     resolveConventionFile(path.join(moduleRoot, 'data'), 'entities') ??
@@ -2166,6 +2210,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     sourcePackage,
     sourceVersion,
     sourceRoot,
+    ...(options.sourceKind === 'local-reference' ? { sourceKind: options.sourceKind } : {}),
     entities,
     events,
     aclFeatures,
@@ -2212,6 +2257,8 @@ export interface ModuleFactsJsonEntry {
   sourcePackage: string | null
   sourceVersion: string | null
   sourceRoot: string
+  /** Present only for `local-reference` projections; package sidecar entries omit it. */
+  sourceKind?: ModuleFactProjectionSourceKind
   entities: ModuleEntityFact[]
   events: ModuleFactsJsonEvent[]
   aclFeatures: string[]
@@ -2555,13 +2602,44 @@ function renderOverrideTargetsSection(targets: readonly ModuleOverrideTarget[] |
   return ['## Exact override targets', '', header, divider, ...rows].join('\n')
 }
 
-export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
+export interface ReferenceProjectionFingerprints {
+  sourceFingerprint: string
+  taxonomyFingerprint: string
+}
+
+/**
+ * Header for a `local-reference` projection. It never claims a package version — the
+ * module is app-local — and it states in the document itself that the activations and
+ * exact override targets below describe behavior only after the module is opted in,
+ * because the artifact is generated while the module is disabled.
+ */
+function renderReferenceProjectionHeader(
+  facts: ModuleFacts,
+  fingerprints: ReferenceProjectionFingerprints,
+): string[] {
+  return [
+    `# ${facts.module} — module facts (generated reference projection, do not edit)`,
+    `<!-- generated from local reference ${facts.sourceRoot}; source-fingerprint ${fingerprints.sourceFingerprint}; taxonomy-fingerprint ${fingerprints.taxonomyFingerprint} — R1 staleness stamp -->`,
+    `> Reference projection: \`${facts.module}\` is not selected by the current runtime. Its activations and exact override targets describe behavior only after opt-in in \`src/modules.ts\`.`,
+    `Source root: ${renderSourceLink(facts.sourceRoot)}`,
+  ]
+}
+
+export function renderModuleFactsMarkdown(
+  facts: ModuleFacts,
+  referenceProjection?: ReferenceProjectionFingerprints,
+): string {
   const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
   const lookup = buildFactSourceLookup(facts)
+  const header = facts.sourceKind === 'local-reference' && referenceProjection
+    ? renderReferenceProjectionHeader(facts, referenceProjection)
+    : [
+        `# ${facts.module} — module facts (generated, do not edit)`,
+        renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
+        `Source root: ${renderSourceLink(facts.sourceRoot)}`,
+      ]
   const sections = [
-    `# ${facts.module} — module facts (generated, do not edit)`,
-    renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
-    `Source root: ${renderSourceLink(facts.sourceRoot)}`,
+    ...header,
     '',
     renderEntitiesSection(facts.entities, lookup),
     '',
@@ -2637,6 +2715,7 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     sourcePackage: facts.sourcePackage,
     sourceVersion: facts.sourceVersion,
     sourceRoot: facts.sourceRoot,
+    ...(facts.sourceKind === 'local-reference' ? { sourceKind: facts.sourceKind } : {}),
     entities: facts.entities,
     events: facts.events.map((event) => ({
       id: event.id,
@@ -2688,6 +2767,265 @@ export function renderModuleFactsJson(factsByModule: Record<string, ModuleFacts>
   return `${JSON.stringify(buildModuleFactsJsonObject(factsByModule), null, 2)}\n`
 }
 
+/**
+ * The normal package sidecar (`module-facts.json`) and the enabled-filtered package
+ * markdown subset carry package-provided modules only. An app-local module reaching
+ * either output would publish `bound` activations and exact override targets for code
+ * the runtime does not select, so it fails the build instead of shipping.
+ */
+export function assertPackageModuleFactsOnly(factsByModule: Record<string, ModuleFacts>): void {
+  const offenders = Object.values(factsByModule)
+    .filter((facts) => facts.sourceKind === 'local-reference' || !facts.sourceRoot.startsWith('node_modules/'))
+    .map((facts) => `${facts.module} (${facts.sourceRoot})`)
+    .sort((left, right) => left.localeCompare(right))
+  if (offenders.length > 0) {
+    throw new Error(
+      `[module-facts] normal package output must not contain app-local modules: ${offenders.join(', ')}`,
+    )
+  }
+}
+
+function sha256Hex(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+/**
+ * Canonical form used by both reference fingerprints: object keys are recursively sorted
+ * and arrays are sorted by their own canonical text. Every array a fact entry emits is
+ * set-valued (capabilities, phases, operations, modes, per-section fact lists), so a
+ * single ordering rule keeps the fingerprint stable against extractor iteration order
+ * without inventing per-field exceptions.
+ */
+function canonicalizeFingerprintValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        const canonical = canonicalizeFingerprintValue(item)
+        return { canonical, text: JSON.stringify(canonical) ?? '' }
+      })
+      .sort((left, right) => (left.text < right.text ? -1 : left.text > right.text ? 1 : 0))
+      .map((item) => item.canonical)
+  }
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    const result: Record<string, unknown> = {}
+    for (const key of Object.keys(record).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
+      if (record[key] === undefined) continue
+      result[key] = canonicalizeFingerprintValue(record[key])
+    }
+    return result
+  }
+  return value
+}
+
+function canonicalFingerprintJson(value: unknown): string {
+  return JSON.stringify(canonicalizeFingerprintValue(value))
+}
+
+const REFERENCE_FINGERPRINT_SKIPPED_DIRECTORIES = new Set(['__tests__', '__integration__', 'node_modules'])
+
+/**
+ * SHA-256 over the canonical JSON of `{ path, sha256 }` records sorted by path, where
+ * `path` is the portable app-relative path so the value is identical across the
+ * authoring, template, and emitted roots. Test-only directories are excluded because the
+ * scaffold does not emit them, so including them would make the emitted app's recomputed
+ * fingerprint disagree with the one built from the template.
+ */
+export function computeModuleSourceFingerprint(moduleRoot: string, portableSourceRoot: string): string {
+  assertPortableSourceRoot(path.basename(portableSourceRoot), portableSourceRoot)
+  const records: { path: string; sha256: string }[] = []
+  const walk = (directory: string): void => {
+    const entries = fs.readdirSync(directory, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name)
+      if (entry.isDirectory()) {
+        if (REFERENCE_FINGERPRINT_SKIPPED_DIRECTORIES.has(entry.name)) continue
+        walk(fullPath)
+        continue
+      }
+      if (!entry.isFile()) continue
+      records.push({
+        path: toPortableSourcePath(moduleRoot, portableSourceRoot, fullPath),
+        sha256: sha256Hex(fs.readFileSync(fullPath)),
+      })
+    }
+  }
+  walk(moduleRoot)
+  records.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+  return sha256Hex(canonicalFingerprintJson(records))
+}
+
+/**
+ * Provenance and release metadata are not taxonomy: a version bump must not invalidate
+ * the classification fingerprint. Every remaining section of the emitted entry is a
+ * classified set and contributes.
+ */
+const TAXONOMY_EXCLUDED_SECTIONS = new Set([
+  'title',
+  'description',
+  'coreVersion',
+  'sourcePackage',
+  'sourceVersion',
+  'sourceRoot',
+  'sourceKind',
+])
+
+function collectTaxonomyRecords(
+  setName: string,
+  value: unknown,
+  records: { setName: string; value: unknown }[],
+): void {
+  if (value === undefined) return
+  if (Array.isArray(value)) {
+    for (const item of value) records.push({ setName, value: canonicalizeFingerprintValue(item) })
+    return
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      collectTaxonomyRecords(`${setName}.${key}`, child, records)
+    }
+    return
+  }
+  records.push({ setName, value })
+}
+
+/**
+ * SHA-256 over the canonical JSON of `{ setName, value }` records sorted by set name and
+ * canonicalized value. Each record carries a complete literal or structured entry — key,
+ * suffix, capabilities, `bound`, phases, operations included — so no delimiter-joined
+ * tuple can collapse two distinct classifications into one fingerprint input.
+ */
+export function computeModuleTaxonomyFingerprint(entry: ModuleFactsJsonEntry): string {
+  const records: { setName: string; value: unknown }[] = []
+  for (const [setName, value] of Object.entries(entry as unknown as Record<string, unknown>)) {
+    if (TAXONOMY_EXCLUDED_SECTIONS.has(setName)) continue
+    collectTaxonomyRecords(setName, value, records)
+  }
+  const decorated = records
+    .map((record) => ({ record, text: JSON.stringify(record.value) ?? '' }))
+    .sort((left, right) =>
+      left.record.setName < right.record.setName
+        ? -1
+        : left.record.setName > right.record.setName
+          ? 1
+          : left.text < right.text
+            ? -1
+            : left.text > right.text
+              ? 1
+              : 0,
+    )
+  return sha256Hex(JSON.stringify(decorated.map((item) => item.record)))
+}
+
+export interface ReferenceModuleFactsEntry {
+  moduleId: string
+  projectionKind: 'activated-reference'
+  sourceKind: 'local-reference'
+  runtimeSelected: false
+  sourceFingerprint: string
+  taxonomyFingerprint: string
+  facts: ModuleFactsJsonEntry
+}
+
+export type ReferenceModuleFactsJson = Record<string, ReferenceModuleFactsEntry>
+
+export function renderReferenceModuleFactsJson(bundle: ReferenceModuleFactsJson): string {
+  const ordered: ReferenceModuleFactsJson = {}
+  for (const moduleId of Object.keys(bundle).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
+    ordered[moduleId] = bundle[moduleId]
+  }
+  return `${JSON.stringify(ordered, null, 2)}\n`
+}
+
+export interface ExtractLocalReferenceModuleFactsOptions {
+  /** Package-provided sources, exactly as the normal batch receives them. */
+  packageSources: readonly ModuleFactSource[]
+  /** The app-local module projected into the reference bundle. */
+  reference: ModuleFactSource
+  registryPath?: string | null
+  registrySource?: string | null
+  coreVersion?: string | null
+}
+
+export interface LocalReferenceModuleFactsResult {
+  entry: ReferenceModuleFactsEntry
+  markdown: string
+  warnings: string[]
+  /**
+   * First-party targets the activated projection could not correlate. They also remain in
+   * the emitted `facts.extensionSurfaces.unresolved`, so the artifact states its own gaps
+   * rather than presenting a partial surface as complete.
+   */
+  unresolvedTargets: string[]
+}
+
+/**
+ * Produces the reference projection of an app-local module from an explicitly activated,
+ * disposable selection context: the local source is appended to the package sources and
+ * the whole set runs through the same `extractAllModuleFacts` selection and correlation
+ * batch, so incoming contributions and optional targets resolve exactly as they would
+ * after opt-in. Merging an independently extracted object into a finished batch is
+ * forbidden — it would silently drop both resolutions. The batch is disposable: the
+ * caller keeps only this module's projection and never writes the rest, which is why the
+ * normal package outputs stay byte-identical.
+ */
+export function extractLocalReferenceModuleFacts(
+  options: ExtractLocalReferenceModuleFactsOptions,
+): LocalReferenceModuleFactsResult {
+  const { reference } = options
+  if (reference.sourceKind !== 'local-reference') {
+    throw new Error(
+      `[module-facts] reference source "${reference.moduleId}" must declare sourceKind "local-reference"`,
+    )
+  }
+  const portableSourceRoot = reference.portableSourceRoot
+  if (!portableSourceRoot) {
+    throw new Error(`[module-facts] reference source "${reference.moduleId}" must declare portableSourceRoot`)
+  }
+  assertPortableSourceRoot(reference.moduleId, portableSourceRoot)
+
+  const sources = appendLocalReferenceModuleSource(options.packageSources, reference)
+  const activated = extractAllModuleFacts({
+    sources,
+    registryPath: options.registryPath ?? null,
+    registrySource: options.registrySource ?? null,
+    coreVersion: options.coreVersion ?? null,
+    // The disposable projection collects rather than throws: an app-local module can name
+    // a target whose classification is still missing from the shared extension reader, and
+    // aborting there would delete the whole reference bundle instead of publishing the
+    // exact gap. Normal package output keeps the strict default.
+    unresolvedFirstPartyTargets: 'collect',
+  })
+  const facts = activated.factsByModule[reference.moduleId]
+  if (!facts) {
+    throw new Error(`[module-facts] reference module "${reference.moduleId}" produced no facts`)
+  }
+  if (facts.sourceRoot !== portableSourceRoot) {
+    throw new Error(
+      `[module-facts] reference module "${reference.moduleId}" emitted non-portable source root "${facts.sourceRoot}"`,
+    )
+  }
+
+  const jsonEntry = toModuleFactsJsonEntry(facts)
+  const fingerprints: ReferenceProjectionFingerprints = {
+    sourceFingerprint: computeModuleSourceFingerprint(reference.moduleRoot, portableSourceRoot),
+    taxonomyFingerprint: computeModuleTaxonomyFingerprint(jsonEntry),
+  }
+  return {
+    entry: {
+      moduleId: reference.moduleId,
+      projectionKind: 'activated-reference',
+      sourceKind: 'local-reference',
+      runtimeSelected: false,
+      ...fingerprints,
+      facts: jsonEntry,
+    },
+    markdown: renderModuleFactsMarkdown(facts, fingerprints),
+    warnings: activated.warnings,
+    unresolvedTargets: activated.unresolvedFirstPartyTargets,
+  }
+}
+
 export interface ExtractAllModuleFactsOptions {
   /**
    * Discovered module sources (auto-discovery path). When provided, each entry's
@@ -2701,6 +3039,13 @@ export interface ExtractAllModuleFactsOptions {
   coreVersion?: string | null
   /** @deprecated Legacy explicit module-id list; only consulted when `sources` is absent. */
   moduleIds?: readonly string[]
+  /**
+   * `throw` (the default, and the only value any normal package output uses) aborts the
+   * batch when a first-party extension target does not correlate. `collect` keeps the
+   * unresolved entries in `extensionSurfaces.unresolved` and reports them on the result
+   * so a disposable projection can publish the gap instead of silently dropping it.
+   */
+  unresolvedFirstPartyTargets?: 'throw' | 'collect'
 }
 
 export interface ExtractAllModuleFactsResult {
@@ -2708,6 +3053,25 @@ export interface ExtractAllModuleFactsResult {
   markdownByModule: Record<string, string>
   warnings: string[]
   frameworkMarkdown: string
+  /** Always empty under the default `throw` policy, which aborts before returning. */
+  unresolvedFirstPartyTargets: string[]
+}
+
+/**
+ * `<moduleId>:<contributionId>:<targetId>` for every first-party contribution target that
+ * did not correlate — the same identity {@link assertNoUnresolvedExtensionTargets} throws
+ * with, so a collected batch reports exactly what a strict batch would have refused.
+ */
+export function collectUnresolvedFirstPartyTargets(
+  surfacesByModule: Readonly<Record<string, ModuleExtensionSurfaceFacts>>,
+): string[] {
+  return Object.entries(surfacesByModule)
+    .flatMap(([moduleId, surface]) =>
+      surface.unresolved
+        .filter((entry) => entry.reason === 'unresolved-first-party-target')
+        .map((entry) => `${moduleId}:${entry.key}`),
+    )
+    .sort((left, right) => left.localeCompare(right))
 }
 
 export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
@@ -2736,6 +3100,8 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       sourceVersion: source.packageVersion ?? null,
       registryPath: options.registryPath ?? null,
       registrySource: options.registrySource ?? null,
+      ...(source.portableSourceRoot ? { portableSourceRoot: source.portableSourceRoot } : {}),
+      ...(source.sourceKind ? { sourceKind: source.sourceKind } : {}),
     })
     factsByModule[source.moduleId] = facts
     warnings.push(...facts.warnings)
@@ -2756,7 +3122,8 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
     ]),
     commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
   })
-  assertNoUnresolvedExtensionTargets(correlated)
+  const unresolvedFirstPartyTargets = collectUnresolvedFirstPartyTargets(correlated)
+  if ((options.unresolvedFirstPartyTargets ?? 'throw') === 'throw') assertNoUnresolvedExtensionTargets(correlated)
   const apiRouteOwners = new Map<string, {
     moduleId: string
     source: ModuleFactSourceRef
@@ -2792,5 +3159,11 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       `[module-facts] ${moduleId} ${entry.reason}: ${entry.key} (${entry.source.path})`,
     ))
   }
-  return { factsByModule, markdownByModule, warnings, frameworkMarkdown: renderFrameworkExtensionPointsMarkdown() }
+  return {
+    factsByModule,
+    markdownByModule,
+    warnings,
+    frameworkMarkdown: renderFrameworkExtensionPointsMarkdown(),
+    unresolvedFirstPartyTargets,
+  }
 }
