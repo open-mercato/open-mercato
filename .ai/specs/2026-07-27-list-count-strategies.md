@@ -386,7 +386,7 @@ Communication requirements, which are not optional even though the default is:
 
 ## Implementation Plan
 
-### Phase 1 — Short-page termination *(independently correct; no cap yet)*
+### Phase 1 — Short-page termination *(independently correct; no cap yet)* — **Implemented 2026-08-04**
 
 1. Convert the CRUD export loop, `packages/shared/src/lib/crud/factory.ts:1787-1807` (`while (exportItems.length < total)` at `:1792`), to short-page termination with a fail-closed page ceiling.
 2. Convert the custom-entity records export loop, `packages/core/src/modules/entities/api/records.ts:357-371` (`while (exportItems.length < total)` at `:360`), identically.
@@ -626,6 +626,26 @@ None blocking. One deferred item: integration tests are specified but not shippe
 **Fully compliant** — ready for implementation.
 
 ## Changelog
+
+### 2026-08-04 — Phase 1 implemented
+
+All six loops now terminate on a short page with a fail-closed page ceiling that throws (`[internal]`-prefixed), per §Short-page termination. `total`/`totalPages` are no longer loop bounds anywhere in the converted set. Line references as implemented:
+
+- CRUD export loop — `packages/shared/src/lib/crud/factory.ts` (`EXPORT_MAX_PAGES = 1000`); loop gate is now "first page came back full", not `total > exportItems.length`.
+- Custom-entity records export — `packages/core/src/modules/entities/api/records.ts` (`EXPORT_MAX_PAGES = 1000`).
+- `findMatchingEntityIdsWithQueryEngine` — `packages/core/src/modules/customers/api/utils.ts`; the latent infinite loop (`Set` size vs duplicate-inflated `total`) is gone. Signature unchanged (`Promise<string[]>`); the three callers' `!== null` checks are a pre-existing dead branch left as-is.
+- `fetchFilteredProductIds` — `packages/core/src/modules/catalog/widgets/injection/product-bulk-delete/widget.ts`; previously had no ceiling and no empty-page break.
+- `loadLegacyActivities` — extracted from `MiniWeekCalendar.tsx` into `packages/core/src/modules/customers/components/detail/legacyActivities.ts` (`loadLegacyActivitiesInRange`) so the loop is unit-testable; the domain date-range break is preserved.
+- `phoneDuplicates.ts` — `total`-derived early exit replaced with a short-page check; the deliberate `MAX_PAGES = 3` best-effort bound stays (hint feature, partial acceptable by design).
+
+Regression coverage (per step 7): `crud-factory.test.ts` (export loop ×3), `records.export.test.ts` (×3), customers `utils.test.ts` (×4, incl. the duplicate-ids infinite-loop repro), `product-bulk-delete/__tests__/widget.test.ts` (×3), `legacyActivities.test.ts` (×4), `phoneDuplicates.test.ts` (updated to short-page fixtures, +2).
+
+**Adjacent sites found during implementation — to fold into Phases 2–3** (all consume `total`/`totalPages` as truth but are not termination hazards, so they were out of Phase 1 scope):
+
+- WMS `inventoryMutationLoaders.ts` loops (`while (page <= totalPages && page <= N)`, N ∈ {10, 20, 50}) — already hard-bounded, but under a capped total they under-enumerate silently; the location total-on-hand loop **sums `quantity_on_hand` across pages into a user-visible number**.
+- `hasMore: offset + … < total` computations in `workflows/api/{tasks,instances,instances/[id]/events,definitions}/route.ts` and `dictionaries/api/[dictionaryId]/entries/route.ts` — a capped total flips `hasMore` to false early. Phase 2 must convert these to `items.length === limit` (or thread `totalIsCapped`).
+- UI "load more" guards comparing against `totalPages`/`total`: `packages/ui/src/backend/detail/AttachmentsSection.tsx`, customers `LinkedEntitiesField.tsx`, `ParticipantsField.tsx`, `DealsSection.tsx`, `AssignRoleDialog.tsx` — a capped total hides the button early (labelling-class, Phase 3).
+- `loadCanonicalInteractions` in `MiniWeekCalendar.tsx` — cursor-driven (cap-immune) but fully unbounded; `useCalendarItems.ts` (`MAX_WINDOW_ITEMS` + `truncated` flag) is the in-repo precedent if it is ever bounded.
 
 ### 2026-07-28 — Review revision
 
