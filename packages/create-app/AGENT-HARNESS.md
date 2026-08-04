@@ -194,6 +194,14 @@ The release gate wraps this in a larger ordered sequence.
     integration/workflow/regression/business families — it **compiles the exported
     seam and executes it inside a `vm` sandbox** against mocked `effects` (3 s
     worker timeout, 256 KiB source cap) to prove runtime invariants an AST cannot.
+    **Spec oracle** `ai/harness/writable-spec-oracles.mjs` runs for the two SPEC-P2
+    planning proofs (`OMH-213`, `OMH-214`), whose only permitted artifact is Markdown
+    under `.ai/specs/`: it grades section structure, ordered phases, named test
+    coverage, template-placeholder residue, reserved-scaffolding integrity, the fixed
+    amendment terms of the seeded covering spec, and the absence of any module that
+    would mean implementation had started. Which fixed runner a semantic oracle must
+    declare is decided by `FIXED_ORACLE_RUNNER_OVERRIDES` in the evaluator, not by
+    `validators.json`, so a case can still never bring its own grading rules.
 18. **Post-oracle mutation guard:** a third snapshot detects whether the oracle run
     itself changed the target → `oracle execution modified target` (`:2279-2281`).
 19. The `writable` result records `changedPaths`, `beforeOraclePassed` (must be
@@ -287,6 +295,7 @@ tying the reviewed artifact to the exact validated bytes.
 | Tool-call / step ceiling | — (only `--timeout`) | Not present; timeout is global |
 | AST count thresholds (≥3 tests/expects, ≥4 `toBe`, ≥2 `persist`) | `writable-ast-oracles.mjs:914,925,1012` | Fixed literals |
 | Behavioral exact counts/orderings | `writable-behavior-oracles.mjs` probes | Fixed compiled probes |
+| Spec section minimums (80/80/40/80 words, ≥2 ordered phases) | `writable-spec-oracles.mjs` `REQUIRED_SECTIONS` | Fixed literals |
 | Review verdict rule (any major → request changes) | `evaluate…:650-652` | Fixed |
 | Security fail-closed set | Phase E/F above | Fixed (correctly) |
 
