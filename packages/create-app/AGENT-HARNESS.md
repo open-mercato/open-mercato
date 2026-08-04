@@ -71,6 +71,18 @@ The release gate wraps this in a larger ordered sequence.
    (`node_modules/@open-mercato/<package>/src/<exact/path>`) are warning-level examples and
    only when the case declares them; no case carries a glob-shaped installed-source
    allowance. Broad dependency discovery and all dependency writes remain forbidden.
+6b. A case may also declare `context.exampleRoots`: the canonical read-only
+   `src/modules/example` root, its visible entrypoints, and the exact
+   `references/surface-inventory.json` capability IDs it may follow, under its own
+   file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
+   files — entrypoints, the inventory, and each declared capability's mapped sources —
+   and the root is resolved as immutable *before* any writable pattern, so a
+   `src/modules/**` grant can never reach inside it. Four read-only cases,
+   `OMH-209`…`OMH-212`, declare it today; every other case is byte-identical to before.
+   The optional `context.installedVersionFallback` sibling is schema- and
+   evaluator-complete but no shipped case declares it, because `buildPrompt()` still
+   emits no instruction telling a runner to supply the `reason` argument the
+   fallback requires.
 
 ### Phase C — Pre-edit verification & "before" oracle
 7. `verifyWritableTarget()` (`:1788-1836`) asserts the target is a real non-symlink
@@ -440,10 +452,10 @@ corrected rate stay distinguishable.
 
 ### 3.6 One catalog inconsistency, recorded rather than papered over
 
-`.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` is `required` in 9 cases and, by a
+`.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` is `required` in 20 cases and, by a
 deterministic validator, may never be `allowedExtra` — access is binary. But OMH-057
 requires it for a "preserve the seeded … export seam" prompt while OMH-045, OMH-054,
-OMH-060, OMH-061, and OMH-070 forbid it on identical wording. No router rule can
-satisfy both. The harness-side mitigation is that a refused path is treated as
+OMH-060, OMH-061, and OMH-070 route it nowhere on identical wording, so their tool
+server refuses the same read. No router rule can satisfy both. The harness-side mitigation is that a refused path is treated as
 inapplicable to that case rather than as an unresolved blocker; resolving the
 inconsistency itself is a catalog decision for the owner.

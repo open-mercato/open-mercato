@@ -927,6 +927,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // ---------------------------------------------------------------------------------------------
 
 const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212']
+const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
 
 function declaringShippedCases() {
   return shippedCases().filter((entry) => entry.context.exampleRoots !== undefined)
@@ -965,6 +966,48 @@ test('reachability: exactly the pinned shipped cases declare an example root, an
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+/**
+ * `installedVersionFallback` is schema- and evaluator-complete, but the runner-facing tool
+ * instruction still describes a read tool that takes only a path. A shipped case that declared the
+ * fallback would therefore be unpassable in the live lane: the model has no documented way to send
+ * the reason code the evaluator demands. This fixture keeps that pairing honest in both directions.
+ */
+test('reachability: no shipped case declares the reason-gated fallback while the runner prompt has no reason channel', () => {
+  const toolInstruction = /const toolInstruction = `([^`]*)`/.exec(evaluatorSource())
+  assert.ok(toolInstruction, 'the runner tool instruction must still be a single template literal')
+  assert.equal(/\breason\b/.test(toolInstruction[1]), false, 'the prompt now offers a reason channel, so a case may declare the fallback')
+  for (const entry of shippedCases()) {
+    assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback`)
+  }
+})
+
+test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
+  const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
+  const stated = /(\w+) read-only cases,\s+`(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
+  assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
+  assert.equal(stated[1], 'Four')
+  assert.equal(DECLARING_CASE_IDS.length, 4)
+  assert.deepEqual([stated[2], stated[3]], [DECLARING_CASE_IDS[0], DECLARING_CASE_IDS.at(-1)])
+})
+
+/**
+ * The spec's Ownership Boundary requires the DataTable bulk action to stay separately
+ * discoverable from the row action: its own visible source reference and its own case-selection
+ * assertion, never folded into the neighbouring seam. This checks the requirement rather than
+ * re-typing a case's capability list, so it fails when a catalog edit collapses the two seams.
+ */
+test('reachability: the DataTable bulk action is selected by a shipped case as its own seam, distinct from the row action', () => {
+  const declaredEverywhere = declaringShippedCases().flatMap(declaredCapabilityIds)
+  const bulk = 'umes.injection.datatable-bulk-action'
+  const row = 'umes.injection.datatable-row-action'
+  assert.ok(declaredEverywhere.includes(bulk), 'no shipped case selects the canonical DataTable bulk-action source')
+  assert.ok(declaredEverywhere.includes(row), 'no shipped case selects the canonical DataTable row-action source')
+  const bulkSources = capability(bulk).sourcePaths
+  const rowSources = capability(row).sourcePaths
+  assert.ok(bulkSources.length > 0 && rowSources.length > 0)
+  assert.deepEqual(bulkSources.filter((source) => rowSources.includes(source)), [], 'the two seams must not share a source file')
 })
 
 test('reachability: every shipped declaring case reads its own capability set end to end and is refused another one', async () => {
@@ -1508,8 +1551,8 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 10,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['the generated local example reference sheet'],
-    note: 'The PR #4883 reference-fact and topology surfaces are not emitted.',
+    blockedBy: ['a shipped case routing the generated local example reference sheet'],
+    note: 'Corrected on 2026-08-04: the PR #4883 sheet IS emitted — `build.mjs` writes `dist/agentic/guides/reference-modules/example.md` and `reference-module-facts.json` with the specified `projectionKind: "activated-reference"` envelope. The previous blocker probed `agentic/shared/ai/guides/reference-modules/example.md`, a path that exists in neither the source tree (guides live in `agentic/guides/`) nor the build output, so it was tautologically true and proved nothing. What is genuinely missing is the topology CASE: no shipped case routes that sheet, and the emitted facts still carry no `negative-fixture` enum-ledger classification for the activated-row negative to bite on.',
   },
   {
     specFamily: 11,
@@ -1539,7 +1582,10 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
   'an operation-progress capability in surface-inventory.json': () => !inventoryCapabilities().some((entry) => entry.capabilityId.includes('progress')),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
   'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
-  'the generated local example reference sheet': () => !fs.existsSync(path.join(sharedRoot, 'ai', 'guides', 'reference-modules', 'example.md')),
+  'a shipped case routing the generated local example reference sheet': () => shippedCases().every((entry) => {
+    const contract = entry.context as { required?: string[]; allowedExtra?: string[] }
+    return ![...(contract.required ?? []), ...(contract.allowedExtra ?? [])].includes(REFERENCE_SHEET)
+  }),
 }
 
 test('ledger: the spec still enumerates exactly twelve oracle families', () => {
