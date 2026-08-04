@@ -19,8 +19,8 @@
 | 1 | 1.3 | `scripts/stryker/scope.mjs` — allowlist, globs, deletion filter, file cap | dispatch | done | 2fed7cd92 |
 | 1 | 1.4 | Local `yarn mutation:changed` wrapper with the clean-tree guard | dispatch:cheap | done | 63b68afb2 |
 | 1 | 1.5 | `.github/workflows/mutation-tests.yml` advisory workflow | dispatch | done | 089fcad52 |
-| 2 | 2.1 | `scripts/stryker/report.mjs` — survivor table, job summary, artifact | dispatch | done | — |
-| 2 | 2.2 | Fork-guarded PR comment step | dispatch:cheap | todo | — |
+| 2 | 2.1 | `scripts/stryker/report.mjs` — survivor table, job summary, artifact | dispatch | done | 9f008a2da |
+| 2 | 2.2 | Fork-guarded PR comment step | dispatch:cheap | done | — |
 | 3 | 3.1 | Minimum-mutant floor (`MUTATION_MIN_MUTANTS`) | dispatch | todo | — |
 | 3 | 3.2 | Dormant enforcement — `thresholds.break`, `MUTATION_ENFORCE`, docs | inline | todo | — |
 | 4 | 4.1 | `mixinJestEnvironment` wrapper for `perTest` coverage (conditional) | inline | todo | — |

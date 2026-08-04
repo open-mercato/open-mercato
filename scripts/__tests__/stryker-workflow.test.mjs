@@ -97,3 +97,38 @@ test('uploads the mutation report as an artifact, tolerating an absent report', 
   assert.equal(uploadStep.with['if-no-files-found'], 'ignore')
   assert.match(uploadStep.with.name, /mutation-report-/)
 })
+
+test('the PR comment job is fork-guarded — fork runs get no write token', () => {
+  const condition = workflow.jobs.comment.if
+
+  assert.match(condition, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
+})
+
+test('only the comment job may write, and the mutate job stays read-only', () => {
+  assert.deepEqual(workflow.jobs.comment.permissions, {
+    contents: 'read',
+    'pull-requests': 'write',
+  })
+  assert.equal(workflow.jobs.mutate.permissions, undefined)
+  assert.deepEqual(workflow.permissions, { contents: 'read' })
+})
+
+test('the comment is idempotent — it updates its marker comment instead of appending', () => {
+  const step = workflow.jobs.comment.steps.find(
+    (candidate) => candidate.name === 'Post or update the mutation comment',
+  )
+
+  assert.match(step.run, /om:mutation-testing-report/)
+  assert.match(step.run, /--method PATCH/)
+  assert.match(step.run, /--method POST/)
+  assert.match(step.run, /select\(\.body \| contains/)
+})
+
+test('the comment job still runs when the mutation job failed', () => {
+  assert.match(workflow.jobs.comment.if, /always\(\)/)
+  assert.deepEqual(workflow.jobs.comment.needs, ['scope', 'mutate'])
+})
+
+test('the comment job is skipped when nothing was in scope', () => {
+  assert.match(workflow.jobs.comment.if, /needs\.scope\.outputs\.has_work == 'true'/)
+})
