@@ -33,6 +33,17 @@ function readWorkflowStep(name) {
   return step
 }
 
+function readWorkflowStepComment(name) {
+  const step = readWorkflowStep(name)
+  if (!step) return null
+
+  return step.filter((line) => line.trim().startsWith('#')).join('\n')
+}
+
+function guardStem(guardPath) {
+  return path.basename(guardPath).replace(/\.test\.[cm]?[jt]sx?$/, '')
+}
+
 test('every enumerated repo-wide guard file exists', () => {
   for (const guardPath of listGuardPaths()) {
     assert.ok(
@@ -100,6 +111,40 @@ test('ci.yml runs the repo-wide guards unconditionally', () => {
   assert.ok(
     !step.some((line) => /^\s+if:/.test(line)),
     'The step must stay unconditional — a conditional step reintroduces the silent skip it exists to prevent.',
+  )
+})
+
+test('ci.yml points at the guard manifest instead of carrying its own copy', () => {
+  const comment = readWorkflowStepComment(STEP_NAME)
+  assert.ok(comment, `ci.yml has no "${STEP_NAME}" step, so there is nothing documenting why the guards run unfiltered.`)
+
+  assert.match(
+    comment,
+    /scripts\/repo-wide-guards\.mjs/,
+    'The step comment must point the reader at the manifest that enumerates the guards, or removing the inline list leaves no way to find out what the step covers.',
+  )
+  assert.match(
+    comment,
+    /yarn test:repo-wide-guards --list/,
+    'The step comment must name the command that prints the current enumeration on demand — that is what makes one source of truth usable from the workflow file.',
+  )
+  assert.match(
+    comment,
+    /turbo/i,
+    'The step comment must keep explaining why the step is unconditional (the turbo filter selects packages, not paths), or the next reader "optimises" it behind an `if:` and reintroduces the silent skip it exists to prevent.',
+  )
+})
+
+test('ci.yml does not re-copy the guard enumeration it cannot keep in sync', () => {
+  const comment = readWorkflowStepComment(STEP_NAME)
+  const copied = listGuardPaths()
+    .map(guardStem)
+    .filter((stem) => comment.includes(stem))
+
+  assert.deepEqual(
+    copied,
+    [],
+    `The ci.yml step comment names individual guards again. REPO_WIDE_GUARDS in scripts/repo-wide-guards.mjs is the single enumeration; a copy in the workflow comment drifts the first time a guard is added, and nothing in CI catches it — which is exactly how the previous list ended up advertising 19 guards while 24 ran (#4770). Point at the manifest and \`yarn test:repo-wide-guards --list\` instead of naming these:\n${copied.join('\n')}`,
   )
 })
 
