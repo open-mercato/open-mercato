@@ -68,3 +68,32 @@ test('checks out full history so the base ref is resolvable for the diff', () =>
 
   assert.equal(checkout.with['fetch-depth'], 0)
 })
+
+test('reports the survivor list even when the mutation step failed', () => {
+  const reportStep = workflow.jobs.mutate.steps.find(
+    (step) => step.name === 'Write the survivor report to the job summary',
+  )
+
+  assert.equal(reportStep.if, 'always()')
+  assert.match(reportStep.run, /scripts\/stryker\/report\.mjs/)
+  assert.match(reportStep.run, /--package/)
+})
+
+test('passes --enforced to the report only when enforcement is on', () => {
+  const reportStep = workflow.jobs.mutate.steps.find(
+    (step) => step.name === 'Write the survivor report to the job summary',
+  )
+
+  assert.match(reportStep.run, /MUTATION_ENFORCE == 'true' && '--enforced'/)
+})
+
+test('uploads the mutation report as an artifact, tolerating an absent report', () => {
+  const uploadStep = workflow.jobs.mutate.steps.find(
+    (step) => step.name === 'Upload the mutation report',
+  )
+
+  assert.equal(uploadStep.if, 'always()')
+  assert.match(uploadStep.uses, /actions\/upload-artifact/)
+  assert.equal(uploadStep.with['if-no-files-found'], 'ignore')
+  assert.match(uploadStep.with.name, /mutation-report-/)
+})

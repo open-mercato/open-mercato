@@ -4,6 +4,7 @@ import {
   DEFAULT_CONCURRENCY,
   DEFAULT_TIMEOUT_MS,
   EXCLUDED_MUTATIONS,
+  MUTATION_HTML_REPORT_PATH,
   MUTATION_REPORT_PATH,
   PACKAGE_TIMEOUT_MS,
   createStrykerConfig,
@@ -19,7 +20,8 @@ test('produces the expected configuration for a given package name', () => {
   assert.equal(config.jest.enableFindRelatedTests, true)
   assert.equal(config.jest.config.testEnvironment, '@stryker-mutator/jest-runner/jest-env/node')
   assert.equal(config.jsonReporter.fileName, MUTATION_REPORT_PATH)
-  assert.deepEqual(config.reporters, ['clear-text', 'progress', 'json'])
+  assert.equal(config.htmlReporter.fileName, MUTATION_HTML_REPORT_PATH)
+  assert.deepEqual(config.reporters, ['clear-text', 'progress', 'json', 'html'])
   assert.equal(config.concurrency, DEFAULT_CONCURRENCY)
   assert.equal(config.timeoutFactor, 2)
   assert.equal(config.cleanTempDir, true)

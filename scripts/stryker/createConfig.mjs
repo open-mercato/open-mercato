@@ -35,6 +35,7 @@
 export const DEFAULT_TIMEOUT_MS = 30000
 export const DEFAULT_CONCURRENCY = 4
 export const MUTATION_REPORT_PATH = 'reports/mutation/mutation.json'
+export const MUTATION_HTML_REPORT_PATH = 'reports/mutation/mutation.html'
 
 /**
  * Per-package `timeoutMS`. A mutant is only declared "timed out" after Stryker waits
@@ -93,9 +94,12 @@ export function createStrykerConfig(options = {}) {
       low: 70,
       break: null,
     },
-    reporters: ['clear-text', 'progress', 'json'],
+    reporters: ['clear-text', 'progress', 'json', 'html'],
     jsonReporter: {
       fileName: MUTATION_REPORT_PATH,
+    },
+    htmlReporter: {
+      fileName: MUTATION_HTML_REPORT_PATH,
     },
     timeoutMS,
     timeoutFactor: 2,

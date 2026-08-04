@@ -96,5 +96,25 @@ jobs:
         run: yarn build:packages
 
       - name: Run mutation testing
+        id: mutate
         working-directory: packages/${{ matrix.package }}
         run: node ../../node_modules/.bin/stryker run --mutate "${{ matrix.mutate }}"
+
+      # Runs even when the mutation step failed: a low score is exactly when the
+      # survivor list is worth reading.
+      - name: Write the survivor report to the job summary
+        if: always()
+        run: |
+          node scripts/stryker/report.mjs \
+            "packages/${{ matrix.package }}/reports/mutation/mutation.json" \
+            --package "${{ matrix.package }}" \
+            ${{ vars.MUTATION_ENFORCE == 'true' && '--enforced' || '' }}
+
+      - name: Upload the mutation report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mutation-report-${{ matrix.package }}
+          path: packages/${{ matrix.package }}/reports/mutation/
+          if-no-files-found: ignore
+          retention-days: 14
