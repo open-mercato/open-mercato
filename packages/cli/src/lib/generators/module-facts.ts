@@ -365,46 +365,61 @@ function classHasUpdatedAtColumn(node: ts.ClassDeclaration): boolean {
   return false
 }
 
+function readStaticAccessPath(candidate: ts.Expression): string[] | null {
+  const access = unwrapExpression(candidate)
+  if (ts.isIdentifier(access)) return [access.text]
+  if (ts.isPropertyAccessExpression(access)) {
+    const parent = readStaticAccessPath(access.expression)
+    return parent ? [...parent, access.name.text] : null
+  }
+  if (ts.isElementAccessExpression(access) && access.argumentExpression) {
+    const parent = readStaticAccessPath(access.expression)
+    const key = unwrapExpression(access.argumentExpression)
+    return parent && ts.isStringLiteralLike(key) ? [...parent, key.text] : null
+  }
+  return null
+}
+
+/**
+ * Resolves an entity-id expression to its literal `module:entity` value.
+ *
+ * Modules reference entity ids three ways and all three are statically knowable:
+ * a string literal, `E.<module>.<entity>` from the generated entity-id registry
+ * (`entity-ids.ts` emits `E[module][entity] = '<module>:<entity>'`), and — when
+ * `initializers` is supplied — a same-file `const ENTITY_ID = 'module:entity'`.
+ * Anything else stays undefined: a guessed id is worse than a missing one.
+ */
+function resolveEntityIdReference(
+  expression: ts.Expression,
+  initializers?: Map<string, ts.Expression>,
+  visitedIdentifiers: Set<string> = new Set(),
+): string | undefined {
+  const current = unwrapExpression(expression)
+  if (ts.isStringLiteralLike(current)) return current.text
+  const accessPath = readStaticAccessPath(current)
+  if (accessPath?.length === 3 && accessPath[0] === 'E') {
+    return `${accessPath[1]}:${accessPath[2]}`
+  }
+  if (initializers && ts.isIdentifier(current) && !visitedIdentifiers.has(current.text)) {
+    visitedIdentifiers.add(current.text)
+    const declaration = initializers.get(current.text)
+    if (declaration) return resolveEntityIdReference(declaration, initializers, visitedIdentifiers)
+  }
+  return undefined
+}
+
 function collectCustomFieldEntityIds(ceFilePath: string | null): Set<string> {
   const result = new Set<string>()
   if (!ceFilePath) return result
   const sourceFile = readSourceFile(ceFilePath)
   if (!sourceFile) return result
 
-  const readEntityId = (expression: ts.Expression): string | undefined => {
-    const current = unwrapExpression(expression)
-    if (ts.isStringLiteralLike(current)) {
-      return current.text.includes(':') ? current.text : undefined
-    }
-
-    const readAccessPath = (candidate: ts.Expression): string[] | null => {
-      const access = unwrapExpression(candidate)
-      if (ts.isIdentifier(access)) return [access.text]
-      if (ts.isPropertyAccessExpression(access)) {
-        const parent = readAccessPath(access.expression)
-        return parent ? [...parent, access.name.text] : null
-      }
-      if (ts.isElementAccessExpression(access) && access.argumentExpression) {
-        const parent = readAccessPath(access.expression)
-        const key = unwrapExpression(access.argumentExpression)
-        return parent && ts.isStringLiteralLike(key) ? [...parent, key.text] : null
-      }
-      return null
-    }
-
-    const accessPath = readAccessPath(current)
-    if (accessPath?.length === 3 && accessPath[0] === 'E') {
-      return `${accessPath[1]}:${accessPath[2]}`
-    }
-    return undefined
-  }
-
   const visit = (node: ts.Node): void => {
     if (ts.isObjectLiteralExpression(node)) {
       const initializer = getObjectPropertyInitializer(node, 'id')
       if (initializer) {
-        const id = readEntityId(initializer)
-        if (id) result.add(id)
+        const id = resolveEntityIdReference(initializer)
+        if (id && id.includes(':')) result.add(id)
       }
     }
     node.forEachChild(visit)
@@ -858,15 +873,29 @@ function extractSearchEntities(searchFilePath: string | null, warnings: string[]
     return []
   }
 
+  // `entityId` is rarely a bare string literal: modules reference the entity through
+  // `E.<module>.<entity>` or a same-file `const ENTITY_ID`. Reading only string literals
+  // dropped every such entry with NO diagnostic, so a module shipping `search.ts` scored
+  // zero search facts while looking healthy. Unresolvable entries now warn instead.
+  const initializers = buildVariableInitializerMap(sourceFile)
   const entityIds: string[] = []
   const seen = new Set<string>()
   for (const element of entitiesArray.elements) {
     if (!ts.isObjectLiteralExpression(element)) continue
-    const entityId = readStringPropertyInitializer(element, 'entityId')
-    if (entityId && !seen.has(entityId)) {
-      seen.add(entityId)
-      entityIds.push(entityId)
+    const initializer = getObjectPropertyInitializer(element, 'entityId')
+    const location = `${searchFilePath}:${nodeLine(sourceFile, element)}`
+    if (!initializer) {
+      warnings.push(`[module-facts] searchConfig entity declares no entityId: ${location}`)
+      continue
     }
+    const entityId = resolveEntityIdReference(initializer, initializers)
+    if (!entityId) {
+      warnings.push(`[module-facts] searchConfig entityId is not statically resolvable: ${location}`)
+      continue
+    }
+    if (seen.has(entityId)) continue
+    seen.add(entityId)
+    entityIds.push(entityId)
   }
   return entityIds
 }
