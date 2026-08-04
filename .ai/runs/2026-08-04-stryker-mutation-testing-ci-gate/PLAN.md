@@ -25,7 +25,7 @@
 | 3 | 3.2 | Dormant enforcement — `thresholds.break`, `MUTATION_ENFORCE`, docs | inline | done | 1f4868f48 |
 | 4 | 4.1 | `mixinJestEnvironment` wrapper for `perTest` coverage (conditional) | inline | done | 22614e6d3 |
 | 4 | 4.2 | `incremental` plus Actions cache (conditional) | inline | done | a7864dd25 |
-| 1 | 1.3-review-fix | Drop the dead `--json` flag from `scope.mjs` | inline | done | — |
+| 1 | 1.3-review-fix | Drop the dead `--json` flag from `scope.mjs` | inline | done | b7118d504 |
 
 ### Why Step 1.1 precedes Phase 0b
 
