@@ -108,7 +108,7 @@ function baseManifest(overrides: Record<string, unknown> = {}): Record<string, u
       resolvedLinkCount: 0,
       baselineAssetCount: 8,
       baselineDispositionCount: 136,
-      baselinePath: 'packages/create-app/agentic/shared/ai/harness/source-link-baseline.json',
+      baselinePath: 'packages/create-app/scripts/source-links/source-link-baseline.json',
       baselineSchemaPath: 'packages/create-app/agentic/shared/ai/harness/source-link-baseline.schema.json',
     },
     ...overrides,
