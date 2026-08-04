@@ -15,6 +15,8 @@ registerAppDictionaryLoader(async (locale: Locale): Promise<Record<string, unkno
       return import('../../i18n/es.json').then((m) => m.default)
     case 'de':
       return import('../../i18n/de.json').then((m) => m.default)
+    case 'ko':
+      return import('../../i18n/ko.json').then((m) => m.default)
     default:
       return import('../../i18n/en.json').then((m) => m.default)
   }
