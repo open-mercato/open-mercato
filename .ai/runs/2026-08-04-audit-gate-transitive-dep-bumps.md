@@ -1,6 +1,6 @@
 # Clear the high-severity audit gate on `develop`
 
-**Status:** in-progress
+**Status:** complete
 **Engine:** om-auto-create-pr (steps: 8, --loop: no)
 **Base:** `develop` @ `a575bebce`
 **Closes:** #4929
@@ -63,7 +63,7 @@ Two `undici` descriptor groups (`^7.19.1, ^7.28.0` at 7.29.0 and `^8.9.0` at 8.9
 ## Risks
 
 - **A lockfile bump can move behaviour anywhere in the monorepo.** `undici` is the HTTP client under fetch-based code paths and `socket.io-parser` sits under the realtime transport, so the full gate — not a scoped subset — is the only meaningful check. Mitigated by Phase 3.
-- **Overlap with Dependabot #4924** (`undici` 8.8.0 → 8.9.0). This run subsumes it. Must be called out in the PR body so a maintainer closes one of the two rather than merging both into a conflict.
+- **Overlap with Dependabot #4924** (`undici` 8.8.0 → 8.9.0). **Resolved:** #4924 is a no-op on the current base (`develop` already declares `undici: ^8.9.0` in `packages/shared`) and its diff leaves the `^8.5.0` descriptor group untouched, so it would not have cleared the advisory. Called out in the PR body with a suggestion to close it as superseded.
 - **A newer advisory batch may land mid-run.** The gate is evaluated against the live advisory database, so a green local run can go red on CI minutes later. Re-check on CI rather than trusting the local result alone.
 - **Known-baseline failures on clean `develop` @ `3f6d307d0`** (verified against upstream run [`30853472008`](https://github.com/open-mercato/open-mercato/actions/runs/30853472008) and a local run) — must NOT be treated as regressions from this change:
   - `yarn test` — 5 failures in `apps/mercato/src/__tests__/storage-s3-routes.test.ts` (`storage_s3 upload/download routes …`, `[Bootstrap] Modules not registered`).
@@ -71,6 +71,8 @@ Two `undici` descriptor groups (`^7.19.1, ^7.28.0` at 7.29.0 and `^8.9.0` at 8.9
   - `apps/docs` search-index test requires a docs production build artifact and fails locally without one.
 
 ## Progress
+
+PR: #4930
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -86,10 +88,10 @@ Two `undici` descriptor groups (`^7.19.1, ^7.28.0` at 7.29.0 and `^8.9.0` at 8.9
 
 ### Phase 3: Validate
 
-- [ ] 3.1 Run the full validation gate
-- [ ] 3.2 Separate genuine regressions from the documented baseline
+- [x] 3.1 Run the full validation gate — all 8 commands run; `build:packages`/`generate`/`typecheck`/`i18n:check-sync`/`build:app` green, no drift after `generate`
+- [x] 3.2 Separate genuine regressions from the documented baseline — `yarn test` 5 failures and `i18n:check-usage` 21 missing keys are byte-identical to the baseline (key list diffed); zero new failures
 
 ### Phase 4: Ship
 
-- [ ] 4.1 Write the PR body with the advisory table, #4924 relationship and baseline
-- [ ] 4.2 Report the requested label set
+- [x] 4.1 Write the PR body with the advisory table, #4924 relationship and baseline — PR #4930
+- [x] 4.2 Report the requested label set — all six label writes returned 403; requested set documented in the PR body
