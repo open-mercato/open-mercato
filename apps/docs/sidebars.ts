@@ -188,6 +188,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "architecture/system-overview",
         "architecture/module-dependencies",
+        "architecture/configuration-decision-guide",
         "architecture/generators",
         "architecture/standalone-ai-development-harness",
         "architecture/cache-cli",
@@ -429,6 +430,7 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/launcher",
             "framework/ai-assistant/overrides",
             "framework/ai-assistant/settings",
+            "framework/ai-assistant/moderation",
             "framework/ai-assistant/playground",
           ],
         },

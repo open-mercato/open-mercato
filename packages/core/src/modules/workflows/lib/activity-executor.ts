@@ -22,7 +22,6 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
@@ -163,27 +162,29 @@ export interface ActivityContext {
 }
 
 type RbacFeatureResolver = {
-  getGrantedFeatures: (
+  userHasAllFeatures: (
     userId: string,
+    required: string[],
     opts: { tenantId: string | null; organizationId: string | null }
-  ) => Promise<string[]>
+  ) => Promise<boolean>
 }
 
-async function resolveWorkflowUserFeatures(
+async function workflowUserHasAllFeatures(
   container: AwilixContainer,
   userId: string,
+  required: readonly string[],
   tenantId: string | null,
   organizationId: string | null
-): Promise<string[]> {
+): Promise<boolean> {
   try {
     const rbac = container.resolve('rbacService') as RbacFeatureResolver | undefined
-    if (rbac?.getGrantedFeatures) {
-      return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
+    if (rbac?.userHasAllFeatures) {
+      return await rbac.userHasAllFeatures(userId, [...required], { tenantId, organizationId })
     }
   } catch {
     // Fail closed below when the workflow executor cannot prove the actor's grants.
   }
-  return []
+  return false
 }
 
 export interface ActivityExecutionResult {
@@ -370,7 +371,7 @@ export async function executeActivity(
       const timeoutMs = resolveActivityTimeoutMs(activity)
       const result = timeoutMs
         ? await executeWithTimeout(
-            () => executeActivityByType(em, container, activity, context),
+            (signal) => executeActivityByType(em, container, activity, context, signal),
             timeoutMs
           )
         : await executeActivityByType(em, container, activity, context)
@@ -510,7 +511,8 @@ async function executeActivityByType(
   em: EntityManager,
   container: AwilixContainer,
   activity: ActivityDefinition,
-  context: ActivityContext
+  context: ActivityContext,
+  signal?: AbortSignal
 ): Promise<any> {
   // Interpolate config variables from context (including workflow metadata)
   const interpolatedConfig = interpolateVariables(activity.config, context.workflowContext, context.workflowInstance)
@@ -520,7 +522,7 @@ async function executeActivityByType(
       return await executeSendEmail(interpolatedConfig, context, container)
 
     case 'CALL_API':
-      return await executeCallApi(em, interpolatedConfig, context, container)
+      return await executeCallApi(em, interpolatedConfig, context, container, signal)
 
     case 'EMIT_EVENT':
       return await executeEmitEvent(interpolatedConfig, context, container)
@@ -529,7 +531,7 @@ async function executeActivityByType(
       return await executeUpdateEntity(em, interpolatedConfig, context, container)
 
     case 'CALL_WEBHOOK':
-      return await executeCallWebhook(interpolatedConfig, context)
+      return await executeCallWebhook(interpolatedConfig, context, { signal })
 
     case 'EXECUTE_FUNCTION':
       return await executeFunction(interpolatedConfig, context, container)
@@ -681,13 +683,14 @@ export async function executeUpdateEntity(
     throw new Error('UPDATE_ENTITY requires an authenticated workflow user')
   }
 
-  const userFeatures = await resolveWorkflowUserFeatures(
+  const authorized = await workflowUserHasAllFeatures(
     container,
     actorUserId,
+    workflowSafeCommand.requiredFeatures,
     context.workflowInstance.tenantId,
     context.workflowInstance.organizationId
   )
-  if (!hasAllFeatures(userFeatures, workflowSafeCommand.requiredFeatures)) {
+  if (!authorized) {
     throw new Error('UPDATE_ENTITY command is not authorized')
   }
 
@@ -1454,19 +1457,21 @@ function sleep(ms: number): Promise<void> {
  * Execute a promise with timeout
  */
 async function executeWithTimeout<T>(
-  executor: () => Promise<T>,
+  executor: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number
 ): Promise<T> {
   let timeoutId: NodeJS.Timeout
+  const abortController = new AbortController()
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      abortController.abort()
       reject(new Error(`Activity execution timeout after ${timeoutMs}ms`))
     }, timeoutMs)
   })
 
   try {
-    return await Promise.race([executor(), timeoutPromise])
+    return await Promise.race([executor(abortController.signal), timeoutPromise])
   } finally {
     clearTimeout(timeoutId!)
   }

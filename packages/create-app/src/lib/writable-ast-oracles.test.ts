@@ -22,7 +22,7 @@ const EXPECTED_WRITABLE_CASE_IDS = [
   'OMH-093', 'OMH-105', 'OMH-107', 'OMH-115', 'OMH-122', 'OMH-128', 'OMH-130', 'OMH-133',
   'OMH-137', 'OMH-140', 'OMH-144', 'OMH-146', 'OMH-149', 'OMH-150', 'OMH-151', 'OMH-153',
   'OMH-156', 'OMH-163', 'OMH-164', 'OMH-165', 'OMH-171', 'OMH-172', 'OMH-181', 'OMH-185',
-  'OMH-188', 'OMH-189', 'OMH-190', 'OMH-191', 'OMH-192',
+  'OMH-188', 'OMH-189', 'OMH-190', 'OMH-191', 'OMH-192', 'OMH-193',
 ]
 
 type OracleResult = {
@@ -42,6 +42,16 @@ function stageTarget(relativeFile: string, source: string): string {
   return root
 }
 
+function stageLocaleTarget(source: string, catalogs: Record<string, unknown | string>): string {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', source)
+  const localeDirectory = path.join(root, 'src/modules/library/i18n')
+  fs.mkdirSync(localeDirectory, { recursive: true })
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    fs.writeFileSync(path.join(localeDirectory, `${locale}.json`), typeof catalog === 'string' ? catalog : `${JSON.stringify(catalog)}\n`)
+  }
+  return root
+}
+
 function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessEnv = process.env, caseId = 'OMH-011') {
   const result = spawnSync(process.execPath, [oracle, '--root', root, '--case', caseId, '--phase', phase, '--json'], {
     cwd: root,
@@ -50,6 +60,12 @@ function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessE
     timeout: 10_000,
   })
   return { ...result, parsed: JSON.parse(result.stdout) as OracleResult }
+}
+
+function writeModuleFacts(root: string, facts: Record<string, unknown>): void {
+  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+  fs.mkdirSync(path.dirname(factsFile), { recursive: true })
+  fs.writeFileSync(factsFile, `${JSON.stringify(facts, null, 2)}\n`)
 }
 
 function installFakeYarn(root: string): string {
@@ -83,6 +99,7 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
     'module.list-query',
     'module.table',
     'module.form',
+    'module.locale-catalog',
   ]) assert.match(source, new RegExp(`check\\('${checkId.replace('.', '\\.')}'`))
   for (const contract of [
     'library.books.create',
@@ -97,6 +114,290 @@ test('the complete module oracle enforces connected customers-level CRUD', () =>
   ]) assert.ok(source.includes(contract), `missing complete-module oracle contract ${contract}`)
   assert.match(source, /value\.endsWith\('\.edit'\)/)
   assert.match(source, /value\.endsWith\('\.delete'\)/)
+})
+
+test('the complete module oracle rejects a missing literal module locale key after the legacy localization signal passes', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+export function useT() { return (key: string) => key }
+export const metadata = { pageTitleKey: 'library.books.title' }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`)
+  fs.mkdirSync(path.join(root, 'src/modules/library/i18n'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'src/modules/library/i18n/en.json'), '{}\n')
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.localized-ui')?.passed, true)
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, false)
+    assert.match(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.requirement ?? '', /en\.json.*library\.books\.title/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle accepts nested base and emitted sibling locale catalogs', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+export function useT() { return (key: string) => key }
+export const metadata = {
+  pageTitleKey: 'library.books.title',
+  pageGroupKey: 'library.navigation.group',
+  breadcrumb: [{ label: 'Books', labelKey: 'library.books.breadcrumb' }],
+}
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`)
+  const catalogs = {
+    en: { library: { books: { title: 'Books', breadcrumb: 'Books' }, navigation: { group: 'Library' } } },
+    de: { library: { books: { title: 'Bücher', breadcrumb: 'Bücher' }, navigation: { group: 'Bibliothek' } } },
+  }
+  fs.mkdirSync(path.join(root, 'src/modules/library/i18n'), { recursive: true })
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    fs.writeFileSync(path.join(root, `src/modules/library/i18n/${locale}.json`), `${JSON.stringify(catalog)}\n`)
+  }
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, true)
+    fs.writeFileSync(path.join(root, 'src/modules/library/i18n/de.json'), `${JSON.stringify({
+      library: { books: { title: 'Bücher' }, navigation: { group: 'Bibliothek' } },
+    })}\n`)
+    const missingMetadataResult = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = missingMetadataResult.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /de\.json library\.books\.breadcrumb is missing/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle ignores locale-like literals outside routed UI and navigation sources', () => {
+  const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`, { en: { library: { books: { title: 'Books' } } } })
+  const sources = {
+    'src/modules/library/backend/books/books.test.tsx': `t('library.tests.backend')\n`,
+    'src/modules/library/commands/__tests__/books.test.ts': `t('library.tests.command')\n`,
+    'src/modules/library/data/validators.ts': `t('library.validation.internal')\n`,
+    'src/modules/library/migrations/Migration20260731000000.ts': `t('library.migrations.internal')\n`,
+  }
+  for (const [relative, source] of Object.entries(sources)) {
+    const absolute = path.join(root, relative)
+    fs.mkdirSync(path.dirname(absolute), { recursive: true })
+    fs.writeFileSync(absolute, source)
+  }
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects missing, blank, and non-string locale leaves', () => {
+  const scenarios = [
+    { catalog: { library: { books: {} } }, reason: 'is missing' },
+    { catalog: { library: { books: { title: '   ' } } }, reason: 'is blank' },
+    { catalog: { library: { books: { title: ['Books'] } } }, reason: 'is not a string' },
+  ]
+  for (const scenario of scenarios) {
+    const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`, { en: scenario.catalog })
+    try {
+      const result = runOracle(root, 'before', process.env, 'OMH-185')
+      const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+      assert.equal(localeCheck?.passed, false)
+      assert.match(localeCheck?.requirement ?? '', new RegExp(`en\\.json library\\.books\\.title ${scenario.reason}`))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('the complete module oracle requires sibling parity while excluding shared translation keys', () => {
+  const source = `
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}{t('common.actions.cancel')}</Page>
+}
+`
+  const passingRoot = stageLocaleTarget(source, {
+    en: { library: { books: { title: 'Books' } } },
+    de: { library: { books: { title: 'Bücher' } } },
+  })
+  try {
+    const result = runOracle(passingRoot, 'before', process.env, 'OMH-185')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')?.passed, true)
+  } finally {
+    fs.rmSync(passingRoot, { recursive: true, force: true })
+  }
+
+  const failingRoot = stageLocaleTarget(source, {
+    en: { library: { books: { title: 'Books' } } },
+    de: { library: { books: {} } },
+  })
+  try {
+    const result = runOracle(failingRoot, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /de\.json library\.books\.title is missing/)
+    assert.doesNotMatch(localeCheck?.requirement ?? '', /common\.actions\.cancel/)
+  } finally {
+    fs.rmSync(failingRoot, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects dynamic-only and dangerous module locale keys', () => {
+  const dynamicRoot = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage(name: string) {
+  const t = useT()
+  return <Page>{t(\`library.books.\${name}\`)}</Page>
+}
+`, { en: { library: { books: { title: 'Books' } } } })
+  try {
+    const result = runOracle(dynamicRoot, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /no literal library\./)
+  } finally {
+    fs.rmSync(dynamicRoot, { recursive: true, force: true })
+  }
+
+  const dangerousRoot = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.__proto__.title')}</Page>
+}
+`, { en: '{"library":{"__proto__":{"title":"unsafe"}}}\n' })
+  try {
+    const result = runOracle(dangerousRoot, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /contains a dangerous path segment/)
+  } finally {
+    fs.rmSync(dangerousRoot, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle returns bounded sanitized failures for malformed and excessive locale input', () => {
+  const source = `
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`
+  const scenarios: Array<{ catalogs: Record<string, unknown | string>; expected: RegExp }> = [
+    { catalogs: { en: '{"library":' }, expected: /en\.json contains malformed JSON/ },
+    { catalogs: { en: [] }, expected: /en\.json root is not a plain object/ },
+    { catalogs: { de: { library: { books: { title: 'Bücher' } } } }, expected: /en\.json is missing/ },
+    { catalogs: { en: ' '.repeat(256 * 1024 + 1) }, expected: /en\.json exceeds 262144 bytes/ },
+    {
+      catalogs: Object.fromEntries(['en', ...Array.from({ length: 16 }, (_, index) => `locale-${index}`)]
+        .map((locale) => [locale, { library: { books: { title: 'Books' } } }])),
+      expected: /locale file count exceeds 16/,
+    },
+    {
+      catalogs: Object.fromEntries(['en', ...Array.from({ length: 15 }, (_, index) => `locale-${index}`)]
+        .map((locale) => [locale, `${JSON.stringify({ library: { books: { title: 'Books' } } })}${' '.repeat(70 * 1024)}`])),
+      expected: /locale input exceeds 1048576 total bytes/,
+    },
+  ]
+  for (const scenario of scenarios) {
+    const root = stageLocaleTarget(source, scenario.catalogs)
+    try {
+      const result = runOracle(root, 'before', process.env, 'OMH-185')
+      const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+      assert.equal(localeCheck?.passed, false)
+      assert.match(localeCheck?.requirement ?? '', scenario.expected)
+      assert.doesNotMatch(localeCheck?.requirement ?? '', new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('the complete module oracle bounds literal module locale key extraction', () => {
+  const calls = Array.from({ length: 257 }, (_, index) => `t('library.books.key${index}')`).join('\n  ')
+  const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  ${calls}
+  return <Page />
+}
+`, { en: { library: { books: {} } } })
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /more than 256 literal library\. keys/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle reports a missing locale directory as a structured check failure', () => {
+  const root = stageTarget('src/modules/library/backend/books/page.tsx', `
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`)
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /i18n directory is missing/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the complete module oracle rejects symlinked locale catalogs without leaking absolute paths', { skip: process.platform === 'win32' }, () => {
+  const root = stageLocaleTarget(`
+export function useT() { return (key: string) => key }
+export function BooksPage() {
+  const t = useT()
+  return <Page>{t('library.books.title')}</Page>
+}
+`, { en: { library: { books: { title: 'Books' } } } })
+  fs.symlinkSync('en.json', path.join(root, 'src/modules/library/i18n/de.json'))
+  try {
+    const result = runOracle(root, 'before', process.env, 'OMH-185')
+    const localeCheck = result.parsed.checks.find((entry) => entry.id === 'module.locale-catalog')
+    assert.equal(localeCheck?.passed, false)
+    assert.match(localeCheck?.requirement ?? '', /symbolic_link/)
+    assert.doesNotMatch(localeCheck?.requirement ?? '', new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the business-language complete module case reuses the OMH-185 trusted oracle', () => {
+  const root = stageTarget('src/modules/library/index.ts', 'export const metadata = {}\n')
+  try {
+    const technicalResult = runOracle(root, 'before', process.env, 'OMH-185')
+    const businessResult = runOracle(root, 'before', process.env, 'OMH-193')
+    assert.deepEqual(businessResult.parsed, technicalResult.parsed)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('the complete module oracle requires atomic and undo seams on each declared command', () => {
@@ -572,6 +873,111 @@ export const openApi = { methods: {} }
     assert.equal(result.parsed.passed, true)
     assert.equal(result.parsed.checks.find((entry) => entry.id === 'crud.route')?.passed, true)
     assert.equal(result.parsed.checks.some((entry) => entry.id === 'target.typecheck'), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle rejects duplicate normalized API route methods', () => {
+  const root = stageTarget('src/modules/library/api/books/[id]/route.ts', 'export function GET() {}\n')
+  const duplicate = path.join(root, 'src/modules/duplicate/api/records/[recordId]/route.ts')
+  fs.mkdirSync(path.dirname(duplicate), { recursive: true })
+  fs.writeFileSync(duplicate, "export const metadata = { path: '/library/books/[bookId]' }\nexport function GET() {}\n")
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /api:\/library\/books\/\[\]/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle rejects API routes that shadow installed module facts', () => {
+  const root = stageTarget('src/modules/library/api/books/[bookId]/route.ts', 'export function GET() {}\n')
+  writeModuleFacts(root, {
+    catalog: {
+      sourceRoot: 'node_modules/@open-mercato/core/src/modules/catalog',
+      apiRoutes: [{
+        path: '/library/books/[id]',
+        methods: ['GET'],
+        sourcePath: 'node_modules/@open-mercato/core/src/modules/catalog/api/books/[id]/route.ts',
+      }],
+      backendPages: [],
+      frontendPages: [],
+    },
+  })
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /api:\/library\/books\/\[\]/)
+    assert.match(result.parsed.failures.join('\n'), /node_modules\/@open-mercato\/core\/src\/modules\/catalog/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle permits distinct methods on one legacy API URL', () => {
+  const root = stageTarget('src/modules/library/api/get/books.ts', 'export default function GET() {}\n')
+  const post = path.join(root, 'src/modules/library/api/post/books.ts')
+  fs.mkdirSync(path.dirname(post), { recursive: true })
+  fs.writeFileSync(post, 'export default function POST() {}\n')
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle rejects duplicate normalized backend and frontend pages', () => {
+  const root = stageTarget('src/modules/library/backend/[id]/page.tsx', 'export default function Page() { return null }\n')
+  const backendDuplicate = path.join(root, 'src/modules/duplicate/backend/[recordId]/page.tsx')
+  const frontendOne = path.join(root, 'src/modules/library/frontend/orders/[id]/page.tsx')
+  const frontendDuplicate = path.join(root, 'src/modules/duplicate/frontend/orders/[orderId]/page.tsx')
+  for (const file of [backendDuplicate, frontendOne, frontendDuplicate]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, 'export default function Page() { return null }\n')
+  }
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /backend:\/backend\/\[\]/)
+    assert.match(result.parsed.failures.join('\n'), /frontend:\/orders\/\[\]/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the trusted oracle derives page URLs from files and rejects installed page collisions', () => {
+  const root = stageTarget(
+    'src/modules/library/backend/books/[bookId]/page.tsx',
+    'export default function Page() { return null }\n',
+  )
+  const frontendPage = path.join(root, 'src/modules/library/frontend/orders/[orderId]/page.tsx')
+  const frontendMetadata = path.join(root, 'src/modules/library/frontend/orders/[orderId]/page.meta.ts')
+  fs.mkdirSync(path.dirname(frontendPage), { recursive: true })
+  fs.writeFileSync(frontendPage, 'export default function Page() { return null }\n')
+  fs.writeFileSync(frontendMetadata, "export const metadata = { path: '/not-the-generated-route' }\n")
+  writeModuleFacts(root, {
+    catalog: {
+      sourceRoot: 'node_modules/@open-mercato/core/src/modules/catalog',
+      apiRoutes: [],
+      backendPages: [{
+        path: '/backend/books/[id]',
+        sourcePath: 'node_modules/@open-mercato/core/src/modules/catalog/backend/books/[id]/page.tsx',
+      }],
+      frontendPages: [{
+        path: '/orders/[id]',
+        sourcePath: 'node_modules/@open-mercato/core/src/modules/catalog/frontend/orders/[id]/page.tsx',
+      }],
+    },
+  })
+  try {
+    const result = runOracle(root, 'before')
+    assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)
+    assert.match(result.parsed.failures.join('\n'), /backend:\/backend\/books\/\[\]/)
+    assert.match(result.parsed.failures.join('\n'), /frontend:\/orders\/\[\]/)
+    assert.doesNotMatch(result.parsed.failures.join('\n'), /not-the-generated-route/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

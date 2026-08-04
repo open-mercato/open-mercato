@@ -1,6 +1,18 @@
 # Unified Module Extensions and Overrides
 
-Use the smallest extension mechanism that preserves installed-module ownership. Resolve host IDs from generated facts or exact installed source; never invent spot, route, or entity IDs.
+Use the smallest extension mechanism that preserves installed-module ownership. Resolve mechanisms, targets, and round trips from generated facts before exact installed source; never invent spot, route, entity, event, registry, or override IDs.
+
+## Fact-First Target Resolution
+
+Resolve an installed extension in this order:
+
+1. Choose the mechanism by intent below; the mechanism decides which contribution kind and host capability are required.
+2. Open only the named target module sheet at `.ai/guides/modules/<module>.md`. Its `UMES hosts` rows prove mountable exact/pattern targets; its `UMES contributions` rows preserve activation, phases/operations, feature and scope contracts, specialist routes, correlation resolution, and read/write/UI `roundTripId` links.
+3. For global shell, menu, dashboard, notification, or integration surfaces, use `.ai/guides/framework-extension-points.md`. Do not assign a framework-owned host to a business module or invent a `$framework` module.
+4. Follow a contribution's `fact-ref` or `specialistRoute` to the existing event/entity/API/command/search/AI/provider facts and owning specialist route. A specialized registry is not evidence for a generic widget target.
+5. Use `om-framework-context` for one named unresolved installed-version gap only. An `optional-external` target is explicit provenance and must degrade when its owner package is absent; an `unresolved` first-party target is a blocker, not permission to guess.
+
+The legacy `Host extension points` token summary remains useful for compatibility, but it is not proof that a helper-built token is bound. Prefer the correlated host/contribution rows. A DataTable base token is a prefix, not a rendered mount; helper-only CrudForm/DataTable IDs marked `bound: false` are diagnostics and must never be selected.
 
 ## Route Selection
 
@@ -17,7 +29,7 @@ Add every other match too: `backend-ui` + `om-backend-ui-design` when authoring,
 | Add pre/post command behavior without replacing the command | Command interceptor | `commands/interceptors.ts` |
 | Block/rewrite a mutation with post-success work | Mutation guard contract | `data/guards.ts`; add widget injection only for a UI surface |
 | Enrich query-engine reads | Query enricher | `data/enrichers.ts` with `queryEngine.enabled` |
-| Add form fields/table columns/actions/filters/toolbar | Headless widget injection | `widgets/injection/**`, `widgets/injection-table.ts` |
+| Add form fields/table columns/actions/filters/toolbar | Headless widget injection | `widgets/injection/**`, `widgets/injection-table.ts`; select an exact bound family row from target facts |
 | Add/reorder menu items | Headless menu widget | same widget files, `menu:*` host |
 | Render a card/tab/section in another page | UI widget injection | same widget files |
 | Add app data linked to installed entity | Entity extension | `data/extensions.ts` |
@@ -66,7 +78,9 @@ Add every other match too: `backend-ui` + `om-backend-ui-design` when authoring,
 - Gate display and execution separately. UI hiding never substitutes for backend authorization.
 - Scope client handlers with `eventHandlers.filter.operations`; use `clientBroadcast`, `useAppEvent`, and `useOperationProgress` for typed real-time behavior instead of polling by default.
 
-Common host families include `crud-form:<entityId>:fields`, `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`, `:search-trailing`, and `menu:sidebar:*`/`menu:topbar:*`. Resolve the concrete IDs; do not derive them by guess.
+Bound CrudForm hosts are the base render/lifecycle host, `:header`, headless `:fields`, its component handle, and the declared transform/save/delete/field/navigation lifecycle handlers with create/update/delete operation filters. Bound DataTable hosts are rendered `:header`, `:footer`, `:toolbar`, conditional `:search-trailing`, headless `:columns`, `:row-actions`, `:bulk-actions`, `:filters`, and the `data-table:<tableId>` component handle. The DataTable base prefix, `emptyState`, and helper-only CrudForm before/after/footer/sidebar/group/field builders are not mountable unless a future bound-family fact explicitly says otherwise.
+
+Menu hosts are framework-owned unless the named module facts prove otherwise. Use the framework catalog's exact menu surface/item IDs, label keys, feature gates, and relative placement; never derive `menu:sidebar:*` or `menu:topbar:*` from memory.
 
 ## Extensions and Optional Coupling
 
@@ -102,3 +116,6 @@ Common host families include `crud-form:<entityId>:fields`, `data-table:<tableId
 2. Test authorized, unauthorized, and wildcard-feature callers.
 3. Test list and detail, create/update/delete/action, cache hit/miss, and failure fallback where applicable.
 4. Run `yarn generate`, inspect host registration, and verify no installed file changed.
+5. Re-read the generated contribution row: its target must resolve as `exact`, `pattern`, `framework`, `fact-ref`, or intentional `optional-external`, and every shared `roundTripId` leg must remain present. Treat `unresolved` first-party provenance as a failed generation/coverage gate.
+
+The repository umbrella specification may be available at `.ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md` in a source checkout. It is optional background only; the generated facts and this selector are sufficient offline in a standalone scaffold.

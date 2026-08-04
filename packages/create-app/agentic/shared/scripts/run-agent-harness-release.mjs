@@ -47,7 +47,7 @@ Usage:
 Options:
   --root <absolute-app>          Controller/generated app root (default: current directory)
   --runner <codex|claude>        Required primary runner for every blocking live lane
-  --portability-runner <runner> Optional different runner for the 45-case read-only portability lane
+  --portability-runner <runner> Optional different runner for the 46-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
   --case-timeout <ms>           Per-model invocation timeout floor (default: 120000; a writable case may raise it)
@@ -63,9 +63,9 @@ tree. Externally supplied targets must use the same
 node_modules link to that protected tree; nested dependency copies are rejected.
 The complete release requires trusted Bubblewrap plus working user/network namespaces on Linux;
 native macOS, Windows, untrusted runtimes, and unavailable isolation fail closed. The command preflights complete matrix,
-fixture, review, and target coverage before
+fixture, judge, and target coverage before
 running deterministic validation, selected primary routing, optional portability routing, writable trusted-oracle
-gates, explicit om-code-review, and the release-matrix validation commands. It stores
+gates, explicit om-judge-agent-session with om-code-review, and the release-matrix validation commands. It stores
 only a sanitized aggregate report under .ai/harness/results/.`
 }
 
@@ -541,8 +541,8 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     if (!entry || typeof entry !== 'object' || Array.isArray(entry) || Object.keys(entry).length !== 1 || typeof entry.caseId !== 'string') violations.push(`writable release assignment must be runner-neutral: ${String(entry?.caseId)}`)
   }
 
-  const configuredReviewIds = Array.isArray(releaseMatrix?.generatedCodeReview?.caseIds)
-    ? releaseMatrix.generatedCodeReview.caseIds
+  const configuredReviewIds = Array.isArray(releaseMatrix?.generativeJudge?.caseIds)
+    ? releaseMatrix.generativeJudge.caseIds
     : []
   const missingReviewMatrixCaseIds = difference(reviewEligibleCaseIds, configuredReviewIds)
   const unexpectedReviewMatrixCaseIds = difference(configuredReviewIds, reviewEligibleCaseIds)
@@ -553,10 +553,17 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
   if (JSON.stringify(configuredReviewIds) !== JSON.stringify(reviewEligibleCaseIds)) {
     violations.push('generated-code review matrix must list every writable case exactly once in catalog order')
   }
-  if (release.requireGeneratedCodeReview !== true) violations.push('release suite must require generated-code review')
-  if (releaseMatrix?.generatedCodeReview?.skill !== 'om-code-review') violations.push('generated-code review must explicitly use om-code-review')
-  if (releaseMatrix?.generatedCodeReview?.required !== true) violations.push('generated-code review must be mandatory for every writable case')
-  const reviewRunners = releaseMatrix?.generatedCodeReview?.runners ?? {}
+  if (release.requireGenerativeJudge !== true) violations.push('release suite must require the generative judge')
+  if (release.requireGeneratedCodeReview !== true) violations.push('release suite must retain generated-code review compatibility')
+  if (releaseMatrix?.generativeJudge?.skill !== 'om-judge-agent-session') violations.push('generative judge must explicitly use om-judge-agent-session')
+  if (releaseMatrix?.generativeJudge?.reviewSkill !== 'om-code-review') violations.push('generative judge must explicitly compose om-code-review')
+  if (releaseMatrix?.generativeJudge?.required !== true) violations.push('generative judge must be mandatory for every writable case')
+  if (releaseMatrix?.generatedCodeReview?.skill !== 'om-code-review'
+    || JSON.stringify(releaseMatrix.generatedCodeReview?.caseIds) !== JSON.stringify(configuredReviewIds)
+    || JSON.stringify(releaseMatrix.generatedCodeReview?.runners) !== JSON.stringify(releaseMatrix.generativeJudge?.runners)) {
+    violations.push('generated-code review compatibility matrix must match the generative judge')
+  }
+  const reviewRunners = releaseMatrix?.generativeJudge?.runners ?? {}
   for (const runner of RELEASE_SUPPORTED_RUNNERS) {
     if (!validModelSelector(reviewRunners?.[runner]?.modelSelector)) violations.push(`generated-code review lacks a valid bounded ${runner} model selector`)
   }
@@ -564,6 +571,12 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     if (!RUNNERS.has(runner)) violations.push(`generated-code review declares an invalid runner: ${runner}`)
   }
   const reviewSkillFiles = [
+    '.ai/skills/om-judge-agent-session/SKILL.md',
+    '.ai/skills/om-judge-agent-session/references/agentic-setup.md',
+    '.ai/skills/om-judge-agent-session/references/input-normalization.md',
+    '.ai/skills/om-judge-agent-session/references/judge-workflow.md',
+    '.ai/skills/om-judge-agent-session/references/report-template.md',
+    '.ai/skills/om-judge-agent-session/references/rules.md',
     '.agents/skills/om-code-review/SKILL.md',
     '.agents/skills/om-code-review/references/agentic-setup.md',
     '.agents/skills/om-code-review/references/output-format.md',
@@ -572,7 +585,7 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
     '.agents/skills/.om-external-ownership.json',
   ]
   const reviewSkillReady = !root || reviewSkillFiles.every((relative) => fs.existsSync(path.join(root, relative)))
-  if (!reviewSkillReady) violations.push('generated-code review skill is not installed with ownership evidence')
+  if (!reviewSkillReady) violations.push('generative judge or code-review skill is not installed with ownership evidence')
 
   const registryCaseCountMatches = registry?.catalog?.expectedCaseCount === cases.length
   if (!registryCaseCountMatches) violations.push(`validator registry expects ${String(registry?.catalog?.expectedCaseCount)} cases but catalog contains ${cases.length}`)
@@ -720,8 +733,8 @@ export function buildReleasePlan({ cases, registry, releaseMatrix, fixtures, see
       })
     }
     if (configuredReviewIds.includes(caseId)) {
-      const modelSelector = releaseMatrix.generatedCodeReview?.runners?.[primaryRunner]?.modelSelector
-      if (!validModelSelector(modelSelector)) violations.push(`generated-code review lacks a valid bounded ${primaryRunner} model selector for ${caseId}`)
+      const modelSelector = releaseMatrix.generativeJudge?.runners?.[primaryRunner]?.modelSelector
+      if (!validModelSelector(modelSelector)) violations.push(`generative judge lacks a valid bounded ${primaryRunner} model selector for ${caseId}`)
       steps.push({ id: `review:${caseId}`, kind: 'review', caseId, runner: primaryRunner, modelSelector })
     }
   }
@@ -1696,8 +1709,8 @@ export function main(argv = process.argv.slice(2)) {
       const reviewExecution = execute(process.execPath, [
         evaluator, '--root', root, '--runner', reviewStep.runner,
         '--model', reviewStep.modelSelector, '--timeout', String(caseTimeout),
-        '--review-writable-result', path.join(root, sourceArtifact.path), '--writable-root', target,
-        '--review-validation-result', targetValidationArtifact.absolute,
+        '--judge-writable-result', path.join(root, sourceArtifact.path), '--writable-root', target,
+        '--judge-validation-result', targetValidationArtifact.absolute,
       ], root, caseTimeout + 60_000)
       const reviewArtifacts = readNewResults(root, beforeReview)
       resultArtifacts.push(...reviewArtifacts)

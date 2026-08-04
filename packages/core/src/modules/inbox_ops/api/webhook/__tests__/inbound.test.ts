@@ -180,6 +180,7 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
 
     const response = await POST(request)
     expect(response.status).toBe(413)
+    expect(mockContainer.resolve).not.toHaveBeenCalled()
   })
 
   it('returns 400 when missing recipient address', async () => {

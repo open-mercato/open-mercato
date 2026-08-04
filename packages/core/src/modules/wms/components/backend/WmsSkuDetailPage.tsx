@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
@@ -1094,7 +1095,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                 data={pagedBalances}
                 disableRowClick
                 entityId={E.wms.inventory_balance}
-                perspective={{ tableId: 'wms.sku.distribution' }}
+                perspective={{ tableId: extensionPoints.hosts.skuDistributionTable.tableId }}
                 pagination={{
                   page: distributionPage,
                   pageSize: distributionPageSize,
@@ -1137,7 +1138,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
               data={movementsQuery.data ?? []}
               disableRowClick
               entityId={E.wms.inventory_movement}
-              perspective={{ tableId: 'wms.sku.activity' }}
+              perspective={{ tableId: extensionPoints.hosts.skuActivityTable.tableId }}
               emptyState={t('wms.backend.sku.activity.empty', 'No recent movements for this SKU.')}
               actions={(
                 <Button asChild type="button" variant="ghost" size="sm">

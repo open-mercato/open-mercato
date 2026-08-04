@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -11,16 +12,18 @@ import {
   type GatewayAdapter,
   type GatewayPaymentStatus,
   type PaymentGatewayPresentationRequest,
+  type PaymentOrderTotalResolver,
   type UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
-import { conflict } from '@open-mercato/shared/lib/crud/errors'
+import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
+import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
 import {
   alignCapturedAmountWithStatus,
   assertCaptureWithinRemaining,
@@ -46,6 +49,7 @@ import {
 
 const PAYMENT_SESSION_CLAIM_STALE_MS = 30_000
 const PAYMENT_SESSION_WAIT_INTERVAL_MS = 25
+const logger = createLogger('payment_gateways').child({ component: 'gateway-service' })
 
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
@@ -76,6 +80,11 @@ export interface PaymentGatewayServiceDeps {
   integrationCredentialsService: CredentialsService
   integrationStateService?: IntegrationStateService
   integrationLogService?: IntegrationLogService
+  /**
+   * Optional seam supplied by the module that owns orders (`sales` by default).
+   * When absent, session amounts cannot be reconciled and are accepted as-is.
+   */
+  paymentOrderTotalResolver?: PaymentOrderTotalResolver | null
   sessionClaimOptions?: {
     staleAfterMs?: number
     heartbeatIntervalMs?: number
@@ -182,11 +191,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       : undefined
     const adapter = getGatewayAdapter(providerKey, selectedVersion)
     if (!adapter) {
-      throw new Error(
-        selectedVersion
-          ? `No gateway adapter registered for provider: ${providerKey} (version: ${selectedVersion})`
-          : `No gateway adapter registered for provider: ${providerKey}`,
-      )
+      const message = selectedVersion
+        ? `No gateway adapter registered for provider: ${providerKey} (version: ${selectedVersion})`
+        : `No gateway adapter registered for provider: ${providerKey}`
+      throw new CrudHttpError(422, { error: message })
     }
     const credentials = await integrationCredentialsService.resolve(integrationId, scope) ?? {}
 
@@ -405,6 +413,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   return {
     async createPaymentSession(input: CreatePaymentSessionInput): Promise<{ transaction: GatewayTransaction; session: CreateSessionResult }> {
       const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      await reconcileSessionAmountWithOrder({
+        orderId: input.orderId,
+        amount: input.amount,
+        currencyCode: input.currencyCode,
+        scope,
+        resolver: deps.paymentOrderTotalResolver,
+      })
       const { adapter, credentials } = await resolveAdapterAndCredentials(input.providerKey, scope)
 
       const sessionInput: CreateSessionInput = {
@@ -455,7 +470,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             scope,
           )
           if (!transaction) {
-            throw new Error('Completed payment session is missing its gateway transaction')
+            throw new Error('[internal] Completed payment session is missing its gateway transaction')
           }
           return { transaction, session: restoreSession(transaction) }
         }
@@ -476,7 +491,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         try {
           session = await adapter.createSession({ ...sessionInput, idempotencyKey: operationKey })
         } catch (error) {
-          await releasePaymentSessionInitialization(em, ownership, scope).catch(() => undefined)
+          try {
+            await releasePaymentSessionInitialization(em, ownership, scope)
+          } catch (releaseError) {
+            logger.warn('Failed to release payment session initialization claim', {
+              claimId: ownership.id,
+              providerKey: input.providerKey,
+              err: releaseError,
+            })
+          }
           throw error
         } finally {
           await stopHeartbeat()

@@ -400,7 +400,7 @@ describe('Activity Executor (Unit Tests)', () => {
         }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([
@@ -436,10 +436,11 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.executed).toBe(true)
       expect(result.output.commandId).toBe('sales.orders.update')
-      expect(mockRbacService.getGrantedFeatures).toHaveBeenCalledWith('user-123', {
-        tenantId: testTenantId,
-        organizationId: testOrgId,
-      })
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-123',
+        ['sales.orders.manage'],
+        { tenantId: testTenantId, organizationId: testOrgId },
+      )
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
         'sales.orders.update',
         expect.objectContaining({
@@ -523,7 +524,7 @@ describe('Activity Executor (Unit Tests)', () => {
         execute: jest.fn().mockResolvedValue({ result: {} }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.view']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(false),
       }
 
       registerWorkflowSafeCommands([
@@ -559,7 +560,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([
@@ -1596,6 +1597,52 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('timeout after 50ms')
     })
+
+    test('should abort an in-flight synchronous webhook when its timeout elapses', async () => {
+      const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+      let capturedSignal: AbortSignal | undefined
+
+      ;(global.fetch as jest.Mock).mockImplementation(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            capturedSignal = init?.signal ?? undefined
+            capturedSignal?.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+            })
+          })
+      )
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-timeout-webhook',
+        activityName: 'Slow webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://127.0.0.1/webhook',
+          method: 'POST',
+        },
+        timeoutMs: 10,
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('timeout after 10ms')
+        expect(capturedSignal?.aborted).toBe(true)
+      } finally {
+        if (originalAllowPrivate === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+        }
+      }
+    })
   })
 
   // ============================================================================
@@ -1987,7 +2034,7 @@ describe('Activity Executor (Unit Tests)', () => {
         }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([

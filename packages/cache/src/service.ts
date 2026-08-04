@@ -71,7 +71,7 @@ function resolveTenantPrefixes(): TenantPrefixes {
 }
 
 function hashIdentifier(input: string): string {
-  return createHash('sha1').update(input).digest('hex')
+  return createHash('sha256').update(input).digest('hex')
 }
 
 function storageKey(originalKey: string, prefixes: TenantPrefixes): string {

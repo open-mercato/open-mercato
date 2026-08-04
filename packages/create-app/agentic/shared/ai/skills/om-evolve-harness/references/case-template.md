@@ -1,6 +1,6 @@
 # Reproducible Case Template
 
-Use the next contiguous `OMH-NNN` ID. Copy an adjacent case from `.ai/harness/cases.json`, then fill this contract rather than inventing a second format:
+Use the next contiguous `OMH-NNN` ID. Take the shape of an adjacent case from `.ai/harness/cases.json`, then fill this contract rather than inventing a second format:
 
 ```json
 {
@@ -15,16 +15,27 @@ Use the next contiguous `OMH-NNN` ID. Copy an adjacent case from `.ai/harness/ca
   "owner": { "kind": "root|guide|skill|facts|hook", "path": "app/relative/path", "ruleIds": ["BC-NN"] },
   "expectedRouter": { "required": ["route-id"], "allowedExtra": [] },
   "requiredSkills": ["om-skill-name"],
-  "context": { "required": ["AGENTS.md", "owner/path"], "forbidden": [".env*", ".git/**", "node_modules/**"] },
+  "context": { "required": ["AGENTS.md", "owner/path"], "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"] },
   "requiredDecisions": ["semantic-decision-id"],
   "forbiddenPatterns": ["unsafe-regex"],
   "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-  "maxContextFiles": 5,
-  "maxInitialContextBytes": 24576,
-  "maxTotalContextBytes": 98304,
+  "maxContextFiles": "<calibrated, see below>",
+  "maxInitialContextBytes": "<calibrated, see below>",
+  "maxTotalContextBytes": "<calibrated, see below>",
   "relatedCases": ["OMH-NNN"]
 }
 ```
+
+Copy the shape from an adjacent case, never its budgets. Calibrate them from this case's own measured
+footprint in a scaffolded controller: sum the on-disk size of `context.required` plus every
+`context.allowedExtra` path, counting a path toward the *initial* budgets unless it lives under
+`/references/`, `.ai/framework-context/`, `.ai/guides/modules/`, `.ai/guides/upstream/`, or `.agents/skills/`. Round up to leave real
+slack — a budget equal to the declared set fails a correct run on one incidental read — then confirm
+against a clean passing live trace rather than a neighbouring case's envelope.
+
+`yarn harness:validate --all` measures this for you and rejects a case whose required or declared context
+cannot fit its own file/byte budgets, naming the exact numbers. A case that trips it is unpassable or
+self-contradictory, not merely tight.
 
 Omit `decisionVocabulary` when every offered label is mandatory. Include it only
 for a contrastive case; it must contain every `requiredDecisions` label plus at
@@ -50,7 +61,7 @@ yarn harness:validate --family <family>
 yarn harness:validate --all
 ```
 
-The last command is the deterministic catalog gate only. It does not execute the release matrix's live, writable, target-build, or generated-code-review lanes.
+The last command is the deterministic catalog gate only. It does not execute the release matrix's live, writable, target-build, or generative-judge lanes.
 
 For a writable case, prepare one fresh disposable app per run before invoking the live oracle:
 
@@ -71,10 +82,10 @@ yarn build
 
 When the generated result adds or changes tests, also run the smallest focused command that executes those exact unit or integration tests (`yarn test ...`, `yarn test:integration ...`, or the repository's narrower existing script). Record the command and result; typecheck/build are not test execution.
 
-Review is mandatory before release. Run `om-code-review` on the harness diff. For every eligible one-shot implementation result, run the isolated generated-code review from the controller app using the passing writable result and unchanged disposable target:
+Review is mandatory before release. Run `om-code-review` on the harness diff. For every eligible one-shot implementation result, run the isolated generative judge from the controller app using the passing writable result and unchanged disposable target:
 
 ```text
-yarn harness:validate --runner codex --review-writable-result /absolute/controller/.ai/harness/results/<writable-result>.json --writable-root /absolute/disposable/app
+yarn harness:validate --runner codex --judge-writable-result /absolute/controller/.ai/harness/results/<writable-result>.json --writable-root /absolute/disposable/app
 ```
 
 Resolve blocking findings, then use a fresh controller scaffold and a new or empty target directory for the complete per-release suite:
@@ -84,6 +95,6 @@ yarn install-skills
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 45-case read-only portability lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
+Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 46-case read-only portability lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
 
 If live capacity is unavailable, record the tool/version/model and sanitized provider error. Do not convert availability failure into a passing routing result.

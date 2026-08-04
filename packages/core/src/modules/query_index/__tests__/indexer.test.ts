@@ -1,5 +1,6 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import type { AggregateSearchOptions } from '../lib/document'
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(),
@@ -14,8 +15,8 @@ jest.mock('../lib/document', () => {
   const actual = jest.requireActual('../lib/document')
   return {
     ...actual,
-    attachAggregateSearchField: (doc: Record<string, unknown>) => (
-      mockAggregateOverride ? mockAggregateOverride(doc) : actual.attachAggregateSearchField(doc)
+    attachAggregateSearchField: (doc: Record<string, unknown>, options?: AggregateSearchOptions) => (
+      mockAggregateOverride ? mockAggregateOverride(doc) : actual.attachAggregateSearchField(doc, options)
     ),
   }
 })
@@ -24,6 +25,7 @@ type TableData = {
   baseTable: string
   baseRows: any[]
   cfValues: any[]
+  cfDefs?: any[]
   indexRows?: any[]
 }
 
@@ -31,6 +33,7 @@ function createFakeKysely(data: TableData) {
   const inserts: any[] = []
   const updates: any[] = []
   const deletes: any[] = []
+  const transactions: any[] = []
   const indexRows = Array.isArray(data.indexRows) ? [...data.indexRows] : []
 
   const makeExecutor = (onResolve: () => any): any => {
@@ -61,6 +64,7 @@ function createFakeKysely(data: TableData) {
       },
       execute: async () => {
         if (table === 'custom_field_values') return data.cfValues
+        if (table === 'custom_field_defs') return data.cfDefs ?? []
         if (table === data.baseTable) return data.baseRows
         return []
       },
@@ -119,11 +123,14 @@ function createFakeKysely(data: TableData) {
     updateTable: (table: any) => makeUpdate(String(table)),
     deleteFrom: (table: any) => makeDelete(String(table)),
     transaction: () => ({
-      execute: async (fn: (trx: any) => Promise<any>) => fn(db),
+      execute: async (fn: (trx: any) => Promise<any>) => {
+        transactions.push({})
+        return fn(db)
+      },
     }),
   }
 
-  return { db, inserts, updates, deletes }
+  return { db, inserts, updates, deletes, transactions }
 }
 
 const resolveEncryptionMock = resolveTenantEncryptionService as jest.Mock
@@ -152,6 +159,57 @@ describe('Indexer', () => {
     expect(doc!['cf:tags']).toEqual(['a', 'b'])
     expect(doc!.search_text).toContain('A')
     expect(doc!.search_text).toContain('b')
+  })
+
+  test('buildIndexDoc preserves a singleton value as an array for multi custom fields', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'A', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [{ field_key: 'labels', value_text: 'qa-label' }],
+      cfDefs: [{ key: 'labels', config_json: { multi: true } }],
+    })
+    const em: any = { getKysely: () => fake.db }
+
+    const doc = await buildIndexDoc(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(doc?.['cf:labels']).toEqual(['qa-label'])
+  })
+
+  test('buildIndexDoc applies the entity-scoped aggregate field blocklist', async () => {
+    const originalBlocklist = process.env.OM_SEARCH_FIELD_BLOCKLIST
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'example:todo@title'
+    try {
+      const fake = createFakeKysely({
+        baseTable: 'todos',
+        baseRows: [{
+          id: '1',
+          title: 'Blocked title',
+          description: 'Visible description',
+          organization_id: 'org1',
+          tenant_id: 't1',
+        }],
+        cfValues: [],
+      })
+      const em: any = { getKysely: () => fake.db }
+
+      const doc = await buildIndexDoc(em, {
+        entityType: 'example:todo',
+        recordId: '1',
+        organizationId: 'org1',
+        tenantId: 't1',
+      })
+
+      expect(doc?.search_text).toContain('Visible description')
+      expect(doc?.search_text).not.toContain('Blocked title')
+    } finally {
+      if (originalBlocklist === undefined) delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+      else process.env.OM_SEARCH_FIELD_BLOCKLIST = originalBlocklist
+    }
   })
 
   test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {
@@ -339,6 +397,24 @@ describe('Indexer', () => {
     expect(tokenInserts.length).toBeGreaterThan(0)
   })
 
+  test('reindexSearchTokensForRecord reuses an injected transaction for token replacement', async () => {
+    const fake = createFakeKysely({ baseTable: 'todos', baseRows: [{ id: '1', title: 'x' }], cfValues: [] })
+    const em: any = { getKysely: () => fake.db }
+
+    await reindexSearchTokensForRecord(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      doc: { id: '1', title: 'x' },
+      searchTokenDoc: { title: 'Plain Title' },
+      trx: fake.db,
+    })
+
+    expect(fake.transactions).toHaveLength(0)
+    expect(fake.inserts.some((entry) => entry.table === 'search_tokens')).toBe(true)
+  })
+
   test('reindexSearchTokensForRecord clears tokens when doc is null', async () => {
     const fake = createFakeKysely({ baseTable: 'todos', baseRows: [], cfValues: [] })
     const em: any = { getKysely: () => fake.db }
@@ -355,6 +431,23 @@ describe('Indexer', () => {
     expect(tokenDeletes.length).toBeGreaterThan(0)
     const tokenInserts = fake.inserts.filter((entry) => entry.table === 'search_tokens')
     expect(tokenInserts.length).toBe(0)
+  })
+
+  test('reindexSearchTokensForRecord reuses an injected transaction for token deletion', async () => {
+    const fake = createFakeKysely({ baseTable: 'todos', baseRows: [], cfValues: [] })
+    const em: any = { getKysely: () => fake.db }
+
+    await reindexSearchTokensForRecord(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      doc: null,
+      trx: fake.db,
+    })
+
+    expect(fake.transactions).toHaveLength(0)
+    expect(fake.deletes.some((entry) => entry.table === 'search_tokens')).toBe(true)
   })
 
   test('upsertIndexRow removes index row when base row missing', async () => {
@@ -374,6 +467,28 @@ describe('Indexer', () => {
     expect(flatArgs).toEqual(expect.arrayContaining(['entity_id', 'x']))
   })
 
+  test('upsertIndexRow reuses an injected transaction for projection and token writes', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'x' }],
+      cfValues: [],
+    })
+    const em: any = { getKysely: () => fake.db }
+
+    await upsertIndexRow(em, {
+      entityType: 'example:todo',
+      recordId: '1',
+      organizationId: 'org1',
+      tenantId: 't1',
+      searchTokenDoc: { title: 'Plain Title' },
+      trx: fake.db,
+    })
+
+    expect(fake.transactions).toHaveLength(0)
+    expect(fake.inserts.some((entry) => entry.table === 'entity_indexes')).toBe(true)
+    expect(fake.inserts.some((entry) => entry.table === 'search_tokens')).toBe(true)
+  })
+
   test('markDeleted removes index row', async () => {
     const fake = createFakeKysely({
       baseTable: 'todos',
@@ -385,5 +500,21 @@ describe('Indexer', () => {
     await markDeleted(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1' })
     const del = fake.deletes[fake.deletes.length - 1]
     expect(del.table).toBe('entity_indexes')
+  })
+
+  test('markDeleted reuses an injected transaction for projection and token deletion', async () => {
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [],
+      cfValues: [],
+      indexRows: [{ entity_type: 'example:todo', entity_id: '1', organization_id: 'org1', deleted_at: null }],
+    })
+    const em: any = { getKysely: () => fake.db }
+
+    await markDeleted(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', trx: fake.db })
+
+    expect(fake.transactions).toHaveLength(0)
+    expect(fake.deletes.some((entry) => entry.table === 'search_tokens')).toBe(true)
+    expect(fake.deletes.some((entry) => entry.table === 'entity_indexes')).toBe(true)
   })
 })

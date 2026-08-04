@@ -10,6 +10,35 @@ import { fileURLToPath } from 'node:url'
 import { sandboxedInvocation } from '../../scripts/execution-sandbox.mjs'
 
 const TYPECHECK_TIMEOUT_MS = 120_000
+const MODULE_LOCALE_DIRECTORY = 'src/modules/library/i18n'
+const MODULE_LOCALE_NAMESPACE = 'library.'
+const MAX_MODULE_LOCALE_KEYS = 256
+const MAX_LOCALE_FILES = 16
+const MAX_LOCALE_FILE_BYTES = 256 * 1024
+const MAX_TOTAL_LOCALE_BYTES = 1024 * 1024
+const DANGEROUS_LOCALE_KEY_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
+const LOCALIZED_METADATA_KEYS = new Set(['pageTitleKey', 'pageGroupKey', 'labelKey'])
+
+const COMPLETE_MODULE_CASE = Object.freeze({
+  family: 'complete-module',
+  sources: ['src/modules/library', 'src/modules.ts'],
+  artifacts: [
+    'src/modules/library/index.ts',
+    'src/modules/library/acl.ts',
+    'src/modules/library/setup.ts',
+    'src/modules/library/encryption.ts',
+    'src/modules/library/search.ts',
+    'src/modules/library/data/entities.ts',
+    'src/modules/library/data/validators.ts',
+    'src/modules/library/migrations/**',
+    'src/modules/library/commands/**',
+    'src/modules/library/commands/__tests__/**',
+    'src/modules/library/api/books/route.ts',
+    'src/modules/library/backend/books/**',
+    'src/modules/library/i18n/en.json',
+    'src/modules.ts',
+  ],
+})
 
 const WRITABLE_CASES = Object.freeze({
   'OMH-009': {
@@ -353,26 +382,8 @@ const WRITABLE_CASES = Object.freeze({
     testSource: 'src/modules/library/commands/__tests__/crm-loans.test.ts',
     artifacts: ['src/modules/library/commands/crm-loans.ts', 'src/modules/library/api/schemas.ts', 'src/modules/library/commands/__tests__/crm-loans.test.ts'],
   },
-  'OMH-185': {
-    family: 'complete-module',
-    sources: ['src/modules/library', 'src/modules.ts'],
-    artifacts: [
-      'src/modules/library/index.ts',
-      'src/modules/library/acl.ts',
-      'src/modules/library/setup.ts',
-      'src/modules/library/encryption.ts',
-      'src/modules/library/search.ts',
-      'src/modules/library/data/entities.ts',
-      'src/modules/library/data/validators.ts',
-      'src/modules/library/migrations/**',
-      'src/modules/library/commands/**',
-      'src/modules/library/commands/__tests__/**',
-      'src/modules/library/api/books/route.ts',
-      'src/modules/library/backend/books/**',
-      'src/modules/library/i18n/en.json',
-      'src/modules.ts',
-    ],
-  },
+  'OMH-185': COMPLETE_MODULE_CASE,
+  'OMH-193': COMPLETE_MODULE_CASE,
 })
 
 export const WRITABLE_CASE_IDS = Object.freeze(Object.keys(WRITABLE_CASES).sort())
@@ -444,11 +455,160 @@ function collectSourceFiles(root, relativeEntries) {
     if (!stat.isDirectory()) return
     for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
       if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+      if (!entry.isDirectory() && !isTypeScriptSource(entry.name)) continue
       visit(path.join(absolute, entry.name))
     }
   }
   for (const relative of relativeEntries) visit(path.join(root, relative))
   return [...found].sort()
+}
+
+function literalString(ts, node) {
+  const expression = node ? unwrapExpression(ts, node) : undefined
+  return expression && (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression))
+    ? expression.text
+    : undefined
+}
+
+function isModuleLocaleReferenceSource(file) {
+  const normalized = file.replaceAll(path.sep, '/')
+  if (normalized.includes('/__tests__/') || /\.(?:test|spec)\.(?:cts|mts|ts|tsx)$/.test(normalized)) return false
+  if (normalized.includes('/migrations/')) return false
+  const isRoutedUi = ['/backend/', '/frontend/', '/widgets/'].some((segment) => normalized.includes(segment))
+  return isRoutedUi && (normalized.endsWith('.tsx') || normalized.endsWith('/page.meta.ts'))
+}
+
+function collectModuleLocaleKeys(ts, sourceFiles) {
+  const keys = new Set()
+  let excessive = false
+  const addKey = (value) => {
+    if (!value?.startsWith(MODULE_LOCALE_NAMESPACE)) return
+    if (keys.size >= MAX_MODULE_LOCALE_KEYS && !keys.has(value)) {
+      excessive = true
+      return
+    }
+    keys.add(value)
+  }
+  for (const file of sourceFiles.filter(isModuleLocaleReferenceSource)) {
+    const source = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+      file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    )
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && expressionName(ts, node.expression) === 't') {
+        addKey(literalString(ts, node.arguments[0]))
+      }
+      if (ts.isPropertyAssignment(node)) {
+        const name = propertyName(ts, node.name)
+        if (LOCALIZED_METADATA_KEYS.has(name)) addKey(literalString(ts, node.initializer))
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+  return { keys: [...keys].sort(), excessive }
+}
+
+function isPlainLocaleObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function safeDiagnosticToken(value) {
+  return String(value).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 200)
+}
+
+function resolveLocaleValue(catalog, key) {
+  const segments = key.split('.')
+  if (segments.some((segment) => DANGEROUS_LOCALE_KEY_SEGMENTS.has(segment))) {
+    return { valid: false, reason: 'contains a dangerous path segment' }
+  }
+  let current = catalog
+  for (const segment of segments) {
+    if (!isPlainLocaleObject(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+      return { valid: false, reason: 'is missing' }
+    }
+    current = current[segment]
+  }
+  if (typeof current !== 'string') return { valid: false, reason: 'is not a string' }
+  if (!current.trim()) return { valid: false, reason: 'is blank' }
+  return { valid: true }
+}
+
+function moduleLocaleCatalogCheck(ts, root, sourceFiles) {
+  const failures = []
+  const addFailure = (message) => {
+    if (failures.length < 32) failures.push(message)
+  }
+  try {
+    const extracted = collectModuleLocaleKeys(ts, sourceFiles)
+    if (extracted.excessive) addFailure(`more than ${MAX_MODULE_LOCALE_KEYS} literal ${MODULE_LOCALE_NAMESPACE} keys`)
+    if (extracted.keys.length === 0) addFailure(`no literal ${MODULE_LOCALE_NAMESPACE} translation keys`)
+    const localeDirectory = path.join(root, MODULE_LOCALE_DIRECTORY)
+    const directoryStat = safeTargetEntry(root, localeDirectory)
+    if (!directoryStat?.isDirectory()) {
+      addFailure('i18n directory is missing')
+      return check('module.locale-catalog', false, `literal module locale catalogs resolve to non-empty strings (${failures.join('; ')})`)
+    }
+    const localeEntries = fs.readdirSync(localeDirectory, { withFileTypes: true })
+      .filter((entry) => entry.name.endsWith('.json'))
+      .sort((left, right) => left.name.localeCompare(right.name))
+    if (localeEntries.length > MAX_LOCALE_FILES) addFailure(`locale file count exceeds ${MAX_LOCALE_FILES}`)
+    const boundedEntries = localeEntries.slice(0, MAX_LOCALE_FILES)
+    if (!boundedEntries.some((entry) => entry.name === 'en.json')) addFailure('en.json is missing')
+    let totalBytes = 0
+    const catalogs = []
+    for (const entry of boundedEntries) {
+      const localeName = safeDiagnosticToken(entry.name)
+      const absolute = path.join(localeDirectory, entry.name)
+      const stat = safeTargetEntry(root, absolute)
+      if (!stat?.isFile()) {
+        addFailure(`${localeName} is not a regular file`)
+        continue
+      }
+      if (stat.size > MAX_LOCALE_FILE_BYTES) {
+        addFailure(`${localeName} exceeds ${MAX_LOCALE_FILE_BYTES} bytes`)
+        continue
+      }
+      totalBytes += stat.size
+      if (totalBytes > MAX_TOTAL_LOCALE_BYTES) {
+        addFailure(`locale input exceeds ${MAX_TOTAL_LOCALE_BYTES} total bytes`)
+        break
+      }
+      let catalog
+      try {
+        catalog = JSON.parse(fs.readFileSync(absolute, 'utf8'))
+      } catch {
+        addFailure(`${localeName} contains malformed JSON`)
+        continue
+      }
+      if (!isPlainLocaleObject(catalog)) {
+        addFailure(`${localeName} root is not a plain object`)
+        continue
+      }
+      catalogs.push({ name: localeName, catalog })
+    }
+    for (const { name, catalog } of catalogs) {
+      for (const key of extracted.keys) {
+        const resolution = resolveLocaleValue(catalog, key)
+        if (!resolution.valid) addFailure(`${name} ${safeDiagnosticToken(key)} ${resolution.reason}`)
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    addFailure(safeDiagnosticToken(message))
+  }
+  return check(
+    'module.locale-catalog',
+    failures.length === 0,
+    failures.length
+      ? `literal module locale catalogs resolve to non-empty strings (${failures.join('; ')})`
+      : `en.json and every emitted sibling locale resolve every literal ${MODULE_LOCALE_NAMESPACE} key to a non-empty string`,
+  )
 }
 
 function artifactExists(root, pattern) {
@@ -1223,7 +1383,197 @@ function check(id, passed, requirement) {
   return { id, passed: Boolean(passed), requirement }
 }
 
-function caseChecks(ts, caseId, facts, root) {
+function routeMetadataPath(ts, sourceFile) {
+  const source = ts.createSourceFile(
+    sourceFile,
+    fs.readFileSync(sourceFile, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    sourceFile.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== 'metadata') continue
+      const initializer = unwrapExpression(ts, declaration.initializer)
+      if (!initializer || !ts.isObjectLiteralExpression(initializer)) continue
+      for (const property of initializer.properties) {
+        if (!ts.isPropertyAssignment(property) || propertyName(ts, property.name) !== 'path') continue
+        const value = unwrapExpression(ts, property.initializer)
+        if (value && ts.isStringLiteralLike(value)) return value.text
+      }
+    }
+  }
+  return undefined
+}
+
+function normalizeRoutePath(value) {
+  const normalizedSegments = value
+    .replaceAll('\\', '/')
+    .split('/')
+    .filter((segment) => segment && !(segment.startsWith('(') && segment.endsWith(')')) && !segment.startsWith('@'))
+    .map((segment) => {
+      if (/^\[\[\.\.\.[^\]]+\]\]$/.test(segment)) return '[[...]]'
+      if (/^\[\.\.\.[^\]]+\]$/.test(segment)) return '[...]'
+      if (/^\[[^\]]+\]$/.test(segment)) return '[]'
+      return segment
+    })
+  return `/${normalizedSegments.join('/')}`
+}
+
+function sourceHttpMethods(ts, sourceFile) {
+  const source = ts.createSourceFile(sourceFile, fs.readFileSync(sourceFile, 'utf8'), ts.ScriptTarget.Latest, true)
+  const methods = new Set()
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(statement.name.text)) methods.add(statement.name.text)
+    }
+    if (!ts.isVariableStatement(statement) || !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(declaration.name.text)) methods.add(declaration.name.text)
+      if (!ts.isObjectBindingPattern(declaration.name)) continue
+      for (const element of declaration.name.elements) {
+        const name = element.propertyName ?? element.name
+        if (ts.isIdentifier(name) && ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(name.text)) methods.add(name.text)
+      }
+    }
+  }
+  return methods
+}
+
+function pageRoutePath(moduleId, surface, pageFile) {
+  const surfaceRoot = path.join('src', 'modules', moduleId, surface)
+  const relative = path.relative(surfaceRoot, pageFile).replaceAll(path.sep, '/')
+  const segments = relative.split('/')
+  const file = segments.pop()
+  const modern = file === 'page.ts' || file === 'page.tsx'
+  const routeSegments = modern ? segments : [...segments, file.replace(/\.(?:ts|tsx)$/, '')]
+  if (surface === 'frontend') return normalizeRoutePath(`/${routeSegments.join('/')}`)
+  const backendSegments = modern
+    ? routeSegments
+    : routeSegments[0] === moduleId ? routeSegments : [moduleId, ...routeSegments]
+  return normalizeRoutePath(`/backend/${backendSegments.length ? backendSegments.join('/') : moduleId}`)
+}
+
+function installedFactRoutes(root) {
+  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+  const factsStat = safeTargetEntry(root, factsFile)
+  if (!factsStat) return []
+  if (!factsStat.isFile()) throw new Error('installed module facts must be a regular file')
+  const facts = JSON.parse(fs.readFileSync(factsFile, 'utf8'))
+  if (!facts || typeof facts !== 'object' || Array.isArray(facts)) {
+    throw new Error('installed module facts must contain a module object')
+  }
+
+  const routes = []
+  for (const [moduleId, moduleFacts] of Object.entries(facts)) {
+    if (!moduleFacts || typeof moduleFacts !== 'object' || Array.isArray(moduleFacts)) continue
+    const sourceRoot = typeof moduleFacts.sourceRoot === 'string'
+      ? moduleFacts.sourceRoot
+      : `.ai/guides/module-facts.json#${moduleId}`
+    for (const apiRoute of Array.isArray(moduleFacts.apiRoutes) ? moduleFacts.apiRoutes : []) {
+      if (!apiRoute || typeof apiRoute !== 'object' || typeof apiRoute.path !== 'string') continue
+      const methods = new Set(
+        (Array.isArray(apiRoute.methods) ? apiRoute.methods : [])
+          .filter((method) => typeof method === 'string')
+          .map((method) => method.toUpperCase()),
+      )
+      if (!methods.size) continue
+      routes.push({
+        surface: 'api',
+        routePath: normalizeRoutePath(apiRoute.path),
+        sourceFile: undefined,
+        displayPath: typeof apiRoute.sourcePath === 'string' ? apiRoute.sourcePath : `${sourceRoot}#api:${apiRoute.path}`,
+        methods,
+        origin: 'installed',
+      })
+    }
+    for (const [surface, factKey] of [['backend', 'backendPages'], ['frontend', 'frontendPages']]) {
+      for (const page of Array.isArray(moduleFacts[factKey]) ? moduleFacts[factKey] : []) {
+        if (!page || typeof page !== 'object' || typeof page.path !== 'string') continue
+        routes.push({
+          surface,
+          routePath: normalizeRoutePath(page.path),
+          sourceFile: undefined,
+          displayPath: typeof page.sourcePath === 'string' ? page.sourcePath : `${sourceRoot}#${surface}:${page.path}`,
+          methods: new Set(),
+          origin: 'installed',
+        })
+      }
+    }
+  }
+  return routes
+}
+
+function duplicateRouteChecks(ts, root) {
+  const modulesRoot = path.join(root, 'src', 'modules')
+  const moduleStat = safeTargetEntry(root, modulesRoot)
+  if (!moduleStat?.isDirectory()) return []
+  const routes = []
+  for (const moduleEntry of fs.readdirSync(modulesRoot, { withFileTypes: true })) {
+    if (!moduleEntry.isDirectory() || moduleEntry.name.startsWith('.')) continue
+    for (const surface of ['api', 'backend', 'frontend']) {
+      const surfaceRoot = path.join(modulesRoot, moduleEntry.name, surface)
+      const files = collectSourceFiles(root, [path.relative(root, surfaceRoot)])
+      for (const sourceFile of files) {
+        const relative = path.relative(surfaceRoot, sourceFile).replaceAll(path.sep, '/')
+        if (/\.(?:test|spec)\.(?:ts|tsx)$/.test(relative) || /(?:^|\/)page\.meta\.(?:ts|tsx)$/.test(relative) || /(?:^|\/)[^/]+\.meta\.(?:ts|tsx)$/.test(relative)) continue
+        if (surface === 'api') {
+          const segments = relative.split('/')
+          const file = segments.pop()
+          const legacyMethod = ['get', 'post', 'put', 'patch', 'delete'].includes(segments[0]) ? segments.shift().toUpperCase() : undefined
+          const modern = file === 'route.ts' || file === 'route.tsx'
+          const routeSegments = modern ? segments : [...segments, file.replace(/\.(?:ts|tsx)$/, '')]
+          const metadataPath = routeMetadataPath(ts, sourceFile)
+          const routePath = normalizeRoutePath(metadataPath ?? `/${[moduleEntry.name, ...routeSegments].join('/')}`)
+          const methods = legacyMethod ? new Set([legacyMethod]) : sourceHttpMethods(ts, sourceFile)
+          if (methods.size) routes.push({
+            surface,
+            routePath,
+            sourceFile,
+            displayPath: path.relative(root, sourceFile).replaceAll(path.sep, '/'),
+            methods,
+            origin: 'app',
+          })
+          continue
+        }
+        if (!/(?:^|\/)page\.(?:ts|tsx)$/.test(relative) && !/^[^/]+\.(?:ts|tsx)$/.test(relative)) continue
+        routes.push({
+          surface,
+          routePath: pageRoutePath(moduleEntry.name, surface, sourceFile),
+          sourceFile,
+          displayPath: path.relative(root, sourceFile).replaceAll(path.sep, '/'),
+          methods: new Set(),
+          origin: 'app',
+        })
+      }
+    }
+  }
+  routes.push(...installedFactRoutes(root))
+
+  const duplicateGroups = new Map()
+  for (const route of routes) {
+    const key = `${route.surface}:${route.routePath}`
+    const peers = duplicateGroups.get(key) ?? []
+    peers.push(route)
+    duplicateGroups.set(key, peers)
+  }
+  return [...duplicateGroups.entries()].flatMap(([key, entries]) => {
+    if (entries.length < 2) return []
+    if (!entries.some((entry) => entry.origin === 'app')) return []
+    const conflicts = entries.filter((entry, index) => entries.some((peer, peerIndex) => {
+      if (peerIndex === index) return false
+      if (entry.surface !== 'api') return true
+      return [...entry.methods].some((method) => peer.methods.has(method))
+    }))
+    if (conflicts.length < 2) return []
+    const sources = conflicts.map((entry) => entry.displayPath).join(', ')
+    return [`${key} (${sources})`]
+  })
+}
+
+function caseChecks(ts, caseId, facts, root, sourceFiles) {
   const definition = WRITABLE_CASES[caseId]
   if (definition.family === 'complete-module') {
     const scopedEntity = facts.classes.some((entry) => entry.decorators.has('Entity') && ['tenant_id', 'organization_id', 'updated_at'].every((name) => entry.members.has(name)))
@@ -1254,6 +1604,7 @@ function caseChecks(ts, caseId, facts, root) {
       check('module.custom-fields', hasCall(facts, 'collectCustomFieldValues') && hasCall(facts, 'buildCustomFieldResetMap'), 'UI submission and command undo preserve custom fields'),
       check('module.sidebar', ['pageTitleKey', 'pageGroupKey', 'pagePriority', 'pageOrder', 'icon', 'breadcrumb'].every((name) => facts.objectProperties.has(name)), 'the Books list page metadata publishes localized main-sidebar navigation'),
       check('module.localized-ui', hasCall(facts, 'useT') && hasCall(facts, 't') && uiFailures.length === 0, `rendered UI uses i18n and shared design-system policy${uiFailures.length ? ` (${uiFailures.join(', ')})` : ''}`),
+      moduleLocaleCatalogCheck(ts, root, sourceFiles),
     ]
   }
   if (definition.family === 'booking-overlap') {
@@ -1741,9 +2092,11 @@ export function evaluateWritableAstOracle({ root: requestedRoot, caseId, phase }
   const ts = loadTargetTypeScript(root)
   const definition = WRITABLE_CASES[caseId]
   const checks = definition.artifacts.map((artifact) => check(`artifact:${artifact}`, artifactExists(root, artifact), `artifact ${artifact} exists`))
+  const duplicateRoutes = duplicateRouteChecks(ts, root)
+  checks.push(check('routes.unique', duplicateRoutes.length === 0, `generated API, backend, and frontend URL patterns are unique${duplicateRoutes.length ? ` (${duplicateRoutes.join('; ')})` : ''}`))
   const sourceFiles = collectSourceFiles(root, definition.sources)
   checks.push(check('source.present', sourceFiles.length > 0, 'at least one case-owned TypeScript source file'))
-  if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles), root))
+  if (sourceFiles.length) checks.push(...caseChecks(ts, caseId, collectFacts(ts, sourceFiles), root, sourceFiles))
   if (phase === 'after') checks.push(runTargetTypecheck(root))
   const failures = checks.filter((entry) => !entry.passed).map((entry) => `${entry.id}: ${entry.requirement}`)
   return { passed: failures.length === 0, failures, checks }

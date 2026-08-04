@@ -1,12 +1,15 @@
 
-# 0.6.7 (2026-07-30)
+# 0.6.7 (2026-08-01)
 
 ## Highlights
 <!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
 
 ## ✨ Features
+- ✨ Add 'partner-request' to allowed labels in community labels. (#4730) *(@MStaniaszek1998)*
+- ✨ Enable community PR label commands. (#4726) *(@MStaniaszek1998)*
 - ✨ Implementation of WMS (warehouse management). (#4566) *(@patzick)*
 - ✨ Cache organization switcher responses (#2907). (#4538) *(@hubert-madej-softiq)*
+- ✨ Make the standalone harness pass on Claude Sonnet. (#4529) *(@pkarw)*
 - ✨ Add initialValues prop to CreateDealForm (supersedes #3729). (#4485) *(@jakubsobczak-syhi, via @pkarw)*
 - ✨ Cache role lists safely (supersedes #3143). (#4480) *(@adeptofvoltron, via @pkarw)*
 - ✨ Honor custom-field priority and declaration order (supersedes #4417). (#4466) *(@wojciechszyjka, via @pkarw)*
@@ -21,7 +24,9 @@
 - ✨ DataTable interactive column resize + width persistence (#1835). (#3774) *(@zielivia)*
 
 ## 🔒 Security
+- 🔒 Gate /label on the certified partner registry (develop mirror of #4761). (#4762) *(@MStaniaszek1998)*
 - 🔒 Reject prototype keys in getNestedValue field paths (#3823). (#4517) *(@Marynat)*
+- 🔒 Enforce cumulative capture ceiling (#4487). (#4508) *(@wojciechszyjka)*
 - 🔒 Bump the postcss resolution off the vulnerable 8.5.15 (#4499). (#4500) *(@wojciechszyjka)*
 - 🔒 Run a daily dependency audit and stop caching the audit result (#4479). (#4497) *(@wojciechszyjka)*
 - 🔒 Guard bounded bcrypt candidate loop invariant (#3812). (#4469) *(@DarrenStasiakDev4You)*
@@ -31,7 +36,14 @@
 - 🔒 Remove raw acceptance-token fallback in public quote endpoints (#2929). (#2997) *(@adeptofvoltron)*
 
 ## 🐛 Fixes
+- 🐛 Use nil UUID sentinel instead of string in leave-requests filters. (#4766) *(@mikoajp)*
+- 🔧 Grant community label workflow PR access. (#4753) *(@MStaniaszek1998)*
+- 🔧 Enforce standalone spec phase gates. (#4752) *(@pkarw)*
+- 🔧 Warn when an injection table references a widget nothing declares. (#4710) *(@lchrusciel)*
+- 🔐 Never return an unencrypted index document (#4677). (#4686) *(@wojciechszyjka)*
+- 🌍 Make the usage scanner see multiline t() calls (#4666). (#4684) *(@wojciechszyjka)*
 - 📦 Preapprove @open-mercato past yarn's minimum release age gate. (#4644) *(@patzick)*
+- 🌍 Define the phone custom-field translation keys (#4607). (#4608) *(@wojciechszyjka)*
 - 🔄 Stop reindex batches from silently dropping records (supersedes #4593). (#4598) *(@jtomaszewski, via @pkarw)*
 - 🔐 Fail closed on unresolved tenant scope in read routes. (#4590) *(@tomaszscigalacshark)*
 - 🔧 Surface swallowed Next.js dev startup errors, retry cold starts. (#4567) *(@patzick)*
@@ -43,6 +55,7 @@
 - 🔧 Give the AGENTS.md budget chain sort an explicit comparator. (#4527) *(@wojciechszyjka)*
 - 🔐 Tenant-scope custom entity mutations (supersedes #4134). (#4511) *(@haxiorz, via @pkarw)*
 - 🔧 Invalidate trigger cache on customize and reset-to-code (#4425). (#4509) *(@wojciechszyjka)*
+- 🔧 Log command-interceptor registry import failures. (#4505) *(@wojciechszyjka)*
 - 🔧 Restore ESLint coverage and keep audit green (supersedes #4496). (#4501) *(@wojciechszyjka, via @pkarw)*
 - 🔐 Backfill poisoned customer_entity_id links (#4473). (#4494) *(@wojciechszyjka)*
 - 🔐 Harden rate-limit proxy trust (#4041) (supersedes #4074). (#4490) *(@haxiorz, via @pkarw)*
@@ -53,12 +66,14 @@
 - 🔐 Return 400 for malformed uuid list filters (#3819). (#4468) *(@DarrenStasiakDev4You)*
 - 🐛 Restore request bodies from runtime registry (supersedes #4410). (#4467) *(@wojciechszyjka, via @pkarw)*
 - 🐛 Register code-defined workflow triggers with the trigger engine (supersedes #4443). (#4463) *(@wojciechszyjka, via @pkarw)*
+- 🐛 Activity configuration — edit-time validation, editable JSON, working timeouts (supersedes #4449). (#4460) *(@wojciechszyjka, via @pkarw)*
 - 📦 Scaffolded apps run their own tooling (supersedes #4454). (#4456) *(@wojciechszyjka, via @pkarw)*
 - 🌍 Complete Polish translations and drop duplicated integrations keys (#2077). (#4452) *(@wojciechszyjka)*
 - 🖼️ Library interaction fixes — input focus and download-cell click. (#4450) *(@wojciechszyjka)*
 - 🌍 Translate the remaining Polish CRM strings (#2077, #4380). (#4446) *(@wojciechszyjka)*
 - 🔧 Malformed ?ids= no longer returns the full list. (#4444) *(@wojciechszyjka)*
 - 🔧 Load command interceptors in the CLI/queue-worker bootstrap. (#4414) *(@wojciechszyjka)*
+- 🐛 Stop useGroupOrder render loop when hosts recreate group ids every render (#4386). (#4411) *(@wojciechszyjka)*
 - 🐛 Apply overrides.widgets.dashboard to the server-side widget catalog (#4377). (#4408) *(@wojciechszyjka)*
 - 🔧 Restore standalone optimistic locking DI (supersedes #4209). (#4395) *(@migace, via @pkarw)*
 - 🐛 CustomFieldValuesList honors listVisible and formats values by kind. (#4388) *(@wojciechszyjka)*
@@ -136,6 +151,9 @@
 - 🧪 Stub DNS in the redirect-hop tests so develop is green again (#4515). (#4516) *(@wojciechszyjka)*
 
 ## 📝 Specs & Documentation
+- 📝 Standalone harness canonical UI and i18n acceptance. (#4743) *(@pkarw)*
+- 📝 Add configuration decision guide (supersedes #4549). (#4741) *(@jtomaszewski, via @pkarw)*
+- 📝 AST-first code generation for the remaining string emitters (#1637). (#4636) *(@wojciechszyjka)*
 - 📝 Publish Enterprise License Agreement Terms v2.2. (#4610) *(@matgren)*
 - 📝 Fit the root AGENTS.md into Codex's 32 KiB instruction budget (#4484). (#4506) *(@wojciechszyjka)*
 - 📝 Note that finishing the self-QA exception needs `triage` permission (#4478). (#4498) *(@wojciechszyjka)*
@@ -175,6 +193,8 @@
 - @zielivia
 - @piotrchabros
 - @pat-lewczuk
+- @lchrusciel
+- @mikoajp
 
 ---
 
@@ -694,6 +714,7 @@ On the product surface, the CRM **deals list is redesigned** (with a follow-up m
 - ✨ Add the `om-help` workflow navigator skill. (#2140) *(@adeptofvoltron)*
 - ✨ Branding: add an organization sidebar logo. (#2822) *(@pmadajthey)*
 - ✨ Bootstrap: fail-loud production guard for single-instance strategies (#2987). (#3030) *(@adeptofvoltron)*
+- Business rules: add a Call OpenMercato action for scoped internal API calls through selected endpoint and API key profile options.
 
 ## 🔒 Security
 - 🔒 Webhooks: harden unauthenticated provider webhook failures. (#2680) *(@sravan27)*

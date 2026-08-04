@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/directory/extension-points'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
@@ -193,7 +194,7 @@ export default function DirectoryTenantsPage() {
           sortable
           sorting={sorting}
           onSortingChange={(state) => { setSorting(state); setPage(1) }}
-          perspective={{ tableId: 'directory.tenants.list' }}
+          perspective={{ tableId: extensionPoints.hosts.tenantsTable.tableId }}
           rowActions={(row) => (
             canManage ? (
               <RowActions

@@ -26,7 +26,7 @@ For a new editable entity or module, unless the brief explicitly excludes an ope
 
 ## DataTable
 
-- Use `DataTable` with stable colon-form `entityId`, `apiPath`, and `extensionTableId`. These are host contracts, not cosmetic props.
+- Use `DataTable` with a stable colon-form `entityId`, explicit typed data/pagination loaded through shared API helpers, and `extensionTableId`. These are host contracts, not cosmetic props; `DataTable` has no `apiPath` prop.
 - Use shared column helpers, `RowActions` with stable action IDs, built-in filter/search/export/column controls, and DataTable bulk-action surfaces.
 - When owning pagination, wire page, page size, total count, and change handlers together. Do not slice a server page again in the client.
 - Use the table's empty state and shared loading/error components. A successful empty result is not an error.
