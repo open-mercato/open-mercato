@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 118 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 119 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -151,8 +151,8 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### debugging
 
+- [Anchor repeated route-handler edits to unique context](lessons/anchor-repeated-route-handler-edits-to-unique-context.md) — area:debugging,testing; module:messages; topic:route-coverage,testing
 - [Stale package dist and cached RBAC make a correct fix look broken in dev](lessons/stale-dist-and-cached-rbac-hide-code-changes-in-dev.md) — area:debugging,ai-workflow; module:eudr,auth; topic:build-output,access-control,spec-pr
-
 - [Compose startup commands must not hard-depend on newly added image scripts](lessons/compose-startup-commands-must-not-hard-depend-on-newly.md) — area:debugging,module-data,architecture; module:create_app; topic:command-pattern,runtime-startup,template-sync
 - [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations
 - [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
