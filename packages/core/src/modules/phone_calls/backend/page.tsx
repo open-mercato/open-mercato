@@ -1,0 +1,250 @@
+"use client"
+
+import * as React from 'react'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { Tag, type TagVariant } from '@open-mercato/ui/primitives/tag'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type PhoneCallRow = {
+  id: string
+  provider_key: string | null
+  external_call_id: string | null
+  direction: string | null
+  status: string | null
+  started_at: string | null
+  duration_seconds: number | null
+  ingest_status: string | null
+}
+
+type PhoneCallListResponse = {
+  items?: PhoneCallRow[]
+  total?: number
+  page?: number
+  totalPages?: number
+}
+
+const DIRECTION_VALUES = ['inbound', 'outbound', 'internal', 'unknown'] as const
+const STATUS_VALUES = ['new', 'ringing', 'answered', 'missed', 'failed', 'completed', 'unknown'] as const
+
+// Column id (snake_case accessorKey) -> API sortField key (camelCase, matches
+// the route's sortFieldMap). Columns absent from this map are not sortable.
+const SORT_FIELDS: Record<string, string> = {
+  external_call_id: 'externalCallId',
+  direction: 'direction',
+  status: 'status',
+  provider_key: 'providerKey',
+  started_at: 'startedAt',
+  duration_seconds: 'durationSeconds',
+  ingest_status: 'ingestStatus',
+}
+
+const STATUS_TONE: Record<string, TagVariant> = {
+  completed: 'success',
+  answered: 'success',
+  ringing: 'warning',
+  new: 'neutral',
+  missed: 'error',
+  failed: 'error',
+  unknown: 'neutral',
+}
+
+function formatDuration(seconds: number | null): string {
+  if (seconds == null || Number.isNaN(seconds)) return '—'
+  const total = Math.max(0, Math.floor(seconds))
+  const mins = Math.floor(total / 60)
+  const secs = total % 60
+  return `${mins}:${String(secs).padStart(2, '0')}`
+}
+
+export default function PhoneCallsPage() {
+  const t = useT()
+  const [rows, setRows] = React.useState<PhoneCallRow[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [page, setPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(50)
+  const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'started_at', desc: true }])
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+
+  const handleSortingChange = React.useCallback((next: SortingState) => {
+    setSorting(next)
+    setPage(1)
+  }, [])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const queryString = React.useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    if (search.trim()) params.set('q', search.trim())
+    if (typeof filterValues.direction === 'string' && filterValues.direction) params.set('direction', filterValues.direction)
+    if (typeof filterValues.status === 'string' && filterValues.status) params.set('status', filterValues.status)
+    if (typeof filterValues.providerKey === 'string' && filterValues.providerKey.trim()) params.set('providerKey', filterValues.providerKey.trim())
+    const started = filterValues.started as { from?: string; to?: string } | undefined
+    if (started?.from) params.set('startedFrom', started.from)
+    if (started?.to) params.set('startedTo', started.to)
+    const activeSort = sorting[0]
+    if (activeSort) {
+      const sortField = SORT_FIELDS[activeSort.id]
+      if (sortField) {
+        params.set('sortField', sortField)
+        params.set('sortDir', activeSort.desc ? 'desc' : 'asc')
+      }
+    }
+    return params.toString()
+  }, [page, pageSize, search, filterValues, sorting])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      setError(null)
+      const response = await apiCall<PhoneCallListResponse>(`/api/phone_calls/calls?${queryString}`).catch((err: unknown) => ({
+        ok: false as const,
+        result: { error: err instanceof Error ? err.message : undefined },
+      }))
+      if (cancelled) return
+      if (!response.ok) {
+        const errBody = response.result as { error?: string } | undefined
+        setError(errBody?.error ?? t('phone_calls.calls.list.error', 'Failed to load phone calls'))
+        setRows([])
+        setTotal(0)
+        setTotalPages(1)
+      } else {
+        const data = (response.result ?? {}) as PhoneCallListResponse
+        setRows(Array.isArray(data.items) ? data.items : [])
+        setTotal(typeof data.total === 'number' ? data.total : 0)
+        setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 1)
+      }
+      setIsLoading(false)
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [queryString, t])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'direction',
+      label: t('phone_calls.calls.filters.direction', 'Direction'),
+      type: 'select',
+      options: DIRECTION_VALUES.map((value) => ({
+        value,
+        label: t(`phone_calls.calls.direction.${value}`, value),
+      })),
+    },
+    {
+      id: 'status',
+      label: t('phone_calls.calls.filters.status', 'Status'),
+      type: 'select',
+      options: STATUS_VALUES.map((value) => ({
+        value,
+        label: t(`phone_calls.calls.status.${value}`, value),
+      })),
+    },
+    {
+      id: 'providerKey',
+      label: t('phone_calls.calls.filters.provider', 'Provider'),
+      type: 'text',
+      placeholder: t('phone_calls.calls.filters.providerPlaceholder', 'Provider key'),
+    },
+    {
+      id: 'started',
+      label: t('phone_calls.calls.filters.started', 'Started'),
+      type: 'dateRange',
+    },
+  ], [t])
+
+  const columns = React.useMemo<ColumnDef<PhoneCallRow>[]>(() => [
+    {
+      accessorKey: 'external_call_id',
+      header: t('phone_calls.calls.columns.callId', 'Call ID'),
+      cell: ({ row }) => (
+        <span className="text-sm font-medium truncate max-w-[240px] block">{row.original.external_call_id || '—'}</span>
+      ),
+    },
+    {
+      accessorKey: 'direction',
+      header: t('phone_calls.calls.columns.direction', 'Direction'),
+      cell: ({ row }) => {
+        const value = row.original.direction
+        return <span className="text-sm">{value ? t(`phone_calls.calls.direction.${value}`, value) : '—'}</span>
+      },
+    },
+    {
+      accessorKey: 'status',
+      header: t('phone_calls.calls.columns.status', 'Status'),
+      cell: ({ row }) => {
+        const value = row.original.status
+        if (!value) return <span className="text-sm text-muted-foreground">—</span>
+        return (
+          <Tag variant={STATUS_TONE[value] ?? 'neutral'}>
+            {t(`phone_calls.calls.status.${value}`, value)}
+          </Tag>
+        )
+      },
+    },
+    {
+      accessorKey: 'provider_key',
+      header: t('phone_calls.calls.columns.provider', 'Provider'),
+      cell: ({ row }) => <span className="text-sm">{row.original.provider_key || '—'}</span>,
+    },
+    {
+      accessorKey: 'started_at',
+      header: t('phone_calls.calls.columns.started', 'Started'),
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDateTime(row.original.started_at) ?? '—'}</span>,
+    },
+    {
+      accessorKey: 'duration_seconds',
+      header: t('phone_calls.calls.columns.duration', 'Duration'),
+      cell: ({ row }) => <span className="text-sm tabular-nums">{formatDuration(row.original.duration_seconds)}</span>,
+    },
+    {
+      accessorKey: 'ingest_status',
+      header: t('phone_calls.calls.columns.ingestStatus', 'Ingest'),
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.ingest_status || '—'}</span>,
+    },
+  ], [t])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable<PhoneCallRow>
+          title={t('phone_calls.calls.list.title', 'Phone Calls')}
+          extensionTableId="phone_calls.calls"
+          columns={columns}
+          data={rows}
+          isLoading={isLoading}
+          error={error}
+          sortable
+          manualSorting
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('phone_calls.calls.list.searchPlaceholder', 'Search by call, conversation or provider')}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          emptyState={t('phone_calls.calls.list.empty', 'No phone calls yet. Calls appear here once they are ingested from a provider.')}
+          pagination={{
+            page,
+            pageSize,
+            total,
+            totalPages,
+            onPageChange: setPage,
+            pageSizeOptions: [10, 25, 50, 100],
+            onPageSizeChange: (size) => { setPageSize(size); setPage(1) },
+          }}
+        />
+      </PageBody>
+    </Page>
+  )
+}
