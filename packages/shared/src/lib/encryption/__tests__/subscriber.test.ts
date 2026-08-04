@@ -4,9 +4,11 @@ import {
 } from '../subscriber'
 import type { TenantDataEncryptionService } from '../tenantDataEncryptionService'
 
-// Give every entity a resolvable id so the real decrypt() path proceeds to decryptEntityPayload.
+// Give every entity a resolvable id so the real decrypt() path proceeds to decryptEntityPayload,
+// keying off the class name so a test's fixture and its assertion describe the same entity.
 jest.mock('../entityIds', () => ({
-  resolveEntityIdFromMetadata: jest.fn(() => 'customers:customer_address'),
+  resolveEntityIdFromMetadata: jest.fn((meta?: { className?: string }) =>
+    meta?.className === 'OnboardingRequest' ? 'onboarding:onboarding_request' : 'customers:customer_address'),
 }))
 
 describe('decryptEntitiesWithFallbackScope subscriber memoization (issue #2235)', () => {
@@ -191,7 +193,7 @@ describe('tenant-less entity encryption delegation', () => {
     } as never)
 
     expect(encryptEntityPayload).toHaveBeenCalledWith(
-      'customers:customer_address',
+      'onboarding:onboarding_request',
       expect.any(Object),
       null,
       null,

@@ -371,7 +371,12 @@ export async function setupInitialTenant(
       await tem.flush()
 
       if (isTenantDataEncryptionEnabled()) {
+        // System-scoped maps are resolved from module code, never from a tenant row.
+        // Persisting one here would make the tenant-scoped encryption CLIs believe they
+        // own that entity and re-wrap its `system:<entityId>` ciphertext under the tenant
+        // DEK, which runtime decryption can no longer read.
         for (const spec of defaultEncryptionMaps) {
+          if (spec.keyScope === 'system') continue
           const existing = await findOneWithDecryption(tem, EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null }, {}, { tenantId: String(tenant.id), organizationId: String(organization.id) })
           if (!existing) {
             tem.persist(tem.create(EncryptionMap, {

@@ -263,8 +263,28 @@ function resolveEncryptionMapModules(): Module[] {
   }
 }
 
+/**
+ * Entity ids whose encryption map is declared in module code with `keyScope: 'system'`.
+ *
+ * Their ciphertext is sealed under a `system:<entityId>` DEK that has no tenant, so every
+ * tenant-scoped command here MUST leave them alone: re-wrapping such a value under a tenant
+ * DEK produces a payload runtime decryption can never read again. `backfill-system-encryption`
+ * is the one command that handles them.
+ */
+function getSystemScopedEntityIds(): Set<string> {
+  return new Set(
+    getDefaultEncryptionMaps(resolveEncryptionMapModules())
+      .filter((map) => map.keyScope === 'system')
+      .map((map) => map.entityId),
+  )
+}
+
 async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
   for (const spec of getDefaultEncryptionMaps(resolveEncryptionMapModules())) {
+    if (spec.keyScope === 'system') {
+      logger(`Skipping ${spec.entityId}: system-scoped map, resolved from module code rather than a tenant row.`)
+      continue
+    }
     const existing = await em.findOne(EncryptionMap, {
       entityId: spec.entityId,
       tenantId,
@@ -490,7 +510,15 @@ const rotateEncryptionKey: ModuleCli = {
     const where: any = { deletedAt: null }
     if (tenantIdArg) where.tenantId = tenantIdArg
     if (organizationIdArg) where.organizationId = organizationIdArg
-    const maps = await em.find(EncryptionMap, where)
+    const allMaps = await em.find(EncryptionMap, where)
+    const systemScopedEntityIds = getSystemScopedEntityIds()
+    const maps = allMaps.filter((map: EncryptionMap) => {
+      if (!systemScopedEntityIds.has(String(map.entityId))) return true
+      console.warn(
+        `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key and cannot be rotated with a tenant key — use "mercato entities backfill-system-encryption" instead.`,
+      )
+      return false
+    })
     if (!maps.length) {
       console.log('No encryption maps found for the selected scope.')
       return
@@ -699,7 +727,15 @@ const decryptDatabase: ModuleCli = {
     const mapWhere: any = { tenantId: tenantIdArg, deletedAt: null, isActive: true }
     if (organizationIdArg) mapWhere.organizationId = organizationIdArg
     if (entityIdArg) mapWhere.entityId = entityIdArg
-    const maps = await em.find(EncryptionMap, mapWhere)
+    const allMaps = await em.find(EncryptionMap, mapWhere)
+    const systemScopedEntityIds = getSystemScopedEntityIds()
+    const maps = allMaps.filter((map: EncryptionMap) => {
+      if (!systemScopedEntityIds.has(String(map.entityId))) return true
+      console.warn(
+        `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key that the tenant DEK cannot open, so this command leaves it untouched.`,
+      )
+      return false
+    })
 
     if (!maps.length) {
       console.log('No active encryption maps found for the selected scope.')
