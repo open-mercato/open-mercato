@@ -390,8 +390,41 @@ function baseFileBuffer(root, baseSha, relativePath) {
   return result.status === 0 ? result.stdout : null
 }
 
-export function deriveFocusedCommand(testFile) {
+const NODE_TEST_SCRIPT_PATTERN = /(?:^|\s)--test(?:[=\s]|$)/
+
+/**
+ * The controller only drives an exact `node --test` argv. It reads the nearest owning package's
+ * declared test script so a project on another runner is refused with its real script name instead
+ * of being handed a command that would not run its suite.
+ */
+export function resolveTestRunnerFamily(root, testFile) {
+  const segments = normalizeRelativePath(testFile).split('/').slice(0, -1)
+  const directories = ['']
+  let accumulated = ''
+  for (const segment of segments) {
+    accumulated = accumulated ? `${accumulated}/${segment}` : segment
+    directories.push(accumulated)
+  }
+  for (const directory of directories.reverse()) {
+    const manifest = readJsonIfPresent(path.join(root, directory, 'package.json'))
+    const declared = manifest?.scripts?.test
+    if (typeof declared !== 'string' || !declared.trim()) continue
+    return NODE_TEST_SCRIPT_PATTERN.test(declared)
+      ? { family: 'node-test', declaredScript: declared }
+      : { family: 'unsupported', declaredScript: declared }
+  }
+  return { family: 'node-test', declaredScript: null }
+}
+
+export function deriveFocusedCommand(testFile, runnerFamily = { family: 'node-test', declaredScript: null }) {
   const relativePath = normalizeRelativePath(testFile)
+  if (runnerFamily.family !== 'node-test') {
+    return {
+      error:
+        `the owning package of ${relativePath} declares the test script "${runnerFamily.declaredScript}", which the ` +
+        'controller cannot drive as an exact argv; it only drives a `node --test` runner today',
+    }
+  }
   const runner = FOCUSED_RUNNERS.find((candidate) => candidate.pattern.test(relativePath))
   if (!runner) return { error: `no controller runner is registered for ${relativePath}` }
   const argv = [process.execPath, ...runner.args(relativePath)]
@@ -496,7 +529,7 @@ export function runFocusedExecutions(input) {
         errors.push(`focusedExecutions ${testFile} is not an exact regular file inside the repository, so it cannot be executed`)
         continue
       }
-      const derivedCommand = deriveFocusedCommand(testFile)
+      const derivedCommand = deriveFocusedCommand(testFile, resolveTestRunnerFamily(root, testFile))
       if (derivedCommand.error) { errors.push(`focusedExecutions ${derivedCommand.error}`); continue }
 
       const headContents = fs.readFileSync(headAbsolute)

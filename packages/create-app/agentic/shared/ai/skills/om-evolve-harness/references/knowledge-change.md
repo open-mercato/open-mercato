@@ -81,7 +81,11 @@ For a `knowledge-contract` change the controller then proves the regression itse
 `focusedTestFiles` it:
 
 1. derives the argv from the file extension — `node --test <file>` for `.mjs`/`.cjs`/`.js`, `node --import tsx
-   --test <file>` for `.ts`/`.tsx`. The author never supplies a command, so a weaker one cannot be substituted;
+   --test <file>` for `.ts`/`.tsx`. The author never supplies a command, so a weaker one cannot be substituted.
+   The controller first reads the nearest owning `package.json` `scripts.test`; it only drives a `node --test`
+   runner, and **refuses by name** when the owning package declares another one (a scaffolded app on `jest` is
+   refused rather than handed a command that would not run its suite — drive those focused tests manually and
+   attach the evidence to step 8 until the controller learns that runner);
 2. requires a real test-only diff — a focused test whose base and head contents are identical is rejected;
 3. builds one throwaway `git worktree` at the base commit and copies in **only** that test's head content, and a
    second throwaway worktree at head carrying the whole working-tree diff. Neither run touches your checkout;

@@ -52,7 +52,11 @@ type Validator = {
   SOURCE_LINK_INVENTORY_PATH: string
   STRIPPED_EXECUTION_ENV_KEYS: readonly string[]
   DEFAULT_EXECUTION_TIMEOUT_MS: number
-  deriveFocusedCommand: (testFile: string) => { runner?: string; argv?: string[]; error?: string }
+  deriveFocusedCommand: (
+    testFile: string,
+    runnerFamily?: { family: string; declaredScript: string | null },
+  ) => { runner?: string; argv?: string[]; error?: string }
+  resolveTestRunnerFamily: (root: string, testFile: string) => { family: string; declaredScript: string | null }
   sanitizeExecutionEnv: (sourceEnv: Record<string, string | undefined>) => Record<string, string | undefined>
   runFocusedExecutions: (input: Record<string, unknown>) => ExecutionEvidence
   assertFocusedExecutionEvidence: (declaredTests: string[], evidence: ExecutionEvidence | null) => string[]
@@ -663,6 +667,30 @@ test('the controller derives the focused command instead of accepting one from t
   assert.equal(unsupported.argv, undefined)
   assert.match(String(unsupported.error), /no controller runner is registered/)
 
+  const jestRoot = makeFixtureRoot()
+  writeFixtureFile(jestRoot, 'package.json', JSON.stringify({ scripts: { test: 'jest --config jest.config.cjs' } }))
+  writeFixtureFile(jestRoot, 'pkg/package.json', JSON.stringify({ scripts: { test: 'node --test pkg' } }))
+  assert.deepEqual(
+    validator.resolveTestRunnerFamily(jestRoot, 'src/lib/demo.test.ts'),
+    { family: 'unsupported', declaredScript: 'jest --config jest.config.cjs' },
+  )
+  assert.deepEqual(
+    validator.resolveTestRunnerFamily(jestRoot, 'pkg/demo.test.ts'),
+    { family: 'node-test', declaredScript: 'node --test pkg' },
+  )
+  const refused = validator.deriveFocusedCommand(
+    'src/lib/demo.test.ts',
+    validator.resolveTestRunnerFamily(jestRoot, 'src/lib/demo.test.ts'),
+  )
+  assert.equal(refused.argv, undefined)
+  assert.match(String(refused.error), /declares the test script "jest --config jest\.config\.cjs", which the controller cannot drive/)
+
+  const createAppScript = (JSON.parse(
+    fs.readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
+  ) as { scripts: Record<string, string> }).scripts.test
+  assert.equal(validator.resolveTestRunnerFamily('/', 'x.test.ts').family, 'node-test')
+  assert.match(createAppScript, /--test\b/, 'this package must stay on a runner the controller can drive')
+
   for (const derived of [mjs, ts]) {
     for (const token of derived.argv ?? []) {
       assert.doesNotMatch(token, /[`$;&|<>\n]/, `argv token ${token} must carry no shell metacharacter`)
@@ -897,6 +925,7 @@ test('om-evolve-harness routes to the nine mandatory knowledge-change steps', ()
   }
   assert.match(reference, /## Controller-owned base\/head execution/)
   assert.match(reference, /exactly once per side/)
+  assert.match(reference, /it only drives a `node --test`\s+runner, and \*\*refuses by name\*\*/)
   assert.match(reference, /base-plus-test-only to exit \*\*non-zero\*\* and head to exit \*\*zero\*\*/)
   assert.match(reference, new RegExp(`--execution-timeout <ms>[^\\n]*default ${validator.DEFAULT_EXECUTION_TIMEOUT_MS}`))
   assert.doesNotMatch(reference, /emits an empty `focusedExecutions` today/)
