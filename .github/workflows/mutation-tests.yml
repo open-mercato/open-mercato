@@ -1,0 +1,100 @@
+name: Mutation tests
+
+# Standalone by design: kept out of ci.yml so a mutation result can never be
+# confused with a test failure, and so rolling the whole thing back is deleting
+# one file. It cannot block ci.yml, and while MUTATION_ENFORCE is unset it
+# cannot block a merge either.
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Advisory by default. Enforcement is a core-team decision (see the spec's Q1);
+  # setting this repository variable to 'true' is the only change required to make
+  # a low score fail the job.
+  MUTATION_ENFORCE: ${{ vars.MUTATION_ENFORCE || 'false' }}
+
+jobs:
+  # Resolve which packages and files this PR actually changed. Emits an empty
+  # matrix when nothing is in scope, which skips the mutate job entirely rather
+  # than reporting a synthetic score.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.scope.outputs.matrix }}
+      has_work: ${{ steps.scope.outputs.has_work }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Compute mutation scope
+        id: scope
+        run: |
+          MATRIX=$(node scripts/stryker/scope.mjs --base "${{ github.event.pull_request.base.sha }}")
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
+          if [ "$(echo "${MATRIX}" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(String(JSON.parse(d).include.length)))')" = "0" ]; then
+            echo "has_work=false" >> "$GITHUB_OUTPUT"
+            echo "No in-scope changes — skipping mutation testing." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has_work=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  mutate:
+    needs: scope
+    if: needs.scope.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Advisory: a low score annotates the PR, it does not fail the check. Flipping
+    # MUTATION_ENFORCE to 'true' is what turns this into a real gate.
+    continue-on-error: ${{ vars.MUTATION_ENFORCE != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.scope.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # The package test suites resolve sibling packages through their built
+      # dist/ output (for example @open-mercato/cache from packages/shared), so
+      # Stryker's initial dry run fails without this.
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Run mutation testing
+        working-directory: packages/${{ matrix.package }}
+        run: node ../../node_modules/.bin/stryker run --mutate "${{ matrix.mutate }}"

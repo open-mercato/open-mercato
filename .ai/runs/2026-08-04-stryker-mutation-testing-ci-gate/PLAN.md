@@ -17,8 +17,8 @@
 | 0 | 0b.1 | Measure `packages/core` and decide its allowlist status | inline | done | 641325d9a |
 | 1 | 1.2 | Config factory and `packages/shared/stryker.conf.mjs` | dispatch | done | cdc409d00 |
 | 1 | 1.3 | `scripts/stryker/scope.mjs` — allowlist, globs, deletion filter, file cap | dispatch | done | 2fed7cd92 |
-| 1 | 1.4 | Local `yarn mutation:changed` wrapper with the clean-tree guard | dispatch:cheap | done | — |
-| 1 | 1.5 | `.github/workflows/mutation-tests.yml` advisory workflow | dispatch | todo | — |
+| 1 | 1.4 | Local `yarn mutation:changed` wrapper with the clean-tree guard | dispatch:cheap | done | 63b68afb2 |
+| 1 | 1.5 | `.github/workflows/mutation-tests.yml` advisory workflow | dispatch | done | — |
 | 2 | 2.1 | `scripts/stryker/report.mjs` — survivor table, job summary, artifact | dispatch | todo | — |
 | 2 | 2.2 | Fork-guarded PR comment step | dispatch:cheap | todo | — |
 | 3 | 3.1 | Minimum-mutant floor (`MUTATION_MIN_MUTANTS`) | dispatch | todo | — |
