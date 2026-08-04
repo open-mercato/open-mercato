@@ -627,7 +627,7 @@ None blocking. One deferred item: integration tests are specified but not shippe
 
 ## Changelog
 
-### 2026-08-04 — Phase 1 implemented
+### 2026-08-04 — Phase 1 implemented ([#4942](https://github.com/open-mercato/open-mercato/pull/4942))
 
 All six loops now terminate on a short page with a fail-closed page ceiling that throws (`[internal]`-prefixed), per §Short-page termination. `total`/`totalPages` are no longer loop bounds anywhere in the converted set. Line references as implemented:
 
