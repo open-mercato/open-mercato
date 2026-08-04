@@ -42,6 +42,8 @@ Choose strategies based on what users need:
 
 Strategies automatically become unavailable if their backend is not configured (e.g., no `MEILISEARCH_HOST` means fulltext is unavailable).
 
+Availability covers the **store**, not just its credentials. `VectorDriver` exposes optional `isHealthy()` / `getStatus()`; the pgvector driver reports `false` when the `vector` extension is neither installed nor installable, and `VectorSearchStrategy.isAvailable()` consumes it. Writes (`index`/`delete`/`purge`) stay fail-loud for available strategies — a driver that cannot serve its backend MUST report itself unhealthy rather than throwing per record. Settings > Search shows the reason when the store is unavailable.
+
 ## Configure Global Search (Cmd+K)
 
 Search settings (Cmd+K strategies, embedding provider/model, auto-index flag) are
