@@ -2,6 +2,7 @@
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
+const siblingOrgId = '55555555-5555-4555-8555-555555555555'
 const firstUserId = '33333333-3333-4333-8333-333333333333'
 const secondUserId = '44444444-4444-4444-8444-444444444444'
 
@@ -29,7 +30,7 @@ const container = {
 
 const resolveNotificationContextMock = jest.fn(async () => ({
   ctx: { container },
-  scope: { userId: firstUserId, tenantId, organizationId: orgId },
+  scope: { userId: firstUserId, tenantId, organizationId: orgId, organizationIds: [orgId] },
 }))
 
 const runWithCacheTenantMock = jest.fn((_tenantId: string, fn: () => unknown) => fn())
@@ -62,7 +63,7 @@ describe('GET /api/notifications caching', () => {
     cacheAvailable = true
     resolveNotificationContextMock.mockResolvedValue({
       ctx: { container },
-      scope: { userId: firstUserId, tenantId, organizationId: orgId },
+      scope: { userId: firstUserId, tenantId, organizationId: orgId, organizationIds: [orgId] },
     })
     find.mockResolvedValue([])
     count.mockResolvedValue(0)
@@ -92,7 +93,7 @@ describe('GET /api/notifications caching', () => {
     expect(cache.get).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
     const [key, value, options] = cache.set.mock.calls[0]
-    expect(key).toContain(`notifications:list:v1:u=${firstUserId}:filters=`)
+    expect(key).toContain(`notifications:list:v2:u=${firstUserId}:org=${orgId}:scope=`)
     expect(value).toEqual({
       items: [],
       total: 7,
@@ -103,6 +104,7 @@ describe('GET /api/notifications caching', () => {
     expect(options).toEqual({
       ttl: 10_000,
       tags: [
+        `crud:notifications.notification:tenant:${tenantId}:org:${orgId}:collection`,
         `crud:notifications.notification:tenant:${tenantId}:org:null:collection`,
       ],
     })
@@ -137,7 +139,7 @@ describe('GET /api/notifications caching', () => {
     await GET(new Request('http://localhost/api/notifications?pageSize=50'))
     resolveNotificationContextMock.mockResolvedValueOnce({
       ctx: { container },
-      scope: { userId: secondUserId, tenantId, organizationId: orgId },
+      scope: { userId: secondUserId, tenantId, organizationId: orgId, organizationIds: [orgId] },
     })
     await GET(new Request('http://localhost/api/notifications?pageSize=50'))
 
@@ -145,6 +147,91 @@ describe('GET /api/notifications caching', () => {
     expect(keys[0]).toContain(`u=${firstUserId}:`)
     expect(keys[1]).toContain(`u=${secondUserId}:`)
     expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('uses distinct cache keys for different selected organizations', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockResolvedValue(null)
+
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+    resolveNotificationContextMock.mockResolvedValueOnce({
+      ctx: { container },
+      scope: {
+        userId: firstUserId,
+        tenantId,
+        organizationId: siblingOrgId,
+        organizationIds: [siblingOrgId],
+      },
+    })
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+
+    const keys = cache.get.mock.calls.map(([key]) => key)
+    expect(keys[0]).toContain(`org=${orgId}:scope=`)
+    expect(keys[1]).toContain(`org=${siblingOrgId}:scope=`)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('separates the same selected organization across different accessible scopes', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockResolvedValue(null)
+
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+    resolveNotificationContextMock.mockResolvedValueOnce({
+      ctx: { container },
+      scope: {
+        userId: firstUserId,
+        tenantId,
+        organizationId: orgId,
+        organizationIds: [orgId, siblingOrgId],
+      },
+    })
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+
+    const keys = cache.get.mock.calls.map(([key]) => key)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('tags the cached page with every organization the scope can read', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    cache.get.mockResolvedValue(null)
+    resolveNotificationContextMock.mockResolvedValue({
+      ctx: { container },
+      scope: {
+        userId: firstUserId,
+        tenantId,
+        organizationId: orgId,
+        organizationIds: [orgId, siblingOrgId],
+      },
+    })
+
+    await GET(new Request('http://localhost/api/notifications?pageSize=50'))
+
+    const [, , options] = cache.set.mock.calls[0]
+    expect(options.tags).toEqual([
+      `crud:notifications.notification:tenant:${tenantId}:org:${orgId}:collection`,
+      `crud:notifications.notification:tenant:${tenantId}:org:${siblingOrgId}:collection`,
+      `crud:notifications.notification:tenant:${tenantId}:org:null:collection`,
+    ])
+  })
+
+  it('does not cache an unrestricted organization scope that cannot be tagged', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    resolveNotificationContextMock.mockResolvedValue({
+      ctx: { container },
+      scope: { userId: firstUserId, tenantId, organizationId: orgId, organizationIds: null },
+    })
+    count.mockResolvedValue(5)
+
+    const response = await GET(new Request('http://localhost/api/notifications'))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ total: 5 })
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
   })
 
   it('uses distinct cache keys for different filter signatures', async () => {
@@ -222,7 +309,7 @@ describe('GET /api/notifications caching', () => {
     const { GET } = await loadRoute()
     resolveNotificationContextMock.mockResolvedValue({
       ctx: { container },
-      scope: { userId: null, tenantId, organizationId: orgId },
+      scope: { userId: null, tenantId, organizationId: orgId, organizationIds: [orgId] },
     })
 
     const response = await GET(new Request('http://localhost/api/notifications'))

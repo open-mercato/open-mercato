@@ -4,10 +4,17 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { InboundWebhookRequest } from '@open-mercato/shared/lib/webhooks'
+import {
+  isWebhookTimestampWithinTolerance,
+  readBoundedRequestBody,
+  WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
+  WebhookBodyTooLargeError,
+  type InboundWebhookRequest,
+} from '@open-mercato/shared/lib/webhooks'
 import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
 import { getWebhookSource } from '../../../lib/inbound-registry'
@@ -46,6 +53,8 @@ const inboundResponseSchema = z.object({
 })
 
 const errorSchema = z.object({ error: z.string() })
+const INBOUND_TIMESTAMP_TOLERANCE_ENV = 'OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS'
+const STALE_TIMESTAMP_ERROR = 'Webhook timestamp is outside the allowed replay window'
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   const params = await context.params
@@ -72,17 +81,29 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     if (rateLimitResponse) return rateLimitResponse
   }
 
+  let body: string
+  try {
+    body = await readBoundedRequestBody(request)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return json({ error: 'Webhook payload too large' }, { status: 413 })
+    }
+    throw error
+  }
+  const headers = Object.fromEntries(request.headers.entries())
+  if (!isInboundWebhookTimestampFresh(headers)) {
+    return json({ error: STALE_TIMESTAMP_ERROR }, { status: 400 })
+  }
+
   if (source) {
-    const rawBody = await request.text()
-    const sourceHeaders = Object.fromEntries(request.headers.entries())
     let parsedBody: Record<string, unknown> = {}
     try {
-      const parsed = JSON.parse(rawBody)
+      const parsed = JSON.parse(body)
       if (parsed && typeof parsed === 'object') parsedBody = parsed as Record<string, unknown>
     } catch {
       parsedBody = {}
     }
-    const inboundRequest: InboundWebhookRequest = { body: rawBody, headers: sourceHeaders, parsedBody }
+    const inboundRequest: InboundWebhookRequest = { body, headers, parsedBody }
 
     const credentialsService = tryResolve<IntegrationCredentialsService>(container, 'integrationCredentialsService')
     const configs = await findWithDecryption(
@@ -114,13 +135,13 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       return json({ error: 'Signature verification failed' }, { status: 401 })
     }
 
-    const eventType = source.eventTypeExtractor(parsedBody, sourceHeaders)
-    const messageId = source.messageIdExtractor?.(parsedBody, sourceHeaders)
+    const eventType = source.eventTypeExtractor(parsedBody, headers)
+    const messageId = source.messageIdExtractor?.(parsedBody, headers)
       ?? resolveInboundReceiptMessageId({
         endpointId: params.endpointId,
         providerKey: params.endpointId,
-        headers: sourceHeaders,
-        body: rawBody,
+        headers,
+        body,
       })
 
     try {
@@ -146,7 +167,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       eventType,
       externalMessageId: messageId,
       payload: parsedBody,
-      headers: sourceHeaders,
+      headers,
       status: 'received',
       handlerCount: 0,
       organizationId: verifiedScope.organizationId,
@@ -181,9 +202,6 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   if (!adapter) {
     return json({ error: 'Webhook endpoint not found' }, { status: 404 })
   }
-
-  const body = await request.text()
-  const headers = Object.fromEntries(request.headers.entries())
   let verified: Awaited<ReturnType<typeof adapter.verifyWebhook>>
   try {
     verified = await adapter.verifyWebhook({
@@ -259,9 +277,12 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Receive inbound webhook',
       description: 'The endpoint id resolves to a registered webhook source first (module-level handler dispatch), otherwise to a legacy adapter provider key.',
       pathParams: z.object({ endpointId: z.string().min(1) }),
-      responses: [{ status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema }],
+      responses: [
+        { status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema },
+        { status: 413, description: 'Webhook payload too large', schema: errorSchema },
+      ],
       errors: [
-        { status: 400, description: 'Verification failed', schema: errorSchema },
+        { status: 400, description: 'Verification failed or stale webhook timestamp', schema: errorSchema },
         { status: 401, description: 'Signature verification failed (source flow)', schema: errorSchema },
         { status: 404, description: 'Endpoint not found', schema: errorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
@@ -285,6 +306,24 @@ function isUniqueViolation(error: unknown): boolean {
   if (maybeError.code === '23505') return true
   if (!maybeError.cause || typeof maybeError.cause !== 'object') return false
   return (maybeError.cause as { code?: string }).code === '23505'
+}
+
+function isInboundWebhookTimestampFresh(headers: Record<string, string>): boolean {
+  const timestamps = [
+    headers['webhook-timestamp'],
+    headers['svix-timestamp'],
+  ].filter((timestamp): timestamp is string => typeof timestamp === 'string')
+
+  if (timestamps.length === 0) {
+    return true
+  }
+
+  const toleranceSeconds = parseNumberWithDefault(
+    process.env[INBOUND_TIMESTAMP_TOLERANCE_ENV],
+    WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
+    { integer: true, min: 0 },
+  )
+  return timestamps.every((timestamp) => isWebhookTimestampWithinTolerance(timestamp.trim(), toleranceSeconds))
 }
 
 type ResolveInboundReceiptMessageIdInput = {

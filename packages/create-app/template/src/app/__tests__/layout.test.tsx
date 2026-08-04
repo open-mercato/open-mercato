@@ -78,10 +78,7 @@ describe('RootLayout', () => {
     const { default: RootLayout } = await import('../layout')
     const { AppProviders } = await import('@/components/AppProviders')
     const tree = await RootLayout({ children: 'child' })
-    const appProviders = findElementByType(tree, AppProviders) as ReactElement<{
-      demoModeEnabled: boolean
-      noticeBarsEnabled: boolean
-    }> | null
+    const appProviders = findElementByType(tree, AppProviders)
 
     expect(appProviders).not.toBeNull()
     expect(appProviders?.props.demoModeEnabled).toBe(true)
@@ -95,10 +92,7 @@ describe('RootLayout', () => {
     const { default: RootLayout } = await import('../layout')
     const { AppProviders } = await import('@/components/AppProviders')
     const tree = await RootLayout({ children: 'child' })
-    const appProviders = findElementByType(tree, AppProviders) as ReactElement<{
-      demoModeEnabled: boolean
-      noticeBarsEnabled: boolean
-    }> | null
+    const appProviders = findElementByType(tree, AppProviders)
 
     expect(appProviders).not.toBeNull()
     expect(appProviders?.props.demoModeEnabled).toBe(false)

@@ -109,14 +109,14 @@ contract inconsistent with the runtime one.
 
 ### Response caching
 
-`GET /api/auth/admin/nav` caches under a key built from the resolved scope. Two changes are required:
+`GET /api/auth/admin/nav` caches under a key built from the resolved scope. Two properties are required:
 
-- the cache version moves `v4` → `v5`, because entries written before this ships would otherwise be
-  replayed without the new field
-- the **selection** joins the key. The resolved organization cannot distinguish "all organizations"
-  from "my own organization" — both resolve to `auth.orgId` — so a key built only from the resolved
-  scope would serve one scope's payload for the other once the two payloads differ. This is benign
-  today and becomes a correctness bug the moment `currentOrganization` is added.
+- the namespace uses `v6:<module-surface-fingerprint>`, so entries from earlier payload versions are
+  not replayed and module or backend-route surface changes invalidate the cached chrome payload
+- the **resolved selection** joins the key. The resolved organization cannot distinguish "all
+  organizations" from "my own organization" — both resolve to `auth.orgId` — and the production
+  request omits the `orgId` query parameter, so using the raw query selection would still collide when
+  the `om_selected_org` cookie changes. The resolver's `scope.selectedId` keeps those payloads separate.
 
 ### Relationship to `brand`
 
@@ -166,6 +166,17 @@ still yields a non-null `organizationId`:
 - lookup rejects → `null`, payload still returned and usable
 - row missing → `null`
 - the lookup is scoped to the resolved tenant and organization
+
+**Provider coverage** — `packages/ui/src/backend/__tests__/BackendChromeProvider.test.tsx` exercises
+the public `useCurrentOrganization()` boundary:
+
+- outside a provider and before the payload arrives → `null`
+- a hydrated payload exposes its resolved organization without another request
+- an organization-scope change refreshes the payload and updates the hook result
+
+**Cache-key coverage** — `packages/core/src/modules/auth/api/__tests__/admin-nav.test.ts` asserts the
+fingerprinted `v6` namespace, rejects reuse of the old `v5` namespace, and verifies that concrete and
+all-organizations cookie selections resolve to distinct keys.
 
 ## Risks & Impact Review
 
@@ -246,3 +257,9 @@ No migration is required, for applications or for data.
   the response cache key gained the selection plus a version bump so the two scopes cannot share an
   entry. Added `TC-AUTH-NAV-ORG-001` for route-level coverage and rebuilt the unit fixtures to match
   the real `OrganizationScope` shape.
+
+- 2026-08-01: Added provider/hook coverage for unloaded, hydrated, and scope-refresh states; added a
+  cache-key regression assertion for the fingerprinted `v6` namespace and resolved selection; made
+  the route integration test fail rather than skip when its token lacks the home organization needed
+  to exercise the fallback path; and reconciled the selection key with `develop`'s module-surface
+  cache invalidation.

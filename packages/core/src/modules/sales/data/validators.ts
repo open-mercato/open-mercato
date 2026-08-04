@@ -717,6 +717,7 @@ export const orderCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
       error: SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
@@ -761,6 +762,7 @@ export const quoteCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(quoteLineCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
     .optional(),

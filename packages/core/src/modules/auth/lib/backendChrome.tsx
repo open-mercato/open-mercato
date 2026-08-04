@@ -21,7 +21,6 @@ import {
 import { resolveRegisteredLucideIconNode } from '@open-mercato/ui/backend/icons/lucideRegistry'
 import { profilePathPrefixes, profileSections } from './profile-sections'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { getNavGroupOrderOverride } from '@open-mercato/shared/modules/overrides'
 import {
   getSelectedOrganizationFromRequest,
@@ -90,15 +89,21 @@ type ResolveBackendChromePayloadArgs = {
   selectedTenantId?: string | null
 }
 
-const settingsSectionOrder: Record<string, number> = {
-  system: 1,
-  auth: 2,
-  'customer-portal': 3,
-  'data-designer': 4,
-  'module-configs': 5,
-  currencies: 6,
-  directory: 7,
-  'feature-toggles': 8,
+/**
+ * Settings section weights, keyed by the untranslated group id each page declares as `pageGroupKey`.
+ *
+ * Mirrors `defaultGroupOrder` above: an id, never a rendered label, so the panel keeps its intended
+ * order in every locale and an app-side module can place its own section deterministically (#4843).
+ */
+export const settingsSectionOrder: Record<string, number> = {
+  'settings.sections.system': 1,
+  'settings.sections.auth': 2,
+  'customer_accounts.settings.section': 3,
+  'settings.sections.dataDesigner': 4,
+  'settings.sections.moduleConfigs': 5,
+  'currencies.nav.group': 6,
+  'settings.sections.directory': 7,
+  'settings.sections.featureToggles': 8,
 }
 
 type NavGroupWithWeight = Omit<BackendChromeNavGroup, 'id' | 'defaultName' | 'items'> & {
@@ -283,10 +288,7 @@ export async function resolveBackendChromePayload({
   const container = await loadScopedContainer()
   const em = container.resolve('em') as EntityManager
   const rbac = container.resolve('rbacService') as {
-    loadAcl: (userId: string, scope: { tenantId: string | null; organizationId: string | null }) => Promise<{
-      isSuperAdmin: boolean
-      features: string[]
-    }>
+    getEffectiveFeatures: (userId: string, scope: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
     userHasAllFeatures: (userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }) => Promise<boolean>
   }
 
@@ -319,15 +321,12 @@ export async function resolveBackendChromePayload({
     concretelySelectedOrganizationId = null
   }
 
-  const acl = allowNavigation
-    ? await rbac.loadAcl(auth.sub, {
+  const grantedFeatures = allowNavigation
+    ? await rbac.getEffectiveFeatures(auth.sub, {
         tenantId: scopedTenantId,
         organizationId: scopedOrganizationId,
       })
-    : { isSuperAdmin: false, features: [] }
-
-  const rawGrantedFeatures = acl.isSuperAdmin ? ['*'] : acl.features
-  const grantedFeatures = filterGrantsByEnabledModules(rawGrantedFeatures)
+    : []
   const featureChecker = async (features: string[]): Promise<string[]> => {
     if (!allowNavigation || !features.length) return []
     const context = {
@@ -461,6 +460,7 @@ export async function resolveBackendChromePayload({
           logo: {
             src: organization.logoUrl,
             alt: `${organization.name} logo`,
+            preserveAspectRatio: !!organization.logoPreserveAspectRatio,
           },
         }
       }

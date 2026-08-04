@@ -44,22 +44,43 @@ jest.mock('../../../../services/widgetDataService', () => ({
   createWidgetDataService: jest.fn(() => ({ fetchWidgetData })),
 }))
 
-import { POST } from '../route'
+import { POST, openApi } from '../route'
 import {
   WidgetDataEncryptionUnavailableError,
   WidgetDataScanLimitError,
   WidgetDataValidationError,
 } from '../../../../services/widgetDataService'
+import { MAX_SET_FILTER_VALUES } from '../schema'
+import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
+import type { Module } from '@open-mercato/shared/modules/registry'
 
-function buildRequest(): Request {
+type OpenApiSchemaNode = {
+  type?: string
+  enum?: string[]
+  maxItems?: number
+  minItems?: number
+  properties?: Record<string, OpenApiSchemaNode>
+  items?: OpenApiSchemaNode
+  oneOf?: OpenApiSchemaNode[]
+}
+
+type OpenApiOperationNode = {
+  requestBody?: {
+    content?: Record<string, { schema?: OpenApiSchemaNode }>
+  }
+}
+
+function buildRequest(body?: Record<string, unknown>): Request {
   return new Request('http://localhost/api/dashboards/widgets/data', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      entityType: 'sales:orders',
-      metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
-      groupBy: { field: 'shippingAddressSnapshot.region', limit: 5 },
-    }),
+    body: JSON.stringify(
+      body ?? {
+        entityType: 'sales:orders',
+        metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+        groupBy: { field: 'shippingAddressSnapshot.region', limit: 5 },
+      },
+    ),
   })
 }
 
@@ -108,6 +129,25 @@ describe('widget data route error mapping', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Invalid groupBy field: nope' })
   })
 
+  // The payload is valid in every respect except the null filter value, so the 400 can only come
+  // from that filter. Before the boundary rejected it, `column IN (NULL)` evaluated to SQL NULL
+  // for every row and the aggregation returned zero rows with no error (#4821 review).
+  test('refuses a null set filter value at the boundary instead of aggregating zero rows', async () => {
+    const response = await POST(
+      buildRequest({
+        entityType: 'sales:orders',
+        metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+        filters: [{ field: 'status', operator: 'in', value: null }],
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid request payload')
+    expect(Array.isArray(body.issues)).toBe(true)
+    expect(fetchWidgetData).not.toHaveBeenCalled()
+  })
+
   test('masks unexpected failures as a 500', async () => {
     fetchWidgetData.mockRejectedValue(new Error('connection terminated with an internal detail'))
 
@@ -117,5 +157,77 @@ describe('widget data route error mapping', () => {
     await expect(response.json()).resolves.toEqual({
       error: 'An error occurred while processing your request',
     })
+  })
+})
+
+describe('widget data set filter bound (#4852)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    analyticsRegistry.getRequiredFeatures.mockReturnValue(null)
+    fetchWidgetData.mockResolvedValue({
+      value: 0,
+      data: [],
+      metadata: { fetchedAt: '2026-08-02T00:00:00.000Z', recordCount: 0 },
+    })
+  })
+
+  function buildSetFilterRequest(memberCount: number): Request {
+    return buildRequest({
+      entityType: 'sales:orders',
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+      filters: [
+        {
+          field: 'status',
+          operator: 'in',
+          value: Array.from({ length: memberCount }, (_, index) => `status-${index}`),
+        },
+      ],
+    })
+  }
+
+  test('rejects an oversized set filter with a 400 that names the offending filter', async () => {
+    const response = await POST(buildSetFilterRequest(MAX_SET_FILTER_VALUES + 1))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid request payload')
+    expect(body.issues[0].path).toEqual(['filters', 0, 'value'])
+    expect(fetchWidgetData).not.toHaveBeenCalled()
+  })
+
+  test('passes a set filter at the limit through to the aggregation untruncated', async () => {
+    const response = await POST(buildSetFilterRequest(MAX_SET_FILTER_VALUES))
+
+    expect(response.status).toBe(200)
+    expect(fetchWidgetData).toHaveBeenCalledTimes(1)
+    expect(fetchWidgetData.mock.calls[0][0].filters[0].value).toHaveLength(MAX_SET_FILTER_VALUES)
+  })
+
+  test('publishes the bound in the generated OpenAPI schema so integrators can discover it', () => {
+    const modules: Module[] = [
+      {
+        id: 'dashboards',
+        apis: [
+          {
+            path: '/dashboards/widgets/data',
+            metadata: { POST: { requireAuth: true } },
+            handlers: { POST },
+            docs: openApi,
+          },
+        ],
+      },
+    ]
+
+    const doc = buildOpenApiDocument(modules)
+    const post = doc.paths['/dashboards/widgets/data']?.post as unknown as OpenApiOperationNode
+    const bodySchema = post.requestBody?.content?.['application/json']?.schema
+    const filterSchema = bodySchema?.properties?.filters?.items
+    const setFilterBranch = (filterSchema?.oneOf ?? []).find(
+      (branch) => branch.properties?.value?.type === 'array',
+    )
+
+    expect(setFilterBranch?.properties?.operator?.enum).toEqual(['in', 'not_in'])
+    expect(setFilterBranch?.properties?.value?.maxItems).toBe(MAX_SET_FILTER_VALUES)
+    expect(setFilterBranch?.properties?.value?.minItems).toBeUndefined()
   })
 })

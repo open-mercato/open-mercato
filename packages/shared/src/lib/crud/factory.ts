@@ -73,6 +73,7 @@ import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
+import { isTransientDbError } from '../db/pg-errors'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -555,6 +556,18 @@ function handleError(err: unknown): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+  if (isTransientDbError(err)) {
+    // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
+    // restarting) is retryable — surface a 503 with a Retry-After hint instead of
+    // a generic 500 so clients back off and retry once the DB recovers.
+    logger.warn('Transient DB failure during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+    })
+    return json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503, headers: { 'Retry-After': '2' } },
+    )
+  }
 
   const message = err instanceof Error ? err.message : undefined
   const stack = err instanceof Error ? err.stack : undefined
@@ -2333,6 +2346,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               organizationId: targetOrgId,
               tenantId: writeTenantId,
               values,
+              notify: false,
             })
           }
         }
@@ -2670,6 +2684,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               organizationId: targetOrgId,
               tenantId: writeTenantId,
               values,
+              notify: false,
             })
           }
         }
@@ -2773,6 +2788,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           request,
           method: 'DELETE',
           body: interceptorInput,
+          query: raw.query,
         })
         if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
         interceptorRequestPayload = beforeInterceptors.requestPayload
@@ -2897,7 +2913,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         request,
         method: 'DELETE',
         body: idFrom === 'query' ? undefined : ({ id } as Record<string, unknown>),
-        query: idFrom === 'query' ? ({ id } as Record<string, unknown>) : undefined,
+        query: idFrom === 'query' ? Object.fromEntries(url.searchParams.entries()) : undefined,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload

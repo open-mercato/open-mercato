@@ -92,10 +92,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [isSaving, setIsSaving] = React.useState(false)
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-  const initialTab = React.useMemo(() => {
-    return resolveLegacyTab(searchParams?.get('tab'))
-  }, [searchParams])
-  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
@@ -329,6 +325,28 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  const initialTab = React.useMemo(
+    () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
+    [injectedTabIds, searchParams],
+  )
+  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
+
+  React.useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  const handleTabChange = React.useCallback(
+    (tab: PersonTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
+
   // Tags
   const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
@@ -515,7 +533,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onDelete={handleFormDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onOpenCompaniesTab={() => setActiveTab('companies')}
+            onOpenCompaniesTab={() => handleTabChange('companies')}
             onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
@@ -557,7 +575,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             const zone2Content = (
               <PersonDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}

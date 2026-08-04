@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isS3KeyAddressableByScope, isS3KeyScopedToTenant } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 import { createHash, randomBytes } from 'node:crypto'
@@ -40,15 +41,16 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
 }
 
 export async function POST(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('storage_s3.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const json = await req.json().catch(() => null)
   const parsed = requestSchema.safeParse(json)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.invalidPayload', 'Invalid payload') }, { status: 400 })
   }
 
   const { key, operation, expiresIn, contentType, size } = parsed.data
@@ -56,12 +58,12 @@ export async function POST(req: Request) {
     ? isS3KeyAddressableByScope(key, auth.orgId, auth.tenantId)
     : isS3KeyScopedToTenant(key, auth.orgId, auth.tenantId)
   if (!canAccessKey) {
-    return NextResponse.json({ error: 'Access denied: key is not scoped to this tenant.' }, { status: 403 })
+    return NextResponse.json({ error: t('storage_s3.errors.keyAccessDenied', 'Access denied: key is not scoped to this tenant.') }, { status: 403 })
   }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
-    return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()

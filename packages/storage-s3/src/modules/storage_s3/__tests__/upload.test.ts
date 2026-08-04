@@ -5,6 +5,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => `translated:${key}`,
+  }),
+}))
+
 const mockResolveCredentials = jest.fn()
 const mockCreateRequestContainer = jest.fn(async () => ({
   resolve: (key: string) => {
@@ -65,7 +71,9 @@ describe('storage_s3 direct upload route', () => {
     const response = await POST(request)
 
     expect(response.status).toBe(413)
-    await expect(response.json()).resolves.toEqual({ error: 'Attachment exceeds the maximum upload size.' })
+    await expect(response.json()).resolves.toEqual({
+      error: 'translated:storage_s3.errors.maxUploadSize',
+    })
     expect(mockCreateRequestContainer).not.toHaveBeenCalled()
     expect(mockPutObject).not.toHaveBeenCalled()
   })

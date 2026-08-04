@@ -143,7 +143,7 @@ export class S3StorageDriver implements StorageDriver {
       : storagePath.replace(/^\/+/, '')
     const firstSegment = prefix.split('/').filter(Boolean)[0]
     if (firstSegment !== partitionCode) {
-      throw new Error('S3 key is not scoped to the requested partition')
+      throw new Error('[internal] S3 key is not scoped to the requested partition')
     }
   }
 
@@ -183,7 +183,7 @@ export class S3StorageDriver implements StorageDriver {
       new GetObjectCommand({ Bucket: this.bucket, Key: storagePath }),
     )
     if (!response.Body) {
-      throw new Error(`S3 object body is empty for key: ${storagePath}`)
+      throw new Error(`[internal] S3 object body is empty for key: ${storagePath}`)
     }
     const buffer = await streamToBuffer(response.Body as NodeJS.ReadableStream)
     return { buffer, contentType: response.ContentType }

@@ -16,6 +16,7 @@
       "types": "./src/*.ts",
       "default": "./dist/*.js"
     },
+    "./*.json": "./src/*.json",
     "./*": {
       "types": [
         "./src/*.ts",
@@ -23,6 +24,7 @@
       ],
       "default": "./dist/*.js"
     },
+    "./*/*.json": "./src/*/*.json",
     "./*/*": {
       "types": [
         "./src/*/*.ts",
@@ -30,6 +32,7 @@
       ],
       "default": "./dist/*/*.js"
     },
+    "./*/*/*.json": "./src/*/*/*.json",
     "./*/*/*": {
       "types": [
         "./src/*/*/*.ts",
@@ -37,6 +40,7 @@
       ],
       "default": "./dist/*/*/*.js"
     },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
     "./*/*/*/*": {
       "types": [
         "./src/*/*/*/*.ts",
@@ -44,6 +48,7 @@
       ],
       "default": "./dist/*/*/*/*.js"
     },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
     "./*/*/*/*/*": {
       "types": [
         "./src/*/*/*/*/*.ts",
@@ -82,7 +87,7 @@
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },
   "publishConfig": {
