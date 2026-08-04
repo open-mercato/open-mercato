@@ -893,3 +893,27 @@ before merging E3; findings change what E3 is allowed to do.
   failed once under the full parallel `yarn test`, passed in isolation and on a clean re-run. Not a
   regression. **Gate after wave 10: FULLY GREEN** — `yarn test` exit 0 (25/25), create-mercato-app
   605 pass, guards, budget, build:app.
+
+  **In flight (session 4): waves 11 AND 12 launched together** per maintainer instruction, workflow
+  `wf_c82928df-b2a` — `wave11/e8-entity-extensions` and `wave12/s12-blocked-backlog-sweep`.
+
+  - **E8 carries decision D1**: an additive optional `table?: string` on `EntityExtension`, preferred
+    by the query engine over its naive pluralizer (`extName + 's'` yields `example_customer_prioritys`
+    for the only natural example link). Shipped as SEPARATE commits so the `packages/shared` change
+    is reviewable apart from the example change. It was told to verify BOTH recon premises first —
+    that `includeExtensions` has zero production call sites, and that the pluralizer really breaks —
+    and to ship declaration-only with a plain statement rather than fake a call site if the runtime
+    half still cannot be demonstrated honestly.
+  - **S12 sweeps the blocked backlog**: the read-policy oracle families whose dependencies have since
+    landed (CANON-C's inventory arrived in wave 10), the `generator-plugin` family wave 8 could not
+    ship because only the declaration was allowlisted (all three parts are allowlisted now, and it
+    must be REAL or not shipped), the three installed-harness docs still asserting
+    "No canonical encryption map exists yet" / "the example ships no search.ts", and the two raw
+    `em.find(Todo, …)` reads left in `data/enrichers.ts` on a now-encrypted entity.
+  - **S12 is explicitly barred from adding or removing harness cases**, because E8 runs concurrently
+    and the ~21 count pins would collide. It was also told a claim may be IN FLUX (E8 may be adding
+    `data/extensions.ts` while S12 corrects a doc saying it does not exist) and to verify at check
+    time rather than assume.
+  - Anti-vacuous section now lists **seven** real examples from this program.
+
+  Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_c82928df-b2a'})`.
