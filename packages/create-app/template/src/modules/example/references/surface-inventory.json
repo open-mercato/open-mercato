@@ -710,6 +710,26 @@
       "ruleOwner": "om-system-extension"
     },
     {
+      "capabilityId": "umes.generator-plugin",
+      "title": "Generator plugin extending `mercato generate` (`generators.ts`)",
+      "description": "`GeneratorPlugin` that aggregates the module-root convention file `example-todo-preview-fields.ts` across every enabled module into a generated registry file, then uses `bootstrapRegistration` to append the registrar import and call to `bootstrap-registrations.generated.ts` so `bootstrap.ts` never names this module. The registrar is read on the request path only, because the worker/CLI bootstrap (`bootstrapFromAppRoot`) does not run `runBootstrapRegistrations()`.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/generators.ts",
+        "src/modules/example/example-todo-preview-fields.ts",
+        "src/modules/example/lib/todoPreviewFields.ts",
+        "src/modules/example/lib/messageObjectPreviews.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/generator-plugin.test.ts",
+        "src/modules/example/__tests__/message-object-preview-contributions.test.ts"
+      ],
+      "dependencyModules": ["messages"],
+      "ruleOwner": "om-system-extension"
+    },
+    {
       "capabilityId": "ui.dashboard-widget",
       "title": "Dashboard widget with typed settings",
       "description": "`DashboardWidgetModule` with metadata, feature gating, default size/enabled state, a lazily loaded client component, and a `hydrateSettings`/`dehydrateSettings` pair that clamps persisted user settings back into range.",
