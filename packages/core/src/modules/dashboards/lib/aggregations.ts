@@ -158,7 +158,7 @@ export function resolveGroupExpression(
  * A null or undefined *member* is refused instead of rendered. `column IN (NULL)` matches no row
  * and `column NOT IN ('a', NULL)` is NULL for every row, so such a member would return an empty
  * aggregation with no error — a silent zero on a reporting surface, which is worse than a loud
- * failure. Requests are already rejected at the API boundary by `setFilterMemberSchema` in
+ * failure. Requests are already rejected at the API boundary by `widgetDataFilterSchema` in
  * `api/widgets/data/schema.ts`; this throw keeps in-process callers, whose filter values are
  * typed as `unknown`, from reaching the same silent path. Nullness is queried with the dedicated
  * `is_null` / `is_not_null` operators.
