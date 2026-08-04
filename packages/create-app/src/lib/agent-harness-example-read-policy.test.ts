@@ -929,6 +929,18 @@ test('path normalization accepts Windows-style separators and rejects every esca
 const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212']
 const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
 
+type HarnessBudgets = {
+  id: string
+  maxContextFiles: number
+  maxInitialContextBytes: number
+  maxTotalContextBytes: number
+  context: {
+    required: string[]
+    allowedExtra?: string[]
+    exampleRoots: Array<{ maxFiles: number; maxBytes: number }>
+  }
+}
+
 function declaringShippedCases() {
   return shippedCases().filter((entry) => entry.context.exampleRoots !== undefined)
 }
@@ -1040,6 +1052,42 @@ test('reachability: every shipped declaring case reads its own capability set en
         reads: [...entrypointReads(), { path: outside.sourcePaths.find((source) => source.startsWith(`${EXAMPLE_ROOT}/`))! }],
       })
       assert.match(refused.firstViolation ?? '', /maps to a capability the case did not declare/, `${entry.id} must refuse ${outside.capabilityId}`)
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+/**
+ * A declaring case is only passable if its own ceilings clear the surface it declares: the
+ * entrypoints, the inventory, and every mapped capability source, charged against the root budgets
+ * AND against the routing budgets that the same reads feed. Example sources carry no `/references/`
+ * segment, so they count as INITIAL context — a growing example silently squeezes them otherwise.
+ */
+test('reachability: every shipped declaring case can afford the entire surface it declares', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    for (const entry of declaringShippedCases() as unknown as HarnessBudgets[]) {
+      const declaration = entry.context.exampleRoots[0]
+      const files = evaluator.exampleReadAllowlist(entry, root)
+      const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      assert.ok(files.length <= declaration.maxFiles, `${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
+      assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
+
+      const initial = files.filter((relative) => !relative.includes('/references/'))
+      const instruction = [...entry.context.required, ...(entry.context.allowedExtra ?? [])]
+      const initialFiles = initial.length + instruction.filter((relative) => !relative.includes('/references/')).length
+      assert.ok(
+        initialFiles <= entry.maxContextFiles,
+        `${entry.id} needs ${initialFiles} initial context files against maxContextFiles ${entry.maxContextFiles}`,
+      )
+      const initialBytes = initial.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      assert.ok(
+        initialBytes < entry.maxInitialContextBytes,
+        `${entry.id} spends ${initialBytes} example bytes of its ${entry.maxInitialContextBytes} initial budget before any instruction`,
+      )
+      assert.ok(bytes < entry.maxTotalContextBytes, `${entry.id} spends ${bytes} example bytes of its ${entry.maxTotalContextBytes} total budget`)
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
