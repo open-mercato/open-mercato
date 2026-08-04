@@ -110,6 +110,17 @@ jobs:
             --package "${{ matrix.package }}" \
             ${{ vars.MUTATION_ENFORCE == 'true' && '--enforced' || '' }}
 
+      # Owns the pass/fail decision instead of Stryker's own thresholds.break, so
+      # the minimum-mutant floor can veto it. While MUTATION_ENFORCE is not 'true'
+      # this only prints its reasoning and always exits 0.
+      - name: Enforce the mutation threshold
+        if: always()
+        env:
+          MUTATION_ENFORCE: ${{ vars.MUTATION_ENFORCE || 'false' }}
+        run: |
+          node scripts/stryker/enforce.mjs \
+            "packages/${{ matrix.package }}/reports/mutation/mutation.json"
+
       - name: Upload the mutation report
         if: always()
         uses: actions/upload-artifact@v5

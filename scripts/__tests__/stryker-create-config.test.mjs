@@ -54,7 +54,7 @@ test('mutates business logic but never tests, type declarations, or test helpers
   assert.ok(mutate.includes('!src/lib/testing/**'))
 })
 
-test('ships advisory — no break threshold until enforcement is explicitly enabled', () => {
+test('leaves thresholds.break null so the minimum-mutant floor can veto first', () => {
   assert.equal(createStrykerConfig({ packageName: 'shared' }).thresholds.break, null)
 })
 

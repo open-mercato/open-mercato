@@ -132,3 +132,13 @@ test('the comment job still runs when the mutation job failed', () => {
 test('the comment job is skipped when nothing was in scope', () => {
   assert.match(workflow.jobs.comment.if, /needs\.scope\.outputs\.has_work == 'true'/)
 })
+
+test('the enforcement step runs and is fed MUTATION_ENFORCE, defaulting to false', () => {
+  const step = workflow.jobs.mutate.steps.find(
+    (candidate) => candidate.name === 'Enforce the mutation threshold',
+  )
+
+  assert.equal(step.if, 'always()')
+  assert.match(step.run, /scripts\/stryker\/enforce\.mjs/)
+  assert.match(String(step.env.MUTATION_ENFORCE), /\|\|\s*'false'/)
+})
