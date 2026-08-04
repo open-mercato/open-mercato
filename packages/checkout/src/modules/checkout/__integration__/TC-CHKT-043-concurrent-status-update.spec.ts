@@ -24,10 +24,10 @@ import {
  *  - CheckoutLink.completionCount is incremented exactly once.
  *
  * This test exercises the race described in #4700 using a real database,
- * satisfying .ai/review-checklist.md §20 (concurrency-sensitive commands
+ * satisfying .ai/review-checklist.md Â§20 (concurrency-sensitive commands
  * require an executable two-contender test).
  */
-test.describe('TC-CHKT-043 (concurrency): Two-contender race — only one updateStatus call wins', () => {
+test.describe('TC-CHKT-043 (concurrency): Two-contender race â€” only one updateStatus call wins', () => {
   test('concurrent completed + processing status updates: one wins, one gets 409, completionCount incremented once', async ({ request }) => {
     let token: string | null = null
     let linkId: string | null = null
@@ -77,7 +77,7 @@ test.describe('TC-CHKT-043 (concurrency): Two-contender race — only one updateSt
 
       // At least the webhook path should have been attempted. The direct call
       // may receive 409 (CAS missed) or 422 (invalid transition) depending on
-      // which writer committed first — both are acceptable losing outcomes.
+      // which writer committed first â€” both are acceptable losing outcomes.
       // The important invariant is the final persisted state.
       expect(webhookResult.status === 'fulfilled' || directResult.status === 'fulfilled').toBe(true)
 
@@ -90,10 +90,10 @@ test.describe('TC-CHKT-043 (concurrency): Two-contender race — only one updateSt
 
       // --- Core assertions ---
 
-      // 1. The persisted status must be 'completed' — not 'processing'.
+      // 1. The persisted status must be 'completed' â€” not 'processing'.
       expect(finalTransaction.status).toBe('completed')
 
-      // 2. completionCount must be exactly 1 — the terminal state must have
+      // 2. completionCount must be exactly 1 â€” the terminal state must have
       //    been applied exactly once, not zero or twice.
       const updatedLinkResponse = await apiRequest(request, 'GET', `/api/checkout/links/${encodeURIComponent(link.id)}`, { token })
       const updatedLinkBody = await readJsonSafe<{ link?: { completionCount?: number } }>(updatedLinkResponse)
