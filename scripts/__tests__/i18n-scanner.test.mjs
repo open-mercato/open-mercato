@@ -185,3 +185,52 @@ test('marks indirect literal matches as non-direct so they are never reported as
   assert.equal(refs.find((ref) => ref.key === 'known.key').direct, false)
   assert.equal(refs.find((ref) => ref.key === 'unknown.key').direct, true)
 })
+
+test('gallery `code:` samples are documentation, not translation usage', () => {
+  const text = [
+    "const entry = {",
+    "  code: `<PageHeader title={t('currencies.list.title')} description={t('currencies.list.description')} />`,",
+    "}",
+    "const real = t('module.entity.title')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['module.entity.title']))
+
+  assert.deepEqual(refs.filter((ref) => ref.direct).map((ref) => ref.key), ['module.entity.title'])
+})
+
+test('blanking a code sample keeps later line numbers intact', () => {
+  const text = [
+    "const entry = {",
+    "  code: `line one",
+    "  <Section title={t('customers.people.detail.notes.empty')} />",
+    "  line three`,",
+    "}",
+    "const real = t('module.entity.title')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['module.entity.title']))
+
+  assert.deepEqual(refs.filter((ref) => ref.direct).map((ref) => [ref.key, ref.line]), [['module.entity.title', 6]])
+})
+
+test('interpolations inside a code sample do not end the sample early', () => {
+  const text = [
+    "const entry = {",
+    "  code: `${prefix} {t('documented.only.key')} ${suffix}`,",
+    "}",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['documented.only.key']))
+
+  assert.deepEqual(refs, [])
+})
+
+test('a template-literal t() call outside a code sample is still counted as dynamic', () => {
+  const text = 'const label = t(`module.entity.status.${row.status}`)'
+
+  const { refs, dynamicCount } = scanText(text, new Set(['module.entity.status.active']))
+
+  assert.deepEqual(refs.map((ref) => ref.key), ['module.entity.status.active'])
+  assert.equal(dynamicCount, 1)
+})

@@ -214,6 +214,8 @@
   "search.settings.vector.sectionTitle": "Búsqueda vectorial",
   "search.settings.vector.setEnvVar": "Configurar variable de entorno",
   "search.settings.vector.store": "Almacén vectorial",
+  "search.settings.vector.storeUnavailable": "El almacén vectorial no está disponible",
+  "search.settings.vector.storeUnavailableHint": "La indexación vectorial y la búsqueda semántica se omiten hasta que el almacén esté disponible. Instala la extensión pgvector en tu servidor PostgreSQL; el estado se vuelve a comprobar aproximadamente cada minuto.",
   "search.settings.vector.usingTenantConfig": "Este inquilino usa su propia configuración de incrustaciones.",
   "search.settings.vectorDocumentsLabel": "Documentos vectoriales",
   "search.settings.vectorNotConfigured": "La búsqueda vectorial no está configurada.",

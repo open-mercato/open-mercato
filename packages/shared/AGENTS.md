@@ -44,7 +44,7 @@ yarn workspace @open-mercato/shared build
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
 | `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs) | `@open-mercato/shared/lib/db/mikro` |
-| `di/` | When setting up dependency injection (Awilix) | `@open-mercato/shared/lib/di` |
+| `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
@@ -90,6 +90,8 @@ peak connection demand of all processes against one database is additive.
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organizationId })
 ```
+
+Encryption maps default to tenant-scoped keys. Use the additive `keyScope: 'system'` option only for records that must exist before a tenant does; the system scope remains authoritative after a tenant id is later assigned so existing ciphertext stays readable.
 
 ### Search Tokens — MUST use instead of `$ilike` on encrypted columns
 

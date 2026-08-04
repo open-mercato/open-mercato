@@ -371,7 +371,7 @@ export async function executeActivity(
       const timeoutMs = resolveActivityTimeoutMs(activity)
       const result = timeoutMs
         ? await executeWithTimeout(
-            () => executeActivityByType(em, container, activity, context),
+            (signal) => executeActivityByType(em, container, activity, context, signal),
             timeoutMs
           )
         : await executeActivityByType(em, container, activity, context)
@@ -511,7 +511,8 @@ async function executeActivityByType(
   em: EntityManager,
   container: AwilixContainer,
   activity: ActivityDefinition,
-  context: ActivityContext
+  context: ActivityContext,
+  signal?: AbortSignal
 ): Promise<any> {
   // Interpolate config variables from context (including workflow metadata)
   const interpolatedConfig = interpolateVariables(activity.config, context.workflowContext, context.workflowInstance)
@@ -521,7 +522,7 @@ async function executeActivityByType(
       return await executeSendEmail(interpolatedConfig, context, container)
 
     case 'CALL_API':
-      return await executeCallApi(em, interpolatedConfig, context, container)
+      return await executeCallApi(em, interpolatedConfig, context, container, signal)
 
     case 'EMIT_EVENT':
       return await executeEmitEvent(interpolatedConfig, context, container)
@@ -530,7 +531,7 @@ async function executeActivityByType(
       return await executeUpdateEntity(em, interpolatedConfig, context, container)
 
     case 'CALL_WEBHOOK':
-      return await executeCallWebhook(interpolatedConfig, context)
+      return await executeCallWebhook(interpolatedConfig, context, { signal })
 
     case 'EXECUTE_FUNCTION':
       return await executeFunction(interpolatedConfig, context, container)
@@ -602,6 +603,17 @@ export async function executeEmitEvent(
     throw new Error('EMIT_EVENT requires "eventName" field')
   }
 
+  // Emissions are fire-and-forget and no subscriber validates the payload shape,
+  // so an unresolved `{{context.x}}` here is even quieter than on the command
+  // path — it ships the literal template to every consumer. Fail loudly instead.
+  const unresolvedPayloadKeys = findUnresolvedTemplateKeys(payload)
+  if (unresolvedPayloadKeys.length > 0) {
+    throw new Error(
+      `EMIT_EVENT payload contains unresolved template variables for: ${unresolvedPayloadKeys.join(', ')}. ` +
+        `Check that the workflow context provides these keys.`
+    )
+  }
+
   // Get event bus from container
   const eventBus = container.resolve<{ emitEvent: (event: string, payload: unknown, options?: unknown) => Promise<unknown> | unknown }>('eventBus')
 
@@ -628,6 +640,23 @@ export async function executeEmitEvent(
   return { emitted: true, eventName, payload: enrichedPayload }
 }
 
+const UNRESOLVED_TEMPLATE_PATTERN = /\{\{[^}]+\}\}/
+
+function findUnresolvedTemplateKeys(value: unknown, path = ''): string[] {
+  if (typeof value === 'string') {
+    return UNRESOLVED_TEMPLATE_PATTERN.test(value) ? [path] : []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => findUnresolvedTemplateKeys(item, `${path}[${index}]`))
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, nested]) =>
+      findUnresolvedTemplateKeys(nested, path ? `${path}.${key}` : key)
+    )
+  }
+  return []
+}
+
 /**
  * UPDATE_ENTITY activity handler
  *
@@ -650,11 +679,14 @@ export async function executeEmitEvent(
  *   "commandId": "sales.orders.update",
  *   "statusDictionary": "sales.order_status",
  *   "input": {
- *     "id": "{{context.id}}",
+ *     "id": "{{context.orderId}}",
  *     "statusValue": "pending_approval"
  *   }
  * }
  * ```
+ *
+ * Every `{{...}}` reference in `input` must resolve against the workflow context —
+ * an unresolved reference is rejected rather than forwarded to the command bus.
  */
 export async function executeUpdateEntity(
   em: EntityManager,
@@ -698,6 +730,14 @@ export async function executeUpdateEntity(
 
   if (!commandBus || typeof commandBus.execute !== 'function') {
     throw new Error('CommandBus not available in container')
+  }
+
+  const unresolvedKeys = findUnresolvedTemplateKeys(input)
+  if (unresolvedKeys.length > 0) {
+    throw new Error(
+      `UPDATE_ENTITY input contains unresolved template variables for: ${unresolvedKeys.join(', ')}. ` +
+        `Check that the workflow context provides these keys.`
+    )
   }
 
   // Prepare final input, resolving statusValue if provided
@@ -1456,19 +1496,21 @@ function sleep(ms: number): Promise<void> {
  * Execute a promise with timeout
  */
 async function executeWithTimeout<T>(
-  executor: () => Promise<T>,
+  executor: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number
 ): Promise<T> {
   let timeoutId: NodeJS.Timeout
+  const abortController = new AbortController()
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      abortController.abort()
       reject(new Error(`Activity execution timeout after ${timeoutMs}ms`))
     }, timeoutMs)
   })
 
   try {
-    return await Promise.race([executor(), timeoutPromise])
+    return await Promise.race([executor(abortController.signal), timeoutPromise])
   } finally {
     clearTimeout(timeoutId!)
   }

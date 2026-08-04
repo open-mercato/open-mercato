@@ -253,7 +253,7 @@ export function ConfirmDealLostDialog({
             </Button>
             <Button
               type="button"
-              variant="destructive"
+              variant="destructive-solid"
               disabled={confirmDisabled}
               onClick={() => { void handleConfirm() }}
             >
