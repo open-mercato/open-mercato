@@ -215,7 +215,7 @@
   "search.settings.vector.setEnvVar": "Set environment variable",
   "search.settings.vector.store": "Vector store",
   "search.settings.vector.storeUnavailable": "Vector store is not available",
-  "search.settings.vector.storeUnavailableHint": "Vector indexing and semantic search are skipped until the store is reachable. Install the pgvector extension on your PostgreSQL server, then reload this page.",
+  "search.settings.vector.storeUnavailableHint": "Vector indexing and semantic search are skipped until the store is reachable. Install the pgvector extension on your PostgreSQL server; the status is rechecked about once a minute.",
   "search.settings.vector.usingTenantConfig": "This tenant is using its own embedding settings.",
   "search.settings.vectorDocumentsLabel": "Vector documents",
   "search.settings.vectorNotConfigured": "Vector search is not configured.",

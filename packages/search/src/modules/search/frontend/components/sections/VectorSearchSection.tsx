@@ -464,7 +464,7 @@ export function VectorSearchSection({
             {t('search.settings.vector.storeUnavailable', 'Vector store is not available')}
           </p>
           <p className="text-xs text-status-warning-text mt-1">
-            {t('search.settings.vector.storeUnavailableHint', 'Vector indexing and semantic search are skipped until the store is reachable. Install the pgvector extension on your PostgreSQL server, then reload this page.')}
+            {t('search.settings.vector.storeUnavailableHint', 'Vector indexing and semantic search are skipped until the store is reachable. Install the pgvector extension on your PostgreSQL server; the status is rechecked about once a minute.')}
           </p>
           {storeUnavailableReason ? (
             <p className="text-xs text-status-warning-text mt-1 font-mono">{storeUnavailableReason}</p>

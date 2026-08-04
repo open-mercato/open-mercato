@@ -357,34 +357,36 @@ export async function reindexEntity(
     }
   }
 
-  if (resetCoverage) {
-    if (force) {
-
-      if (emitVectorize && eventBus) {
-        if (tenantId !== undefined) {
-          const payload: Record<string, unknown> = {
-            entityType,
-            tenantId: tenantId ?? null,
-          }
-          if (organizationId !== undefined) payload.organizationId = organizationId ?? null
-          try {
-            await eventBus.emitEvent('query_index.vectorize_purge', payload)
-          } catch (err) {
-            logger.warn('Failed to queue vector purge before force reindex', {
-              entityType,
-              tenantId: tenantId ?? null,
-              organizationId: organizationId ?? null,
-              error: err instanceof Error ? err.message : err,
-            })
-          }
-        } else {
-          logger.warn('Skipping vector purge for force reindex without tenant scope', {
-            entityType,
-          })
-        }
+  // The vector purge is scope-wide and cannot be partitioned — the queued job deletes every
+  // vector for the scope. Emitting it from one partition while siblings are already queueing
+  // per-record vectorize jobs is the same race the row purge just had, so a partitioned run
+  // leaves it to the caller that owns the fan-out (`api/reindex.ts` queues it once, before
+  // dispatching any partition).
+  if (force && resetCoverage && !usingPartitions && emitVectorize && eventBus) {
+    if (tenantId !== undefined) {
+      const payload: Record<string, unknown> = {
+        entityType,
+        tenantId: tenantId ?? null,
       }
+      if (organizationId !== undefined) payload.organizationId = organizationId ?? null
+      try {
+        await eventBus.emitEvent('query_index.vectorize_purge', payload)
+      } catch (err) {
+        logger.warn('Failed to queue vector purge before force reindex', {
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          error: err instanceof Error ? err.message : err,
+        })
+      }
+    } else {
+      logger.warn('Skipping vector purge for force reindex without tenant scope', {
+        entityType,
+      })
     }
+  }
 
+  if (resetCoverage) {
     // Only meaningful for an unpartitioned run: `baseCounts` holds this partition's slice,
     // so writing it as the scope's base count under-reports by the partition factor, and
     // zeroing indexed_count scope-wide discards deltas siblings have already applied. The

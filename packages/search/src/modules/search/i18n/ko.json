@@ -215,7 +215,7 @@
   "search.settings.vector.setEnvVar": "환경 변수 설정",
   "search.settings.vector.store": "벡터 저장소",
   "search.settings.vector.storeUnavailable": "벡터 저장소를 사용할 수 없습니다",
-  "search.settings.vector.storeUnavailableHint": "저장소에 연결할 수 있을 때까지 벡터 인덱싱과 의미 기반 검색은 건너뜁니다. PostgreSQL 서버에 pgvector 확장을 설치한 뒤 이 페이지를 다시 불러오세요.",
+  "search.settings.vector.storeUnavailableHint": "저장소에 연결할 수 있을 때까지 벡터 인덱싱과 의미 기반 검색은 건너뜁니다. PostgreSQL 서버에 pgvector 확장을 설치하세요. 상태는 약 1분마다 다시 확인됩니다.",
   "search.settings.vector.usingTenantConfig": "이 테넌트는 자체 임베딩 설정을 사용하고 있습니다.",
   "search.settings.vectorDocumentsLabel": "벡터 문서",
   "search.settings.vectorNotConfigured": "벡터 검색이 구성되지 않았습니다.",

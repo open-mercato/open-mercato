@@ -8,10 +8,13 @@ import { enabledModules } from '../modules'
 // asserts such a feature is denied passes vacuously — the feature never existed. Keep
 // every live ACL override key anchored to a declared feature.
 
-const REPO_ROOT = path.resolve(process.cwd(), '..', '..')
+// Resolved from this file rather than `process.cwd()`, so the guard behaves the same
+// whether jest is invoked from the app workspace or the repository root.
+const APP_ROOT = path.resolve(__dirname, '..', '..')
+const REPO_ROOT = path.resolve(APP_ROOT, '..', '..')
 
 const SOURCE_ROOTS = [
-  path.join(process.cwd(), 'src', 'modules'),
+  path.join(APP_ROOT, 'src', 'modules'),
   path.join(REPO_ROOT, 'packages'),
 ]
 

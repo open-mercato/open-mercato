@@ -294,6 +294,19 @@ export async function deleteCoverageForEntity(db: Kysely<any>, entityType: strin
     .execute()
 }
 
+async function deleteCoverageScope(db: Kysely<any>, scope: CoverageScope): Promise<void> {
+  const { entityType, tenantId, organizationId, withDeleted } = scope
+  if (!entityType) return
+  let query = db
+    .deleteFrom('entity_index_coverage' as any)
+    .where('entity_type' as any, '=', entityType)
+    .where('with_deleted' as any, '=', withDeleted === true)
+  query = tenantId == null
+    ? query.where('tenant_id' as any, 'is', null as any)
+    : query.where('tenant_id' as any, '=', tenantId)
+  await applyOrganizationCondition(query as any, 'organization_id', organizationId ?? null).execute()
+}
+
 async function tableHasColumn(db: Kysely<any>, table: string, column: string): Promise<boolean> {
   const key = `${table}.${column}`
   if (COLUMN_CACHE.has(key)) return COLUMN_CACHE.get(key)!
@@ -395,13 +408,22 @@ export async function refreshCoverageSnapshot(
   const hasTenant = await tableHasColumn(db, baseTable, 'tenant_id')
   const hasDeleted = await tableHasColumn(db, baseTable, 'deleted_at')
 
-  // A scope the base table cannot express must not narrow the index side either. Index
-  // rows can carry a tenant or organization the base table has no column for — `organizations`
-  // has no `organization_id` yet its index rows derive one from the record id, and `user_roles`
-  // has neither column. Filtering only the index side compares two different populations and
-  // reports a gap that no reindex can ever close; returning early instead of recounting left
-  // the previous snapshot frozen, which is what surfaced as a permanent "out of sync" row.
+  // A scope the base table cannot express must not narrow the index side either. Index rows
+  // can carry an organization the base table has no column for — `organizations` has no
+  // `organization_id` yet its index rows derive one from the record id. Filtering only the
+  // index side compares two different populations and reports a gap no reindex can close;
+  // returning early instead of recounting left the previous snapshot frozen, which is what
+  // surfaced as a permanent "out of sync" row for `directory:organization`.
+  //
+  // Tenant is different: a base table without `tenant_id` (`user_roles`) cannot be counted
+  // per tenant at all, and writing the cross-tenant total into one tenant's row would leak
+  // another tenant's volume into it. Drop the unusable scoped row instead, leaving only the
+  // global row — which is the one that can be true — rather than freezing a stale count.
   const scopeOrg = organizationId !== null && hasOrg
+  if (tenantId !== null && !hasTenant) {
+    await deleteCoverageScope(db, { entityType, tenantId, organizationId, withDeleted })
+    return null
+  }
   const scopeTenant = tenantId !== null && hasTenant
 
   let baseQuery = db

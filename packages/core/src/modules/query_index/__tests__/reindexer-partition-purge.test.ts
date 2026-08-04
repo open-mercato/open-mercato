@@ -150,3 +150,52 @@ describe('reindexEntity force purge scoping', () => {
     expect(purgeStatements(statements)).toHaveLength(0)
   })
 })
+
+// The vector purge deletes every vector for the scope and cannot be partitioned, so
+// emitting it from inside a concurrent fan-out is the same race the row purge had — it
+// would drop vectors the sibling partitions had just queued. The caller that owns the
+// fan-out queues it once instead.
+describe('reindexEntity vector purge scoping', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockUpsertIndexBatch.mockResolvedValue(batchResult({ attempted: 1, written: 1 }))
+  })
+
+  function makeBus() {
+    const emitted: string[] = []
+    return {
+      emitted,
+      bus: { emitEvent: jest.fn(async (event: string) => { emitted.push(event) }) },
+    }
+  }
+
+  it('does not emit a scope-wide vector purge from a partition', async () => {
+    const { em } = makeEm([{ id: 'a' }])
+    const { bus, emitted } = makeBus()
+
+    await reindexEntity(em, {
+      ...BASE_OPTIONS,
+      partitionCount: 5,
+      partitionIndex: 0,
+      resetCoverage: true,
+      emitVectorizeEvents: true,
+      eventBus: bus,
+    })
+
+    expect(emitted).not.toContain('query_index.vectorize_purge')
+  })
+
+  it('still emits it for an unpartitioned forced run', async () => {
+    const { em } = makeEm([{ id: 'a' }])
+    const { bus, emitted } = makeBus()
+
+    await reindexEntity(em, {
+      ...BASE_OPTIONS,
+      resetCoverage: true,
+      emitVectorizeEvents: true,
+      eventBus: bus,
+    })
+
+    expect(emitted).toContain('query_index.vectorize_purge')
+  })
+})

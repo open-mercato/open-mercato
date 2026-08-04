@@ -32,10 +32,10 @@ type VectorStoreConfigResponse = {
 }
 
 async function probeDriverStatus(
+  container: { resolve: <T = unknown>(name: string) => T },
   driverId: VectorDriverId,
 ): Promise<{ available: boolean | null; unavailableReason: string | null }> {
   try {
-    const container = await createRequestContainer()
     const drivers = container.resolve<VectorDriver[]>('vectorDrivers')
     const driver = drivers.find((entry) => entry.id === driverId)
     if (!driver?.getStatus) return { available: null, unavailableReason: null }
@@ -68,9 +68,19 @@ export async function GET(req: Request) {
   // Check chromadb - would need CHROMA_URL
   const chromaUrlSet = Boolean(process.env.CHROMA_URL?.trim())
 
-  const pgvectorStatus = databaseUrlSet
-    ? await probeDriverStatus('pgvector')
-    : { available: null, unavailableReason: null }
+  let pgvectorStatus: { available: boolean | null; unavailableReason: string | null } = {
+    available: null,
+    unavailableReason: null,
+  }
+  if (databaseUrlSet) {
+    const container = await createRequestContainer()
+    try {
+      pgvectorStatus = await probeDriverStatus(container, 'pgvector')
+    } finally {
+      const disposable = container as { dispose?: () => Promise<unknown> }
+      if (typeof disposable.dispose === 'function') await disposable.dispose()
+    }
+  }
 
   const drivers: DriverStatus[] = [
     {

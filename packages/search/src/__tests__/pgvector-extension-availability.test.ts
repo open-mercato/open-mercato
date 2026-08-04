@@ -46,7 +46,8 @@ describe('pgvector extension availability', () => {
     expect(await driver.isHealthy!()).toBe(false)
     const status = await driver.getStatus!()
     expect(status.available).toBe(false)
-    expect(status.reason).toMatch(/vector/)
+    // Curated, not the raw Postgres message: the settings API surfaces this to the browser.
+    expect(status.reason).toBe('extension "vector" is not available on this PostgreSQL server')
   })
 
   it('probes the catalog once instead of running DDL for every record', async () => {

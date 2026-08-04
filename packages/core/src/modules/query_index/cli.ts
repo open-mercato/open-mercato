@@ -11,7 +11,7 @@ type ProgressBarHandle = {
   update(completed: number): void
   complete(): void
 }
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import {
@@ -342,10 +342,56 @@ function describeScope(scope: ScopeDescriptor): string {
 }
 
 /**
+ * Above this many missing records the anti-join stops being the cheaper option and the
+ * repair falls back to a full single-partition rebuild of the entity.
+ */
+const MAX_TARGETED_REPAIR_RECORDS = 5000
+
+/**
+ * List the base records in scope that have no live index row, so a repair rebuilds only
+ * what is actually missing instead of re-upserting the whole entity for a one-row gap.
+ */
+async function findUnindexedRecordIds(
+  db: Kysely<any>,
+  options: {
+    entityType: string
+    tableName: string
+    tenantId?: string | null
+    organizationId?: string | null
+    limit: number
+  },
+): Promise<string[]> {
+  const columns = await getColumnSet(db, options.tableName)
+  let query = db
+    .selectFrom(`${options.tableName} as b` as any)
+    .select('b.id' as any)
+    .where(({ not, exists, selectFrom }: any) =>
+      not(exists(
+        selectFrom('entity_indexes as ei' as any)
+          .select(sql`1`.as('one'))
+          .whereRef('ei.entity_id' as any, '=', sql`b.id::text`)
+          .where('ei.entity_type' as any, '=', options.entityType)
+          .where('ei.deleted_at' as any, 'is', null as any),
+      )),
+    )
+    .limit(options.limit)
+  if (columns.has('deleted_at')) query = query.where('b.deleted_at' as any, 'is', null as any)
+  if (options.tenantId != null && columns.has('tenant_id')) {
+    query = query.where('b.tenant_id' as any, '=', options.tenantId)
+  }
+  if (options.organizationId != null && columns.has('organization_id')) {
+    query = query.where('b.organization_id' as any, '=', options.organizationId)
+  }
+  const rows = await query.execute() as Array<{ id: unknown }>
+  return rows.map((row) => String(row.id))
+}
+
+/**
  * Recount the scope from the database after a reindex and rebuild whatever is still
- * missing, single-partition. Runs unconditionally so `mercato init` (and any scripted
- * reindex) cannot finish leaving a gap that a human has to notice and repair by hand
- * from the Query Indexes screen. When counts already agree this is two COUNT queries.
+ * missing. Runs unconditionally so `mercato init` (and any scripted reindex) cannot finish
+ * leaving a gap that a human has to notice and repair by hand from the Query Indexes
+ * screen. When counts already agree this is two COUNT queries; when they do not, the
+ * repair is scoped to the records the anti-join says are actually missing.
  */
 async function verifyAndRepairIndexCoverage(
   em: EntityManager,
@@ -372,21 +418,74 @@ async function verifyAndRepairIndexCoverage(
     )
     return
   }
-  if (!counts || counts.indexedCount >= counts.baseCount) return
+  if (!counts) return
+  if (counts.indexedCount > counts.baseCount) {
+    // Legitimate for entities whose base table cannot express the scope, since a per-tenant
+    // reindex stamps its own scope onto every row. Surfaced rather than repaired: a rebuild
+    // cannot remove the surplus, and the over-count would otherwise mask a real shortfall.
+    console.warn(
+      `  -> ${options.entityType}: ${counts.indexedCount} index rows for ${counts.baseCount} records — not repairable by reindexing`,
+    )
+    return
+  }
+  if (counts.indexedCount === counts.baseCount) return
 
-  console.log(
-    `  -> ${options.entityType}: ${counts.indexedCount}/${counts.baseCount} indexed after reindex — repairing the gap...`,
-  )
+  const db = (em as any).getKysely() as Kysely<any>
+  let tableName: string | null = null
   try {
-    await reindexEntity(em, {
+    tableName = resolveRegisteredEntityTableName(em as any, options.entityType)
+  } catch {
+    tableName = null
+  }
+
+  const missingIds = tableName
+    ? await findUnindexedRecordIds(db, {
       entityType: options.entityType,
-      tenantId: options.tenantId,
-      organizationId: options.organizationId,
-      force: false,
-      batchSize: options.batchSize,
-      emitVectorizeEvents: false,
-      resetCoverage: false,
-    })
+      tableName,
+      tenantId: options.tenantId ?? null,
+      organizationId: options.organizationId ?? null,
+      limit: MAX_TARGETED_REPAIR_RECORDS + 1,
+    }).catch(() => null)
+    : null
+
+  const targeted = missingIds && missingIds.length > 0 && missingIds.length <= MAX_TARGETED_REPAIR_RECORDS
+  console.log(
+    `  -> ${options.entityType}: ${counts.indexedCount}/${counts.baseCount} indexed after reindex — repairing`
+    + `${targeted ? ` ${missingIds!.length} missing record(s)` : ' the whole entity'}...`,
+  )
+
+  try {
+    if (targeted) {
+      const columns = await getColumnSet(db, tableName!)
+      for (const recordId of missingIds!) {
+        await rebuildEntityIndexes({
+          em,
+          db,
+          entityType: options.entityType,
+          tableName: tableName!,
+          orgOverride: options.organizationId ?? undefined,
+          tenantOverride: options.tenantId ?? undefined,
+          global: false,
+          includeDeleted: false,
+          offset: 0,
+          recordId,
+          batchSize: 1,
+          supportsOrgFilter: columns.has('organization_id'),
+          supportsTenantFilter: columns.has('tenant_id'),
+          supportsDeletedFilter: columns.has('deleted_at'),
+        })
+      }
+    } else {
+      await reindexEntity(em, {
+        entityType: options.entityType,
+        tenantId: options.tenantId,
+        organizationId: options.organizationId,
+        force: false,
+        batchSize: options.batchSize,
+        emitVectorizeEvents: false,
+        resetCoverage: false,
+      })
+    }
   } catch (error) {
     console.warn(
       `  -> ${options.entityType}: repair pass failed (${error instanceof Error ? error.message : String(error)})`,
