@@ -871,7 +871,7 @@ function DisconnectChannelDialog({
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {t('communication_channels.profile.disconnect.cancel', 'Cancel')}
           </Button>
-          <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={submitting}>
+          <Button type="button" variant="destructive-solid" onClick={() => void handleConfirm()} disabled={submitting}>
             {submitting
               ? t('communication_channels.profile.disconnect.submitting', 'Disconnecting…')
               : t('communication_channels.profile.disconnect.confirm', 'Disconnect')}
