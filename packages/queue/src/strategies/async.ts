@@ -1,5 +1,5 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -9,13 +9,13 @@ const packageLogger = createLogger('queue')
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
 type ConnectionOptions = {
-  url?: string
   host?: string
   port?: number
   username?: string
   password?: string
   db?: number
   tls?: Record<string, unknown>
+  family?: number
 }
 
 interface BullQueueInterface<T> {
@@ -80,13 +80,13 @@ function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
 /**
  * Resolves Redis connection options from various sources.
  *
- * BullMQ expects an ioredis-compatible connection object. Preserve the full
- * Redis URL under the `url` key so rediss://, username, database, and query
- * params are not lost in translation.
+ * BullMQ expects ioredis connection fields rather than a nested URL string.
+ * Parse URL-based configuration at this boundary while keeping the public
+ * queue API compatible with existing `{ url }` callers.
  */
 function resolveConnection(options?: AsyncQueueOptions['connection']): ConnectionOptions {
   if (options?.url) {
-    return { url: options.url }
+    return parseRedisUrl(options.url)
   }
 
   if (options?.host) {
@@ -97,10 +97,11 @@ function resolveConnection(options?: AsyncQueueOptions['connection']): Connectio
       password: options.password,
       db: options.db,
       tls: options.tls,
+      family: options.family,
     }
   }
 
-  return { url: getRedisUrlOrThrow('QUEUE') }
+  return parseRedisUrl(getRedisUrlOrThrow('QUEUE'))
 }
 
 /**
