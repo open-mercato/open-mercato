@@ -688,3 +688,26 @@ before merging E3; findings change what E3 is allowed to do.
   **Next: wave 8** — E6 (remaining fact families: ai-tools, ai-agents, generators, page middleware,
   portal broadcast) · H6 (SPEC-P2's two writable ordering proofs — **this unblocks H3's row 6**,
   the `reuse-spec` case, because the writable proof seeds its own covering spec).
+
+  **In flight (session 4):** wave 8 workflow `wf_22176c0b-7a4` — `wave8/e6-remaining-fact-families`
+  and `wave8/h6-spec-p2-writable-proofs`.
+
+  - **H6 unblocks H3's row 6.** The `reuse-spec` case was structurally impossible because the
+    validator needs `coveringSpecPath` to name a file existing in the staged app, a fresh scaffold
+    ships only a README and a blank template under `.ai/specs/`, and `validateCatalog` forbids
+    fixtures on non-writable cases. The existing-spec WRITABLE proof seeds its own covering spec, so
+    once it exists the read-only case becomes expressible. H6 was told to add it and state plainly
+    whether it is genuinely covered afterwards.
+  - **H6 also carries a real design fork the recon flagged**: `evaluate-agent-harness.mjs` (~line
+    941) requires every semantic oracle to list `writable-ast-oracles.mjs` as a runner, and a
+    MARKDOWN-grading spec oracle does not fit an AST oracle. Either embed it there (impure) or relax
+    the guard (weakens a deliberate check). The agent must pick, justify, and NOT quietly work
+    around the guard — the verifier is asked to judge exactly that.
+  - **E6** was told to run the real extractor before and after and report the delta per fact family,
+    because a family still reporting zero contributions is not done regardless of what shipped — and
+    to refuse to invent a fake consumer just to pad a fact count.
+  - Verifiers now also hunt **self-referential assertions** specifically, after two appeared in this
+    program (one deriving its expectation from the declaration it constrained, one comparing
+    `undefined` to itself).
+
+  Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_22176c0b-7a4'})`.
