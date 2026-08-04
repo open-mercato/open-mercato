@@ -24,7 +24,7 @@
 | 3 | 3.1 | Minimum-mutant floor (`MUTATION_MIN_MUTANTS`) | dispatch | done | 288aa86f2 |
 | 3 | 3.2 | Dormant enforcement — `thresholds.break`, `MUTATION_ENFORCE`, docs | inline | done | — |
 | 4 | 4.1 | `mixinJestEnvironment` wrapper for `perTest` coverage (conditional) | inline | done | 22614e6d3 |
-| 4 | 4.2 | `incremental` plus Actions cache (conditional) | inline | done | — |
+| 4 | 4.2 | `incremental` plus Actions cache (conditional) | inline | done | a7864dd25 |
 
 ### Why Step 1.1 precedes Phase 0b
 
