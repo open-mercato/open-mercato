@@ -382,3 +382,33 @@ Nothing persists between runs; nothing else depends on it.
 - CI scoping precedent (`prepare` job's changed-module detection): `.github/workflows/ci.yml`
 - Petrović & Ivanković, *State of Mutation Testing at Google* (ICSE-SEIP 2018) — diff-scoped
   presentation and arid-mutant suppression as adoption prerequisites
+
+## 📝 Changelog
+
+### 2026-08-04 — implemented (PR #4932)
+
+Phases 0b, 1 and 2 shipped. Phase 3 shipped **dormant**. Phase 4 was attempted and deliberately not
+shipped. What changed against the design as written:
+
+| Design intent | What shipped | Why |
+|---------------|--------------|-----|
+| Phase 0b decides whether `core` is in scope | `packages/core` **excluded** | Only a 75-LOC leaf completed (1 m 45 s, 41 mutants, 58.5 %). `commands/roles.ts` exceeded 10 min twice; `data/validators.ts` produced 403 mutants with a ~6 h 42 m projection. The 10-minute exit criterion is missed by ~2 orders of magnitude. |
+| Phase 3 sets `MUTATION_ENFORCE=true` | Enforcement implemented, **`MUTATION_ENFORCE` defaults to `false`** | Q1 reserves enforcement for a recorded core-team decision, and `AGENTS.md` makes PR-pipeline changes Ask First. Enabling it is one repository-variable change. |
+| Phase 3 sets `thresholds.break` | Threshold lives in `scripts/stryker/enforce.mjs`; Stryker's `thresholds.break` stays `null` | Stryker's built-in break has no notion of the minimum-mutant floor and would fail a four-mutant diff on one survivor — what the floor exists to prevent. Threshold and floor must be evaluated together. |
+| Phase 3 documents the gate in `AGENTS.md` → Validation Commands | **Not done**, deliberately | Listing a dormant, non-blocking check as a validation command would misrepresent it. Documented as dormant in `apps/docs/docs/tutorials/testing.mdx` instead. |
+| Phase 4 delivers `perTest` and `incremental` | **Neither shipped** | `perTest` is blocked: the `moduleNameMapper` redirect onto Stryker's wrapped environments does not work, because Jest resolves `@jest-environment` outside that path. The remaining routes violate Q3 or change the repo-wide resolver. `incremental` was declined on risk — the job uses ~15 % of its timeout budget, and a stale incremental file yields false greens. |
+
+Additions the design did not anticipate:
+
+- **The workflow builds packages before mutating.** Package suites resolve their siblings through
+  `dist/`, so Stryker's initial dry run fails in a clean checkout with
+  `Cannot find module '@open-mercato/cache'`.
+- **`.stryker-tmp/` and `**/reports/mutation/` are gitignored.** Without that, a local run leaves
+  untracked output that makes the wrapper's own clean-tree guard refuse the next run.
+- **The `inPlace` blast radius is now measured, not assumed.** An interrupted run left 4 966
+  modified files in `packages/core`, because `disableTypeChecks` injects `// @ts-nocheck` before
+  mutating. `disableTypeChecks` cannot be turned off to shrink it — this repo's ts-jest transformer
+  type-checks, so type-breaking mutants would error instead of being scored.
+- **A follow-up worth filing:** `packages/core`'s `auth/lib/rateLimitCheck.ts` scored 58.5 %, with
+  survivors clustered on early-return guards that the tests never attribute a rejection to. Real
+  finding, out of scope here.
