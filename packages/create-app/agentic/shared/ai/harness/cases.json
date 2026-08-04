@@ -14129,5 +14129,465 @@
       "OMH-204",
       "OMH-207"
     ]
+  },
+  {
+    "id": "OMH-209",
+    "title": "Ground a new CRUD module on the canonical example CRUD, entity, and validator sources",
+    "family": "module",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "A standalone app needs a new tenant-scoped priorities module: one entity, its zod create/update/list schemas, its custom-field declarations, and a list/detail API built on the CRUD route factory. Before designing anything, decide which routed instructions own this work and which exact files of the shipped source-present example module you would open as the reference implementation. Begin at the example entry document and its surface index, then name only the exact sources for the CRUD-factory route, the entity definitions, the validators, and the custom-field declarations. Do not open unrelated example surfaces such as its widgets, notifications, commands, or integration adapters; do not list, glob, or dump the example tree; and do not change anything inside it.",
+    "tags": [
+      "module",
+      "canonical-example",
+      "crud-factory",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-03",
+        "BC-07",
+        "BC-08"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "module-data"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-module-scaffold",
+      "om-data-model-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "api.crud-factory",
+            "data.entities",
+            "data.validators",
+            "data.custom-fields"
+          ],
+          "maxFiles": 10,
+          "maxBytes": 98304
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "crud-factory-reference-source",
+      "entity-and-validator-reference-source",
+      "custom-field-reference-source",
+      "example-root-read-only",
+      "whole-example-tree-read",
+      "eject-the-example-module"
+    ],
+    "requiredDecisions": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "crud-factory-reference-source",
+      "entity-and-validator-reference-source",
+      "custom-field-reference-source",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 180224,
+    "relatedCases": [
+      "OMH-004",
+      "OMH-087",
+      "OMH-212"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-210",
+    "title": "Select the canonical example DataTable injection sources for a host table extension",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "An app must extend an installed list screen with an added column, a server-strategy filter, a single-row action, and a bulk action over the selected rows. Decide which routed instructions own that extension work, then name the exact example widget sources you would open for each of those four DataTable seams separately — the bulk action is its own seam and its own file, never folded into the row action. Start from the example entry document and its surface index. The example component-replacement surface is marked qa-only and must not be opened or copied. Do not open unrelated example surfaces, do not list or glob the widget directory, and do not change anything inside the example root.",
+    "tags": [
+      "umes",
+      "canonical-example",
+      "datatable-injection",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": [
+        "backend-ui",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "umes.injection.datatable-column",
+            "umes.injection.datatable-filter",
+            "umes.injection.datatable-row-action",
+            "umes.injection.datatable-bulk-action"
+          ],
+          "maxFiles": 10,
+          "maxBytes": 98304
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "datatable-column-reference-source",
+      "datatable-filter-reference-source",
+      "datatable-row-action-reference-source",
+      "datatable-bulk-action-reference-source",
+      "qa-only-surface-not-readable",
+      "example-root-read-only",
+      "component-replacement-reference-source",
+      "whole-example-tree-read"
+    ],
+    "requiredDecisions": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "datatable-column-reference-source",
+      "datatable-filter-reference-source",
+      "datatable-row-action-reference-source",
+      "datatable-bulk-action-reference-source",
+      "qa-only-surface-not-readable",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "widgets/components\\.ts"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 163840,
+    "relatedCases": [
+      "OMH-026",
+      "OMH-027",
+      "OMH-211"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-211",
+    "title": "Pick the canonical example table and CrudForm sources for a new backend screen set",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "An app needs a backend list screen with filters and export, plus create and edit screens for the same record, including the concurrent-edit conflict path on update and delete. Decide which routed instructions own that screen work and name the exact example sources you would open for the DataTable client island, the create form, and the edit form. Begin at the example entry document and its surface index and open only those rows. The example public frontend page and its module landing shell are out of scope for this request. Do not list or glob the example component or backend directories, and do not change anything inside the example root.",
+    "tags": [
+      "backend-ui",
+      "canonical-example",
+      "crud-form",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "backend-ui"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-backend-ui-design/references/page-and-navigation.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "ui.datatable",
+            "ui.form-create",
+            "ui.form-edit"
+          ],
+          "maxFiles": 12,
+          "maxBytes": 131072
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "datatable-island-reference-source",
+      "create-form-reference-source",
+      "edit-form-reference-source",
+      "example-root-read-only",
+      "frontend-page-reference-source",
+      "whole-example-tree-read"
+    ],
+    "requiredDecisions": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "datatable-island-reference-source",
+      "create-form-reference-source",
+      "edit-form-reference-source",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "text-\\[[0-9]+px\\]"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 14,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": [
+      "OMH-026",
+      "OMH-210"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-212",
+    "title": "Route a command, typed event, and index bridge design onto the canonical example sources",
+    "family": "module",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "An app module needs registered write commands with organization scope checks, undo and redo through prepared snapshots, typed event definitions with stable past-tense IDs, and the bridge that keeps the query index current after each write. Decide which routed instructions own that work and name the exact example sources you would open for the command handlers, the undo and redo path, the typed event definitions, and the index bridge. Start at the example entry document and its surface index. The example event subscribers are a separate seam and are not part of this request. Do not list or glob the example command or subscriber directories, and do not change anything inside the example root.",
+    "tags": [
+      "module",
+      "canonical-example",
+      "commands",
+      "typed-events"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-03",
+        "BC-05"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "module-data"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-module-scaffold"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/architecture.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "commands.write",
+            "commands.undo-redo",
+            "events.typed-definitions",
+            "events.crud-indexer-bridge"
+          ],
+          "maxFiles": 8,
+          "maxBytes": 131072
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "command-write-reference-source",
+      "undo-redo-reference-source",
+      "typed-event-reference-source",
+      "index-bridge-reference-source",
+      "example-root-read-only",
+      "sync-subscriber-reference-source",
+      "whole-example-tree-read"
+    ],
+    "requiredDecisions": [
+      "canonical-example-entrypoint-first",
+      "capability-scoped-example-read",
+      "command-write-reference-source",
+      "undo-redo-reference-source",
+      "typed-event-reference-source",
+      "index-bridge-reference-source",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 180224,
+    "relatedCases": [
+      "OMH-031",
+      "OMH-209"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
+      ]
+    }
   }
 ]

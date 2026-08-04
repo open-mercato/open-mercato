@@ -921,18 +921,214 @@ test('path normalization accepts Windows-style separators and rejects every esca
 })
 
 // ---------------------------------------------------------------------------------------------
-// Backward compatibility — cases without `exampleRoots` keep their previous semantics exactly.
+// Shipped-catalog reachability — the policy is live for the cases that declare it and still inert
+// for every case that does not. `DECLARING_CASE_IDS` is the pinned contract: adding or removing a
+// declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-test('compatibility: no shipped case declares the new fields, so the policy is inert for all of them', async () => {
+const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212']
+
+/**
+ * The exact capability set each declaring case may read.
+ *
+ * The reachability test below derives its expected allowlist FROM the case's own
+ * `allowedCapabilityIds`, so adding a capability widens both sides of that comparison
+ * equally and the assertion still passes — a verifier probe proved it: appending
+ * `umes.injection.datatable-column` to OMH-209 silently widened that case's example-read
+ * scope with the whole suite green. Pinning the sets here makes widening a case's reach an
+ * explicit, reviewable edit rather than a silent one.
+ */
+const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
+  'OMH-209': ['api.crud-factory', 'data.custom-fields', 'data.entities', 'data.validators'],
+  'OMH-210': [
+    'umes.injection.datatable-bulk-action',
+    'umes.injection.datatable-column',
+    'umes.injection.datatable-filter',
+    'umes.injection.datatable-row-action',
+  ],
+  'OMH-211': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
+  'OMH-212': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
+}
+const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
+
+type HarnessBudgets = {
+  id: string
+  maxContextFiles: number
+  maxInitialContextBytes: number
+  maxTotalContextBytes: number
+  context: {
+    required: string[]
+    allowedExtra?: string[]
+    exampleRoots: Array<{ maxFiles: number; maxBytes: number }>
+  }
+}
+
+function declaringShippedCases() {
+  return shippedCases().filter((entry) => entry.context.exampleRoots !== undefined)
+}
+
+function undeclaringShippedCases() {
+  return shippedCases().filter((entry) => entry.context.exampleRoots === undefined)
+}
+
+function declaredCapabilityIds(entry: { context: Record<string, unknown> }): string[] {
+  const roots = entry.context.exampleRoots as Array<{ allowedCapabilityIds: string[] }>
+  return roots.flatMap((declaration) => declaration.allowedCapabilityIds)
+}
+
+test('reachability: exactly the pinned shipped cases declare an example root, and each one is live', async () => {
   const evaluator = await loadEvaluator()
   const root = stageExampleApp()
   try {
-    const cases = shippedCases()
-    assert.ok(cases.length > 0)
-    for (const entry of cases) {
-      assert.equal(entry.context.exampleRoots, undefined, `${entry.id} must not declare exampleRoots yet`)
-      assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback yet`)
+    const declaring = declaringShippedCases()
+    assert.deepEqual(declaring.map((entry) => entry.id), DECLARING_CASE_IDS)
+    for (const entry of declaring) {
+      assert.deepEqual(
+        declaredCapabilityIds(entry).slice().sort(),
+        DECLARED_CAPABILITY_IDS[entry.id],
+        `${entry.id} reads a different capability set than the pinned one — widening a case's example reach must be an explicit edit`,
+      )
+      assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(entry, root), [], `${entry.id} must declare a valid root`)
+      assert.deepEqual(evaluator.immutableExampleRoots(entry), [EXAMPLE_ROOT], `${entry.id} must make the example root immutable`)
+      const allowlist = evaluator.exampleReadAllowlist(entry, root)
+      // Entrypoints, the inventory, and every mapped capability source — and nothing else.
+      const expected = [
+        `${EXAMPLE_ROOT}/references/surface-inventory.json`,
+        ...ENTRYPOINTS.map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
+        ...declaredCapabilityIds(entry).flatMap((id) => capability(id).sourcePaths),
+      ]
+      assert.deepEqual([...new Set(allowlist)].sort(), [...new Set(expected)].sort(), `${entry.id} allowlist must be its own exact files`)
+      for (const relative of allowlist) {
+        assert.ok(fs.existsSync(path.join(root, relative)), `${entry.id} allowlist names a file that does not ship: ${relative}`)
+      }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+/**
+ * `installedVersionFallback` is schema- and evaluator-complete, but the runner-facing tool
+ * instruction still describes a read tool that takes only a path. A shipped case that declared the
+ * fallback would therefore be unpassable in the live lane: the model has no documented way to send
+ * the reason code the evaluator demands. This fixture keeps that pairing honest in both directions.
+ */
+test('reachability: no shipped case declares the reason-gated fallback while the runner prompt has no reason channel', () => {
+  const toolInstruction = /const toolInstruction = `([^`]*)`/.exec(evaluatorSource())
+  assert.ok(toolInstruction, 'the runner tool instruction must still be a single template literal')
+  assert.equal(/\breason\b/.test(toolInstruction[1]), false, 'the prompt now offers a reason channel, so a case may declare the fallback')
+  for (const entry of shippedCases()) {
+    assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback`)
+  }
+})
+
+test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
+  const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
+  const stated = /(\w+) read-only cases,\s+`(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
+  assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
+  assert.equal(stated[1], 'Four')
+  assert.equal(DECLARING_CASE_IDS.length, 4)
+  assert.deepEqual([stated[2], stated[3]], [DECLARING_CASE_IDS[0], DECLARING_CASE_IDS.at(-1)])
+})
+
+/**
+ * The spec's Ownership Boundary requires the DataTable bulk action to stay separately
+ * discoverable from the row action: its own visible source reference and its own case-selection
+ * assertion, never folded into the neighbouring seam. This checks the requirement rather than
+ * re-typing a case's capability list, so it fails when a catalog edit collapses the two seams.
+ */
+test('reachability: the DataTable bulk action is selected by a shipped case as its own seam, distinct from the row action', () => {
+  const declaredEverywhere = declaringShippedCases().flatMap(declaredCapabilityIds)
+  const bulk = 'umes.injection.datatable-bulk-action'
+  const row = 'umes.injection.datatable-row-action'
+  assert.ok(declaredEverywhere.includes(bulk), 'no shipped case selects the canonical DataTable bulk-action source')
+  assert.ok(declaredEverywhere.includes(row), 'no shipped case selects the canonical DataTable row-action source')
+  const bulkSources = capability(bulk).sourcePaths
+  const rowSources = capability(row).sourcePaths
+  assert.ok(bulkSources.length > 0 && rowSources.length > 0)
+  assert.deepEqual(bulkSources.filter((source) => rowSources.includes(source)), [], 'the two seams must not share a source file')
+})
+
+test('reachability: every shipped declaring case reads its own capability set end to end and is refused another one', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    for (const entry of declaringShippedCases()) {
+      const allowed = declaredCapabilityIds(entry)
+      const reads: PolicyRead[] = [
+        ...entrypointReads(),
+        ...allowed.flatMap((id) => capability(id).sourcePaths.map((source) => ({ path: source }))),
+      ]
+      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: entry, appRoot: root, reads })
+      assert.equal(trace.firstViolation, null, `${entry.id} must be able to read its own declared capabilities`)
+      assert.equal(trace.roots.length, 1, `${entry.id} must account exactly one root`)
+      assert.deepEqual(trace.roots[0].entrypoints, ENTRYPOINTS, `${entry.id} must record both entrypoints`)
+      assert.equal(trace.roots[0].files, new Set(reads.map((read) => read.path)).size, `${entry.id} must charge every distinct read`)
+      assert.ok(trace.roots[0].capabilities.length > 0, `${entry.id} must resolve at least one capability`)
+      for (const resolved of trace.roots[0].capabilities) {
+        assert.ok(allowed.includes(resolved), `${entry.id} resolved an undeclared capability ${resolved}`)
+      }
+
+      const outside = inventoryCapabilities().find((row) => row.readStatus === 'readable'
+        && row.sourcePaths.some((source) => source.startsWith(`${EXAMPLE_ROOT}/`))
+        && !row.sourcePaths.some((source) => reads.some((read) => read.path === source)))
+      assert.ok(outside, `${entry.id} needs an inventory capability outside its own declaration`)
+      const refused = evaluator.evaluateExampleReadPolicy({
+        caseRecord: entry,
+        appRoot: root,
+        reads: [...entrypointReads(), { path: outside.sourcePaths.find((source) => source.startsWith(`${EXAMPLE_ROOT}/`))! }],
+      })
+      assert.match(refused.firstViolation ?? '', /maps to a capability the case did not declare/, `${entry.id} must refuse ${outside.capabilityId}`)
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+/**
+ * A declaring case is only passable if its own ceilings clear the surface it declares: the
+ * entrypoints, the inventory, and every mapped capability source, charged against the root budgets
+ * AND against the routing budgets that the same reads feed. Example sources carry no `/references/`
+ * segment, so they count as INITIAL context — a growing example silently squeezes them otherwise.
+ */
+test('reachability: every shipped declaring case can afford the entire surface it declares', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    for (const entry of declaringShippedCases() as unknown as HarnessBudgets[]) {
+      const declaration = entry.context.exampleRoots[0]
+      const files = evaluator.exampleReadAllowlist(entry, root)
+      const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      assert.ok(files.length <= declaration.maxFiles, `${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
+      assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
+
+      const initial = files.filter((relative) => !relative.includes('/references/'))
+      const instruction = [...entry.context.required, ...(entry.context.allowedExtra ?? [])]
+      const initialFiles = initial.length + instruction.filter((relative) => !relative.includes('/references/')).length
+      assert.ok(
+        initialFiles <= entry.maxContextFiles,
+        `${entry.id} needs ${initialFiles} initial context files against maxContextFiles ${entry.maxContextFiles}`,
+      )
+      const initialBytes = initial.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      assert.ok(
+        initialBytes < entry.maxInitialContextBytes,
+        `${entry.id} spends ${initialBytes} example bytes of its ${entry.maxInitialContextBytes} initial budget before any instruction`,
+      )
+      assert.ok(bytes < entry.maxTotalContextBytes, `${entry.id} spends ${bytes} example bytes of its ${entry.maxTotalContextBytes} total budget`)
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('compatibility: every shipped case that does not declare the fields keeps byte-identical semantics', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const undeclaring = undeclaringShippedCases()
+    assert.equal(undeclaring.length, shippedCases().length - DECLARING_CASE_IDS.length)
+    for (const entry of undeclaring) {
+      assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback`)
       assert.deepEqual(evaluator.exampleReadAllowlist(entry, root), [], `${entry.id} read allowlist must be unchanged`)
       assert.deepEqual(evaluator.immutableExampleRoots(entry), [], `${entry.id} must gain no immutable roots`)
       assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(entry, root), [], `${entry.id} must gain no declaration errors`)
@@ -954,7 +1150,7 @@ test('compatibility: an undeclared case produces an inert trace for reads that a
     ]
     for (const undeclared of [
       { context: { required: ['AGENTS.md'], forbidden: ['.env'] }, allowedWrites: ['src/modules/**'] },
-      ...shippedCases().slice(0, 3),
+      ...undeclaringShippedCases().slice(0, 3),
     ]) {
       const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: undeclared, appRoot: root, reads })
       assert.deepEqual(trace, { reads: [], roots: [], fallback: { reason: null, files: 0, bytes: 0 }, firstViolation: null })
@@ -1363,7 +1559,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 4,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json', 'a shipped case declaring context.exampleRoots'],
+    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json'],
     note: 'Declared installed-source references — reference id, package, version, hash — do not exist. The only installed-source route implemented is the reason-gated fallback of spec family 5.',
   },
   {
@@ -1423,21 +1619,21 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 9,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['an operation-progress capability in surface-inventory.json', 'a shipped case declaring context.exampleRoots'],
-    note: 'The inventory declares umes.injection.datatable-bulk-action but no operation-progress capability, and no writable case declares an example root, so the connected progressJobId lane cannot be asserted.',
+    blockedBy: ['an operation-progress capability in surface-inventory.json', 'a WRITABLE shipped case declaring context.exampleRoots'],
+    note: 'OMH-210 now selects the DataTable bulk-action source from a shipped case, but the inventory still declares no operation-progress capability and every declaring case is read-only, so the connected progressJobId lane cannot be asserted.',
   },
   {
     specFamily: 10,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['the generated local example reference sheet', 'a shipped case declaring context.exampleRoots'],
-    note: 'The PR #4883 reference-fact and topology surfaces are not emitted.',
+    blockedBy: ['a shipped case routing the generated local example reference sheet'],
+    note: 'Corrected on 2026-08-04: the PR #4883 sheet IS emitted — `build.mjs` writes `dist/agentic/guides/reference-modules/example.md` and `reference-module-facts.json` with the specified `projectionKind: "activated-reference"` envelope. The previous blocker probed `agentic/shared/ai/guides/reference-modules/example.md`, a path that exists in neither the source tree (guides live in `agentic/guides/`) nor the build output, so it was tautologically true and proved nothing. What is genuinely missing is the topology CASE: no shipped case routes that sheet, and the emitted facts still carry no `negative-fixture` enum-ledger classification for the activated-row negative to bite on.',
   },
   {
     specFamily: 11,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['a design-system gallery record in surface-inventory.json', 'a shipped case declaring context.exampleRoots'],
+    blockedBy: ['a design-system gallery record in surface-inventory.json'],
     note: 'The PR #4301 gallery surfaces are not emitted.',
   },
   {
@@ -1447,7 +1643,6 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     blockedBy: [
       'a PR #4277 designFoundation record in surface-inventory.json',
       'a design-system gallery record in surface-inventory.json',
-      'a shipped case declaring context.exampleRoots',
     ],
     note: 'The PR #4277 design-foundation surfaces are not emitted.',
   },
@@ -1457,11 +1652,15 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
   'context.sourceReferenceIds': () => !fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8').includes('sourceReferenceIds')
     && !evaluatorSource().includes('sourceReferenceIds'),
   'source-link-inventory.json': () => !fs.existsSync(path.join(sourceHarness, 'source-link-inventory.json')),
-  'a shipped case declaring context.exampleRoots': () => shippedCases().every((entry) => entry.context.exampleRoots === undefined),
+  'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
+    .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
   'an operation-progress capability in surface-inventory.json': () => !inventoryCapabilities().some((entry) => entry.capabilityId.includes('progress')),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
   'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
-  'the generated local example reference sheet': () => !fs.existsSync(path.join(sharedRoot, 'ai', 'guides', 'reference-modules', 'example.md')),
+  'a shipped case routing the generated local example reference sheet': () => shippedCases().every((entry) => {
+    const contract = entry.context as { required?: string[]; allowedExtra?: string[] }
+    return ![...(contract.required ?? []), ...(contract.allowedExtra ?? [])].includes(REFERENCE_SHEET)
+  }),
 }
 
 test('ledger: the spec still enumerates exactly twelve oracle families', () => {
