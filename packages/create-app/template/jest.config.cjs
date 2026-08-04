@@ -10,6 +10,7 @@ module.exports = {
   passWithNoTests: true,
   rootDir: '.',
   roots: ['<rootDir>/src'],
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@/\\.mercato/(.*)$': '<rootDir>/.mercato/$1',
@@ -32,6 +33,6 @@ module.exports = {
       },
     ],
   },
-  transformIgnorePatterns: ['/node_modules/(?!(@open-mercato)/)'],
+  transformIgnorePatterns: ['/node_modules/(?!(@open-mercato|@mikro-orm)/)'],
   testPathIgnorePatterns: ['/node_modules/', '/.next/', '/.mercato/', '/.ai/qa/'],
 }

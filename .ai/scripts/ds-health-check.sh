@@ -158,6 +158,22 @@ report "--- Semantic Token Adoption ---"
 ST=$(count_matches 'status-error-|status-success-|status-warning-|status-info-|status-neutral-|status-pink-')
 report "  Semantic token usages: $ST"
 
+# Destructive loudness policy: solid red belongs only to confirm dialogs.
+SOLID=$(count_matches 'variant="destructive-solid"')
+report "  destructive-solid usages: $SOLID (each must be a confirm-dialog final button)"
+
+# Token parity + contrast gate (scripts/check-token-parity.mjs).
+if node scripts/check-token-parity.mjs > /dev/null 2>&1; then
+  report "  Token parity/contrast (yarn check:tokens): PASS"
+else
+  report "  Token parity/contrast (yarn check:tokens): FAIL — run yarn check:tokens for details"
+fi
+
+report ""
+report "--- Token Snapshot Drift ---"
+TD=$(node scripts/ds-tokens-export.mjs --check --count 2>/dev/null || echo "unavailable")
+report "  Drifted tokens: $TD (target: 0)"
+
 report ""
 report "=== END REPORT ==="
 

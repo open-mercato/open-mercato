@@ -11,7 +11,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
+import { isOwnedCompanyEntity, isOwnedPersonEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -165,6 +165,21 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     })
     if (!owned) {
       return NextResponse.json({ ok: false, error: 'Company not found' }, { status: 400 })
+    }
+  }
+
+  // Same guard for the person FK. Without it the invite-side check is trivially
+  // bypassable: create the user normally, then PUT an unowned personEntityId.
+  // It persists (autoLinkCrm short-circuits on any non-null value) and leaks
+  // account status into the other org's people list via the account-status
+  // enricher. A null value (unlink) needs no ownership check.
+  if (parsed.data.personEntityId) {
+    const owned = await isOwnedPersonEntity(em, parsed.data.personEntityId, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (!owned) {
+      return NextResponse.json({ ok: false, error: 'Person not found' }, { status: 400 })
     }
   }
 

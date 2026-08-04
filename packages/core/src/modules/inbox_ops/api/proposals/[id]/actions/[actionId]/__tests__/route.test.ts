@@ -45,10 +45,12 @@ jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
   emitInboxOpsEvent: jest.fn(),
 }))
 
-function makeRequest(body: Record<string, unknown>) {
+const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
+
+function makeRequest(body: Record<string, unknown>, headers: Record<string, string> = {}) {
   return new Request('http://localhost/api/inbox_ops/proposals/proposal-1/actions/action-1', {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
 }
@@ -186,6 +188,86 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
 
     expect(response.status).toBe(200)
     expect(payload.ok).toBe(true)
+  })
+
+  it('returns a 409 optimistic-lock conflict on a stale action edit instead of overwriting', async () => {
+    const action = {
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      actionType: 'create_order',
+      status: 'pending',
+      payload: {
+        customerName: 'Current Name',
+        currencyCode: 'USD',
+        channelId: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+        lineItems: [{ productName: 'Widget', quantity: '10' }],
+      },
+      updatedAt: new Date('2026-06-18T12:00:00.000Z'),
+    } as unknown as InboxProposalAction
+
+    const proposal = {
+      id: 'proposal-1',
+      isActive: true,
+    } as unknown as InboxProposal
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(action)
+      .mockResolvedValueOnce(proposal)
+
+    const response = await PATCH(
+      makeRequest(
+        { payload: { customerName: 'Stale Name' } },
+        { [OPTIMISTIC_LOCK_HEADER]: '2026-06-18T11:00:00.000Z' },
+      ),
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(payload.code).toBe('optimistic_lock_conflict')
+    expect(action.payload).toEqual(
+      expect.objectContaining({ customerName: 'Current Name' }),
+    )
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('saves the action when the expected version matches the current one', async () => {
+    const action = {
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      actionType: 'create_order',
+      status: 'pending',
+      payload: {
+        customerName: 'Old Name',
+        currencyCode: 'USD',
+        channelId: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+        lineItems: [{ productName: 'Widget', quantity: '10' }],
+      },
+      updatedAt: new Date('2026-06-18T12:00:00.000Z'),
+    } as unknown as InboxProposalAction
+
+    const proposal = {
+      id: 'proposal-1',
+      isActive: true,
+    } as unknown as InboxProposal
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(action)
+      .mockResolvedValueOnce(proposal)
+
+    const response = await PATCH(
+      makeRequest(
+        { payload: { customerName: 'New Name' } },
+        { [OPTIMISTIC_LOCK_HEADER]: '2026-06-18T12:00:00.000Z' },
+      ),
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload.ok).toBe(true)
+    expect(action.payload).toEqual(
+      expect.objectContaining({ customerName: 'New Name', currencyCode: 'USD' }),
+    )
+    expect(mockEm.flush).toHaveBeenCalled()
   })
 
   it('returns 401 when not authenticated', async () => {

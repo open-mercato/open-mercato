@@ -1,4 +1,5 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { sql } from 'kysely'
 import { markDeleted } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
@@ -39,7 +40,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   if (!entityType || !recordId) return
   let organizationId: string | null = payload?.organizationId ?? null
   let tenantId: string | null = payload?.tenantId ?? null
+  const suppressCoverage = payload?.suppressCoverage === true
   const coverageDelayMs = typeof payload?.coverageDelayMs === 'number' ? payload.coverageDelayMs : undefined
+  const alwaysConsistent = isReadProjectionAlwaysConsistent()
   try {
     const hasPayloadOrganizationId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'organizationId')
     const hasPayloadTenantId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'tenantId')
@@ -54,6 +57,68 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     })
     organizationId = resolvedScope.organizationId
     tenantId = resolvedScope.tenantId
+
+    if (alwaysConsistent) {
+      const db = (em as any).getKysely()
+      await db.transaction().execute(async (trx: any) => {
+        const { wasActive } = await markDeleted(em, { entityType, recordId, organizationId, tenantId, trx })
+
+        let baseQuery = trx
+          .selectFrom(source.table as any)
+          .select(['deleted_at' as any])
+          .where('id' as any, '=', recordId)
+        if (source.organizationColumn) {
+          baseQuery = baseQuery.where(
+            source.organizationColumn as any,
+            organizationId === null ? 'is' : '=',
+            organizationId as any,
+          )
+        }
+        if (source.tenantColumn) {
+          baseQuery = baseQuery.where(sql`${sql.ref(source.tenantColumn)} is not distinct from ${tenantId}`)
+        }
+        const row = await baseQuery.executeTakeFirst() as { deleted_at: Date | null } | undefined
+        const baseDelta = !row || row.deleted_at != null ? -1 : 0
+
+        const baseDeltaOverride =
+          typeof payload?.coverageBaseDelta === 'number' ? payload.coverageBaseDelta : undefined
+        const indexDeltaOverride =
+          typeof payload?.coverageIndexDelta === 'number' ? payload.coverageIndexDelta : undefined
+        let effectiveBaseDelta = baseDeltaOverride ?? baseDelta
+        let effectiveIndexDelta = indexDeltaOverride ?? (wasActive ? -1 : 0)
+
+        if (!Number.isFinite(effectiveBaseDelta)) effectiveBaseDelta = 0
+        if (!Number.isFinite(effectiveIndexDelta)) effectiveIndexDelta = 0
+
+        if (effectiveBaseDelta !== 0 || effectiveIndexDelta !== 0) {
+          const adjustments = createCoverageAdjustments({
+            entityType,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            baseDelta: effectiveBaseDelta,
+            indexDelta: effectiveIndexDelta,
+          })
+          if (adjustments.length) {
+            await applyCoverageAdjustments(em, adjustments, { trx })
+          }
+        }
+      })
+
+      const bus = ctx.resolve<any>('eventBus')
+      const shouldRefreshCoverage =
+        !suppressCoverage && (coverageDelayMs === undefined || coverageDelayMs >= 0)
+      const coverageRefreshDelay = coverageDelayMs ?? 0
+      if (shouldRefreshCoverage) {
+        await bus.emitEvent('query_index.coverage.refresh', {
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          delayMs: coverageRefreshDelay,
+        }, { rethrowHandlerErrors: true })
+      }
+      await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true })
+      return
+    }
 
     const { wasActive } = await markDeleted(em, { entityType, recordId, organizationId, tenantId })
 
@@ -110,7 +175,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     // awaits this subscriber) so list reads are consistent immediately. The coverage
     // recompute (a COUNT, run inline when delayMs is 0) and the fulltext delete are
     // secondary, so defer them fire-and-forget to keep write/bulk-delete latency bounded.
-    const suppressCoverage = payload?.suppressCoverage === true
     const explicitDelayRequested = typeof payload?.coverageDelayMs === 'number'
     const shouldRefreshCoverage =
       !suppressCoverage &&

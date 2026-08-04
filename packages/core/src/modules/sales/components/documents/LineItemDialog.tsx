@@ -272,7 +272,7 @@ type SnapshotEntity = {
 type SalesLineDialogProps = {
   open: boolean;
   kind: "order" | "quote";
-  documentId: string;
+  documentId?: string;
   currencyCode: string | null | undefined;
   documentUpdatedAt?: string | null;
   organizationId: string | null;
@@ -281,6 +281,7 @@ type SalesLineDialogProps = {
   shippedQuantity?: number;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => Promise<void> | void;
+  onDraftSaved?: (payload: Record<string, unknown>, lineId: string | null) => Promise<void> | void;
 };
 
 const defaultForm = (currencyCode?: string | null): LineFormState => ({
@@ -476,6 +477,7 @@ export function LineItemDialog({
   shippedQuantity = 0,
   onOpenChange,
   onSaved,
+  onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
   const scope = useOrganizationScopeDetail();
@@ -1273,7 +1275,7 @@ export function LineItemDialog({
       const resolvedOrg = resolvedOrganizationId;
       const resolvedTenant = resolvedTenantId;
 
-      if (!resolvedOrg || !resolvedTenant || !resolvedDocumentId) {
+      if (!onDraftSaved && (!resolvedOrg || !resolvedTenant || !resolvedDocumentId)) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorScope",
@@ -1466,9 +1468,9 @@ export function LineItemDialog({
       };
 
       const payload: Record<string, unknown> = {
-        [documentKey]: String(resolvedDocumentId),
-        organizationId: String(resolvedOrg),
-        tenantId: String(resolvedTenant),
+        ...(resolvedDocumentId ? { [documentKey]: resolvedDocumentId } : {}),
+        ...(resolvedOrg ? { organizationId: resolvedOrg } : {}),
+        ...(resolvedTenant ? { tenantId: resolvedTenant } : {}),
         productId: isCustomLine
           ? undefined
           : values.productId
@@ -1508,6 +1510,11 @@ export function LineItemDialog({
       if (resolvedName) payload.name = resolvedName;
 
       try {
+        if (onDraftSaved) {
+          await onDraftSaved(payload, editingId);
+          closeDialog();
+          return;
+        }
         const action = editingId ? updateCrud : createCrud;
         const result = await withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
@@ -1545,6 +1552,7 @@ export function LineItemDialog({
       documentKey,
       documentUpdatedAt,
       editingId,
+      onDraftSaved,
       priceOptions,
       productOption,
       resourcePath,

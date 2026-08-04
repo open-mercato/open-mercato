@@ -11,7 +11,7 @@ import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { useAiDock } from '@open-mercato/ui/ai'
+import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -333,7 +333,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onCheckedChange={(v) => setMarketingConsent(v === true)}
                 />
                 <span>
-                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from CT Tornado by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
+                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from Open Mercato sp. z o.o. by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
                     .split(/{termsLink}|{privacyLink}/)
                     .map((part, i, arr) => (
                       <span key={i}>

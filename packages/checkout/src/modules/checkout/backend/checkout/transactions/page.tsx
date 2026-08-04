@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -237,7 +238,7 @@ export default function CheckoutTransactionsPage() {
           onFiltersApply={(next) => { setFilters(next); setPage(1) }}
           onFiltersClear={() => { setFilters({}); setPage(1) }}
           pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
-          perspective={{ tableId: 'checkout-transactions' }}
+          perspective={{ tableId: extensionPoints.hosts.transactionsTable.tableId }}
           rowClickActionIds={['view']}
           rowActions={(row) => <RowActions items={[{ id: 'view', label: t('checkout.admin.transactions.actions.viewDetail'), href: `/backend/checkout/transactions/${encodeURIComponent(row.id)}` }]} />}
         />
