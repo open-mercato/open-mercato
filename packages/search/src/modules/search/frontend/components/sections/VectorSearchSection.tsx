@@ -979,7 +979,7 @@ export function VectorSearchSection({
               <Button type="button" variant="outline" onClick={handleEmbeddingCancelChange} disabled={embeddingSaving}>
                 {t('search.settings.actions.cancel', 'Cancel')}
               </Button>
-              <Button type="button" variant="destructive" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
+              <Button type="button" variant="destructive-solid" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
                 {embeddingSaving ? <Spinner size="sm" className="mr-2" /> : null}
                 {t('search.settings.actions.confirm', 'Confirm')}
               </Button>
