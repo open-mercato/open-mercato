@@ -51,8 +51,8 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 ### module-data
 
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
-- [Global search has no per-record ACL hook](lessons/global-search-has-no-per-record-acl-hook.md) — area:module-data,integration; module:documents,search; topic:access-control,data-scoping,query-index
-- [db:generate re-emits unrelated migrations from stale snapshots](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,debugging; module:ai_assistant,cli; topic:database-migrations,generated-files,regeneration
+- [Documents expose the wrong data: search index and principal labels](lessons/global-search-has-no-per-record-acl-hook.md) — area:module-data,backend-ui; module:documents,search,auth; topic:access-control,data-scoping,encryption
+- [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli; topic:generated-files,database-migrations,runtime-startup
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
@@ -76,6 +76,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Query-index custom-field cardinality comes from definitions, not row count](lessons/query-index-custom-field-cardinality-comes-from.md) — area:module-data,umes,backend-ui; module:entities,query_index,search; topic:custom-fields,data-scoping,query-index
 - [Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files](lessons/standalone-generators-must-reuse-package-generated.md) — area:module-data,architecture,framework-context; module:entities,cli,create_app; topic:auto-discovery,build-output,data-scoping
 - [Store global event bus in `globalThis` to survive module duplication in dev](lessons/store-global-event-bus-in-globalthis-to-survive-module.md) — area:module-data,architecture,debugging; module:events,shared; topic:events,module-boundaries,package-runtime
+- [System encryption map discovery must fail closed](lessons/system-encryption-map-discovery-must-fail-closed.md) — area:module-data,architecture; module:onboarding,shared; topic:data-integrity,encryption,runtime-startup
 - [Sync progress must count source records, not emitted side-effect items](lessons/sync-progress-must-count-source-records-not-emitted.md) — area:module-data,integration; module:data_sync,progress,catalog; topic:data-import,events,testing
 - [Tool-scoped regeneration commands must not be blocked by unrelated existing files](lessons/tool-scoped-regeneration-commands-must-not-be-blocked.md) — area:module-data,architecture; module:cli; topic:command-pattern,data-scoping,regeneration
 - [Use canonical generated entity ids, not shortened ad-hoc aliases](lessons/use-canonical-generated-entity-ids-not-shortened-ad-hoc.md) — area:module-data,umes,architecture; module:checkout,entities,query_index; topic:auto-discovery,custom-fields,data-integrity
@@ -93,8 +94,6 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### backend-ui
 
-- [Realtime editing must handle share changes and reconnects](lessons/realtime-editing-must-treat-share-changes-and.md) — area:backend-ui,module-data; module:documents; topic:realtime,events,access-control
-- [Resolve principal names server-side, never raw UUIDs](lessons/resolve-principal-names-server-side-never-surface-raw.md) — area:backend-ui,module-data; module:documents,auth; topic:encryption,ui-components,data-scoping
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
 - [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
 - [Async select controls must not treat synthetic empty changes as user clears](lessons/async-select-controls-must-not-treat-synthetic-empty.md) — area:backend-ui,testing,module-data; module:ui,catalog,events; topic:command-pattern,events,testing
@@ -118,7 +117,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### integration
 
-- [A collaboration sidecar must import package dist, not src](lessons/a-collaboration-sidecar-runs-outside-the-app-runtime.md) — area:integration,debugging,architecture; module:documents; topic:package-runtime,build-output,realtime
+- [Realtime collaboration runtime: sidecar, shares, reconnects](lessons/a-collaboration-sidecar-runs-outside-the-app-runtime.md) — area:integration,backend-ui,debugging; module:documents; topic:realtime,package-runtime,access-control
 - [Akeneo base-field imports must not fall back across locales or channels](lessons/akeneo-base-field-imports-must-not-fall-back-across.md) — area:integration,debugging; module:data_sync,catalog; topic:data-import,data-scoping,testing
 - [Akeneo media identifiers can be slash-delimited path params](lessons/akeneo-media-identifiers-can-be-slash-delimited-path.md) — area:integration; module:data_sync,cli; topic:data-import,media
 - [Akeneo variant reuse must be scoped to the current product, not global SKU matches](lessons/akeneo-variant-reuse-must-be-scoped-to-the-current.md) — area:integration,debugging; module:catalog,data_sync; topic:data-import,data-scoping
@@ -150,12 +149,13 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ### debugging
 
+- [Anchor repeated route-handler edits to unique context](lessons/anchor-repeated-route-handler-edits-to-unique-context.md) — area:debugging,testing; module:messages; topic:route-coverage,testing
 - [Compose startup commands must not hard-depend on newly added image scripts](lessons/compose-startup-commands-must-not-hard-depend-on-newly.md) — area:debugging,module-data,architecture; module:create_app; topic:command-pattern,runtime-startup,template-sync
 - [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations
+- [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
 
 ### testing
 
-- [Ephemeral restarts need full process and port cleanup](lessons/ephemeral-restarts-need-a-full-process-port-and.md) — area:testing,debugging; module:cli; topic:dev-runtime,testing,runtime-startup
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
 - [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,query-index,route-coverage
 - [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing

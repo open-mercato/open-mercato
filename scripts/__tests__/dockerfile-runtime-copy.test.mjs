@@ -99,3 +99,14 @@ test('production runtime Chromium install is opt-out via INSTALL_CHROMIUM build 
     'opting out must still install the non-chromium runtime packages',
   )
 })
+
+test('production Docker stage includes the telemetry workspace before focusing dependencies', async () => {
+  const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+  const telemetryManifestIndex = dockerfile.indexOf(
+    'COPY --from=builder /app/packages/telemetry/package.json ./packages/telemetry/',
+  )
+  const productionFocusIndex = dockerfile.indexOf('RUN yarn workspaces focus @open-mercato/app --production')
+
+  assert.ok(telemetryManifestIndex >= 0, 'expected telemetry workspace manifest in the production stage')
+  assert.ok(productionFocusIndex > telemetryManifestIndex, 'expected telemetry manifest before production focus')
+})
