@@ -100,6 +100,14 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     // that the account exists but is deactivated.
     expect(await res.json()).toEqual({ ok: false, error: 'Invalid email or password' })
     expect(authServiceMock.createSession).not.toHaveBeenCalled()
+
+    // The audit stream is a different audience than the caller: it MUST be able to tell
+    // a disabled account apart from a mistyped password.
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent as jest.Mock).toHaveBeenCalledWith(
+      'auth.login.failed',
+      expect.objectContaining({ reason: 'account_deactivated' }),
+    )
   })
 
   test('returns 400 for malformed multipart login bodies instead of throwing', async () => {

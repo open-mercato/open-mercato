@@ -330,13 +330,21 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
+    // Evaluate the floor against the user's CURRENT tenant, not the one recorded at
+    // creation. A user moved to another tenant after being created would otherwise be
+    // checked against the origin tenant — where they no longer hold anything — and the
+    // undo would hard-delete the destination tenant's last administrator unchecked.
+    // The create snapshot is only a fallback for a row that is already gone.
+    const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    const floorTenantId = current?.tenantId ? String(current.tenantId) : (snapshot?.tenantId ?? null)
+
     let removed: User | null = null
     await withAtomicFlush(em, [
       async () => {
         // Undoing a create hard-deletes the user, so it can strip a tenant's last active
         // admin exactly like `auth.users.delete` can — promote a second admin, delete the
         // first, then undo the promotion's create. Same guard applies.
-        await enforceProtectedRoleFloor(em, snapshot?.tenantId ?? null, userId, { deleting: true }, ctx)
+        await enforceProtectedRoleFloor(em, floorTenantId, userId, { deleting: true }, ctx)
 
         await em.nativeDelete(UserAcl, { user: userId })
         await em.nativeDelete(UserRole, { user: userId })

@@ -535,6 +535,49 @@ describe('auth.users protected role floor checks', () => {
     expect(dataEngine.deleteOrmEntity).not.toHaveBeenCalled()
   })
 
+  // The create snapshot records the tenant the user was created in. If they were moved
+  // afterwards, that tenant is the wrong one to evaluate: it no longer counts the user,
+  // so the floor would pass and the undo would hard-delete the DESTINATION tenant's last
+  // administrator. The guard must read the user's current tenant instead.
+  it('evaluates create-undo against the users current tenant, not the creation snapshot', async () => {
+    const movedUser = { ...mockUser1, tenantId } as User
+    const originTenantId = 'a1111111-1111-1111-1111-111111111111'
+
+    const em = makeEm()
+    const dataEngine = { deleteOrmEntity: jest.fn(async () => movedUser) }
+    const ctx = makeCtx(em, dataEngine)
+
+    findOneMock.mockImplementation((entity) => (entity === User ? movedUser : null))
+    findMock.mockImplementation((entity, where) => {
+      // Only the CURRENT tenant has a protected role with the user as its last holder.
+      if (entity === Role) {
+        return (where as { tenantId?: string }).tenantId === tenantId ? [mockAdminRole] : []
+      }
+      if (entity === UserRole) return [{ user: movedUser, role: mockAdminRole }]
+      return []
+    })
+
+    const handler = commandRegistry.get('auth.users.create') as CommandHandler
+
+    await expect(
+      handler.undo!({
+        logEntry: {
+          resourceId: userId,
+          // Snapshot still points at the tenant the user was created in.
+          snapshotAfter: { email: 'admin1@test.com', tenantId: originTenantId, organizationId: null, roles: ['admin'] },
+        },
+        ctx,
+        undoToken: 'token',
+      } as never)
+    ).rejects.toThrow(
+      new CrudHttpError(400, { error: 'Cannot remove the last active holder of role "admin"' })
+    )
+
+    const roleCall = findMock.mock.calls.find((call) => call[0] === Role)
+    expect((roleCall?.[1] as { tenantId?: string })?.tenantId).toBe(tenantId)
+    expect(dataEngine.deleteOrmEntity).not.toHaveBeenCalled()
+  })
+
   it('defaults minActiveHolders to 0 on new role entities', () => {
     const role = new Role()
     expect(role.minActiveHolders).toBe(0)
