@@ -76,4 +76,29 @@ classification. Adding a second test asserting the same enumeration would duplic
 ### Phase 1: Classify the guard
 
 - [x] 1.1 Add the telemetry workspace group to REPO_WIDE_GUARDS — 678541426
-- [ ] 1.2 Verify with the guard contract test, the guard runner and the validation gate
+- [x] 1.2 Verify with the guard contract test, the guard runner and the validation gate — 678541426
+
+## Validation gate (runner: local — no compose `app` container up)
+
+| Command | Result |
+|---|---|
+| `yarn build:packages` | ✅ 22/22 |
+| `yarn generate` | ✅ clean tree, no unrelated migrations |
+| `yarn build:packages` (rebuild) | ✅ 22/22 |
+| `yarn i18n:check-sync` | ✅ all in sync |
+| `yarn i18n:check-usage` | ✅ advisory only |
+| `yarn typecheck` | ✅ 22/22 |
+| `yarn test` | ⚠️ one pre-existing base failure, see below |
+| `yarn build:app` | ✅ 1/1 |
+| `node --test scripts/__tests__/repo-wide-guards.test.mjs` | ✅ 14/14 (was 13/14 before this change) |
+| `yarn test:repo-wide-guards` | ✅ all guards pass, 24 test files, telemetry now among them |
+
+`yarn test` fails only on `create-mercato-app`'s
+`every local ESM import in template scripts resolves inside the template`: the template's
+`scripts/dev-runtime.mjs:15` imports `./dev-memory-monitor.mjs`, which exists nowhere in the
+repository. Reproduced on a pristine `upstream/develop` checkout with none of this branch's content —
+it is base breakage from #4867, filed as **#4948**, and untouched by this diff. Run in isolation the
+rest of that suite is green (450 tests, 444 pass, that one fail). A second create-app failure seen
+during the first sweep (`build emits customers facts … (T5)`, `node build.mjs` exiting non-zero)
+did **not** reproduce once nothing else was running — it was local memory pressure from a concurrent
+`yarn build:app`, and `node build.mjs` completes cleanly on its own.
