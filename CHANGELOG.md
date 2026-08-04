@@ -12,7 +12,7 @@ Day to day, the product surface gets noticeably nicer: **DataTable columns resiz
 
 ## ✨ Features
 - ✨ Add community labels. (#4740) *(@MStaniaszek1998)*
-- ✨ Implementation of WMS. (#4566) *(@patzick)*
+- ✨ WMS phase 1 — core inventory module (#388). (#4566, #1701) *(@mkadziolka)*
 - ✨ Add initialValues prop to CreateDealForm (supersedes #3729). (#4485) *(@jakubsobczak-syhi, via @pkarw)*
 - ✨ Cache role lists safely (supersedes #3143). (#4480) *(@adeptofvoltron, via @pkarw)*
 - ✨ Honor custom-field priority and declaration order (supersedes #4417). (#4466) *(@wojciechszyjka, via @pkarw)*
@@ -25,10 +25,9 @@ Day to day, the product surface gets noticeably nicer: **DataTable columns resiz
 - ✨ Allow disabling sales channels via feature toggle. (#3935) *(@jtomaszewski)*
 - ✨ DS system & guardian refresh: docs drift fixes, guardian v2, backend reference, structural lint, Tabs migration, Figma canon. (#3777) *(@zielivia)*
 - ✨ DataTable interactive column resize + width persistence (#1835). (#3774) *(@zielivia)*
-- ✨ WMS phase 1 — core inventory module (#388). (#1701) *(@mkadziolka)*
 
 ## 🔒 Security
-- 🔒 Gate /label on the certified partner registry. (#4761) *(@MStaniaszek1998)*
+- 🔒 Gate /label on the certified partner registry (supersedes #4727). (#4761) *(@matgren, via @MStaniaszek1998)*
 - 🔒 Reject prototype keys in getNestedValue field paths (#3823). (#4517) *(@Marynat)*
 - 🔒 Bump the postcss resolution off the vulnerable 8.5.15 (#4499). (#4500) *(@wojciechszyjka)*
 - 🔒 Run a daily dependency audit and stop caching the audit result (#4479). (#4497) *(@wojciechszyjka)*
@@ -175,7 +174,7 @@ Day to day, the product surface gets noticeably nicer: **DataTable columns resiz
 - 📝 Specify reliable completion events (carry #4314) (supersedes #4314). (#4321) *(@PatrickMade, via @pkarw)*
 - 📝 Specify stable activity output paths (carry #4312) (supersedes #4312). (#4320) *(@PatrickMade, via @pkarw)*
 - 📝 Sync skill roster and docs with skills collection consolidation. (#4296) *(@pkarw)*
-- 📝 Import om-gap-analysis + om-app-spec-writing as repo-local analysis tier. (#4276) *(@pkarw)*
+- 📝 Import om-gap-analysis + om-app-spec-writing as repo-local analysis tier. (#4276) *(@matgren, via @pkarw)*
 - 📝 DS developer-experience roadmap — brand import, UX walkthroughs, mockup composer. (#4270) *(@zielivia)*
 - 📝 Specify scoped member directory. (#4200) *(@pmadajthey)*
 - 📝 Add banner promoting open-mercato/skills. (#4152) *(@pkarw)*
@@ -183,7 +182,7 @@ Day to day, the product surface gets noticeably nicer: **DataTable columns resiz
 ## 👥 Contributors
 
 - @MStaniaszek1998
-- @patzick
+- @mkadziolka
 - @jakubsobczak-syhi
 - @adeptofvoltron
 - @wojciechszyjka
@@ -192,10 +191,11 @@ Day to day, the product surface gets noticeably nicer: **DataTable columns resiz
 - @WebEferen
 - @jtomaszewski
 - @zielivia
-- @mkadziolka
+- @matgren
 - @Marynat
 - @ArtSadWLC
 - @pkarw
+- @patzick
 - @goer
 - @hubert-madej-softiq
 - @dominikpalatynski
@@ -208,7 +208,6 @@ Day to day, the product surface gets noticeably nicer: **DataTable columns resiz
 - @pat-lewczuk
 - @PatrickMade
 - @KamilGrocholski
-- @matgren
 - @pmadajthey
 
 ---
