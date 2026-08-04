@@ -1,17 +1,33 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
-import type { ModuleExtensionContributionFact, ModuleExtensionSurfaceFacts } from '@open-mercato/shared/modules/widgets/extension-points'
+import type {
+  ModuleExtensionContributionFact,
+  ModuleExtensionHostFact,
+  ModuleExtensionSurfaceFacts,
+  ModuleExtensionTargetRef,
+} from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
+import { extractCommandIdsFromSource } from './module-registry'
+import { MODULE_CODE_EXTENSIONS } from './scanner'
+import type { ApiRouteInterceptorBridge } from './module-extension-facts'
 import {
   assertNoUnresolvedExtensionTargets,
+  correlateIncomingExtensions,
   correlateModuleExtensionFacts,
+  extractActivationTargetOwners,
   extractKnownApiRouteIds,
   extractKnownCommandIds,
   extractModuleExtensionFacts,
   renderFrameworkExtensionPointsMarkdown,
   withModuleExtensionFactExtractionCache,
 } from './module-extension-facts'
+import {
+  collectModuleOverrideTargets,
+  type ModuleOverrideTarget,
+  type ModuleOverrideTargetDiagnostic,
+} from './module-override-targets'
+import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
 
 export interface ModuleEntityFact {
   id: string
@@ -34,9 +50,31 @@ export interface ModuleApiRouteFact {
   sourcePath: string | null
 }
 
+/**
+ * Statically declared page metadata that affects extensibility or access, using the
+ * runtime `PageMetadata` contract keys and the same alias precedence as
+ * `resolvePageRouteMetadata` (`pageGroup ?? group`, `pageGroupKey ?? groupKey`,
+ * `pageOrder ?? order`). Executable guards, icons, titles and translation results are
+ * never serialized.
+ */
+export interface ModulePageMetadata {
+  requireAuth?: boolean
+  requireCustomerAuth?: boolean
+  requireFeatures?: string[]
+  requireCustomerFeatures?: string[]
+  navHidden?: boolean
+  navGroup?: string
+  navGroupKey?: string
+  navOrder?: number
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
+}
+
 export interface ModulePageFact {
   path: string
   sourcePath: string
+  /** Companion metadata file (`page.meta.*` / `meta.*`) when runtime reads metadata from one. */
+  metadataSourcePath?: string
+  metadata?: ModulePageMetadata
 }
 
 export interface ModuleCliCommandFact {
@@ -68,6 +106,108 @@ export interface ModuleHostTokens {
   tableIds: string[]
 }
 
+export type ModuleFactSourceRef = {
+  sourcePath: string
+  exportName?: string
+  line?: number
+}
+
+export type ModuleFactRef = {
+  factSection: string
+  factKey: string
+}
+
+export type ModuleFactSourceKind =
+  | 'module-metadata'
+  | 'entity'
+  | 'event'
+  | 'acl-feature'
+  | 'api-route'
+  | 'di-registration'
+  | 'search'
+  | 'vector'
+  | 'notification'
+  | 'cli-command'
+  | 'backend-page'
+  | 'frontend-page'
+  | 'ai-tool'
+  | 'ai-agent'
+  | 'ai-extension'
+  | 'command'
+  | 'subscriber'
+  | 'worker'
+  | 'page-middleware'
+  | 'setup'
+  | 'encryption'
+  | 'custom-entity'
+  | 'integration'
+  | 'generator-plugin'
+  | 'extension-host'
+  | 'extension-contribution'
+
+export type ModuleOwnedContractKind =
+  | 'module-metadata'
+  | 'command'
+  | 'worker'
+  | 'page-middleware'
+  | 'setup'
+  | 'encryption'
+  | 'di-registration'
+  | 'custom-entity'
+  | 'ai-extension'
+  | 'generator-plugin'
+
+export type ModuleFactSafeScalar = string | number | boolean | null
+
+export type ModuleOwnedContractFact = {
+  kind: ModuleOwnedContractKind
+  id: string
+  source: ModuleFactSourceRef
+  metadata?: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]>
+}
+
+export type ModuleOwnedContracts = Partial<
+  Record<ModuleOwnedContractKind, ModuleOwnedContractFact[]>
+>
+
+/**
+ * Provenance pointer into a fact section that already serializes the declaration site.
+ * `factKey` is omitted when it equals the owning entry's `id`, which is the common case.
+ */
+export type ModuleFactIndexRef = {
+  factSection: string
+  factKey?: string
+}
+
+/**
+ * One provenance entry per proven `(kind, id)` in the module. Exactly one of `source`
+ * (the declaration site, for facts that have no other home in the JSON) or `factRef`
+ * (a deterministic pointer into a fact section that already carries the source inline)
+ * is present, so a consumer resolves any fact's origin through this single index.
+ */
+export type ModuleFactSourceEntry = {
+  kind: ModuleFactSourceKind
+  id: string
+  source?: ModuleFactSourceRef
+  factRef?: ModuleFactIndexRef
+}
+
+export type ModuleFactDiagnostic = {
+  code: 'duplicate-source' | 'unresolved-static-contract'
+  kind: ModuleFactSourceKind
+  id: string
+  source?: ModuleFactSourceRef
+}
+
+export type ModuleDiRegistrationFact = {
+  token: string
+  registrationKind: 'function' | 'class' | 'value' | 'alias'
+  providerSymbol?: string
+  lifetime?: 'singleton' | 'scoped' | 'transient'
+  injectionMode?: 'classic' | 'proxy'
+  source: ModuleFactSourceRef
+}
+
 export interface ModuleFacts {
   module: string
   title: string | null
@@ -91,6 +231,11 @@ export interface ModuleFacts {
   aiTools: ModuleAiToolFact[]
   aiAgents: ModuleAiAgentFact[]
   extensionSurfaces?: ModuleExtensionSurfaceFacts
+  factSources?: ModuleFactSourceEntry[]
+  ownedContracts?: ModuleOwnedContracts
+  factDiagnostics?: ModuleFactDiagnostic[]
+  overrideTargets?: ModuleOverrideTarget[]
+  overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
   warnings: string[]
 }
 
@@ -833,7 +978,7 @@ function extractModulePages(
     const fileName = segments.pop() as string
     const fileStem = fileName.replace(/\.tsx$/, '')
     const isModernPage = fileStem === 'page'
-    if (!isModernPage && (fileStem.endsWith('.meta') || /^[A-Z]/.test(fileStem))) continue
+    if (!isModernPage && (fileStem === 'meta' || fileStem.endsWith('.meta') || /^[A-Z]/.test(fileStem))) continue
     const sourceFile = readSourceFile(filePath)
     if (!sourceFile || !sourceHasDefaultExport(sourceFile)) continue
     const routeSegments = isModernPage ? segments : [...segments, fileStem]
@@ -846,9 +991,16 @@ function extractModulePages(
             : [moduleId, ...routeSegments].filter(Boolean).join('/')}`
     if (seen.has(routePath)) continue
     seen.add(routePath)
+    const metadataFilePath = resolvePageMetadataFile(path.dirname(filePath))
+    const metadataSourceFile = metadataFilePath ? readSourceFile(metadataFilePath) : sourceFile
+    const metadata = metadataSourceFile ? readPageMetadata(metadataSourceFile) : undefined
     pages.push({
       path: routePath,
       sourcePath: toPortableSourcePath(moduleRoot, sourceRoot, filePath),
+      ...(metadataFilePath
+        ? { metadataSourcePath: toPortableSourcePath(moduleRoot, sourceRoot, metadataFilePath) }
+        : {}),
+      ...(metadata ? { metadata } : {}),
     })
   }
   return pages.sort((left, right) => left.path.localeCompare(right.path))
@@ -1002,6 +1154,742 @@ function extractModuleMeta(indexFilePath: string | null): { title: string | null
   }
 }
 
+function nodeLine(sourceFile: ts.SourceFile, node: ts.Node): number {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+}
+
+function readPropertyNameText(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) return name.text
+  return undefined
+}
+
+function readMethodBearingPropertyNames(objectLiteral: ts.ObjectLiteralExpression): string[] {
+  const names: string[] = []
+  for (const property of objectLiteral.properties) {
+    if (ts.isMethodDeclaration(property)) {
+      const name = readPropertyNameText(property.name)
+      if (name) names.push(name)
+      continue
+    }
+    if (ts.isPropertyAssignment(property)) {
+      const name = readPropertyNameText(property.name)
+      if (!name) continue
+      const initializer = unwrapExpression(property.initializer)
+      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) names.push(name)
+    }
+  }
+  return names.sort((left, right) => left.localeCompare(right))
+}
+
+function readObjectKeyNames(objectLiteral: ts.ObjectLiteralExpression): string[] {
+  const names: string[] = []
+  for (const property of objectLiteral.properties) {
+    const name = getPropertyName(property)
+    if (name) names.push(name)
+  }
+  return names.sort((left, right) => left.localeCompare(right))
+}
+
+function mapDiRegistrationKind(base: string | null): ModuleDiRegistrationFact['registrationKind'] | null {
+  switch (base) {
+    case 'asFunction':
+      return 'function'
+    case 'asClass':
+      return 'class'
+    case 'asValue':
+      return 'value'
+    case 'aliasTo':
+      return 'alias'
+    default:
+      return null
+  }
+}
+
+function readDiChainMetadata(initializer: ts.Expression): {
+  lifetime?: ModuleDiRegistrationFact['lifetime']
+  injectionMode?: ModuleDiRegistrationFact['injectionMode']
+} {
+  const result: {
+    lifetime?: ModuleDiRegistrationFact['lifetime']
+    injectionMode?: ModuleDiRegistrationFact['injectionMode']
+  } = {}
+  let current: ts.Expression = unwrapExpression(initializer)
+  while (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+    const method = current.expression.name.text
+    if ((method === 'singleton' || method === 'scoped' || method === 'transient') && !result.lifetime) {
+      result.lifetime = method
+    } else if (method === 'proxy' && !result.injectionMode) {
+      result.injectionMode = 'proxy'
+    } else if (method === 'classic' && !result.injectionMode) {
+      result.injectionMode = 'classic'
+    }
+    current = unwrapExpression(current.expression.expression)
+  }
+  return result
+}
+
+function readDiProviderSymbol(
+  initializer: ts.Expression,
+  kind: ModuleDiRegistrationFact['registrationKind'],
+): string | undefined {
+  let current: ts.Expression = unwrapExpression(initializer)
+  while (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+    current = unwrapExpression(current.expression.expression)
+  }
+  if (!ts.isCallExpression(current)) return undefined
+  const argument = current.arguments[0]
+  if (!argument) return undefined
+  if (kind === 'value') return undefined
+  if (kind === 'alias' && ts.isStringLiteralLike(argument)) return argument.text
+  if ((kind === 'function' || kind === 'class') && ts.isIdentifier(argument)) return argument.text
+  return undefined
+}
+
+function extractDiRegistrationFacts(
+  diFilePath: string | null,
+  sourcePath: string,
+): { facts: ModuleDiRegistrationFact[]; unresolvedTokens: string[] } {
+  if (!diFilePath) return { facts: [], unresolvedTokens: [] }
+  const sourceFile = readSourceFile(diFilePath)
+  if (!sourceFile) return { facts: [], unresolvedTokens: [] }
+
+  const facts: ModuleDiRegistrationFact[] = []
+  const unresolvedTokens: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'register'
+    ) {
+      const argument = node.arguments[0]
+      if (argument && ts.isObjectLiteralExpression(argument)) {
+        for (const property of argument.properties) {
+          if (!ts.isPropertyAssignment(property)) continue
+          const token = getPropertyName(property)
+          if (!token) continue
+          const kind = mapDiRegistrationKind(detectAwilixRegistrationKind(property.initializer))
+          if (!kind) {
+            if (!unresolvedTokens.includes(token)) unresolvedTokens.push(token)
+            continue
+          }
+          const chain = readDiChainMetadata(property.initializer)
+          const providerSymbol = readDiProviderSymbol(property.initializer, kind)
+          facts.push({
+            token,
+            registrationKind: kind,
+            ...(providerSymbol ? { providerSymbol } : {}),
+            ...(chain.lifetime ? { lifetime: chain.lifetime } : {}),
+            ...(chain.injectionMode ? { injectionMode: chain.injectionMode } : {}),
+            source: { sourcePath, exportName: token, line: nodeLine(sourceFile, property) },
+          })
+        }
+      }
+    }
+    node.forEachChild(visit)
+  }
+  sourceFile.forEachChild(visit)
+  return { facts, unresolvedTokens }
+}
+
+function deriveLegacyDiTokens(facts: readonly ModuleDiRegistrationFact[]): string[] {
+  const tokens: string[] = []
+  const seen = new Set<string>()
+  for (const fact of facts) {
+    if (fact.registrationKind !== 'function' && fact.registrationKind !== 'class') continue
+    if (seen.has(fact.token)) continue
+    seen.add(fact.token)
+    tokens.push(fact.token)
+  }
+  return tokens
+}
+
+function dedupeOwnedContractFacts(facts: readonly ModuleOwnedContractFact[]): ModuleOwnedContractFact[] {
+  const byId = new Map<string, ModuleOwnedContractFact>()
+  for (const fact of facts) {
+    const existing = byId.get(fact.id)
+    if (!existing) {
+      byId.set(fact.id, fact)
+      continue
+    }
+    if (fact.source.sourcePath.localeCompare(existing.source.sourcePath) < 0) byId.set(fact.id, fact)
+  }
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id))
+}
+
+const PAGE_CONTEXT_VALUES = new Set(['main', 'admin', 'settings', 'profile'])
+
+function readAliasedStringProperty(
+  metadata: ts.ObjectLiteralExpression,
+  preferred: string,
+  fallback: string,
+): string | undefined {
+  return readStringPropertyInitializer(metadata, preferred) ?? readStringPropertyInitializer(metadata, fallback)
+}
+
+function readNumericProperty(metadata: ts.ObjectLiteralExpression, propertyName: string): number | undefined {
+  const initializer = getObjectPropertyInitializer(metadata, propertyName)
+  if (!initializer || !ts.isNumericLiteral(initializer)) return undefined
+  return Number(initializer.text)
+}
+
+function readPageMetadata(sourceFile: ts.SourceFile): ModulePageMetadata | undefined {
+  const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
+  if (!metadata) return undefined
+  const result: ModulePageMetadata = {}
+  const requireAuth = readBooleanPropertyInitializer(metadata, 'requireAuth')
+  if (requireAuth !== undefined) result.requireAuth = requireAuth
+  const requireCustomerAuth = readBooleanPropertyInitializer(metadata, 'requireCustomerAuth')
+  if (requireCustomerAuth !== undefined) result.requireCustomerAuth = requireCustomerAuth
+  const requireFeatures = readStringArrayPropertyInitializer(metadata, 'requireFeatures')
+  if (requireFeatures && requireFeatures.length > 0) result.requireFeatures = requireFeatures
+  const requireCustomerFeatures = readStringArrayPropertyInitializer(metadata, 'requireCustomerFeatures')
+  if (requireCustomerFeatures && requireCustomerFeatures.length > 0) {
+    result.requireCustomerFeatures = requireCustomerFeatures
+  }
+  const navHidden = readBooleanPropertyInitializer(metadata, 'navHidden')
+  if (navHidden !== undefined) result.navHidden = navHidden
+  const navGroup = readAliasedStringProperty(metadata, 'pageGroup', 'group')
+  if (navGroup) result.navGroup = navGroup
+  const navGroupKey = readAliasedStringProperty(metadata, 'pageGroupKey', 'groupKey')
+  if (navGroupKey) result.navGroupKey = navGroupKey
+  const navOrder = readNumericProperty(metadata, 'pageOrder') ?? readNumericProperty(metadata, 'order')
+  if (navOrder !== undefined) result.navOrder = navOrder
+  const pageContext = readStringPropertyInitializer(metadata, 'pageContext')
+  if (pageContext && PAGE_CONTEXT_VALUES.has(pageContext)) {
+    result.pageContext = pageContext as ModulePageMetadata['pageContext']
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+/**
+ * Mirrors the runtime companion-file convention: a page's metadata comes from
+ * `page.meta.*` (or `meta.*`) in the page directory when one exists, and only
+ * otherwise from the page component itself.
+ */
+function resolvePageMetadataFile(pageDirectory: string): string | null {
+  for (const baseName of ['page.meta', 'meta']) {
+    for (const extension of MODULE_CODE_EXTENSIONS) {
+      const candidate = path.join(pageDirectory, `${baseName}${extension}`)
+      if (fs.existsSync(candidate)) return candidate
+    }
+  }
+  return null
+}
+
+function extractModuleMetadataContract(
+  indexFilePath: string | null,
+  moduleId: string,
+  sourcePath: string | null,
+): ModuleOwnedContractFact | null {
+  if (!indexFilePath || !sourcePath) return null
+  const sourceFile = readSourceFile(indexFilePath)
+  if (!sourceFile) return null
+  const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
+  if (!metadata) return null
+  const facts: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]> = {}
+  const name = readStringPropertyInitializer(metadata, 'name')
+  if (name) facts.name = name
+  const version = readStringPropertyInitializer(metadata, 'version')
+  if (version) facts.version = version
+  const requires = readStringArrayPropertyInitializer(metadata, 'requires')
+  if (requires && requires.length > 0) facts.requires = requires
+  const ejectable = readBooleanPropertyInitializer(metadata, 'ejectable')
+  if (ejectable !== undefined) facts.ejectable = ejectable
+  return {
+    kind: 'module-metadata',
+    id: moduleId,
+    source: { sourcePath, exportName: 'metadata', line: nodeLine(sourceFile, metadata) },
+    ...(Object.keys(facts).length > 0 ? { metadata: facts } : {}),
+  }
+}
+
+function extractCommandContractCandidates(
+  moduleId: string,
+  moduleRoot: string,
+  sourceRoot: string,
+): Array<{ id: string; sourcePath: string }> {
+  const commandsRoot = path.join(moduleRoot, 'commands')
+  if (!fs.existsSync(commandsRoot)) return []
+  const candidates: Array<{ id: string; sourcePath: string }> = []
+  for (const filePath of listSourceFilesRecursive(commandsRoot)) {
+    if (path.basename(filePath).replace(/\.tsx?$/, '') === 'interceptors') continue
+    const sourcePath = toPortableSourcePath(moduleRoot, sourceRoot, filePath)
+    for (const id of extractCommandIdsFromSource(filePath)) candidates.push({ id, sourcePath })
+  }
+  return candidates
+}
+
+/**
+ * Runtime worker id: `metadata.id` when declared, otherwise the path-derived
+ * `<moduleId>:workers:<...segments>:<fileStem>` that `discoverWorkers` builds.
+ */
+function deriveWorkerId(moduleId: string, workersRoot: string, filePath: string): string {
+  const relativePath = path.relative(workersRoot, filePath).split(path.sep).join('/')
+  const segments = relativePath.split('/')
+  const fileName = segments.pop() as string
+  const fileStem = fileName.replace(/\.tsx?$/, '')
+  return [moduleId, 'workers', ...segments, fileStem].filter(Boolean).join(':')
+}
+
+/** Resolves a string property directly or through a local `const` in the same file. */
+function readResolvedStringProperty(
+  objectLiteral: ts.ObjectLiteralExpression,
+  propertyName: string,
+  initializers: Map<string, ts.Expression>,
+): string | undefined {
+  const initializer = getObjectPropertyInitializer(objectLiteral, propertyName)
+  if (!initializer) return undefined
+  const resolved = unwrapExpression(initializer)
+  if (ts.isStringLiteralLike(resolved)) return resolved.text
+  if (ts.isIdentifier(resolved)) {
+    const declaration = initializers.get(resolved.text)
+    if (declaration) {
+      const declarationValue = unwrapExpression(declaration)
+      if (ts.isStringLiteralLike(declarationValue)) return declarationValue.text
+    }
+  }
+  return undefined
+}
+
+function extractWorkerContracts(
+  moduleId: string,
+  moduleRoot: string,
+  sourceRoot: string,
+): { facts: ModuleOwnedContractFact[]; unresolved: ModuleFactDiagnostic[] } {
+  const workersRoot = path.join(moduleRoot, 'workers')
+  if (!fs.existsSync(workersRoot)) return { facts: [], unresolved: [] }
+  const facts: ModuleOwnedContractFact[] = []
+  const unresolved: ModuleFactDiagnostic[] = []
+  for (const filePath of listSourceFilesRecursive(workersRoot)) {
+    const sourceFile = readSourceFile(filePath)
+    if (!sourceFile) continue
+    const metadata = findObjectLiteralDeclaration(sourceFile, 'metadata')
+    if (!metadata) continue
+    const sourcePath = toPortableSourcePath(moduleRoot, sourceRoot, filePath)
+    const source = { sourcePath, exportName: 'metadata', line: nodeLine(sourceFile, metadata) }
+    const initializers = buildVariableInitializerMap(sourceFile)
+    const workerId = readResolvedStringProperty(metadata, 'id', initializers)
+      ?? deriveWorkerId(moduleId, workersRoot, filePath)
+
+    // Runtime skips any worker without a queue, so a worker missing the required
+    // property is not a contract; a present-but-dynamic queue is reported instead.
+    const hasQueueProperty = getObjectPropertyInitializer(metadata, 'queue') !== undefined
+    const queue = readResolvedStringProperty(metadata, 'queue', initializers)
+    if (!hasQueueProperty) {
+      unresolved.push({ code: 'unresolved-static-contract', kind: 'worker', id: workerId, source })
+      continue
+    }
+
+    const workerMetadata: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]> = {}
+    if (queue) workerMetadata.queue = queue
+    else unresolved.push({ code: 'unresolved-static-contract', kind: 'worker', id: workerId, source })
+    const name = readResolvedStringProperty(metadata, 'name', initializers)
+    if (name) workerMetadata.name = name
+    const concurrencyInitializer = getObjectPropertyInitializer(metadata, 'concurrency')
+    if (concurrencyInitializer && ts.isNumericLiteral(concurrencyInitializer)) {
+      workerMetadata.concurrency = Number(concurrencyInitializer.text)
+    }
+    facts.push({
+      kind: 'worker',
+      id: workerId,
+      source,
+      ...(Object.keys(workerMetadata).length > 0 ? { metadata: workerMetadata } : {}),
+    })
+  }
+  return { facts: dedupeOwnedContractFacts(facts), unresolved }
+}
+
+function extractPageMiddlewareContracts(
+  moduleRoot: string,
+  sourceRoot: string,
+): { facts: ModuleOwnedContractFact[]; unresolved: ModuleFactDiagnostic[] } {
+  const facts: ModuleOwnedContractFact[] = []
+  const unresolved: ModuleFactDiagnostic[] = []
+  for (const surface of ['backend', 'frontend'] as const) {
+    const filePath = resolveConventionFile(path.join(moduleRoot, surface), 'middleware')
+    if (!filePath) continue
+    const sourceFile = readSourceFile(filePath)
+    if (!sourceFile) continue
+    const sourcePath = toPortableSourcePath(moduleRoot, sourceRoot, filePath)
+    const middlewareArray =
+      findArrayLiteralDeclaration(sourceFile, 'middleware') ??
+      (() => {
+        const defaultExport = findDefaultExportExpression(sourceFile)
+        return defaultExport ? unwrapArrayLiteral(defaultExport) : null
+      })()
+    if (!middlewareArray) continue
+    let index = 0
+    for (const element of middlewareArray.elements) {
+      if (!ts.isObjectLiteralExpression(element)) continue
+      const middlewareId = readStringPropertyInitializer(element, 'id')
+      if (!middlewareId) {
+        unresolved.push({
+          code: 'unresolved-static-contract',
+          kind: 'page-middleware',
+          id: `${sourcePath}#${index}`,
+          source: { sourcePath, line: nodeLine(sourceFile, element) },
+        })
+        index += 1
+        continue
+      }
+      const metadata: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]> = { surface }
+      const mode = readStringPropertyInitializer(element, 'mode')
+      if (mode) metadata.mode = mode
+      const priorityInitializer = getObjectPropertyInitializer(element, 'priority')
+      if (priorityInitializer && ts.isNumericLiteral(priorityInitializer)) {
+        metadata.priority = Number(priorityInitializer.text)
+      }
+      facts.push({
+        kind: 'page-middleware',
+        id: middlewareId,
+        source: { sourcePath, exportName: 'middleware', line: nodeLine(sourceFile, element) },
+        metadata,
+      })
+      index += 1
+    }
+  }
+  return { facts: dedupeOwnedContractFacts(facts), unresolved }
+}
+
+function extractSetupContract(
+  moduleId: string,
+  setupFilePath: string | null,
+  sourcePath: string | null,
+): ModuleOwnedContractFact | null {
+  if (!setupFilePath || !sourcePath) return null
+  const sourceFile = readSourceFile(setupFilePath)
+  if (!sourceFile) return null
+  const setupObject =
+    findObjectLiteralDeclaration(sourceFile, 'setup') ??
+    (() => {
+      const defaultExport = findDefaultExportExpression(sourceFile)
+      if (!defaultExport) return null
+      const unwrapped = unwrapExpression(defaultExport)
+      return ts.isObjectLiteralExpression(unwrapped) ? unwrapped : null
+    })()
+  if (!setupObject) return null
+  const hooks = readMethodBearingPropertyNames(setupObject)
+  const metadata: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]> = {}
+  if (hooks.length > 0) metadata.hooks = hooks
+  const roleFeatures = getObjectPropertyInitializer(setupObject, 'defaultRoleFeatures')
+  if (roleFeatures && ts.isObjectLiteralExpression(roleFeatures)) {
+    const roles = readObjectKeyNames(roleFeatures)
+    if (roles.length > 0) metadata.roles = roles
+  }
+  const customerRoleFeatures = getObjectPropertyInitializer(setupObject, 'defaultCustomerRoleFeatures')
+  if (customerRoleFeatures && ts.isObjectLiteralExpression(customerRoleFeatures)) {
+    const customerRoles = readObjectKeyNames(customerRoleFeatures)
+    if (customerRoles.length > 0) metadata.customerRoles = customerRoles
+  }
+  return {
+    kind: 'setup',
+    id: `${moduleId}:setup`,
+    source: { sourcePath, exportName: 'setup', line: nodeLine(sourceFile, setupObject) },
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  }
+}
+
+function extractEncryptionContracts(
+  encryptionFilePath: string | null,
+  sourcePath: string | null,
+): ModuleOwnedContractFact[] {
+  if (!encryptionFilePath || !sourcePath) return []
+  const sourceFile = readSourceFile(encryptionFilePath)
+  if (!sourceFile) return []
+  const mapsArray =
+    findArrayLiteralDeclaration(sourceFile, 'defaultEncryptionMaps') ??
+    findArrayLiteralDeclaration(sourceFile, 'encryptionMaps')
+  if (!mapsArray) return []
+  const facts: ModuleOwnedContractFact[] = []
+  for (const element of mapsArray.elements) {
+    if (!ts.isObjectLiteralExpression(element)) continue
+    const entityId = readStringPropertyInitializer(element, 'entityId')
+    if (!entityId) continue
+    const fieldsInitializer = getObjectPropertyInitializer(element, 'fields')
+    const fields: string[] = []
+    if (fieldsInitializer) {
+      const fieldsArray = unwrapArrayLiteral(fieldsInitializer)
+      if (fieldsArray) {
+        for (const fieldElement of fieldsArray.elements) {
+          if (!ts.isObjectLiteralExpression(fieldElement)) continue
+          const field = readStringPropertyInitializer(fieldElement, 'field')
+          if (field) fields.push(field)
+        }
+      }
+    }
+    facts.push({
+      kind: 'encryption',
+      id: entityId,
+      source: { sourcePath, exportName: 'defaultEncryptionMaps', line: nodeLine(sourceFile, element) },
+      ...(fields.length > 0 ? { metadata: { fields: fields.sort((left, right) => left.localeCompare(right)) } } : {}),
+    })
+  }
+  return dedupeOwnedContractFacts(facts)
+}
+
+function extractCustomEntityContracts(
+  ceFilePath: string | null,
+  sourcePath: string | null,
+): ModuleOwnedContractFact[] {
+  if (!ceFilePath || !sourcePath) return []
+  const entityIds = [...collectCustomFieldEntityIds(ceFilePath)].sort((left, right) => left.localeCompare(right))
+  return entityIds.map((id) => ({
+    kind: 'custom-entity' as const,
+    id,
+    source: { sourcePath, exportName: 'default' },
+  }))
+}
+
+/**
+ * Keyed AI override exports. Agent *extensions* (`aiAgentExtensions`) patch an agent
+ * additively and belong to the `ai.extensions` array; these two replace or disable an
+ * entry by key and map to exact `ai.agents.<id>` / `ai.tools.<id>` override targets.
+ */
+const AI_OVERRIDE_EXPORTS = [
+  { exportName: 'aiAgentOverrides', target: 'agent' },
+  { exportName: 'aiToolOverrides', target: 'tool' },
+] as const
+
+function extractAiExtensionContracts(
+  moduleRoot: string,
+  sourceRoot: string,
+): ModuleOwnedContractFact[] {
+  const facts: ModuleOwnedContractFact[] = []
+  const sources: Array<{ basename: string; relativeDir: string }> = [
+    { basename: 'ai-agents', relativeDir: '.' },
+    { basename: 'ai-tools', relativeDir: '.' },
+    { basename: 'ai-agents.extensions', relativeDir: '.' },
+    { basename: 'ai-tools.extensions', relativeDir: '.' },
+  ]
+  for (const entry of sources) {
+    const filePath = resolveConventionFile(path.join(moduleRoot, entry.relativeDir), entry.basename)
+    if (!filePath) continue
+    const sourceFile = readSourceFile(filePath)
+    if (!sourceFile) continue
+    const sourcePath = toPortableSourcePath(moduleRoot, sourceRoot, filePath)
+    const extensionsArray = findArrayLiteralDeclaration(sourceFile, 'aiAgentExtensions')
+    if (extensionsArray) {
+      for (const element of extensionsArray.elements) {
+        const objectLiteral = ts.isObjectLiteralExpression(element)
+          ? element
+          : ts.isCallExpression(element) && element.arguments[0] && ts.isObjectLiteralExpression(element.arguments[0])
+            ? element.arguments[0]
+            : null
+        if (!objectLiteral) continue
+        const targetAgentId = readStringPropertyInitializer(objectLiteral, 'targetAgentId')
+        if (!targetAgentId) continue
+        facts.push({
+          kind: 'ai-extension',
+          id: `agent-extension:${targetAgentId}`,
+          source: { sourcePath, exportName: 'aiAgentExtensions', line: nodeLine(sourceFile, objectLiteral) },
+          metadata: { target: 'agent', mode: 'extension', targetAgentId },
+        })
+      }
+    }
+    // `aiAgentOverrides` / `aiToolOverrides` are keyed replace-or-disable maps; only
+    // their keys are contract facts. Values (agent/tool definitions, `null` disables)
+    // are never read or serialized.
+    for (const { exportName, target } of AI_OVERRIDE_EXPORTS) {
+      const overridesObject = findObjectLiteralDeclaration(sourceFile, exportName)
+      if (!overridesObject) continue
+      for (const property of overridesObject.properties) {
+        const overrideId = getPropertyName(property)
+        if (!overrideId) continue
+        facts.push({
+          kind: 'ai-extension',
+          id: `${target}-override:${overrideId}`,
+          source: { sourcePath, exportName, line: nodeLine(sourceFile, property) },
+          metadata: { target, mode: 'override', overrideKey: overrideId },
+        })
+      }
+    }
+  }
+  return dedupeOwnedContractFacts(facts)
+}
+
+function extractGeneratorPluginContracts(
+  moduleRoot: string,
+  sourceRoot: string,
+): { facts: ModuleOwnedContractFact[]; unresolved: ModuleFactDiagnostic[] } {
+  const filePath = resolveConventionFile(moduleRoot, 'generators')
+  if (!filePath) return { facts: [], unresolved: [] }
+  const sourceFile = readSourceFile(filePath)
+  if (!sourceFile) return { facts: [], unresolved: [] }
+  const pluginsArray = findArrayLiteralDeclaration(sourceFile, 'generatorPlugins')
+  if (!pluginsArray) return { facts: [], unresolved: [] }
+  const sourcePath = toPortableSourcePath(moduleRoot, sourceRoot, filePath)
+  const initializers = buildVariableInitializerMap(sourceFile)
+  const facts: ModuleOwnedContractFact[] = []
+  const unresolved: ModuleFactDiagnostic[] = []
+  let index = 0
+  for (const element of pluginsArray.elements) {
+    const objectLiteral = resolveToObjectLiteral(element, initializers)
+    if (!objectLiteral) {
+      index += 1
+      continue
+    }
+    const pluginId = readStringPropertyInitializer(objectLiteral, 'id')
+    if (!pluginId) {
+      unresolved.push({
+        code: 'unresolved-static-contract',
+        kind: 'generator-plugin',
+        id: `${sourcePath}#${index}`,
+        source: { sourcePath, exportName: 'generatorPlugins', line: nodeLine(sourceFile, objectLiteral) },
+      })
+      index += 1
+      continue
+    }
+    const metadata: Record<string, ModuleFactSafeScalar | ModuleFactSafeScalar[]> = {}
+    const conventionFile = readStringPropertyInitializer(objectLiteral, 'conventionFile')
+    if (conventionFile) metadata.conventionFile = conventionFile
+    const outputFileName = readStringPropertyInitializer(objectLiteral, 'outputFileName')
+    if (outputFileName) metadata.outputFileName = outputFileName
+    facts.push({
+      kind: 'generator-plugin',
+      id: pluginId,
+      source: { sourcePath, exportName: 'generatorPlugins', line: nodeLine(sourceFile, objectLiteral) },
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    })
+    index += 1
+  }
+  return { facts: dedupeOwnedContractFacts(facts), unresolved }
+}
+
+function compareSourceRefs(left: ModuleFactSourceRef, right: ModuleFactSourceRef): number {
+  return (
+    left.sourcePath.localeCompare(right.sourcePath) ||
+    (left.line ?? 0) - (right.line ?? 0) ||
+    (left.exportName ?? '').localeCompare(right.exportName ?? '')
+  )
+}
+
+function sameSourceRef(left: ModuleFactSourceRef, right: ModuleFactSourceRef): boolean {
+  return (
+    left.sourcePath === right.sourcePath &&
+    (left.line ?? null) === (right.line ?? null) &&
+    (left.exportName ?? null) === (right.exportName ?? null)
+  )
+}
+
+// Every proven `(kind, id)` reaches `factSources`. Facts whose declaration site is already
+// serialized inline (pages, CLI commands, routes, AI tools/agents, reused contributions) and
+// the owned families (which carry `source` inside `ownedContracts`) are emitted as a typed
+// `factRef` pointer instead of a duplicated source ref, so the index stays uniform without
+// copying provenance payloads past the determinism byte guard. Duplicate detection runs over
+// ALL candidates regardless of which projection they take.
+type ProvenanceCandidate = {
+  kind: ModuleFactSourceKind
+  id: string
+  source?: ModuleFactSourceRef
+  factRef?: ModuleFactRef
+}
+
+function provenanceCandidateOrderKey(candidate: ProvenanceCandidate): string {
+  if (candidate.source) {
+    return JSON.stringify([
+      0,
+      candidate.source.sourcePath,
+      candidate.source.line ?? 0,
+      candidate.source.exportName ?? '',
+    ])
+  }
+  return JSON.stringify([1, candidate.factRef?.factSection ?? '', candidate.factRef?.factKey ?? ''])
+}
+
+function buildProvenanceIndex(candidates: readonly ProvenanceCandidate[]): {
+  factSources: ModuleFactSourceEntry[]
+  diagnostics: ModuleFactDiagnostic[]
+} {
+  const grouped = new Map<string, ProvenanceCandidate[]>()
+  for (const candidate of candidates) {
+    const key = JSON.stringify([candidate.kind, candidate.id])
+    const group = grouped.get(key) ?? []
+    group.push(candidate)
+    grouped.set(key, group)
+  }
+  // Keep the provenance index compact: sourcePath is the provenance and (kind,id) the
+  // stable identity, so exportName and line (recoverable from source) are dropped here.
+  // Owned families retain the richer source ref inside `ownedContracts`.
+  const factSources: ModuleFactSourceEntry[] = []
+  const diagnostics: ModuleFactDiagnostic[] = []
+  for (const group of grouped.values()) {
+    const sorted = [...group].sort(
+      (left, right) => provenanceCandidateOrderKey(left).localeCompare(provenanceCandidateOrderKey(right)),
+    )
+    const canonical = sorted[0]
+    factSources.push(
+      canonical.factRef
+        ? {
+            kind: canonical.kind,
+            id: canonical.id,
+            factRef: {
+              factSection: canonical.factRef.factSection,
+              ...(canonical.factRef.factKey === canonical.id
+                ? {}
+                : { factKey: canonical.factRef.factKey }),
+            },
+          }
+        : {
+            kind: canonical.kind,
+            id: canonical.id,
+            source: { sourcePath: (canonical.source as ModuleFactSourceRef).sourcePath },
+          },
+    )
+    const canonicalKey = provenanceCandidateOrderKey(canonical)
+    for (const rejected of sorted.slice(1)) {
+      if (provenanceCandidateOrderKey(rejected) === canonicalKey) continue
+      diagnostics.push({
+        code: 'duplicate-source',
+        kind: rejected.kind,
+        id: rejected.id,
+        ...(rejected.source ? { source: rejected.source } : {}),
+      })
+    }
+  }
+  factSources.sort(
+    (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
+  )
+  diagnostics.sort(
+    (left, right) =>
+      left.code.localeCompare(right.code) ||
+      left.kind.localeCompare(right.kind) ||
+      left.id.localeCompare(right.id) ||
+      compareSourceRefs(left.source ?? { sourcePath: '' }, right.source ?? { sourcePath: '' }),
+  )
+  return { factSources, diagnostics }
+}
+
+function buildOwnedContracts(
+  families: ReadonlyArray<[ModuleOwnedContractKind, ModuleOwnedContractFact[]]>,
+): ModuleOwnedContracts | undefined {
+  const result: ModuleOwnedContracts = {}
+  for (const [kind, facts] of families) {
+    if (facts.length === 0) continue
+    // Drop the (constant/redundant) exportName from the emitted source ref; the line
+    // anchor plus sourcePath already pin the declaration and keep the JSON compact.
+    result[kind] = facts.map((fact) => ({
+      ...fact,
+      source: {
+        sourcePath: fact.source.sourcePath,
+        ...(fact.source.line ? { line: fact.source.line } : {}),
+      },
+    }))
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+const CONTRIBUTION_KIND_TO_SOURCE_KIND: Partial<Record<string, ModuleFactSourceKind>> = {
+  subscriber: 'subscriber',
+}
+
+const REGISTRY_TO_SOURCE_KIND: Partial<Record<string, ModuleFactSourceKind>> = {
+  vector: 'vector',
+  integration: 'integration',
+  payment: 'integration',
+  shipping: 'integration',
+  currency: 'integration',
+}
+
 export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFacts {
   const { moduleId, coreVersion = null, sourcePackage = null, sourceVersion = null } = options
   const moduleRoot = options.moduleRoot
@@ -1023,6 +1911,11 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   const notificationsFilePath = resolveConventionFile(moduleRoot, 'notifications')
   const cliFilePath = resolveConventionFile(moduleRoot, 'cli')
   const indexFilePath = resolveConventionFile(moduleRoot, 'index')
+  const setupFilePath = resolveConventionFile(moduleRoot, 'setup')
+  const encryptionFilePath = resolveConventionFile(moduleRoot, 'encryption')
+
+  const portableOf = (filePath: string | null): string | null =>
+    filePath ? toPortableSourcePath(moduleRoot, sourceRoot, filePath) : null
 
   const warnings: string[] = []
   const { title, description } = extractModuleMeta(indexFilePath)
@@ -1034,7 +1927,11 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   const { source: registrySource, description: registryDescription } = resolveRegistrySource(options)
   const apiRouteSourcePaths = extractApiRouteSourcePaths(moduleId, moduleRoot, sourceRoot)
   const apiRoutes = extractApiRoutes(moduleId, registrySource, registryDescription, apiRouteSourcePaths, warnings)
-  const diTokens = extractDiTokens(diFilePath)
+  const diRegistrations = extractDiRegistrationFacts(diFilePath, portableOf(diFilePath) ?? '')
+  const diTokens = deriveLegacyDiTokens(diRegistrations.facts)
+  for (const legacyToken of extractDiTokens(diFilePath)) {
+    if (!diTokens.includes(legacyToken)) diTokens.push(legacyToken)
+  }
   const searchEntities = extractSearchEntities(searchFilePath, warnings)
   const notifications = extractNotifications(notificationsFilePath, warnings)
   const cli = extractCli(cliFilePath, warnings)
@@ -1065,7 +1962,203 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     aiAgents,
   })
 
-  return {
+  const indexSourcePath = portableOf(indexFilePath)
+  const diSourcePath = portableOf(diFilePath)
+  const moduleMetadataFact = extractModuleMetadataContract(indexFilePath, moduleId, indexSourcePath)
+  const commandCandidates = extractCommandContractCandidates(moduleId, moduleRoot, sourceRoot)
+  const commandFacts = dedupeOwnedContractFacts(
+    commandCandidates.map((candidate) => ({
+      kind: 'command' as const,
+      id: candidate.id,
+      source: { sourcePath: candidate.sourcePath },
+    })),
+  )
+  const workers = extractWorkerContracts(moduleId, moduleRoot, sourceRoot)
+  const pageMiddleware = extractPageMiddlewareContracts(moduleRoot, sourceRoot)
+  const setupFact = extractSetupContract(moduleId, setupFilePath, portableOf(setupFilePath))
+  const encryptionFacts = extractEncryptionContracts(encryptionFilePath, portableOf(encryptionFilePath))
+  const customEntityFacts = extractCustomEntityContracts(ceFilePath, portableOf(ceFilePath))
+  const aiExtensionFacts = extractAiExtensionContracts(moduleRoot, sourceRoot)
+  const generatorPlugins = extractGeneratorPluginContracts(moduleRoot, sourceRoot)
+  const diContractFacts = dedupeOwnedContractFacts(
+    diRegistrations.facts.map((fact) => ({
+      kind: 'di-registration' as const,
+      id: fact.token,
+      source: fact.source,
+      metadata: {
+        registrationKind: fact.registrationKind,
+        ...(fact.providerSymbol ? { providerSymbol: fact.providerSymbol } : {}),
+        ...(fact.lifetime ? { lifetime: fact.lifetime } : {}),
+        ...(fact.injectionMode ? { injectionMode: fact.injectionMode } : {}),
+      },
+    })),
+  )
+
+  const ownedContracts = buildOwnedContracts([
+    ['module-metadata', moduleMetadataFact ? [moduleMetadataFact] : []],
+    ['command', commandFacts],
+    ['worker', workers.facts],
+    ['page-middleware', pageMiddleware.facts],
+    ['setup', setupFact ? [setupFact] : []],
+    ['encryption', encryptionFacts],
+    ['di-registration', diContractFacts],
+    ['custom-entity', customEntityFacts],
+    ['ai-extension', aiExtensionFacts],
+    ['generator-plugin', generatorPlugins.facts],
+  ])
+
+  const provenanceCandidates: ProvenanceCandidate[] = []
+  const pushSource = (kind: ModuleFactSourceKind, id: string, source: ModuleFactSourceRef): void => {
+    provenanceCandidates.push({ kind, id, source })
+  }
+  const pushRef = (
+    kind: ModuleFactSourceKind,
+    id: string,
+    source: ModuleFactSourceRef,
+    factSection: string,
+    factKey: string,
+  ): void => {
+    provenanceCandidates.push({ kind, id, source, factRef: { factSection, factKey } })
+  }
+  const pushOwnedRefs = (kind: ModuleOwnedContractKind, facts: readonly ModuleOwnedContractFact[]): void => {
+    for (const fact of facts) pushRef(kind, fact.id, fact.source, `ownedContracts.${kind}`, fact.id)
+  }
+  if (moduleMetadataFact) {
+    pushRef(
+      'module-metadata',
+      moduleId,
+      moduleMetadataFact.source,
+      'ownedContracts.module-metadata',
+      moduleMetadataFact.id,
+    )
+  }
+  if (entitiesFilePath) {
+    const entitiesSourcePath = portableOf(entitiesFilePath) as string
+    for (const entity of entities) {
+      pushSource('entity', entity.id, { sourcePath: entitiesSourcePath, exportName: entity.class })
+    }
+  }
+  if (eventsFilePath) {
+    const eventsSourcePath = portableOf(eventsFilePath) as string
+    for (const event of events) pushSource('event', event.id, { sourcePath: eventsSourcePath, exportName: 'events' })
+  }
+  if (aclFilePath) {
+    const aclSourcePath = portableOf(aclFilePath) as string
+    for (const feature of aclFeatures) pushSource('acl-feature', feature, { sourcePath: aclSourcePath, exportName: 'features' })
+  }
+  for (const route of apiRoutes) {
+    if (route.sourcePath) {
+      pushRef('api-route', route.path, { sourcePath: route.sourcePath }, 'apiRoutes', route.path)
+    }
+  }
+  if (searchFilePath) {
+    const searchSourcePath = portableOf(searchFilePath) as string
+    for (const entityId of searchEntities) pushSource('search', entityId, { sourcePath: searchSourcePath, exportName: 'searchConfig' })
+  }
+  if (notificationsFilePath) {
+    const notificationsSourcePath = portableOf(notificationsFilePath) as string
+    for (const id of notifications) pushSource('notification', id, { sourcePath: notificationsSourcePath })
+  }
+  for (const command of cliCommands) {
+    pushRef('cli-command', command.command, { sourcePath: command.sourcePath }, 'cliCommands', command.command)
+  }
+  for (const page of backendPages) {
+    pushRef('backend-page', page.path, { sourcePath: page.sourcePath }, 'backendPages', page.path)
+  }
+  for (const page of frontendPages) {
+    pushRef('frontend-page', page.path, { sourcePath: page.sourcePath }, 'frontendPages', page.path)
+  }
+  for (const tool of aiTools) pushRef('ai-tool', tool.name, { sourcePath: tool.sourcePath }, 'aiTools', tool.name)
+  for (const agent of aiAgents) pushRef('ai-agent', agent.id, { sourcePath: agent.sourcePath }, 'aiAgents', agent.id)
+  for (const candidate of commandCandidates) {
+    pushRef('command', candidate.id, { sourcePath: candidate.sourcePath }, 'ownedContracts.command', candidate.id)
+  }
+  pushOwnedRefs('worker', workers.facts)
+  pushOwnedRefs('page-middleware', pageMiddleware.facts)
+  if (setupFact) pushOwnedRefs('setup', [setupFact])
+  pushOwnedRefs('encryption', encryptionFacts)
+  for (const fact of diRegistrations.facts) {
+    pushRef('di-registration', fact.token, fact.source, 'ownedContracts.di-registration', fact.token)
+  }
+  pushOwnedRefs('custom-entity', customEntityFacts)
+  pushOwnedRefs('ai-extension', aiExtensionFacts)
+  pushOwnedRefs('generator-plugin', generatorPlugins.facts)
+  const contributionRef = (contributionId: string): { factSection: string; factKey: string } => ({
+    factSection: 'extensionSurfaces.contributions',
+    factKey: contributionId,
+  })
+  for (const contribution of extensionSurfaces.contributions) {
+    const contributionSource: ModuleFactSourceRef = {
+      sourcePath: contribution.source.path,
+      ...(contribution.source.symbol ? { exportName: contribution.source.symbol } : {}),
+    }
+    const ref = contributionRef(contribution.id)
+    if (contribution.kind === 'subscriber') {
+      pushRef('subscriber', contribution.id, contributionSource, ref.factSection, ref.factKey)
+      continue
+    }
+    if (contribution.kind === 'specialized-registry') {
+      const details = contribution.details as { registry?: string; registryId?: string }
+      const sourceKind = details.registry ? REGISTRY_TO_SOURCE_KIND[details.registry] : undefined
+      if (sourceKind) {
+        pushRef(
+          sourceKind,
+          details.registryId ?? contribution.id,
+          contributionSource,
+          ref.factSection,
+          ref.factKey,
+        )
+      }
+      continue
+    }
+    const mapped = CONTRIBUTION_KIND_TO_SOURCE_KIND[contribution.kind]
+    if (mapped) pushRef(mapped, contribution.id, contributionSource, ref.factSection, ref.factKey)
+  }
+  // extension-host / extension-contribution provenance is emitted as typed `factRef` pointers
+  // rather than duplicated source refs: those facts already carry their own `source` inside
+  // `extensionSurfaces.{hosts,contributions}`, and copying every declared host spot (hundreds
+  // per large module) would push the shared JSON past the determinism byte guard asserted in
+  // `module-facts.bc-guard.test.ts`.
+  // Hosts are indexed by their registry `key`: `id` repeats across families (an entity id is
+  // also an api-entity id), while `key` is unique inside a module.
+  for (const host of extensionSurfaces.hosts) {
+    provenanceCandidates.push({
+      kind: 'extension-host',
+      id: host.key,
+      ...(host.source.kind === 'fact-ref' ? {} : { source: { sourcePath: host.source.path } }),
+      factRef: { factSection: 'extensionSurfaces.hosts', factKey: host.key },
+    })
+  }
+  for (const contribution of extensionSurfaces.contributions) {
+    pushRef(
+      'extension-contribution',
+      contribution.id,
+      { sourcePath: contribution.source.path },
+      'extensionSurfaces.contributions',
+      contribution.id,
+    )
+  }
+
+  const provenance = buildProvenanceIndex(provenanceCandidates)
+  const factDiagnostics = [
+    ...provenance.diagnostics,
+    ...workers.unresolved,
+    ...pageMiddleware.unresolved,
+    ...generatorPlugins.unresolved,
+    ...diRegistrations.unresolvedTokens.map((token): ModuleFactDiagnostic => ({
+      code: 'unresolved-static-contract',
+      kind: 'di-registration',
+      id: token,
+      ...(diSourcePath ? { source: { sourcePath: diSourcePath, exportName: token } } : {}),
+    })),
+  ].sort(
+    (left, right) =>
+      left.code.localeCompare(right.code) ||
+      left.kind.localeCompare(right.kind) ||
+      left.id.localeCompare(right.id),
+  )
+
+  const facts: ModuleFacts = {
     module: moduleId,
     title,
     description,
@@ -1088,8 +2181,20 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     aiTools,
     aiAgents,
     extensionSurfaces,
+    ...(provenance.factSources.length > 0 ? { factSources: provenance.factSources } : {}),
+    ...(ownedContracts ? { ownedContracts } : {}),
+    ...(factDiagnostics.length > 0 ? { factDiagnostics } : {}),
     warnings,
   }
+
+  // Exact unified override targets (spec 2026-08-02-module-facts-exact-override-targets).
+  // Adapters consume the fully-populated owned facts + contributions above.
+  const overrides = collectModuleOverrideTargets(facts, buildFactSourceLookup(facts))
+  if (overrides.overrideTargets.length > 0) facts.overrideTargets = overrides.overrideTargets
+  if (overrides.overrideTargetDiagnostics.length > 0) {
+    facts.overrideTargetDiagnostics = overrides.overrideTargetDiagnostics
+  }
+  return facts
 }
 
 export interface ModuleFactsJsonEvent {
@@ -1122,6 +2227,11 @@ export interface ModuleFactsJsonEntry {
   aiTools: ModuleAiToolFact[]
   aiAgents: ModuleAiAgentFact[]
   extensionSurfaces?: ModuleExtensionSurfaceFacts
+  factSources?: ModuleFactSourceEntry[]
+  ownedContracts?: ModuleOwnedContracts
+  factDiagnostics?: ModuleFactDiagnostic[]
+  overrideTargets?: ModuleOverrideTarget[]
+  overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
 }
 
 const EMPTY_SECTION_MARKER = '_none_'
@@ -1138,26 +2248,26 @@ function renderVersionStamp(
   return `<!-- generated from @open-mercato/core ${version} — R1 staleness stamp -->`
 }
 
-function renderEntitiesSection(entities: ModuleEntityFact[]): string {
+function renderEntitiesSection(entities: ModuleEntityFact[], lookup: FactSourceLookup): string {
   if (entities.length === 0) return `## Entities\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| Entity ID | Class | Table | Editable | CustomFields |'
-  const divider = '|---|---|---|---|---|'
+  const header = '| Entity ID | Class | Table | Editable | CustomFields | Source |'
+  const divider = '|---|---|---|---|---|---|'
   const rows = entities.map(
     (entity) =>
-      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} |`,
+      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} | ${renderLookedUpSource(lookup, 'entity', entity.id)} |`,
   )
   return ['## Entities', '', header, divider, ...rows].join('\n')
 }
 
-function renderEventsSection(events: ModuleEventFact[]): string {
+function renderEventsSection(events: ModuleEventFact[], lookup: FactSourceLookup): string {
   const heading = `## Events  (${events.length})`
   if (events.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| ID | Category | Entity | Browser transport |'
-  const divider = '|---|---|---|---|'
+  const header = '| ID | Category | Entity | Browser transport | Source |'
+  const divider = '|---|---|---|---|---|'
   const rows = events.map((event) => {
     const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
       .filter((value): value is string => value !== null)
-    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} |`
+    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} | ${renderLookedUpSource(lookup, 'event', event.id)} |`
   })
   return [heading, '', header, divider, ...rows].join('\n')
 }
@@ -1167,8 +2277,71 @@ function renderInlineListSection(heading: string, values: string[]): string {
   return `${heading}\n\n${values.join(' · ')}`
 }
 
+function renderSourceLinkedListSection(
+  heading: string,
+  values: readonly string[],
+  lookup: FactSourceLookup,
+  kind: ModuleFactSourceKind,
+  idColumnLabel: string,
+): string {
+  if (values.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
+  const rows = values.map((value) => `| ${value} | ${renderLookedUpSource(lookup, kind, value)} |`)
+  return [heading, '', `| ${idColumnLabel} | Source |`, '|---|---|', ...rows].join('\n')
+}
+
 function renderSourceLink(sourcePath: string): string {
   return `[${sourcePath}](../../../${sourcePath})`
+}
+
+function renderSourceRefLink(source: ModuleFactSourceRef): string {
+  const anchor = source.line ? `#L${source.line}` : ''
+  const label = source.line ? `${source.sourcePath}:${source.line}` : source.sourcePath
+  return `[${label}](../../../${source.sourcePath}${anchor})`
+}
+
+
+function renderLookedUpSource(lookup: FactSourceLookup, kind: ModuleFactSourceKind, id: string): string {
+  const source = lookup(kind, id)
+  return source ? renderSourceRefLink(source) : '—'
+}
+
+function renderSafeScalar(value: ModuleFactSafeScalar | ModuleFactSafeScalar[] | undefined): string {
+  if (value === undefined || value === null) return '—'
+  if (Array.isArray(value)) return value.length > 0 ? value.map((entry) => String(entry)).join(', ') : '—'
+  return String(value)
+}
+
+function renderOwnedContractMetadata(metadata: ModuleOwnedContractFact['metadata']): string {
+  if (!metadata) return '—'
+  const keys = Object.keys(metadata).sort((left, right) => left.localeCompare(right))
+  if (keys.length === 0) return '—'
+  return keys.map((key) => `${key}=${renderSafeScalar(metadata[key])}`).join('; ')
+}
+
+function renderOwnedContractSection(
+  heading: string,
+  facts: readonly ModuleOwnedContractFact[] | undefined,
+): string {
+  if (!facts || facts.length === 0) return ''
+  const rows = facts.map(
+    (fact) => `| ${fact.id} | ${renderOwnedContractMetadata(fact.metadata)} | ${renderSourceRefLink(fact.source)} |`,
+  )
+  return [heading, '', '| ID | Metadata | Source |', '|---|---|---|', ...rows].join('\n')
+}
+
+function renderDiRegistrationsSection(facts: readonly ModuleOwnedContractFact[] | undefined): string {
+  if (!facts || facts.length === 0) return ''
+  const rows = facts.map((fact) => {
+    const metadata = fact.metadata ?? {}
+    return `| ${fact.id} | ${renderSafeScalar(metadata.registrationKind)} | ${renderSafeScalar(metadata.lifetime)} | ${renderSafeScalar(metadata.injectionMode)} | ${renderSafeScalar(metadata.providerSymbol)} | ${renderSourceRefLink(fact.source)} |`
+  })
+  return [
+    '## DI registrations (rich)',
+    '',
+    '| Token | Kind | Lifetime | Injection | Provider | Source |',
+    '|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
 }
 
 function describeAuthRule(rule: ApiRouteAuthRule | undefined): string {
@@ -1220,17 +2393,22 @@ function renderExtensionHostContext(host: ModuleExtensionSurfaceFacts['hosts'][n
   return host.contextContract ?? host.runtimeContract ?? host.scopeContract ?? '—'
 }
 
+function renderExtensionHostSource(host: ModuleExtensionHostFact): string {
+  if (host.source.kind === 'fact-ref') return `${host.source.factSection}:${host.source.factKey}`
+  return renderSourceRefLink({ sourcePath: host.source.path })
+}
+
 function renderExtensionHostsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
   const boundHosts = extensionSurfaces.hosts.filter((host) => host.bound)
   if (boundHosts.length === 0) return `## UMES hosts\n\n${EMPTY_SECTION_MARKER}`
   const rows = boundHosts.map((host) =>
-    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} |`,
+    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} | ${renderExtensionHostSource(host)} |`,
   )
   return [
     '## UMES hosts',
     '',
-    '| ID / pattern | Family | Supports | Context | Stability |',
-    '|---|---|---|---|---|',
+    '| ID / pattern | Family | Supports | Context | Stability | Source |',
+    '|---|---|---|---|---|---|',
     ...rows,
   ].join('\n')
 }
@@ -1258,13 +2436,14 @@ function renderExtensionContributionsSection(extensionSurfaces: ModuleExtensionS
     const targets = contribution.targets.map((entry) => entry.id).join(', ')
     const resolution = contribution.targets.map((entry) => entry.resolution).join(', ')
     const phases = [...(contribution.phases ?? []), ...(contribution.operations ?? [])].join(', ') || '—'
-    return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} |`
+    const source = renderSourceRefLink({ sourcePath: contribution.source.path })
+    return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} | ${source} |`
   })
   return [
     '## UMES contributions',
     '',
-    '| ID | Kind | Target | Phase / operations | Contract | Resolution |',
-    '|---|---|---|---|---|---|',
+    '| ID | Kind | Target | Phase / operations | Contract | Resolution | Source |',
+    '|---|---|---|---|---|---|---|',
     ...rows,
   ].join('\n')
 }
@@ -1279,18 +2458,109 @@ function renderExtensionDiagnosticsSection(extensionSurfaces: ModuleExtensionSur
   return ['## UMES diagnostics', '', ...diagnostics].join('\n')
 }
 
+function renderExtensionTargetRef(target: ModuleExtensionTargetRef): string {
+  const method = target.method ? ` ${target.method}` : ''
+  const owner = target.moduleId ? ` @${target.moduleId}` : ''
+  return `${target.kind}:${target.id}${method}${owner}`
+}
+
+function renderActivationBindingsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const activations = extensionSurfaces.activations ?? []
+  if (activations.length === 0) return `## Active extension bindings\n\n${EMPTY_SECTION_MARKER}`
+  const rows = activations.map((activation) => {
+    const phases = activation.phases && activation.phases.length > 0 ? activation.phases.join(', ') : '—'
+    const source = activation.source ? renderSourceRefLink(activation.source) : '—'
+    const bridge = activation.bridge ? `${activation.bridge.factSection}:${activation.bridge.factKey}` : '—'
+    return `| ${activation.id} | ${activation.kind} | ${renderExtensionTargetRef(activation.host)} | ${activation.contributionKinds.join(', ') || '—'} | ${phases} | ${bridge} | ${source} |`
+  })
+  return [
+    '## Active extension bindings',
+    '',
+    '| Activation | Kind | Host | Contribution kinds | Phases | Bridge | Source |',
+    '|---|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function renderIncomingContributionsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+  const incoming = extensionSurfaces.incoming ?? []
+  if (incoming.length === 0) return `## Incoming installed contributions\n\n${EMPTY_SECTION_MARKER}`
+  const rows = incoming.map((entry) => {
+    const activation = entry.activationId ?? '—'
+    const source = entry.source ? renderSourceRefLink(entry.source) : '—'
+    return `| ${entry.contributorModuleId} | ${entry.contributionKind} | ${renderExtensionTargetRef(entry.target)} | ${entry.resolution} | ${activation} | ${entry.contributionId} · ${source} |`
+  })
+  return [
+    '## Incoming installed contributions',
+    '',
+    '| Contributor | Kind | Target | Resolution | Activation | Contribution · Source |',
+    '|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function renderContributionResolutionsSection(
+  extensionSurfaces: ModuleExtensionSurfaceFacts,
+  lookup: FactSourceLookup,
+): string {
+  const resolutions = extensionSurfaces.contributionResolutions ?? []
+  if (resolutions.length === 0) return `## Contribution resolutions\n\n${EMPTY_SECTION_MARKER}`
+  const rows = resolutions.map((resolution) => {
+    const activations = resolution.activationIds.length > 0 ? resolution.activationIds.join(', ') : '—'
+    const source = renderLookedUpSource(lookup, 'extension-contribution', resolution.contributionId)
+    return `| ${resolution.contributionId} | ${renderExtensionTargetRef(resolution.target)} | ${resolution.resolution} | ${activations} | ${source} |`
+  })
+  return [
+    '## Contribution resolutions',
+    '',
+    '| Contribution | Target | Resolution | Activations | Source |',
+    '|---|---|---|---|---|',
+    ...rows,
+  ].join('\n')
+}
+
+function renderOverrideTargetPath(target: ModuleOverrideTarget): string {
+  let display = 'overrides'
+  for (let index = 0; index < target.path.length; index += 1) {
+    const segment = target.path[index]
+    const isKeyedTerminal = target.key !== undefined && index === target.path.length - 1
+    display += isKeyedTerminal ? `[${JSON.stringify(segment)}]` : `.${segment}`
+  }
+  return display
+}
+
+function renderOverrideTargetsSection(targets: readonly ModuleOverrideTarget[] | undefined): string {
+  if (!targets || targets.length === 0) return `## Exact override targets\n\n${EMPTY_SECTION_MARKER}`
+  const header = '| Domain | Path / key | Supported modes | Referenced fact | Source |'
+  const divider = '|---|---|---|---|---|'
+  const rows = targets.map((target) => {
+    const path = `\`${renderOverrideTargetPath(target)}\``
+    const modes = target.modes.join(', ') || '—'
+    const fact = `${target.factRef.factSection}:${target.factRef.factKey}`
+    return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source)} |`
+  })
+  return ['## Exact override targets', '', header, divider, ...rows].join('\n')
+}
+
 export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
   const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
+  const lookup = buildFactSourceLookup(facts)
   const sections = [
     `# ${facts.module} — module facts (generated, do not edit)`,
     renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
     `Source root: ${renderSourceLink(facts.sourceRoot)}`,
     '',
-    renderEntitiesSection(facts.entities),
+    renderEntitiesSection(facts.entities, lookup),
     '',
-    renderEventsSection(facts.events),
+    renderEventsSection(facts.events, lookup),
     '',
-    renderInlineListSection(`## ACL features  (${facts.aclFeatures.length})`, facts.aclFeatures),
+    renderSourceLinkedListSection(
+      `## ACL features  (${facts.aclFeatures.length})`,
+      facts.aclFeatures,
+      lookup,
+      'acl-feature',
+      'Feature',
+    ),
     '',
     renderApiRoutesSection(facts.apiRoutes),
     '',
@@ -1298,9 +2568,9 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderLinkedFactsSection('## Frontend pages', facts.frontendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
     '',
-    renderInlineListSection('## DI service tokens', facts.diTokens),
+    renderSourceLinkedListSection('## DI service tokens', facts.diTokens, lookup, 'di-registration', 'Token'),
     '',
-    renderInlineListSection('## Search entities', facts.searchEntities),
+    renderSourceLinkedListSection('## Search entities', facts.searchEntities, lookup, 'search', 'Entity ID'),
     '',
     renderHostTokensSection(facts.hostTokens),
     '',
@@ -1308,9 +2578,15 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderExtensionContributionsSection(extensionSurfaces),
     '',
+    renderActivationBindingsSection(extensionSurfaces),
+    '',
+    renderIncomingContributionsSection(extensionSurfaces),
+    '',
+    renderContributionResolutionsSection(extensionSurfaces, lookup),
+    '',
     renderExtensionDiagnosticsSection(extensionSurfaces),
     '',
-    renderInlineListSection('## Notifications', facts.notifications),
+    renderSourceLinkedListSection('## Notifications', facts.notifications, lookup, 'notification', 'Notification ID'),
     '',
     renderLinkedFactsSection('## CLI commands', facts.cliCommands.map((command) => ({ label: command.command, sourcePath: command.sourcePath }))),
     '',
@@ -1318,7 +2594,25 @@ export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
     '',
     renderLinkedFactsSection('## AI agents', facts.aiAgents.map((agent) => ({ label: agent.id, sourcePath: agent.sourcePath }))),
     '',
+    renderOverrideTargetsSection(facts.overrideTargets),
+    '',
   ]
+  const owned = facts.ownedContracts ?? {}
+  const ownedSections = [
+    renderOwnedContractSection('## Owned contract — module metadata', owned['module-metadata']),
+    renderOwnedContractSection('## Domain commands', owned.command),
+    renderOwnedContractSection('## Workers', owned.worker),
+    renderOwnedContractSection('## Page middleware', owned['page-middleware']),
+    renderOwnedContractSection('## Setup', owned.setup),
+    renderOwnedContractSection('## Encryption', owned.encryption),
+    renderDiRegistrationsSection(owned['di-registration']),
+    renderOwnedContractSection('## Custom entities', owned['custom-entity']),
+    renderOwnedContractSection('## AI extensions', owned['ai-extension']),
+    renderOwnedContractSection('## Generator plugins', owned['generator-plugin']),
+  ].filter((section) => section.length > 0)
+  for (const section of ownedSections) {
+    sections.push(section, '')
+  }
   return sections.join('\n')
 }
 
@@ -1351,6 +2645,19 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     aiTools: facts.aiTools,
     aiAgents: facts.aiAgents,
     ...(facts.extensionSurfaces ? { extensionSurfaces: facts.extensionSurfaces } : {}),
+    ...(facts.factSources && facts.factSources.length > 0 ? { factSources: facts.factSources } : {}),
+    ...(facts.ownedContracts && Object.keys(facts.ownedContracts).length > 0
+      ? { ownedContracts: facts.ownedContracts }
+      : {}),
+    ...(facts.factDiagnostics && facts.factDiagnostics.length > 0
+      ? { factDiagnostics: facts.factDiagnostics }
+      : {}),
+    ...(facts.overrideTargets && facts.overrideTargets.length > 0
+      ? { overrideTargets: facts.overrideTargets }
+      : {}),
+    ...(facts.overrideTargetDiagnostics && facts.overrideTargetDiagnostics.length > 0
+      ? { overrideTargetDiagnostics: facts.overrideTargetDiagnostics }
+      : {}),
   }
 }
 
@@ -1437,8 +2744,36 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
     commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
   })
   assertNoUnresolvedExtensionTargets(correlated)
+  const apiRouteOwners = new Map<string, {
+    moduleId: string
+    source: ModuleFactSourceRef
+    bridges: ApiRouteInterceptorBridge[]
+  }>()
+  const commandOwners = new Map<string, { moduleId: string; source: ModuleFactSourceRef }>()
+  for (const source of [...sources].sort((left, right) => left.moduleId.localeCompare(right.moduleId))) {
+    const facts = factsByModule[source.moduleId]
+    const sourceRoot = facts ? facts.sourceRoot : source.moduleId
+    const owners = extractActivationTargetOwners({
+      moduleId: source.moduleId,
+      moduleRoot: source.moduleRoot,
+      sourceRoot,
+    })
+    for (const route of owners.apiRoutes) {
+      if (!apiRouteOwners.has(route.id)) {
+        apiRouteOwners.set(route.id, { moduleId: source.moduleId, source: route.source, bridges: route.bridges })
+      }
+    }
+    for (const command of owners.commands) {
+      if (!commandOwners.has(command.id)) commandOwners.set(command.id, { moduleId: source.moduleId, source: command.source })
+    }
+  }
+  const withIncoming = correlateIncomingExtensions({
+    surfacesByModule: correlated,
+    apiRouteOwners,
+    commandOwners,
+  })
   for (const moduleId of Object.keys(factsByModule).sort((left, right) => left.localeCompare(right))) {
-    factsByModule[moduleId].extensionSurfaces = correlated[moduleId]
+    factsByModule[moduleId].extensionSurfaces = withIncoming[moduleId]
     markdownByModule[moduleId] = renderModuleFactsMarkdown(factsByModule[moduleId])
     warnings.push(...correlated[moduleId].unresolved.map((entry) =>
       `[module-facts] ${moduleId} ${entry.reason}: ${entry.key} (${entry.source.path})`,

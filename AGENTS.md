@@ -137,7 +137,7 @@ Most `om-*` automation skills come from the shared [open-mercato/skills](https:/
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; name new spec files `{YYYY-MM-DD}-{kebab-case-title}.md`. Skip for small fixes. Skills: `om-spec-writing` (research/phasing), `om-pre-implement-spec` (readiness audit), `om-implement-spec` (execution).
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
-3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
+3.  **Self-improvement**: After corrections, scan `.ai/lessons.md`; update one tagged lesson record + index row or the relevant AGENTS.md. Never bulk-read lessons.
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
 5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
 6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
@@ -147,13 +147,14 @@ Most `om-*` automation skills come from the shared [open-mercato/skills](https:/
 Full policy — label taxonomy, priority/risk inference tables, pipeline transitions, the automated-verification exemption, the self-QA exception and the auto-skill claim protocol: [`.ai/docs/pr-workflow.md`](.ai/docs/pr-workflow.md). The boundaries:
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. A ready non-draft PR carries `review` unless it is already in another pipeline state.
-- Category (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`) and meta (`needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `screenshots`) labels are additive.
+- Category (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`) and meta (`needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`) labels are additive.
 - Every non-draft PR carries **exactly one** priority label (`priority-low|medium|high|extreme`, urgency) and **exactly one** risk label (`risk-low|medium|high`, blast radius). They are orthogonal; when signals conflict pick the higher one and say why in the label comment.
 - **QA-approval merge gate (hard rule): a PR carrying `needs-qa` MUST NOT be merged unless it also carries `qa-approved`**, even when every other check is green. `skip-qa` is the explicit opt-out; never combine it with `needs-qa`/`qa-approved`. `qa-failed`, `do-not-merge` and `blocked` are likewise hard merge blocks.
 - **Automated-verification exemption:** a change touching no UI-rendering file (no `.tsx` outside tests, nothing under `packages/ui/src/` or `**/components/**`) takes `skip-qa` — **but only** with the database structure and API surface unchanged, no `BACKWARD_COMPATIBILITY.md` contract broken, and automated tests for the changed behavior in the same PR; otherwise it keeps `needs-qa`.
 - `qa-approved`/`qa-self-verified` are label writes: a `read`-permission contributor posts the QA evidence comment and a maintainer applies the labels; a skill that cannot apply them MUST report it stopped there.
 - The `qa` pipeline label means manual QA is **in progress** and is set by QA reviewers only — `om-auto-*` skills request QA with `needs-qa` and never touch `qa`.
 - Auto-skills claim a PR/issue with all three signals (assignee, `in-progress` label, claim comment), release `in-progress` even on failure, and comment the rationale whenever they change a pipeline/meta label.
+- `ci-monitoring` is a meta label, **not** a claim signal: it means the work is finished and reported and only CI is still being watched. A PR carrying it without `in-progress`, a non-self assignee or a fresh claim comment MUST NOT be treated as in progress — it is free to claim.
 
 ### Documentation and Specifications
 

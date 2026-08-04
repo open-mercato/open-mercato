@@ -34,6 +34,7 @@ yarn workspace @open-mercato/shared build
 |-----------|-------------|-------------|
 | `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
+| `auth/organizationScope` | When an organization-scoped API route must resolve the caller's organization — falls back to `actorOrgId` for an "all organizations" selection, but only while the effective tenant is still the actor's tenant. On `null` for an authenticated caller answer with `organizationScopeRequiredResponse()` (400, code `organization_scope_required`) — never 401 | `@open-mercato/shared/lib/auth/organizationScope` — `resolveActiveOrganizationId(auth)`, `organizationScopeRequiredResponse()` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
@@ -44,7 +45,7 @@ yarn workspace @open-mercato/shared build
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
 | `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs) | `@open-mercato/shared/lib/db/mikro` |
 | `delivery/` | When scheduling delivery/retry attempts — exponential backoff with jitter for delivery pipelines (currently the push delivery worker) | `@open-mercato/shared/lib/delivery/retry` (`calculateBackoffDelayMs`) |
-| `di/` | When setting up dependency injection (Awilix) | `@open-mercato/shared/lib/di` |
+| `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |

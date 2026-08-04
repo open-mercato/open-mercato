@@ -12,6 +12,7 @@ import {
   isValidGranularity,
   isValidAggregate,
 } from '../aggregations'
+import { PostgreSqlPlatform } from '@mikro-orm/postgresql'
 import { createAnalyticsRegistry } from '../../services/analyticsRegistry'
 import { analyticsConfig as salesAnalyticsConfig } from '../../../sales/analytics'
 import { analyticsConfig as customersAnalyticsConfig } from '../../../customers/analytics'
@@ -253,6 +254,146 @@ describe('aggregations', () => {
       })
       expect(result?.sql).toContain('status = ?')
       expect(result?.sql).toContain('grand_total_gross_amount >= ?')
+    })
+
+    it('expands an in filter into one placeholder and one parameter per member', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: ['completed', 'shipped'] }],
+      })
+      expect(result?.sql).toContain('status IN (?, ?)')
+      expect(result?.params).toEqual(['tenant-123', 'completed', 'shipped'])
+    })
+
+    it('expands a not_in filter into one placeholder and one parameter per member', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'not_in', value: ['cancelled', 'refunded'] }],
+      })
+      expect(result?.sql).toContain('status NOT IN (?, ?)')
+      expect(result?.params).toEqual(['tenant-123', 'cancelled', 'refunded'])
+    })
+
+    it('treats a single-member set filter like any other set filter', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: ['completed'] }],
+      })
+      expect(result?.sql).toContain('status IN (?)')
+      expect(result?.params).toEqual(['tenant-123', 'completed'])
+    })
+
+    it('accepts a scalar value for a set filter', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'not_in', value: 'cancelled' }],
+      })
+      expect(result?.sql).toContain('status NOT IN (?)')
+      expect(result?.params).toEqual(['tenant-123', 'cancelled'])
+    })
+
+    it('renders an empty set filter as a constant instead of empty parentheses', () => {
+      const emptyIn = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: [] }],
+      })
+      expect(emptyIn?.sql).toContain('AND FALSE')
+      expect(emptyIn?.sql).not.toContain('IN ()')
+      expect(emptyIn?.params).toEqual(['tenant-123'])
+
+      const emptyNotIn = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'not_in', value: undefined }],
+      })
+      expect(emptyNotIn?.sql).toContain('AND TRUE')
+      expect(emptyNotIn?.params).toEqual(['tenant-123'])
+    })
+
+    /**
+     * The request schema refuses these shapes at the API boundary; these cases pin the builder's
+     * own behaviour for in-process callers, whose filter values are typed as `unknown`. Rendering
+     * them would produce `IN (NULL)` — no rows, no error — which on a dashboard is a silent zero.
+     */
+    it('refuses a null set filter value instead of rendering IN (NULL)', () => {
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'in', value: null }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+    })
+
+    it('refuses a null member inside a set filter, the classic NOT IN trap', () => {
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'in', value: [null] }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'not_in', value: ['cancelled', null, 'refunded'] }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+    })
+
+    it('keeps falsy members that are not null', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: ['', 0, false] }],
+      })
+      expect(result?.sql).toContain('status IN (?, ?, ?)')
+      expect(result?.params).toEqual(['tenant-123', '', 0, false])
+    })
+
+    it('applies set filters to the encrypted group-source row query as well', () => {
+      const result = buildGroupSourceRowsQuery({
+        ...baseOptions,
+        groupColumn: 'shipping_address_snapshot',
+        rowLimit: 10,
+        filters: [{ field: 'status', operator: 'in', value: ['completed', 'shipped'] }],
+      })
+      expect(result?.sql).toContain('status IN (?, ?)')
+      expect(result?.params).toEqual(['tenant-123', 'completed', 'shipped'])
+    })
+
+    /**
+     * `WidgetDataService` runs these queries through `em.getConnection().execute(sql, params)`.
+     * MikroORM does not hand the parameters to the driver: `AbstractSqlConnection.execute` calls
+     * `platform.formatQuery`, which interpolates every value into the SQL string. This suite
+     * cannot open a PostgreSQL connection, so it asserts on the output of that same interpolation
+     * — the exact text the server receives. End-to-end execution against a live PostgreSQL is
+     * covered by `__integration__/TC-DASH-010-set-filter-operators.spec.ts`.
+     */
+    describe('rendered SQL (PostgreSqlPlatform.formatQuery)', () => {
+      const platform = new PostgreSqlPlatform()
+
+      it('renders set filters as a valid PostgreSQL IN list', () => {
+        const result = buildAggregationQuery({
+          ...baseOptions,
+          filters: [
+            { field: 'status', operator: 'in', value: ['completed', "o'brien"] },
+            { field: 'paymentStatus', operator: 'not_in', value: ['refunded'] },
+          ],
+        })
+        const rendered = platform.formatQuery(result!.sql, result!.params)
+        expect(rendered).toContain("status IN ('completed', 'o''brien')")
+        expect(rendered).toContain("payment_status NOT IN ('refunded')")
+      })
+
+      it('pins the array-as-single-parameter rendering this fix replaced', () => {
+        // Kept as an executable record of the defect in #4669, and as a canary: the fix assumes
+        // MikroORM flattens an array parameter, so this fails loudly if that ever changes.
+        // PostgreSQL answers
+        // `syntax error at or near ","` for a multi-member list and `malformed array literal`
+        // for a single-member one, so `in`/`not_in` failed for every possible value.
+        expect(platform.formatQuery('status = ANY(?)', [['completed', 'shipped']])).toBe(
+          "status = ANY('completed', 'shipped')",
+        )
+        expect(platform.formatQuery('status != ALL(?)', [['cancelled']])).toBe("status != ALL('cancelled')")
+      })
     })
 
     it('handles is_null and is_not_null operators without value', () => {

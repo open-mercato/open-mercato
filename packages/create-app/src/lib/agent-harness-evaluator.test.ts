@@ -576,12 +576,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-202', () => {
+test('deterministic evaluation enforces the case schema through OMH-203', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-202')
+    assert.equal(cases.at(-1)?.id, 'OMH-203')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -855,6 +855,113 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+test('read-only CRM tab routing reads UMES guidance before exact materialized framework spots', { skip: !targetSandboxAvailable }, () => {
+  const guidance = [
+    'AGENTS.md',
+    '.ai/guides/extensions.md',
+    '.ai/guides/backend-ui.md',
+    '.ai/guides/modules/customers.md',
+    '.ai/skills/om-system-extension/SKILL.md',
+    '.ai/skills/om-backend-ui-design/SKILL.md',
+    '.ai/skills/om-framework-context/SKILL.md',
+  ]
+  const materializedRoot = '.ai/framework-context/open-mercato-core@1.0.0'
+  const manifest = `${materializedRoot}/manifest.json`
+  const search = `${materializedRoot}/search.txt`
+  const personSource = `${materializedRoot}/source/customers/backend/person-page.tsx`
+  const companySource = `${materializedRoot}/source/customers/backend/company-page.tsx`
+  const frameworkEvidence = [manifest, search, companySource, personSource]
+  const decisions = [
+    'extension-mechanism',
+    'additive-before-replacement',
+    'extension-entity',
+    'eject-last',
+    'widget-injection-files',
+    'person-detail-tab-spot',
+    'company-detail-tab-spot',
+    'guidance-before-framework-context',
+    'installed-packages-read-only',
+  ]
+
+  for (const frameworkFirst of [false, true]) {
+    const controller = stageApp()
+    const corePackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'core')
+    try {
+      fs.mkdirSync(path.join(controller, '.ai', 'guides', 'modules'), { recursive: true })
+      fs.writeFileSync(
+        path.join(controller, '.ai', 'guides', 'modules', 'customers.md'),
+        '# Customers\nUse the installed customers module without guessing private contracts.\n',
+      )
+      fs.mkdirSync(path.join(corePackageRoot, 'src', 'modules', 'customers', 'backend'), { recursive: true })
+      fs.writeFileSync(path.join(corePackageRoot, 'package.json'), JSON.stringify({
+        name: '@open-mercato/core',
+        version: '1.0.0',
+      }))
+      fs.writeFileSync(path.join(corePackageRoot, 'AGENTS.md'), '# Core package\nKeep installed customer contracts read-only.\n')
+      fs.writeFileSync(
+        path.join(corePackageRoot, 'src', 'modules', 'customers', 'backend', 'person-page.tsx'),
+        "export const personTabsSpot = 'detail:customers.person:tabs'\n",
+      )
+      fs.writeFileSync(
+        path.join(corePackageRoot, 'src', 'modules', 'customers', 'backend', 'company-page.tsx'),
+        "export const companyTabsSpot = 'detail:customers.company:tabs'\n",
+      )
+      fs.writeFileSync(path.join(controller, 'package.json'), JSON.stringify({
+        name: 'framework-context-routing-fixture',
+        private: true,
+        dependencies: { '@open-mercato/core': '1.0.0' },
+      }))
+      fs.writeFileSync(
+        path.join(controller, 'src', 'modules.ts'),
+        "export const enabledModules = [{ id: 'customers', from: '@open-mercato/core' }]\n",
+      )
+
+      const traceOrder = frameworkFirst
+        ? ['AGENTS.md', ...frameworkEvidence, ...guidance.slice(1)]
+        : [...guidance, ...frameworkEvidence]
+      const bin = installFakeRunner(controller, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+if (!prompt.includes('Read every required routed guide and skill before this evidence')
+  || !prompt.includes(${JSON.stringify(manifest)})
+  || !prompt.includes(${JSON.stringify(search)})
+  || !prompt.includes('query="detail:customers."')
+  || !args.some((entry) => entry.includes(${JSON.stringify(`${materializedRoot}/**`)}))) process.exit(10)
+for (const entry of ${JSON.stringify(frameworkEvidence)}) {
+  if (!fs.readFileSync(entry, 'utf8').includes(entry.endsWith('manifest.json') ? 'materializedSource' : entry.endsWith('search.txt') ? 'detail:customers.' : 'detail:customers.')) process.exit(11)
+}
+const selectedContext = ${JSON.stringify([...guidance, ...frameworkEvidence])}
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
+  selectedRouter: ['umes', 'backend-ui', 'framework-context'],
+  selectedSkills: ['om-system-extension', 'om-backend-ui-design', 'om-framework-context'],
+  selectedContext,
+  decisions: ${JSON.stringify(decisions)},
+  violations: [],
+}))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat ' + ${JSON.stringify(traceOrder)}.join(' ') } }))
+`)
+      const run = runEvaluator(controller, ['--runner', 'codex', '--case', 'OMH-203'], {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      })
+      assert.equal(run.status, frameworkFirst ? 1 : 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(controller), null, 2)}`)
+      const [stored] = storedResults(controller)
+      assert.ok(stored.actualContext.paths.includes(personSource))
+      assert.ok(stored.actualContext.paths.includes(companySource))
+      if (frameworkFirst) {
+        assert.ok(stored.violations.some((violation) => violation.includes('framework context read before required guidance')))
+      } else {
+        assert.equal(stored.status, 'pass')
+        assert.ok(frameworkEvidence.every((entry) => stored.selectedContext.includes(entry)))
+      }
+    } finally {
+      fs.rmSync(controller, { recursive: true, force: true })
+    }
   }
 })
 
