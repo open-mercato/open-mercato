@@ -1,6 +1,6 @@
 # Execution plan — query index partition race, vector store availability, stale ACL override
 
-Status: in-progress
+Status: complete
 Engine: om-auto-create-pr (steps: 9, --loop: no)
 
 ## Goal
@@ -45,8 +45,12 @@ Three independent root causes surfaced by the same greenfield run.
 - Reworking `throwOnStrategyFailures` or the write-failure contract. Writes stay fail-loud
   for available strategies; the #3103 queue-retry behavior is deliberately preserved.
 - Changing the reindex partitioning strategy, partition count, or job accounting model.
-- Repairing the two test suites that already fail on `develop`
-  (`customer_accounts/users-invite-person-link`, `apps/mercato/storage-s3-routes`).
+- Repairing the `create-mercato-app` template ESM-import test, which fails on `develop`
+  independently of this work: `packages/create-app/template/scripts/dev-runtime.mjs` imports
+  `./dev-memory-monitor.mjs`, a sibling that #4939 added under `apps/mercato/scripts/` and
+  never mirrored into the template. `yarn template:sync` does not treat it as drift, so
+  fixing it means extending the mirror list as well as copying the file — that belongs with
+  the change that introduced it.
 - Auto-heal for the runtime (non-CLI) path — the coverage-gap auto-reindex remains gated on
   custom-field entities. Out of scope here; the init-time repair pass covers the reported bug.
 
@@ -110,9 +114,10 @@ Three independent root causes surfaced by the same greenfield run.
 - `@open-mercato/search` full suite; `query_index` suite.
 - New regression tests, including two that were confirmed to fail against the pre-fix
   reindexer and pass after it.
-- Pre-existing, unrelated failures on `develop`:
-  `packages/core/src/modules/customer_accounts/api/__tests__/users-invite-person-link.test.ts`
-  and `apps/mercato/src/__tests__/storage-s3-routes.test.ts`.
+- Full configured gate on the current `develop` head: `yarn build:packages`, `yarn generate`,
+  `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`,
+  `yarn test`, `yarn build:app`. Everything green except the pre-existing
+  `create-mercato-app` template ESM-import failure described under Non-goals.
 
 ## Progress
 
@@ -120,18 +125,18 @@ Three independent root causes surfaced by the same greenfield run.
 
 ### Phase 1: Query index partition race
 
-- [ ] 1.1 Partition-scope the force purge and run it in every partition
-- [ ] 1.2 Stop scope-wide coverage zeroing during partitioned runs
-- [ ] 1.3 Make refreshCoverageSnapshot scope-symmetric and return its counts
-- [ ] 1.4 Add the post-reindex verify-and-repair pass to the CLI
-- [ ] 1.5 Add regression tests for the purge scoping and coverage symmetry
+- [x] 1.1 Partition-scope the force purge and run it in every partition — c8303d3
+- [x] 1.2 Stop scope-wide coverage zeroing during partitioned runs — c8303d3
+- [x] 1.3 Make refreshCoverageSnapshot scope-symmetric and return its counts — c8303d3
+- [x] 1.4 Add the post-reindex verify-and-repair pass to the CLI — c8303d3
+- [x] 1.5 Add regression tests for the purge scoping and coverage symmetry — c8303d3
 
 ### Phase 2: Vector store availability
 
-- [ ] 2.1 Add the cached pgvector extension probe and short-circuit ensureReady
-- [ ] 2.2 Consult the probe from the vector strategy and surface it in settings + i18n
-- [ ] 2.3 Add availability regression tests
+- [x] 2.1 Add the cached pgvector extension probe and short-circuit ensureReady — 9944485
+- [x] 2.2 Consult the probe from the vector strategy and surface it in settings + i18n — 9944485
+- [x] 2.3 Add availability regression tests — 9944485
 
 ### Phase 3: Stale ACL override
 
-- [ ] 3.1 Declare the example.manage override probe and guard it with a test
+- [x] 3.1 Declare the example.manage override probe and guard it with a test — 2512235
