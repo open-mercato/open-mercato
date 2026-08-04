@@ -21,7 +21,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({
     child: () => ({
+      debug: jest.fn(),
+      info: jest.fn(),
       warn: (...args: unknown[]) => mockLoggerWarn(...args),
+      error: jest.fn(),
     }),
   }),
 }))
@@ -174,6 +177,18 @@ describe('payment gateway service session idempotency (#4035)', () => {
 
   afterEach(() => {
     clearGatewayAdapters()
+  })
+
+  it('maps a missing gateway adapter to a typed 422 error', async () => {
+    const service = createPaymentGatewayService({
+      em: makeMockEm(),
+      integrationCredentialsService: { resolve: jest.fn(async () => ({})) } as never,
+    })
+
+    await expect(service.createPaymentSession(buildInput('checkout-submit-key-0000'))).rejects.toMatchObject({
+      status: 422,
+      body: { error: `No gateway adapter registered for provider: ${PROVIDER_KEY}` },
+    })
   })
 
   it('single-flights concurrent keyed calls and reuses the completed provider session', async () => {
