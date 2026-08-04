@@ -10,7 +10,7 @@ import {
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
+import type { PrepareFilePayload, StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
 import {
   assertSafeS3Endpoint,
   assertStaticallySafeS3Endpoint,
@@ -147,14 +147,20 @@ export class S3StorageDriver implements StorageDriver {
     }
   }
 
-  async store(payload: StoreFilePayload): Promise<StoredFile> {
-    await this.assertEndpointSafe()
+  prepareStoragePath(payload: PrepareFilePayload): string {
     const orgSegment = resolveOrgSegment(payload.orgId ?? null)
     const tenantSegment = resolveTenantSegment(payload.tenantId ?? null)
     const safeName = sanitizeFileName(payload.fileName || 'file')
     const uniqueSuffix = randomUUID().replace(/-/g, '').slice(0, 12)
     const storedName = `${Date.now()}_${uniqueSuffix}_${safeName}`
-    const key = `${this.pathPrefix}${payload.partitionCode}/${orgSegment}/${tenantSegment}/${storedName}`
+    return `${this.pathPrefix}${payload.partitionCode}/${orgSegment}/${tenantSegment}/${storedName}`
+  }
+
+  async store(payload: StoreFilePayload): Promise<StoredFile> {
+    const key = payload.storagePath ?? this.prepareStoragePath(payload)
+    this.assertPartitionScoped(payload.partitionCode, key)
+    this.assertKeyScoped(key)
+    await this.assertEndpointSafe()
 
     await this.client.send(
       new PutObjectCommand({
@@ -162,6 +168,7 @@ export class S3StorageDriver implements StorageDriver {
         Key: key,
         Body: payload.buffer,
         ContentLength: payload.buffer.length,
+        IfNoneMatch: '*',
       }),
     )
 
@@ -186,13 +193,17 @@ export class S3StorageDriver implements StorageDriver {
     this.assertPartitionScoped(partitionCode, storagePath)
     this.assertKeyAddressable(storagePath)
     try {
-      await this.assertEndpointSafe()
-      await this.client.send(
-        new DeleteObjectCommand({ Bucket: this.bucket, Key: storagePath }),
-      )
+      await this.deleteStrict(partitionCode, storagePath)
     } catch {
-      // best-effort removal
+      // Backward-compatible best-effort deletion.
     }
+  }
+
+  async deleteStrict(partitionCode: string, storagePath: string): Promise<void> {
+    this.assertPartitionScoped(partitionCode, storagePath)
+    this.assertKeyAddressable(storagePath)
+    await this.assertEndpointSafe()
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: storagePath }))
   }
 
   async toLocalPath(
@@ -229,6 +240,7 @@ export class S3StorageDriver implements StorageDriver {
         Body: buffer,
         ContentType: contentType,
         ContentLength: buffer.length,
+        IfNoneMatch: '*',
       }),
     )
   }
@@ -276,10 +288,30 @@ export class S3StorageDriver implements StorageDriver {
   async getSignedUrl(
     storagePath: string,
     operation: 'upload' | 'download',
+    expiresIn?: number,
+    contentType?: string,
+    contentLength?: number,
+    createOnly?: boolean,
+    scope?: S3TenantScope | null,
+  ): Promise<string>
+  async getSignedUrl(
+    storagePath: string,
+    operation: 'upload' | 'download',
+    expiresIn: number,
+    contentType: string | undefined,
+    scope?: S3TenantScope | null,
+  ): Promise<string>
+  async getSignedUrl(
+    storagePath: string,
+    operation: 'upload' | 'download',
     expiresIn = 3600,
     contentType?: string,
-    scope?: S3TenantScope | null,
+    contentLengthOrScope?: number | S3TenantScope | null,
+    createOnly = false,
+    explicitScope?: S3TenantScope | null,
   ): Promise<string> {
+    const contentLength = typeof contentLengthOrScope === 'number' ? contentLengthOrScope : undefined
+    const scope = typeof contentLengthOrScope === 'number' ? explicitScope : contentLengthOrScope
     if (operation === 'upload') {
       this.assertKeyScoped(storagePath, scope)
     } else {
@@ -291,6 +323,8 @@ export class S3StorageDriver implements StorageDriver {
         Bucket: this.bucket,
         Key: storagePath,
         ContentType: contentType,
+        ContentLength: contentLength,
+        ...(createOnly ? { IfNoneMatch: '*' } : {}),
       })
       return getSignedUrl(this.client, command, { expiresIn })
     }

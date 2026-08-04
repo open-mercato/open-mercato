@@ -8001,6 +8001,7 @@ __metadata:
     "@aws-sdk/client-s3": "npm:^3.1085.0"
     "@aws-sdk/s3-request-presigner": "npm:^3.1085.0"
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.28.1"
