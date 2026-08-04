@@ -2596,7 +2596,10 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reason
     runnerEnv.HOME = isolatedHome
     runnerEnv.CLAUDE_CONFIG_DIR = isolatedConfig
   }
-  const started = Date.now()
+  // Monotonic, not wall-clock: `Date.now()` steps backwards on an NTP correction, which
+  // produced a negative `durationMs` and failed the result schema's `minimum: 0` — an
+  // intermittent, environment-dependent failure with no relation to the case under test.
+  const started = performance.now()
   try {
     const dependencyRoots = fs.existsSync(path.join(canonicalRoot, 'node_modules'))
       ? [fs.realpathSync(path.join(canonicalRoot, 'node_modules'))]
@@ -2620,7 +2623,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reason
       maxBuffer: 8 * 1024 * 1024,
       env: contained.env,
     })
-    const durationMs = Date.now() - started
+    const durationMs = Math.max(0, Math.round(performance.now() - started))
     if (processResult.error?.code === 'ETIMEDOUT' || processResult.signal) {
       return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: `runner timed out or was terminated (${processResult.signal ?? 'timeout'})`, stdout: processResult.stdout ?? '' }
     }
