@@ -240,3 +240,60 @@ verified separately and matches the Phase 0 finding.
 3. Revisiting `core` is not hopeless, but it needs a different lever than a bigger timeout — the
    `coverageAnalysis: "perTest"` work deferred to Phase 4, or scoping mutation to changed *lines*
    rather than changed *files*. Neither is in scope for this change.
+
+---
+
+# Phase 4 — optimisation assessed and declined (2026-08-04)
+
+Phase 4 is conditional in the spec: *"Only if Phase 1–3 timings demand it."* Both steps were
+attempted rather than assumed. Neither ships.
+
+## The timing budget that decides it
+
+Measured on the shipped scope (`packages/shared`, the only allowlisted package):
+
+| Segment | Time |
+|---------|------|
+| `yarn install --immutable` (warm Yarn cache) | ~16 s |
+| `yarn build:packages` | ~55 s |
+| Mutation run — `boolean.ts`, the pilot's worst fan-in case (615.92 tests/mutant) | 1 m 27 s |
+| **Total job** | **~3 min** |
+| Workflow budget (`timeout-minutes`) | **20 min** |
+
+The job uses about 15 % of its budget on the worst single-file case the pilot identified. There is
+no timing pressure for either optimisation to relieve.
+
+## Step 1 — `perTest` coverage is blocked, not merely unnecessary
+
+`--coverageAnalysis perTest` fails `packages/shared` in the initial test run. 19 of its suites carry
+`@jest-environment` docblocks (792 repo-wide), which is the blocker Q3 anticipated.
+
+Stryker ships the wrapped environments this needs (`@stryker-mutator/jest-runner/jest-env/node` and
+`.../jest-env/jsdom`), and those match the only two values the docblocks use here (`node`, `jsdom`).
+So the natural fix is to redirect the docblocks' resolution rather than edit them. **That was tried
+and does not work:** a Jest `moduleNameMapper` mapping `jest-environment-node` and
+`jest-environment-jsdom` onto the Stryker wrappers has no effect, because Jest resolves the
+`@jest-environment` docblock outside the `moduleNameMapper` path.
+
+What remains is editing 19 test files (Q3 forbids it) or replacing the repo-wide Jest `resolver` in
+`jest.config.base.cjs` — which would place every suite in the repository behind a change made for a
+mutation-testing optimisation that the timings do not need.
+
+## Step 2 — `incremental` caching is declined on risk, not just need
+
+`incremental: true` reuses Stryker's previous report to skip re-testing unchanged mutants. Two
+reasons not to ship it here:
+
+- **No time to win.** The mutation step is 1 m 27 s of a ~3 min job. Even a perfect cache hit leaves
+  the install and build, and the job still ends far inside its 20-minute budget.
+- **A stale incremental file reports mutants as killed that current tests do not kill.** That is a
+  false green in the one check whose entire value is trustworthy signal. Trading correctness risk
+  for time nobody needs is a bad exchange, and the cache-key discipline needed to avoid it is real
+  ongoing maintenance.
+
+## When to revisit
+
+When a package with materially larger suites joins the allowlist — which today means solving the
+`packages/core` problem measured in Phase 0b — or when the Phase 1–2 advisory runs show real PRs
+approaching the 20-minute timeout. At that point `perTest` via a Jest `resolver` change is the
+higher-leverage of the two and becomes worth its blast radius.
