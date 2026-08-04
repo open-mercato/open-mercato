@@ -70,6 +70,9 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 22 | **Wave 3 E1** — optimistic locking on the Todo surface + shared form leaf + workspace scan reaches `apps/` | CANON-B optimistic locking | done | `cb5546797` |
 | 23 | **Wave 3 H1** — GOV-P1 knowledge-change schema, classifier, nine workflow steps | GOV-P1 | done | `8b887f7f7` |
 | 24 | **Wave 3 C1b** — injection-table slot normalization + two dead bindings removed + budget cap raised | CANON-B / 4883 readers | done | `0fe58373b` |
+| 25 | **Wave 4 C3** — local-reference fact emission (`portableSourceRoot`, `sourceKind: "local-reference"`, reference bundle) | CANON-C local facts | done | (merge) |
+| 26 | **Wave 4 H2** — SPEC-P2 oracle plumbing (`specRouting`, `expectedSpecRouting`, `routing.spec-decision`) | SPEC-P2 (plumbing) | done | (merge) |
+| 27 | **Wave 4 E2** — translations / extension-points / notifications.client + the false-binding-claim fix | CANON-B gaps | done | `1bc2ce509` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -406,3 +409,45 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
   **Housekeeping:** `packages/shared/.tmp-dynamic-loader-*` dirs are leaked by
   `dynamicLoader.tsconfig.test.ts` and are NOT gitignored — sweep them before staging, or they get
   swept into a commit.
+
+  **Wave 4 merged (session 4).** C3 clean; E2 and H2 came back `needs-work`.
+
+  - **E2 shipped a FALSE CLAIM in a reference doc — the exact failure this program exists to
+    eliminate.** The inventory and the file's own docstring said "Both hosts are bound to a live
+    call site in this module." Run against the framework's own reader, the example emitted
+    `unresolved: [example.todoForm, example.todosTable]` with reason `unbound-declaration`, while
+    catalog/sales/auth emit zero. `hasDeclarationBinding` only counts a host as bound when the
+    declared source REFERENCES `extensionPoints.hosts.<key>`; core modules import the declaration,
+    the example duplicated the literal. Its own test **cemented** the defect by regex-matching that
+    literal, so adopting house convention would have broken the test. Fixed on merge: both call
+    sites now consume the declaration (`unresolved: []`), both tests pin the consumption pattern
+    AND the extractor's own verdict, and all three doc claims were rewritten. Reverting a call site
+    to a literal now fails 2 tests. A second test (`translations.test.ts`) matched the same literal
+    and broke when it vanished — also repointed at the declaration.
+  - **C3 is the unblocker and verified the strong way:** the verifier built the real facts corpus
+    BOTH ways in one worktree, holding the 55-module corpus and the 1.05MB runtime registry constant
+    and swapping only the two generator sources, and confirmed `module-facts.json` byte-identical by
+    sha256. BC note: `ExtractAllModuleFactsResult` gained a REQUIRED `unresolvedFirstPartyTargets`
+    — a return type, so readers are fine, but constructors/mocks break.
+  - **H2 verified inertness three ways** (406 prompts across 203 cases x read-only/writable,
+    compared base vs slice). Two notes for the wave that adds the six real cases: a read-only
+    spec-routing case fingerprints a REAL `node_modules` twice per case (writable cases dodge it via
+    a symlink short-circuit), and `.ai/harness/results` is fingerprinted on mtime/ctime so a
+    mid-case touch there surfaces as a spurious read-only violation.
+  - **Trap worth remembering:** 7 create-app tests failed after merging C3/H2 and reproduced with my
+    own changes stashed — they were STALE BUILD ARTIFACTS, green after `yarn build:packages`. Always
+    rebuild before diagnosing a create-app failure that mentions `build emits ...` or `published CLI bin`.
+
+  **New follow-up:** the example's notification renderer is declared inline in
+  `notifications.client.ts` rather than in `widgets/notifications/<Name>.tsx` as
+  `packages/core/AGENTS.md` prescribes (the path was outside E2's allowlist). Docs tell readers to
+  copy the structure, not the location. One-file move plus import.
+
+  **Gate after wave 4 (local):** template:sync, build:packages, generate, i18n:check-sync, typecheck,
+  build:app, repo-wide-guards (24), agents:check-budget all green. create-mercato-app 527 (524 pass,
+  3 skipped) · app example 94/94. `yarn test` carries only the pre-existing
+  `storage-s3-routes.test.ts` failure (5 tests).
+
+  **Next session starts at wave 5** (E3 registry static-readability — note maintainer decision D2
+  requires a BC waiver + UPGRADE_NOTES.md entry for retiring
+  `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED`; H3 the six SPEC-P2 routing cases OMH-204..209).
