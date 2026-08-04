@@ -258,10 +258,10 @@ Nothing persists between runs; nothing else depends on it.
 | Phase | Deliverable | Exit criterion |
 |-------|-------------|----------------|
 | **0** ✅ | Feasibility pilot on `packages/shared` | Done — `.ai/analysis/2026-07-31-stryker-mutation-testing-pilot.md` |
-| **0b** | Same measurement on `packages/core` | A run on 3 representative `core` business-logic files completes under 10 min, or `core` stays out of scope |
-| **1** | Config factory, scope script, advisory workflow, `shared` allowlisted | Green advisory runs on real PRs for 2–3 weeks; scores collected |
-| **2** | Survivor reporting (job summary + artifact; optional fork-guarded PR comment) | A developer can act on a survivor without opening the artifact |
-| **3** | Enforcement: `thresholds.break`, minimum-mutant floor, `MUTATION_ENFORCE=true` | Core-team sign-off on the threshold, chosen from Phase 1–2 data |
+| **0b** ✅ | Same measurement on `packages/core` | Done — `core` **excluded**: only a 75-LOC leaf completed (1 m 45 s); `commands/roles.ts` exceeded 10 min and `data/validators.ts` projected ~6 h 42 m |
+| **1** ✅ | Config factory, scope script, advisory workflow, `shared` allowlisted | Shipped. Still needs green advisory runs on real PRs for 2–3 weeks before Phase 3 is considered |
+| **2** ✅ | Survivor reporting (job summary + artifact; optional fork-guarded PR comment) | Shipped, including the fork-guarded comment |
+| **3** ⏸ | Enforcement: `thresholds.break`, minimum-mutant floor, `MUTATION_ENFORCE=true` | **Implemented but dormant** — `MUTATION_ENFORCE` defaults to `false`. Core-team sign-off on the threshold is still outstanding |
 | **4** | Optional: `incremental` + cache, `mixinJestEnvironment` for `perTest` coverage, nightly trend run | Only if Phase 1–3 timings demand it |
 
 ## 📋 Implementation Plan
@@ -306,6 +306,26 @@ Nothing persists between runs; nothing else depends on it.
    **Test:** the step is skipped on a fork PR and posts exactly one idempotent comment otherwise.
 
 ### Phase 3 — enforcement (2 steps, gated on core-team approval)
+
+> **Status (2026-08-04): implemented but DORMANT — awaiting an explicit core-team decision.**
+>
+> The full machinery ships in the implementation PR: the `MUTATION_MIN_MUTANTS` floor, the 70 %
+> threshold, and the `MUTATION_ENFORCE` flag, all unit-tested. **`MUTATION_ENFORCE` defaults to
+> `false`**, the workflow keeps `continue-on-error`, and the check is neither registered nor
+> documented as a required merge-blocking check.
+>
+> This is deliberate, not an omission. Q1 above leaves enforcement to a recorded core-team
+> decision, and `AGENTS.md` classifies changes to the PR pipeline as **Ask First**. Approving the
+> tooling therefore does not approve enforcement.
+>
+> **To enable it, after that decision:** set the `MUTATION_ENFORCE` repository variable to `'true'`.
+> That is the whole change — no code edit, no workflow edit. Reverting is setting it back.
+>
+> One design note. Step 2 below says "set `thresholds.break`". It is implemented in
+> `scripts/stryker/enforce.mjs` rather than in Stryker's own `thresholds.break`, which stays `null`.
+> Stryker's built-in break has no notion of the minimum-mutant floor, so it would fail a four-mutant
+> diff on a single survivor — precisely what step 1's floor exists to prevent. The threshold and the
+> floor have to be evaluated together, which means one decision function owns both.
 
 1. Add the minimum-mutant floor to the runner: below `MUTATION_MIN_MUTANTS` (default 20) the score
    is reported but never fails. **Test:** unit test — 4 mutants with 1 survivor does not fail;

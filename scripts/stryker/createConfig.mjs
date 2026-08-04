@@ -92,6 +92,10 @@ export function createStrykerConfig(options = {}) {
     thresholds: {
       high: 85,
       low: 70,
+      // Deliberately null. The pass/fail decision belongs to scripts/stryker/enforce.mjs,
+      // which applies the minimum-mutant floor first — Stryker's own `break` would fail
+      // a four-mutant diff on a single survivor, which is exactly what the floor exists
+      // to prevent. Setting this is not how enforcement gets enabled; MUTATION_ENFORCE is.
       break: null,
     },
     reporters: ['clear-text', 'progress', 'json', 'html'],

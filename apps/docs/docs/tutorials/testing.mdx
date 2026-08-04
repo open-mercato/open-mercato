@@ -135,6 +135,14 @@ The gate is **diff-scoped and advisory**. Only the business-logic files your pul
 are mutated, only in allowlisted packages, and a low score never blocks a merge — it produces a
 shortlist of behaviour worth a second look.
 
+Enforcement exists in the code but is **switched off**, and turning it on is a core-team decision
+that has not been taken. Until it is, the mutation check is not part of the merge gate and is not a
+required check: read it, act on what it finds, and merge on the strength of the normal CI gate.
+
+Only `packages/shared` is currently in scope. `packages/core` was measured and excluded — its
+command and validator layers sit under suites large enough that a single file's run was projected at
+several hours.
+
 Run it locally against your own changes:
 
 ```bash
