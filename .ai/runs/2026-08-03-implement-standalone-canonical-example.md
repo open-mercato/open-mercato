@@ -451,3 +451,11 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
   **Next session starts at wave 5** (E3 registry static-readability — note maintainer decision D2
   requires a BC waiver + UPGRADE_NOTES.md entry for retiring
   `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED`; H3 the six SPEC-P2 routing cases OMH-204..209).
+
+  **Concurrent push by another actor (session 4).** While wave 4 was merging, someone pushed
+  `c2264fe51 Merge remote-tracking branch 'origin/develop' into review/pr-4897`, bringing 13 develop
+  commits onto the PR branch. My push was correctly rejected; merged rather than force-pushed, so
+  their work is intact. **Consequence worth celebrating: `ab1620a63` (#4926/#4931, mock i18n in the
+  app-level storage_s3 route suite) FIXES the `storage-s3-routes.test.ts` failure this program has
+  carried as pre-existing since session 1. `yarn test` now exits 0 — the gate is fully green for the
+  first time.** Do not keep quoting that failure as a known-bad in future PR bodies.
