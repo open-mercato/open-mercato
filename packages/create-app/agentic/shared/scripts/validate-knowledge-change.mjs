@@ -501,8 +501,17 @@ function addWorktree(root, sha, directory) {
   git(root, ['worktree', 'add', '--detach', '--quiet', directory, sha])
 }
 
+// Returns true when the clean removal failed and left an administrative entry behind. The caller
+// prunes only then: an unconditional prune would also drop sibling worktrees of the same repository
+// whose directories happen to be unavailable, which is not this controller's to decide.
 function removeWorktree(root, directory) {
-  try { git(root, ['worktree', 'remove', '--force', directory]) } catch { fs.rmSync(directory, { recursive: true, force: true }) }
+  try {
+    git(root, ['worktree', 'remove', '--force', directory])
+    return false
+  } catch {
+    fs.rmSync(directory, { recursive: true, force: true })
+    return true
+  }
 }
 
 /**
@@ -522,6 +531,7 @@ export function runFocusedExecutions(input) {
   if (!testFiles.length) return { executions, errors }
 
   const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'om-knowledge-exec-'))
+  let removalFellBack = false
   try {
     for (const [index, testFile] of testFiles.entries()) {
       const headAbsolute = path.join(root, testFile)
@@ -560,8 +570,8 @@ export function runFocusedExecutions(input) {
         errors.push(`focusedExecutions ${testFile} could not be executed in an isolated worktree: ${error.message}`)
         continue
       } finally {
-        removeWorktree(root, baseWorktree)
-        removeWorktree(root, headWorktree)
+        removalFellBack = removeWorktree(root, baseWorktree) || removalFellBack
+        removalFellBack = removeWorktree(root, headWorktree) || removalFellBack
       }
 
       if (baseOutcome.failed || headOutcome.failed) {
@@ -578,7 +588,7 @@ export function runFocusedExecutions(input) {
     }
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true })
-    try { git(root, ['worktree', 'prune']) } catch { /* pruning is best effort */ }
+    if (removalFellBack) { try { git(root, ['worktree', 'prune']) } catch { /* pruning is best effort */ } }
   }
   return { executions, errors }
 }
