@@ -67,3 +67,14 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
   assert.ok(sourceCopyIndex > installIndex, 'expected full source copy after immutable install')
   assert.doesNotMatch(dockerfile, /^RUN yarn install$/m)
 })
+
+test('production Docker stage includes the telemetry workspace before focusing dependencies', async () => {
+  const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+  const telemetryManifestIndex = dockerfile.indexOf(
+    'COPY --from=builder /app/packages/telemetry/package.json ./packages/telemetry/',
+  )
+  const productionFocusIndex = dockerfile.indexOf('RUN yarn workspaces focus @open-mercato/app --production')
+
+  assert.ok(telemetryManifestIndex >= 0, 'expected telemetry workspace manifest in the production stage')
+  assert.ok(productionFocusIndex > telemetryManifestIndex, 'expected telemetry manifest before production focus')
+})
