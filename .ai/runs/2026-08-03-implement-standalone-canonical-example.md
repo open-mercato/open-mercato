@@ -83,6 +83,9 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 35 | **Wave 7 E5** — tenant-scoped cache + first real DI registration + all three setup hooks | CANON-B cache/DI/seeding | done | `0d130e01d` |
 | 36 | **Wave 7 H5** — OMH-209..212 declare `exampleRoots`; the read policy is reachable at last | READ-P1/P2 reachability | done | `75d02a6ff` |
 | 37 | **Wave 7 C4** — source-link baseline + topics registry + validator (D4) | CANON-C baseline | done | `904d9cf4d` |
+| 38 | **Wave 8 H6** — SPEC-P2 writable proofs OMH-213/214 + the oracle-runner guard generalized | SPEC-P2 | done | `8d3a199ca` |
+| 39 | **Wave 8 E6** — ai-tools/ai-agents/page-middleware/portal-broadcast + 2 vacuous tests fixed | CANON-B fact families | done | `fef7fc4b1` |
+| 40 | Resolve a DI token declared as a computed property key (silent-zero fix) | CANON-B / reader | done | `00cba7f17` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -711,3 +714,51 @@ before merging E3; findings change what E3 is allowed to do.
     `undefined` to itself).
 
   Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_22176c0b-7a4'})`.
+
+  **Wave 8 merged (session 4).** Both slices came back `needs-work` with real findings, and E6
+  surfaced a defect **wave 7 introduced and I merged**.
+
+  - **MY RUN-DOC PREMISE WAS WRONG (third time this program).** I recorded that H6 would unblock
+    H3's `reuse-spec` row 6. It does NOT. The implementer reproduced the blocker and the verifier
+    re-confirmed it in source: the evaluator forbids `expectedSpecRouting` on a writable case,
+    requires `coveringSpecPath` to appear in the case's own context, and requires every declared
+    context path to EXIST in the fresh-scaffold root the deterministic lane validates. OMH-214's
+    covering spec lives only in a fixture-prepared disposable copy, and read-only cases may not
+    declare fixtures. **Row 6 remains blocked; it was not faked.** Unblocking it needs either a real
+    example spec shipped in every scaffold (product decision) or an evaluator change.
+  - **The oracle-runner fork was resolved honestly**: the guard was generalized to bind each oracle
+    to its declared runner and TIGHTENED in both directions, not relaxed. Verifier confirmed.
+  - **H6's 3 allowlist deviations were each PROVEN justified** — the verifier reverted each single
+    number individually and watched an allowlisted guard go red. It also enumerated **20** count pins
+    where the brief said 14, and found one stale: `AGENT-HARNESS.md:23` still said "46 such cases",
+    and the spec changelog wrongly claimed that file had been resynchronized. Both fixed on merge.
+    **That file is not covered by the count guard and rots silently — check it by hand every time.**
+  - **E6: two VACUOUS tests fixed on merge.** (1) "never accepts tenant or organization as tool
+    input" fed only scope keys to `safeParse`; for the one tool with a required field the parse
+    fails, the fallback empties the object, and all four assertions became
+    `expect(undefined).toBeUndefined()` — leaving the pack's headline safety property unpinned for
+    the only tool it could matter for. Now asserts the DECLARED schema shape plus a smuggled-key
+    case. (2) "stays silent when the write is unscoped" asserted only that the handler resolves; it
+    always returns void and swallows emit failures, so it held whether or not it broadcast — a probe
+    showed it publishing with empty tenant/org onto the global bus with all 14 tests green. Now
+    installs a fake bus and asserts emit was NOT called.
+  - **E6 also corrected a false doc claim in 3 places**: the agent's `systemPrompt` is NOT
+    "compiled from named PromptTemplate sections … so the override system can address a section by
+    name". `AiAgentDefinition.systemPrompt` is a plain string and the override path wraps it as a
+    single `role` section.
+  - **`di-registration` was a SILENT ZERO introduced in wave 7** (`00cba7f17`). `getPropertyName`
+    returned undefined for a computed key, so `{ [SERVICE_TOKEN]: asFunction(...) }` produced no fact
+    AND no diagnostic — the unresolved-token path only fires for a NAMED token. The example claimed
+    `module.di-registration` while scoring zero. Fixed in the READER, not the example: a computed key
+    is the better pattern. Repo-wide, 34 package modules now emit 143 di-registration facts.
+  - **Still open — a SECOND silent-zero family:** `search` reports 0 facts although the module ships
+    `search.ts` and the inventory claims `search.module-config`. Same class of root cause. **New
+    backlog row.** Also still 0: `generator-plugin` (needs a convention file + consumer, outside E6's
+    allowlist), `worker`, `vector`.
+
+  **Gate after wave 8: FULLY GREEN.** `yarn test` exit 0 (25/25 tasks), create-mercato-app 577 pass,
+  cli 1522, guards, budget, build:app.
+
+  **Next: wave 9** — E7 (the DataTable bulk action + durable outbox + scheduler + CAS-leased worker
+  + progress slice, the largest single runtime slice) · H7 (GOV-P2 controller-owned evidence
+  contract). Decision D3 already binds E7 to a data-only `widget.ts`, not `widget.client.tsx`.
