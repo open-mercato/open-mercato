@@ -309,6 +309,45 @@ describe('aggregations', () => {
       expect(emptyNotIn?.params).toEqual(['tenant-123'])
     })
 
+    /**
+     * The request schema refuses these shapes at the API boundary; these cases pin the builder's
+     * own behaviour for in-process callers, whose filter values are typed as `unknown`. Rendering
+     * them would produce `IN (NULL)` — no rows, no error — which on a dashboard is a silent zero.
+     */
+    it('refuses a null set filter value instead of rendering IN (NULL)', () => {
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'in', value: null }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+    })
+
+    it('refuses a null member inside a set filter, the classic NOT IN trap', () => {
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'in', value: [null] }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'not_in', value: ['cancelled', null, 'refunded'] }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+    })
+
+    it('keeps falsy members that are not null', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: ['', 0, false] }],
+      })
+      expect(result?.sql).toContain('status IN (?, ?, ?)')
+      expect(result?.params).toEqual(['tenant-123', '', 0, false])
+    })
+
     it('applies set filters to the encrypted group-source row query as well', () => {
       const result = buildGroupSourceRowsQuery({
         ...baseOptions,

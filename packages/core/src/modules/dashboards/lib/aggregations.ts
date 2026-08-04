@@ -154,10 +154,23 @@ export function resolveGroupExpression(
  *
  * A missing value yields an empty set rather than a dropped filter, so an `in` filter the caller
  * failed to populate selects nothing instead of silently widening the result.
+ *
+ * A null or undefined *member* is refused instead of rendered. `column IN (NULL)` matches no row
+ * and `column NOT IN ('a', NULL)` is NULL for every row, so such a member would return an empty
+ * aggregation with no error — a silent zero on a reporting surface, which is worse than a loud
+ * failure. Requests are already rejected at the API boundary by `setFilterMemberSchema` in
+ * `api/widgets/data/schema.ts`; this throw keeps in-process callers, whose filter values are
+ * typed as `unknown`, from reaching the same silent path. Nullness is queried with the dedicated
+ * `is_null` / `is_not_null` operators.
  */
 function normalizeSetFilterValues(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value
-  return value === undefined ? [] : [value]
+  const values = Array.isArray(value) ? value : value === undefined ? [] : [value]
+  if (values.some((member) => member === null || member === undefined)) {
+    throw new Error(
+      '[internal] Set filter members must not be null or undefined — use the is_null / is_not_null operators to filter on nullness',
+    )
+  }
+  return values
 }
 
 function buildWhereClause(

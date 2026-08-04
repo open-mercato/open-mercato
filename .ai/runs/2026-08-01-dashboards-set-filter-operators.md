@@ -70,6 +70,21 @@ never expressed, and silently folding `null` into the empty set (option 2) keeps
 The guard is operator-scoped: `is_null` / `is_not_null` build their predicate from the operator alone
 and never read the value, so callers passing an explicit `null` there keep working.
 
+### Second line of defense in the SQL builder
+
+Rejecting at the schema closes the HTTP path, but `buildAggregationQuery` is also reachable in-process
+and its `filters[].value` is typed `unknown`, so nothing stops a future caller from handing the builder
+the very shape the boundary now refuses. `normalizeSetFilterValues` therefore throws on a null or
+undefined member instead of rendering it. A throw is the right failure here precisely because it is
+loud: the alternative — folding the member into the empty set — reproduces the silent zero this finding
+is about, and the builder has no way to answer with a 400. The `[internal]` prefix marks the message as
+never user-facing, per the i18n convention.
+
+Route-level coverage records that the boundary rejection is what a caller actually observes: the
+widget-data route answers `400` with the issue list and the widget-data service is never invoked.
+`TC-DASH-010` asserts the same thing against a live server, so the documented behaviour is proven at
+the layer a dashboard client sees rather than only in the validator.
+
 ## Progress
 
 - [x] Reproduce the defect at the driver layer (`PostgreSqlPlatform.formatQuery`) and against a live
@@ -85,6 +100,11 @@ and never read the value, so callers passing an explicit `null` there keep worki
 - [x] Review round 1 (@MStaniaszek1998): reject `null` and null-containing arrays for `in` / `not_in`
       at `widgetDataRequestSchema`, with unit coverage for `value: null`, `value: [null]`, a null
       member mixed with valid ones, and the `is_null` / `is_not_null` carve-out.
+- [x] Review round 1, hardening: `normalizeSetFilterValues` throws on a null/undefined member so
+      in-process callers cannot reach the silent path either, plus a route case (400 with issues, the
+      widget-data service never invoked), a builder case proving falsy-but-not-null members
+      (`''`, `0`, `false`) still render, and a `TC-DASH-010` assertion that the null shape answers 400.
+- [ ] Re-review by @MStaniaszek1998.
 
 ## Verification notes
 

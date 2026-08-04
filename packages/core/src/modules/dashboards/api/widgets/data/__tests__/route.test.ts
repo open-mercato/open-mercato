@@ -51,7 +51,7 @@ import {
   WidgetDataValidationError,
 } from '../../../../services/widgetDataService'
 
-function buildRequest(): Request {
+function buildRequest(overrides: Record<string, unknown> = {}): Request {
   return new Request('http://localhost/api/dashboards/widgets/data', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -59,6 +59,7 @@ function buildRequest(): Request {
       entityType: 'sales:orders',
       metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
       groupBy: { field: 'shippingAddressSnapshot.region', limit: 5 },
+      ...overrides,
     }),
   })
 }
@@ -106,6 +107,18 @@ describe('widget data route error mapping', () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'Invalid groupBy field: nope' })
+  })
+
+  test('refuses a null set filter member at the boundary instead of aggregating zero rows', async () => {
+    const response = await POST(
+      buildRequest({ filters: [{ field: 'status', operator: 'in', value: null }] }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid request payload')
+    expect(Array.isArray(body.issues)).toBe(true)
+    expect(fetchWidgetData).not.toHaveBeenCalled()
   })
 
   test('masks unexpected failures as a 500', async () => {

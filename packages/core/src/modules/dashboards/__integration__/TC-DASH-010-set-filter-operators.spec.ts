@@ -110,6 +110,21 @@ test.describe('TC-DASH-010: in and not_in widget-data filter operators', () => {
           { field: 'id', operator: 'not_in', value: [] },
         ]),
       ).toBe(3)
+
+      // A null member never matches in SQL — `id IN (NULL)` is NULL for every row — so it would
+      // answer with an empty aggregation and no error. The request schema refuses it instead.
+      const nullMemberResponse = await apiRequest(request, 'POST', API.widgetData, {
+        token: adminToken,
+        data: {
+          entityType: 'sales:orders',
+          metric: { field: 'id', aggregate: 'count' },
+          filters: [{ field: 'id', operator: 'in', value: null }],
+        },
+      })
+      expect(
+        nullMemberResponse.status(),
+        'a null set filter member must be refused with 400, never answered with a silent zero',
+      ).toBe(400)
     } finally {
       for (const orderId of orderIds) {
         await deleteSalesEntityIfExists(request, adminToken, API.orders, orderId)
