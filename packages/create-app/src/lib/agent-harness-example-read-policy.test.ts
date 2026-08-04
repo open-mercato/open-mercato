@@ -1767,7 +1767,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 4,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json'],
+    blockedBy: ['context.sourceReferenceIds'],
     note: 'Declared installed-source references — reference id, package, version, hash — do not exist. The only installed-source route implemented is the reason-gated fallback of spec family 5.',
   },
   {
@@ -1794,7 +1794,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 5: symlink escapes, generated caches, and sensitive paths fail closed',
       'path normalization accepts Windows-style separators and rejects every escape spelling',
     ],
-    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json'],
+    blockedBy: ['context.sourceReferenceIds'],
     note: 'Fallback ordering, unknown reason, traversal, budget overflow, symlink escape, generated cache, and sensitive path are covered. The absent/dead/directory/wildcard/orphan DECLARED LINK half has no implementation to test.',
   },
   {
@@ -1820,7 +1820,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 7: a legacy root, a stale capability mapping, and a qa-only source fail evaluator validation',
       'family 7: an ordinary example surface is never a specialist-route fallback reason',
     ],
-    blockedBy: ['context.sourceReferenceIds', 'source-link-inventory.json'],
+    blockedBy: ['context.sourceReferenceIds'],
     note: 'Legacy root, stale mapping, qa-only status, and ordinary-surface fallback are covered. Wrong preset/tier, wrong installed version, unpublished path, and workspace-only target need packed-package resolution that does not exist.',
   },
   {
@@ -1863,7 +1863,13 @@ const COVERAGE_LEDGER: LedgerRow[] = [
 const MISSING_SURFACES: Record<string, () => boolean> = {
   'context.sourceReferenceIds': () => !fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8').includes('sourceReferenceIds')
     && !evaluatorSource().includes('sourceReferenceIds'),
-  'source-link-inventory.json': () => !fs.existsSync(path.join(sourceHarness, 'source-link-inventory.json')),
+  // Deliberately NOT `sourceHarness`: the CANON-C ledgers are monorepo-only and live outside
+  // the shipped `agentic/shared/**` tree, which is copied wholesale into every generated app.
+  // Probing the old harness path would report "still missing" forever and this anti-staleness
+  // gate would never fire — exactly the failure it exists to catch.
+  'source-link-inventory.json': () => !fs.existsSync(
+    fileURLToPath(new URL('../../scripts/source-links/source-link-inventory.json', import.meta.url)),
+  ),
   'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
     .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
