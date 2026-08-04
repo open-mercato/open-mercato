@@ -70,3 +70,18 @@
 - Environment hazard recorded: a detached measurement survived repeated `pkill` (the sandbox
   dropped the signals) and re-instrumented `packages/core` mid-run. Killing it required
   `dangerouslyDisableSandbox`; `pgrep` sees such processes when `ps` does not.
+
+## 2026-08-04T07:49:13Z — final gate complete, all 12 Steps done
+
+- Green: `build:packages` (x2), `generate` (no tracked changes), `i18n:check-sync`, `typecheck`,
+  `test:scripts` (463 passed / 0 failed), `build:app`.
+- `yarn i18n:check-usage` rc=1 — 21 missing keys, all in `packages/ui/src/backend/schedule/` and
+  `packages/core/.../design_system/gallery/`. This branch changes no `.tsx` and adds no translation
+  keys; verified by intersecting the branch diff with the reported files (empty). Pre-existing on
+  `develop`, not fixed here.
+- `yarn test` rc=1 — 23 of 24 workspace tasks pass; only `create-mercato-app#test` fails, and every
+  failure is `bwrap: setting up uid map: Permission denied` / `bwrap: loopback: Failed RTM_NEWADDR`.
+  That suite sandboxes a generated app's typecheck with bubblewrap, which cannot start inside this
+  restricted container. All content oracles in the same test report `passed: true`. Reproduced with
+  the sandbox disabled. This branch touches no file under `packages/create-app/`.
+- Neither failure is a regression from this change; both are recorded rather than worked around.
