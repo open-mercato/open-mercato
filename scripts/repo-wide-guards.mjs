@@ -179,6 +179,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules plus every packages/ acl.ts — module override keys anchored to declared ACL features (#4462)',
+      },
+      {
         path: 'src/components/__tests__/starter-chrome-ds.test.ts',
         scans: 'apps/mercato and packages/create-app/template components — DS status tokens in starter chrome',
       },
