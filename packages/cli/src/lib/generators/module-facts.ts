@@ -465,7 +465,36 @@ function getPropertyName(property: ts.ObjectLiteralElementLike): string | undefi
   if (!name) return undefined
   if (ts.isIdentifier(name)) return name.text
   if (ts.isStringLiteralLike(name)) return name.text
+  // A computed key whose expression is a string literal or a same-file `const NAME = 'token'`
+  // is still a statically known token. Without this, `{ [SERVICE_TOKEN]: asFunction(...) }` —
+  // the idiomatic, type-safe way to register a DI token from an exported const — yielded
+  // undefined and the registration vanished from module facts with NO diagnostic, because the
+  // unresolved-token path is only reached for a NAMED token whose Awilix kind is unrecognised.
+  if (ts.isComputedPropertyName(name)) return resolveComputedPropertyKey(name.expression)
   return undefined
+}
+
+/** Resolves a computed key to its literal token when the value is statically knowable. */
+function resolveComputedPropertyKey(expression: ts.Expression): string | undefined {
+  if (ts.isStringLiteralLike(expression)) return expression.text
+  // `X as const` / `X satisfies Y` wrappers.
+  if (ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) {
+    return resolveComputedPropertyKey(expression.expression)
+  }
+  if (ts.isParenthesizedExpression(expression)) return resolveComputedPropertyKey(expression.expression)
+  if (!ts.isIdentifier(expression)) return undefined
+  const sourceFile = expression.getSourceFile()
+  if (!sourceFile) return undefined
+  let resolved: string | undefined
+  const visit = (node: ts.Node): void => {
+    if (resolved) return
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === expression.text) {
+      if (node.initializer) resolved = resolveComputedPropertyKey(node.initializer)
+    }
+    node.forEachChild(visit)
+  }
+  sourceFile.forEachChild(visit)
+  return resolved
 }
 
 function getObjectPropertyInitializer(
